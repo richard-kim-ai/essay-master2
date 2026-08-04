@@ -13,6 +13,9 @@ import TeacherFeedback from "./pages/TeacherFeedback";
 import Certificate from "./pages/Certificate";
 import Workbook from "./pages/Workbook";
 import QuizPage from "./pages/QuizPage";
+import ParagraphReordering from "./pages/ParagraphReordering";
+import SummaryPractice from "./pages/SummaryPractice";
+import MistakeNotebook from "./pages/MistakeNotebook";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -27,6 +30,9 @@ function Router() {
       <Route path={"/certificate"} component={Certificate} />
       <Route path={"/workbook/:courseType/:level"} component={Workbook} />
       <Route path={"/quiz"} component={QuizPage} />
+      <Route path={"/paragraph-reordering"} component={ParagraphReordering} />
+      <Route path={"/summary-practice"} component={SummaryPractice} />
+      <Route path={"/mistake-notebook"} component={MistakeNotebook} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
