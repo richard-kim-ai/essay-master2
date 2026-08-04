@@ -8,6 +8,10 @@ import Home from "./pages/Home";
 import Curriculum from "./pages/Curriculum";
 import Dashboard from "./pages/Dashboard";
 import AIAutoFeedback from "./pages/AIAutoFeedback";
+import EssaySubmission from "./pages/EssaySubmission";
+import TeacherFeedback from "./pages/TeacherFeedback";
+import Certificate from "./pages/Certificate";
+import Workbook from "./pages/Workbook";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -17,6 +21,10 @@ function Router() {
       <Route path={"/curriculum"} component={Curriculum} />
       <Route path={"/dashboard"} component={Dashboard} />
       <Route path={"/ai-auto-feedback"} component={AIAutoFeedback} />
+      <Route path={"/essay-submission"} component={EssaySubmission} />
+      <Route path={"/teacher-feedback/:essayId"} component={TeacherFeedback} />
+      <Route path={"/certificate"} component={Certificate} />
+      <Route path={"/workbook/:courseType/:level"} component={Workbook} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
