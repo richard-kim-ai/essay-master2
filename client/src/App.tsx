@@ -12,6 +12,7 @@ import EssaySubmission from "./pages/EssaySubmission";
 import TeacherFeedback from "./pages/TeacherFeedback";
 import Certificate from "./pages/Certificate";
 import Workbook from "./pages/Workbook";
+import QuizPage from "./pages/QuizPage";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -25,6 +26,7 @@ function Router() {
       <Route path={"/teacher-feedback/:essayId"} component={TeacherFeedback} />
       <Route path={"/certificate"} component={Certificate} />
       <Route path={"/workbook/:courseType/:level"} component={Workbook} />
+      <Route path={"/quiz"} component={QuizPage} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
