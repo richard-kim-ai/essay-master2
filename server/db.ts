@@ -1,7 +1,18 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import {
+  InsertUser,
+  users,
+  curriculum,
+  progress,
+  quizAnswer,
+  certificate,
+  essaySubmission,
+  teacherFeedback,
+  feedbackComment,
+  aiAutoFeedback,
+} from "../drizzle/schema";
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -56,8 +67,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values.role = user.role;
       updateSet.role = user.role;
     } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
+      values.role = "admin";
+      updateSet.role = "admin";
     }
 
     if (!values.lastSignedIn) {
@@ -84,9 +95,341 @@ export async function getUserByOpenId(openId: string) {
     return undefined;
   }
 
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
 
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ========== Curriculum Functions ==========
+
+export async function getCurriculumByType(courseType: "elementary" | "middle_high") {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(curriculum)
+    .where(eq(curriculum.courseType, courseType));
+}
+
+export async function getCurriculumById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(curriculum)
+    .where(eq(curriculum.id, id))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function insertCurriculum(data: {
+  courseType: "elementary" | "middle_high";
+  level: number;
+  title: string;
+  description?: string;
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db.insert(curriculum).values(data);
+  return result;
+}
+
+// ========== Progress Functions ==========
+
+export async function getProgressByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(progress)
+    .where(eq(progress.userId, userId));
+}
+
+export async function getProgressByUserAndCurriculum(userId: number, curriculumId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(progress)
+    .where(and(eq(progress.userId, userId), eq(progress.curriculumId, curriculumId)))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function upsertProgress(data: {
+  userId: number;
+  curriculumId: number;
+  score: number;
+  completed: number;
+  completedAt?: Date;
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const existing = await getProgressByUserAndCurriculum(data.userId, data.curriculumId);
+
+  if (existing) {
+    return await db
+      .update(progress)
+      .set({
+        score: data.score,
+        completed: data.completed,
+        completedAt: data.completedAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(progress.id, existing.id));
+  } else {
+    return await db.insert(progress).values(data);
+  }
+}
+
+// ========== Quiz Answer Functions ==========
+
+export async function saveQuizAnswer(data: {
+  userId: number;
+  quizId: number;
+  userAnswer: string;
+  isCorrect: number;
+  feedback?: string;
+  economyScore?: string;
+  clarityScore?: string;
+  accuracyScore?: string;
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  return await db.insert(quizAnswer).values(data);
+}
+
+export async function getQuizAnswersByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(quizAnswer)
+    .where(eq(quizAnswer.userId, userId));
+}
+
+// ========== Certificate Functions ==========
+
+export async function getCertificatesByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(certificate)
+    .where(eq(certificate.userId, userId));
+}
+
+export async function getCertificateByShareToken(shareToken: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(certificate)
+    .where(eq(certificate.shareToken, shareToken))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function issueCertificate(data: {
+  userId: number;
+  courseType: "elementary" | "middle_high";
+  level?: number;
+  certificateType: "level_certificate" | "graduation_certificate";
+  shareToken: string;
+  pdfUrl?: string;
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  return await db.insert(certificate).values(data);
+}
+
+// ========== Essay Submission Functions ==========
+
+export async function getEssaySubmissionsByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(essaySubmission)
+    .where(eq(essaySubmission.userId, userId));
+}
+
+export async function getEssaySubmissionById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(essaySubmission)
+    .where(eq(essaySubmission.id, id))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createEssaySubmission(data: {
+  userId: number;
+  curriculumId?: number;
+  title: string;
+  content: string;
+  status?: "draft" | "submitted" | "reviewed";
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  return await db.insert(essaySubmission).values({
+    ...data,
+    status: data.status || "draft",
+  });
+}
+
+export async function updateEssaySubmission(
+  id: number,
+  data: {
+    title?: string;
+    content?: string;
+    status?: "draft" | "submitted" | "reviewed";
+    submittedAt?: Date;
+  }
+) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  return await db
+    .update(essaySubmission)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(eq(essaySubmission.id, id));
+}
+
+// ========== Teacher Feedback Functions ==========
+
+export async function getTeacherFeedbackByEssay(essayId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(teacherFeedback)
+    .where(eq(teacherFeedback.essayId, essayId))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createTeacherFeedback(data: {
+  essayId: number;
+  teacherId: number;
+  overallComment?: string;
+  overallScore?: number;
+  structureScore?: number;
+  logicScore?: number;
+  expressionScore?: number;
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  return await db.insert(teacherFeedback).values(data);
+}
+
+export async function updateTeacherFeedback(
+  id: number,
+  data: {
+    overallComment?: string;
+    overallScore?: number;
+    structureScore?: number;
+    logicScore?: number;
+    expressionScore?: number;
+  }
+) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  return await db
+    .update(teacherFeedback)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(eq(teacherFeedback.id, id));
+}
+
+// ========== Feedback Comment Functions ==========
+
+export async function getFeedbackCommentsByFeedback(feedbackId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(feedbackComment)
+    .where(eq(feedbackComment.feedbackId, feedbackId));
+}
+
+export async function createFeedbackComment(data: {
+  feedbackId: number;
+  lineNumber: number;
+  startIndex: number;
+  endIndex: number;
+  comment: string;
+  commentType: "grammar" | "logic" | "expression" | "structure" | "other";
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  return await db.insert(feedbackComment).values(data);
+}
+
+// ========== AI Auto Feedback Functions ==========
+
+export async function getAIAutoFeedbackByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(aiAutoFeedback)
+    .where(eq(aiAutoFeedback.userId, userId));
+}
+
+export async function createAIAutoFeedback(data: {
+  userId: number;
+  essayTitle: string;
+  essayContent: string;
+  courseType: "elementary" | "middle_high";
+  level: number;
+  overallComment?: string;
+  structureScore?: number;
+  logicScore?: number;
+  expressionScore?: number;
+  overallScore?: number;
+  suggestions?: string; // JSON array
+  strengths?: string; // JSON array
+  weaknesses?: string; // JSON array
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  return await db.insert(aiAutoFeedback).values(data);
+}

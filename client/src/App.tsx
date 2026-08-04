@@ -5,12 +5,18 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Curriculum from "./pages/Curriculum";
+import Dashboard from "./pages/Dashboard";
+import AIAutoFeedback from "./pages/AIAutoFeedback";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/curriculum"} component={Curriculum} />
+      <Route path={"/dashboard"} component={Dashboard} />
+      <Route path={"/ai-auto-feedback"} component={AIAutoFeedback} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
