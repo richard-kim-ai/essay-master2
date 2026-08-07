@@ -16,6 +16,8 @@ import QuizPage from "./pages/QuizPage";
 import ParagraphReordering from "./pages/ParagraphReordering";
 import SummaryPractice from "./pages/SummaryPractice";
 import MistakeNotebook from "./pages/MistakeNotebook";
+import TopicWizard from "./pages/TopicWizard";
+import ThesisChecklist from "./pages/ThesisChecklist";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -33,6 +35,8 @@ function Router() {
       <Route path={"/paragraph-reordering"} component={ParagraphReordering} />
       <Route path={"/summary-practice"} component={SummaryPractice} />
       <Route path={"/mistake-notebook"} component={MistakeNotebook} />
+      <Route path={"/topic-wizard"} component={TopicWizard} />
+      <Route path={"/thesis-checklist"} component={ThesisChecklist} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
