@@ -22,74 +22,89 @@ import {
   ArrowRight,
   LogOut,
   User,
+  ChevronDown,
 } from "lucide-react";
 
 interface NavItem {
   label: string;
   href: string;
   icon?: React.ComponentType<{ className?: string }>;
-  submenu?: boolean;
+  submenu?: NavItem[];
 }
 
 const NAV_ITEMS: NavItem[] = [
   { label: "커리큘럼", href: "/curriculum", icon: BookOpen },
   { label: "대시보드", href: "/dashboard", icon: BarChart3 },
-  { label: "학습 도구", href: "#", submenu: true },
+  {
+    label: "학습 도구",
+    href: "#",
+    icon: Zap,
+    submenu: [
+      { label: "AI 문장 교정", href: "/quiz", icon: Zap },
+      { label: "단락 재구성", href: "/paragraph-reordering", icon: FileText },
+      { label: "요약 연습", href: "/summary-practice", icon: BookOpen },
+      { label: "오답 노트", href: "/mistake-notebook", icon: BarChart3 },
+      { label: "주제 설정 위저드", href: "/topic-wizard", icon: BookOpen },
+      { label: "주제문 체크리스트", href: "/thesis-checklist", icon: FileText },
+    ],
+  },
   { label: "수료증", href: "/certificate", icon: Award },
-];
-
-const LEARNING_TOOLS: NavItem[] = [
-  { label: "AI 문장 교정", href: "/quiz", icon: Zap },
-  { label: "단락 재구성", href: "/paragraph-reordering", icon: FileText },
-  { label: "요약 연습", href: "/summary-practice", icon: BookOpen },
-  { label: "오답 노트", href: "/mistake-notebook", icon: BarChart3 },
 ];
 
 export default function Navigation() {
   const { user, isAuthenticated, logout } = useAuth();
   const [location] = useLocation();
-  const [isOpen, setIsOpen] = useState(false);
+  const [openMobileSubmenu, setOpenMobileSubmenu] = useState<string | null>(null);
 
-  const isActive = (href: string) => location === href;
+  const handleMobileSubmenuToggle = (label: string) => {
+    setOpenMobileSubmenu(openMobileSubmenu === label ? null : label);
+  };
 
   return (
-    <nav className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link href="/">
-            <span className="flex items-center gap-2 font-bold text-xl text-blue-600 hover:text-blue-700 transition-colors cursor-pointer">
-              <BookOpen className="w-6 h-6" />
-              <span className="hidden sm:inline">논술 마스터</span>
-            </span>
+            <div className="flex items-center gap-2 cursor-pointer">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-800 rounded-lg flex items-center justify-center">
+                <BookOpen className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-bold text-lg text-gray-900 hidden sm:inline">
+                논술 마스터
+              </span>
+            </div>
           </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-1">
             {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
               if (item.submenu) {
                 return (
                   <DropdownMenu key={item.label}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
-                        className="text-gray-700 hover:text-blue-600"
+                        className="flex items-center gap-1 text-gray-700 hover:text-blue-600"
                       >
+                        {Icon && <Icon className="w-4 h-4" />}
                         {item.label}
+                        <ChevronDown className="w-4 h-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-48">
-                      {LEARNING_TOOLS.map((tool) => {
-                        const Icon = tool.icon;
+                    <DropdownMenuContent align="start" className="w-56">
+                      {item.submenu.map((subitem) => {
+                        const SubIcon = subitem.icon;
                         return (
-                          <DropdownMenuItem key={tool.href} asChild>
-                            <Link href={tool.href}>
-                              <span className="flex items-center gap-2 cursor-pointer">
-                                {Icon && <Icon className="w-4 h-4" />}
-                                {tool.label}
-                              </span>
-                            </Link>
-                          </DropdownMenuItem>
+                          <Link key={subitem.href} href={subitem.href}>
+                            <DropdownMenuItem className="cursor-pointer">
+                              {SubIcon && (
+                                <SubIcon className="w-4 h-4 mr-2" />
+                              )}
+                              <span>{subitem.label}</span>
+                            </DropdownMenuItem>
+                          </Link>
                         );
                       })}
                     </DropdownMenuContent>
@@ -97,14 +112,17 @@ export default function Navigation() {
                 );
               }
 
-              const Icon = item.icon;
               return (
                 <Link key={item.href} href={item.href}>
                   <Button
-                    variant={isActive(item.href) ? "default" : "ghost"}
-                    className={`text-gray-700 hover:text-blue-600 ${isActive(item.href) ? "bg-blue-100 text-blue-600" : ""}`}
+                    variant="ghost"
+                    className={`flex items-center gap-1 ${
+                      location === item.href
+                        ? "text-blue-600 bg-blue-50"
+                        : "text-gray-700 hover:text-blue-600"
+                    }`}
                   >
-                    {Icon && <Icon className="w-4 h-4 mr-2" />}
+                    {Icon && <Icon className="w-4 h-4" />}
                     {item.label}
                   </Button>
                 </Link>
@@ -112,96 +130,184 @@ export default function Navigation() {
             })}
           </div>
 
-          {/* Right Side - Auth & Mobile Menu */}
+          {/* Right Side */}
           <div className="flex items-center gap-2">
-            {isAuthenticated && user ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="flex items-center gap-2 text-gray-700"
-                  >
-                    <User className="w-4 h-4" />
-                    <span className="hidden sm:inline text-sm">{user.name}</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled>
-                    <span className="text-sm">{user.email}</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => logout()}>
-                    <LogOut className="w-4 h-4 mr-2" />
-                    로그아웃
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                onClick={startLogin}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                로그인
-              </Button>
-            )}
-
-            {/* Mobile Menu */}
-            <Sheet open={isOpen} onOpenChange={setIsOpen}>
-              <SheetTrigger asChild className="md:hidden">
-                <Button variant="ghost" size="icon">
-                  <Menu className="w-5 h-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-64">
-                <div className="flex flex-col gap-4 mt-8">
-                  {/* Mobile Nav Items */}
-                  {NAV_ITEMS.map((item) => {
-                    if (item.submenu) {
-                      return (
-                        <div key={item.label}>
-                          <p className="px-4 py-2 font-semibold text-gray-900">
-                            {item.label}
-                          </p>
-                          <div className="pl-4 space-y-2">
-                            {LEARNING_TOOLS.map((tool) => {
-                              const Icon = tool.icon;
-                              return (
-                                <Link key={tool.href} href={tool.href}>
-                                  <span
-                                    onClick={() => setIsOpen(false)}
-                                    className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer block"
-                                  >
-                                    {Icon && <Icon className="w-4 h-4" />}
-                                    {tool.label}
-                                  </span>
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    const Icon = item.icon;
-                    return (
-                      <Link key={item.href} href={item.href}>
-                        <span
-                          onClick={() => setIsOpen(false)}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors cursor-pointer block ${
-                            isActive(item.href)
-                              ? "bg-blue-100 text-blue-600 font-semibold"
-                              : "text-gray-700 hover:bg-gray-100"
-                          }`}
-                        >
-                          {Icon && <Icon className="w-4 h-4" />}
-                          {item.label}
+            {isAuthenticated ? (
+              <>
+                {/* Desktop User Menu */}
+                <div className="hidden md:block">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        className="flex items-center gap-2 text-gray-700"
+                      >
+                        <User className="w-4 h-4" />
+                        <span className="text-sm">{user?.name || "사용자"}</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem disabled>
+                        <span className="text-xs text-gray-500">
+                          {user?.email}
                         </span>
-                      </Link>
-                    );
-                  })}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={logout} className="cursor-pointer">
+                        <LogOut className="w-4 h-4 mr-2" />
+                        <span>로그아웃</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-              </SheetContent>
-            </Sheet>
+
+                {/* Mobile Menu */}
+                <Sheet>
+                  <SheetTrigger asChild className="md:hidden">
+                    <Button variant="ghost" size="icon">
+                      <Menu className="w-5 h-5" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="w-72">
+                    <div className="flex flex-col gap-4 mt-8">
+                      {/* User Info */}
+                      <div className="px-4 py-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <p className="text-sm font-semibold text-gray-900">
+                          {user?.name || "사용자"}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">
+                          {user?.email}
+                        </p>
+                      </div>
+
+                      {/* Mobile Navigation Items */}
+                      {NAV_ITEMS.map((item) => {
+                        const Icon = item.icon;
+                        const isOpen = openMobileSubmenu === item.label;
+
+                        if (item.submenu) {
+                          return (
+                            <div key={item.label}>
+                              <button
+                                onClick={() =>
+                                  handleMobileSubmenuToggle(item.label)
+                                }
+                                className="w-full flex items-center justify-between px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                              >
+                                <div className="flex items-center gap-2">
+                                  {Icon && <Icon className="w-4 h-4" />}
+                                  <span className="text-sm font-medium">
+                                    {item.label}
+                                  </span>
+                                </div>
+                                <ChevronDown
+                                  className={`w-4 h-4 transition-transform ${
+                                    isOpen ? "rotate-180" : ""
+                                  }`}
+                                />
+                              </button>
+
+                              {/* Submenu Items */}
+                              {isOpen && (
+                                <div className="ml-4 mt-2 space-y-1 border-l-2 border-gray-200 pl-4">
+                                  {item.submenu.map((subitem) => {
+                                    const SubIcon = subitem.icon;
+                                    return (
+                                      <Link
+                                        key={subitem.href}
+                                        href={subitem.href}
+                                      >
+                                        <button className="w-full flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm">
+                                          {SubIcon && (
+                                            <SubIcon className="w-4 h-4" />
+                                          )}
+                                          <span>{subitem.label}</span>
+                                        </button>
+                                      </Link>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <Link key={item.href} href={item.href}>
+                            <button className="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                              {Icon && <Icon className="w-4 h-4" />}
+                              <span className="text-sm font-medium">
+                                {item.label}
+                              </span>
+                            </button>
+                          </Link>
+                        );
+                      })}
+
+                      <div className="border-t border-gray-200 pt-4">
+                        <Button
+                          onClick={logout}
+                          variant="outline"
+                          className="w-full justify-start gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          로그아웃
+                        </Button>
+                      </div>
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </>
+            ) : (
+              <>
+                {/* Desktop Login Button */}
+                <Button
+                  onClick={() => startLogin()}
+                  className="hidden md:flex bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                >
+                  로그인
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+
+                {/* Mobile Login Button */}
+                <Sheet>
+                  <SheetTrigger asChild className="md:hidden">
+                    <Button variant="ghost" size="icon">
+                      <Menu className="w-5 h-5" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="w-72">
+                    <div className="flex flex-col gap-4 mt-8">
+                      <Button
+                        onClick={() => startLogin()}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                      >
+                        로그인
+                        <ArrowRight className="w-4 h-4" />
+                      </Button>
+
+                      <div className="border-t border-gray-200 pt-4 space-y-2">
+                        {NAV_ITEMS.map((item) => {
+                          const Icon = item.icon;
+                          if (item.submenu) return null;
+
+                          return (
+                            <Link key={item.href} href={item.href}>
+                              <button className="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                                {Icon && <Icon className="w-4 h-4" />}
+                                <span className="text-sm font-medium">
+                                  {item.label}
+                                </span>
+                              </button>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </>
+            )}
           </div>
         </div>
       </div>
