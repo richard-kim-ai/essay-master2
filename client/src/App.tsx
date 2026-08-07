@@ -18,25 +18,108 @@ import SummaryPractice from "./pages/SummaryPractice";
 import MistakeNotebook from "./pages/MistakeNotebook";
 import TopicWizard from "./pages/TopicWizard";
 import ThesisChecklist from "./pages/ThesisChecklist";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import Layout from "./components/Layout";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
+      <Route path={"/login"} component={Login} />
+      <Route path={"/signup"} component={Signup} />
       <Route path={"/"} component={Home} />
-      <Route path={"/curriculum"} component={Curriculum} />
-      <Route path={"/dashboard"} component={Dashboard} />
-      <Route path={"/ai-auto-feedback"} component={AIAutoFeedback} />
-      <Route path={"/essay-submission"} component={EssaySubmission} />
-      <Route path={"/teacher-feedback/:essayId"} component={TeacherFeedback} />
-      <Route path={"/certificate"} component={Certificate} />
-      <Route path={"/workbook/:courseType/:level"} component={Workbook} />
-      <Route path={"/quiz"} component={QuizPage} />
-      <Route path={"/paragraph-reordering"} component={ParagraphReordering} />
-      <Route path={"/summary-practice"} component={SummaryPractice} />
-      <Route path={"/mistake-notebook"} component={MistakeNotebook} />
-      <Route path={"/topic-wizard"} component={TopicWizard} />
-      <Route path={"/thesis-checklist"} component={ThesisChecklist} />
+      <Route path={"/curriculum"}>
+        {(params) => (
+          <Layout>
+            <Curriculum />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/dashboard"}>
+        {(params) => (
+          <Layout>
+            <Dashboard />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/ai-auto-feedback"}>
+        {(params) => (
+          <Layout>
+            <AIAutoFeedback />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/essay-submission"}>
+        {(params) => (
+          <Layout>
+            <EssaySubmission />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/teacher-feedback/:essayId"}>
+        {(params) => (
+          <Layout>
+            <TeacherFeedback />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/certificate"}>
+        {(params) => (
+          <Layout>
+            <Certificate />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/workbook/:courseType/:level"}>
+        {(params) => (
+          <Layout>
+            <Workbook />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/quiz"}>
+        {(params) => (
+          <Layout>
+            <QuizPage />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/paragraph-reordering"}>
+        {(params) => (
+          <Layout>
+            <ParagraphReordering />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/summary-practice"}>
+        {(params) => (
+          <Layout>
+            <SummaryPractice />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/mistake-notebook"}>
+        {(params) => (
+          <Layout>
+            <MistakeNotebook />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/topic-wizard"}>
+        {(params) => (
+          <Layout>
+            <TopicWizard />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/thesis-checklist"}>
+        {(params) => (
+          <Layout>
+            <ThesisChecklist />
+          </Layout>
+        )}
+      </Route>
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
