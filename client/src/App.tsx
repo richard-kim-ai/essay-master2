@@ -20,6 +20,7 @@ import TopicWizard from "./pages/TopicWizard";
 import ThesisChecklist from "./pages/ThesisChecklist";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import VerifyEmail from "./pages/VerifyEmail";
 import Layout from "./components/Layout";
 
 function Router() {
@@ -28,6 +29,7 @@ function Router() {
     <Switch>
       <Route path={"/login"} component={Login} />
       <Route path={"/signup"} component={Signup} />
+      <Route path={"/verify-email"} component={VerifyEmail} />
       <Route path={"/"} component={Home} />
       <Route path={"/curriculum"}>
         {(params) => (

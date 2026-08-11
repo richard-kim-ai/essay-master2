@@ -6,11 +6,141 @@ import * as db from "./db";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateEssay } from "./aiFeedback";
+import { sdk } from "./_core/sdk";
+import { TRPCError } from "@trpc/server";
+import {
+  createVerificationToken,
+  hashPassword,
+  hashVerificationToken,
+  sendVerificationEmail,
+  verifyPassword,
+} from "./email";
+
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
+function requestOrigin(req: { protocol: string; headers: Record<string, unknown> }) {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.toString().split(",")[0])?.trim() || req.protocol || "https";
+  const host = req.headers.host?.toString() || "localhost:3000";
+  return `${protocol}://${host}`;
+}
+
+async function sendUserVerificationEmail(
+  req: { protocol: string; headers: Record<string, unknown> },
+  user: { id: number; email: string | null; name: string | null },
+  token: string,
+) {
+  if (!user.email) throw new Error("Email address is required");
+  await sendVerificationEmail({
+    to: user.email,
+    name: user.name || "학습자",
+    verificationUrl: `${requestOrigin(req)}/verify-email?token=${encodeURIComponent(token)}`,
+  });
+}
 
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query(({ ctx }) => {
+      if (!ctx.user) return null;
+      const {
+        passwordHash: _passwordHash,
+        verificationTokenHash: _verificationTokenHash,
+        verificationTokenExpiresAt: _verificationTokenExpiresAt,
+        ...safeUser
+      } = ctx.user;
+      return safeUser;
+    }),
+
+    signup: publicProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(2).max(80),
+          email: z.string().trim().email().transform((value) => value.toLowerCase()),
+          password: z.string().min(8).max(128),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const existing = await db.getUserByEmail(input.email);
+        const token = createVerificationToken();
+        const tokenHash = hashVerificationToken(token);
+        const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS);
+
+        if (existing) {
+          if (existing.emailVerifiedAt) {
+            throw new TRPCError({ code: "CONFLICT", message: "이미 가입된 이메일입니다." });
+          }
+
+          await db.updateVerificationToken(existing.id, tokenHash, expiresAt);
+          await sendUserVerificationEmail(ctx.req, existing, token);
+          return { requiresVerification: true } as const;
+        }
+
+        const user = await db.createEmailUser({
+          openId: `email_${nanoid(40)}`,
+          name: input.name,
+          email: input.email,
+          loginMethod: "email",
+          passwordHash: hashPassword(input.password),
+          verificationTokenHash: tokenHash,
+          verificationTokenExpiresAt: expiresAt,
+        });
+
+        if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "회원가입에 실패했습니다." });
+        await sendUserVerificationEmail(ctx.req, user, token);
+        return { requiresVerification: true } as const;
+      }),
+
+    verifyEmail: publicProcedure
+      .input(z.object({ token: z.string().min(32) }))
+      .mutation(async ({ input }) => {
+        const user = await db.getUserByVerificationTokenHash(hashVerificationToken(input.token));
+        if (!user || !user.verificationTokenExpiresAt || user.verificationTokenExpiresAt.getTime() < Date.now()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "인증 링크가 만료되었거나 유효하지 않습니다." });
+        }
+
+        await db.markEmailVerified(user.id);
+        return { success: true } as const;
+      }),
+
+    resendVerification: publicProcedure
+      .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()) }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserByEmail(input.email);
+        if (user && !user.emailVerifiedAt) {
+          const token = createVerificationToken();
+          await db.updateVerificationToken(
+            user.id,
+            hashVerificationToken(token),
+            new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
+          );
+          await sendUserVerificationEmail(ctx.req, user, token);
+        }
+        return { success: true } as const;
+      }),
+
+    loginWithEmail: publicProcedure
+      .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserByEmail(input.email);
+        if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "이메일 또는 비밀번호를 확인해주세요." });
+        }
+        if (!user.emailVerifiedAt) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "EMAIL_NOT_VERIFIED" });
+        }
+
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name || input.email,
+          expiresInMs: SESSION_TTL_MS,
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: SESSION_TTL_MS });
+        await db.updateUserLastSignedIn(user.id);
+        return { success: true } as const;
+      }),
+
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

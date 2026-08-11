@@ -1,0 +1,13 @@
+{
+  "name": "논술 마스터",
+  "short_name": "논술 마스터",
+  "description": "초등·중고등 학생을 위한 단계별 논술 학습 플랫폼",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "lang": "ko-KR",
+  "categories": ["education", "productivity"]
+}

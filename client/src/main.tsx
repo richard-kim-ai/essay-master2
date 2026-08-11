@@ -8,6 +8,14 @@ import App from "./App";
 import { startLogin } from "./const";
 import "./index.css";
 
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((error) => {
+      console.warn("[PWA] Service worker registration failed:", error);
+    });
+  });
+}
+
 const queryClient = new QueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {

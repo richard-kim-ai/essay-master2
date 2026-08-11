@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Navigation from "@/components/Navigation";
+import OfflineStatus from "@/components/OfflineStatus";
+import InstallPrompt from "@/components/InstallPrompt";
 import { Link } from "wouter";
 import {
   BookOpen,
@@ -88,6 +90,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-white">
       <Navigation />
+      <OfflineStatus />
 
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-20 md:py-32">
@@ -297,6 +300,7 @@ export default function Home() {
           </div>
         </div>
       </footer>
+      <InstallPrompt />
     </div>
   );
 }

@@ -15,6 +15,13 @@
       "when": 1785810815976,
       "tag": "0001_special_metal_master",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786463867447,
+      "tag": "0002_exotic_masked_marvel",
+      "breakpoints": true
     }
   ]
 }

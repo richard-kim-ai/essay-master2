@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -102,6 +102,77 @@ export async function getUserByOpenId(openId: string) {
     .limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function createEmailUser(user: InsertUser) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  await db.insert(users).values(user);
+  return getUserByOpenId(user.openId);
+}
+
+export async function updateVerificationToken(
+  userId: number,
+  tokenHash: string,
+  expiresAt: Date,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  await db
+    .update(users)
+    .set({ verificationTokenHash: tokenHash, verificationTokenExpiresAt: expiresAt })
+    .where(eq(users.id, userId));
+}
+
+export async function getUserByVerificationTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.verificationTokenHash, tokenHash))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function markEmailVerified(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  await db
+    .update(users)
+    .set({
+      emailVerifiedAt: new Date(),
+      verificationTokenHash: null,
+      verificationTokenExpiresAt: null,
+    })
+    .where(eq(users.id, userId));
+
+  return db.select().from(users).where(eq(users.id, userId)).limit(1);
+}
+
+export async function updateUserLastSignedIn(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
 }
 
 // ========== Curriculum Functions ==========

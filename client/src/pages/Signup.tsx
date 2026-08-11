@@ -1,247 +1,67 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Mail, Lock, User, ArrowRight, BookOpen, CheckCircle2 } from "lucide-react";
 import { startLogin } from "@/const";
+import { trpc } from "@/lib/trpc";
 
 export default function Signup() {
   const [, setLocation] = useLocation();
-  const [formData, setFormData] = useState({
-    name: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    agreeTerms: false,
+  const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "", agreeTerms: false });
+  const signupMutation = trpc.auth.signup.useMutation({
+    onSuccess: () => {
+      toast.success("인증 메일을 보냈습니다.");
+      setLocation(`/verify-email?email=${encodeURIComponent(formData.email)}`);
+    },
+    onError: (error) => toast.error(error.message || "회원가입에 실패했습니다."),
   });
-  const [isLoading, setIsLoading] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type, checked } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, type, checked } = event.target;
+    setFormData((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
   };
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!formData.name || !formData.email || !formData.password) {
-      toast.error("모든 필드를 입력해주세요.");
-      return;
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      toast.error("비밀번호가 일치하지 않습니다.");
-      return;
-    }
-
-    if (formData.password.length < 8) {
-      toast.error("비밀번호는 8자 이상이어야 합니다.");
-      return;
-    }
-
-    if (!formData.agreeTerms) {
-      toast.error("약관에 동의해주세요.");
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      // 마누스 OAuth 로그인 사용
-      startLogin();
-    } catch (error) {
-      toast.error("회원가입에 실패했습니다.");
-      setIsLoading(false);
-    }
+  const handleSignup = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!formData.name || !formData.email || !formData.password) return toast.error("모든 필드를 입력해주세요.");
+    if (formData.password.length < 8) return toast.error("비밀번호는 8자 이상이어야 합니다.");
+    if (formData.password !== formData.confirmPassword) return toast.error("비밀번호가 일치하지 않습니다.");
+    if (!formData.agreeTerms) return toast.error("이용약관과 개인정보처리방침에 동의해주세요.");
+    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password });
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo Section */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-green-600 to-emerald-800 rounded-lg flex items-center justify-center">
-              <BookOpen className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-gray-900">논술 마스터</h1>
-          </div>
-          <p className="text-gray-600">
-            지금 시작하세요. 무료입니다!
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-green-100 px-4 py-10 sm:py-16">
+      <div className="mx-auto w-full max-w-md">
+        <div className="mb-8 text-center">
+          <Link href="/" className="inline-flex items-center gap-2">
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-green-800"><BookOpen className="h-6 w-6 text-white" /></span>
+            <span className="text-3xl font-bold text-slate-900">논술 마스터</span>
+          </Link>
+          <p className="mt-4 text-slate-600">회원가입 후 이메일 인증을 완료해 주세요.</p>
         </div>
 
-        {/* Signup Card */}
-        <Card className="p-8 bg-white shadow-lg">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">회원가입</h2>
-
-          <form onSubmit={handleSignup} className="space-y-4">
-            {/* Name Input */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                이름
-              </label>
-              <div className="relative">
-                <User className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <Input
-                  type="text"
-                  name="name"
-                  placeholder="홍길동"
-                  value={formData.name}
-                  onChange={handleChange}
-                  className="pl-10 py-2"
-                  disabled={isLoading}
-                />
-              </div>
-            </div>
-
-            {/* Email Input */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                이메일
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <Input
-                  type="email"
-                  name="email"
-                  placeholder="your@email.com"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="pl-10 py-2"
-                  disabled={isLoading}
-                />
-              </div>
-            </div>
-
-            {/* Password Input */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                비밀번호
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <Input
-                  type="password"
-                  name="password"
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="pl-10 py-2"
-                  disabled={isLoading}
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                8자 이상의 비밀번호를 입력해주세요.
-              </p>
-            </div>
-
-            {/* Confirm Password Input */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                비밀번호 확인
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                <Input
-                  type="password"
-                  name="confirmPassword"
-                  placeholder="••••••••"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  className="pl-10 py-2"
-                  disabled={isLoading}
-                />
-              </div>
-            </div>
-
-            {/* Terms Agreement */}
-            <div className="space-y-2">
-              <label className="flex items-start gap-3 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  name="agreeTerms"
-                  checked={formData.agreeTerms}
-                  onChange={handleChange}
-                  className="mt-1"
-                  disabled={isLoading}
-                />
-                <span>
-                  <a href="#" className="text-blue-600 hover:underline">
-                    이용약관
-                  </a>
-                  과{" "}
-                  <a href="#" className="text-blue-600 hover:underline">
-                    개인정보처리방침
-                  </a>
-                  에 동의합니다.
-                </span>
-              </label>
-            </div>
-
-            {/* Signup Button */}
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-green-600 hover:bg-green-700 text-white py-2 font-semibold flex items-center justify-center gap-2"
-            >
-              {isLoading ? "가입 중..." : "회원가입"}
-              <ArrowRight className="w-4 h-4" />
-            </Button>
+        <Card className="bg-white p-6 shadow-xl sm:p-8">
+          <h1 className="text-2xl font-bold text-slate-900">회원가입</h1>
+          <p className="mt-2 text-sm text-slate-500">인증이 완료된 계정으로 학습 기록을 안전하게 저장합니다.</p>
+          <form onSubmit={handleSignup} className="mt-6 space-y-4">
+            <label className="block text-sm font-medium text-slate-700">이름<span className="relative mt-2 block"><User className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input name="name" value={formData.name} onChange={handleChange} placeholder="홍길동" className="pl-10" disabled={signupMutation.isPending} /></span></label>
+            <label className="block text-sm font-medium text-slate-700">이메일<span className="relative mt-2 block"><Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="your@email.com" className="pl-10" disabled={signupMutation.isPending} /></span></label>
+            <label className="block text-sm font-medium text-slate-700">비밀번호<span className="relative mt-2 block"><Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="password" name="password" value={formData.password} onChange={handleChange} placeholder="8자 이상" className="pl-10" disabled={signupMutation.isPending} /></span></label>
+            <label className="block text-sm font-medium text-slate-700">비밀번호 확인<span className="relative mt-2 block"><Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} placeholder="비밀번호를 다시 입력" className="pl-10" disabled={signupMutation.isPending} /></span></label>
+            <label className="flex items-start gap-3 text-sm text-slate-600"><input type="checkbox" name="agreeTerms" checked={formData.agreeTerms} onChange={handleChange} className="mt-1" disabled={signupMutation.isPending} /><span><a href="#" className="text-blue-600 hover:underline">이용약관</a>과 <a href="#" className="text-blue-600 hover:underline">개인정보처리방침</a>에 동의합니다.</span></label>
+            <Button type="submit" disabled={signupMutation.isPending} className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700">{signupMutation.isPending ? "가입 중..." : "회원가입"}<ArrowRight className="h-4 w-4" /></Button>
           </form>
 
-          {/* Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">또는</span>
-            </div>
-          </div>
-
-          {/* OAuth Signup */}
-          <Button
-            onClick={() => startLogin()}
-            variant="outline"
-            className="w-full py-2 font-semibold border-2 border-green-600 text-green-600 hover:bg-green-50"
-          >
-            마누스로 회원가입
-          </Button>
-
-          {/* Login Link */}
-          <div className="text-center mt-6">
-            <p className="text-gray-600">
-              이미 계정이 있으신가요?{" "}
-              <a
-                href="/login"
-                className="text-green-600 hover:text-green-700 font-semibold"
-              >
-                로그인
-              </a>
-            </p>
-          </div>
+          <div className="relative my-6"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div><div className="relative flex justify-center"><span className="bg-white px-3 text-sm text-slate-500">또는</span></div></div>
+          <Button onClick={() => startLogin()} variant="outline" className="w-full border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50">Manus 계정으로 시작하기</Button>
+          <p className="mt-6 text-center text-sm text-slate-600">이미 계정이 있으신가요? <Link href="/login" className="font-semibold text-emerald-700 hover:underline">로그인</Link></p>
         </Card>
 
-        {/* Benefits */}
-        <div className="mt-8 space-y-3">
-          <div className="flex items-center gap-3 text-gray-700">
-            <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-            <span className="text-sm">AI 기반 맞춤형 피드백</span>
-          </div>
-          <div className="flex items-center gap-3 text-gray-700">
-            <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-            <span className="text-sm">14개 이상의 학습 도구</span>
-          </div>
-          <div className="flex items-center gap-3 text-gray-700">
-            <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-            <span className="text-sm">완전 무료 사용</span>
-          </div>
-        </div>
+        <div className="mt-8 space-y-3 text-sm text-slate-700"><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />AI 기반 맞춤형 피드백</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />14개 이상의 학습 도구</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />이메일 인증으로 안전한 학습 기록</div></div>
       </div>
     </div>
   );
