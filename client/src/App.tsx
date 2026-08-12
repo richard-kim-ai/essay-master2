@@ -21,6 +21,9 @@ import ThesisChecklist from "./pages/ThesisChecklist";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import VerifyEmail from "./pages/VerifyEmail";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import SocialProviderSettings from "./pages/SocialProviderSettings";
 import Layout from "./components/Layout";
 
 function Router() {
@@ -30,6 +33,15 @@ function Router() {
       <Route path={"/login"} component={Login} />
       <Route path={"/signup"} component={Signup} />
       <Route path={"/verify-email"} component={VerifyEmail} />
+      <Route path={"/forgot-password"} component={ForgotPassword} />
+      <Route path={"/reset-password"} component={ResetPassword} />
+      <Route path={"/admin/social-providers"}>
+        {(params) => (
+          <Layout>
+            <SocialProviderSettings />
+          </Layout>
+        )}
+      </Route>
       <Route path={"/"} component={Home} />
       <Route path={"/curriculum"}>
         {(params) => (

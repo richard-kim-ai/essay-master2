@@ -1,6 +1,7 @@
 import Navigation from "./Navigation";
 import OfflineStatus from "./OfflineStatus";
 import InstallPrompt from "./InstallPrompt";
+import PushPermissionPrompt from "./PushPermissionPrompt";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -13,6 +14,7 @@ export default function Layout({ children }: LayoutProps) {
       <OfflineStatus />
       <main>{children}</main>
       <InstallPrompt />
+      <PushPermissionPrompt />
     </div>
   );
 }

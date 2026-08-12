@@ -11,6 +11,7 @@ import { trpc } from "@/lib/trpc";
 export default function Signup() {
   const [, setLocation] = useLocation();
   const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "", agreeTerms: false });
+  const socialProviders = trpc.social.providers.useQuery();
   const signupMutation = trpc.auth.signup.useMutation({
     onSuccess: () => {
       toast.success("인증 메일을 보냈습니다.");
@@ -58,6 +59,8 @@ export default function Signup() {
 
           <div className="relative my-6"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div><div className="relative flex justify-center"><span className="bg-white px-3 text-sm text-slate-500">또는</span></div></div>
           <Button onClick={() => startLogin()} variant="outline" className="w-full border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50">Manus 계정으로 시작하기</Button>
+          <div className="mt-3 grid grid-cols-3 gap-2">{(["google", "kakao", "naver"] as const).map((provider) => { const available = socialProviders.data?.find((item) => item.provider === provider)?.enabled; const label = provider === "google" ? "Google" : provider === "kakao" ? "카카오" : "네이버"; return <Button key={provider} type="button" variant="outline" disabled={!available} onClick={() => { window.location.href = `/api/social/${provider}/start?origin=${encodeURIComponent(window.location.origin)}`; }}>{label}</Button>; })}</div>
+          <p className="mt-2 text-center text-xs text-slate-500">소셜 로그인은 관리자 설정이 완료된 제공자만 활성화됩니다.</p>
           <p className="mt-6 text-center text-sm text-slate-600">이미 계정이 있으신가요? <Link href="/login" className="font-semibold text-emerald-700 hover:underline">로그인</Link></p>
         </Card>
 

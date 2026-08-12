@@ -1,17 +1,20 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateEssay } from "./aiFeedback";
+import { decryptSecret, encryptSecret } from "./security";
+import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
 import { TRPCError } from "@trpc/server";
 import {
   createVerificationToken,
   hashPassword,
   hashVerificationToken,
+  sendPasswordResetEmail,
   sendVerificationEmail,
   verifyPassword,
 } from "./email";
@@ -120,6 +123,33 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
+    requestPasswordReset: publicProcedure
+      .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), origin: z.string().url() }))
+      .mutation(async ({ input }) => {
+        const user = await db.getUserByEmail(input.email);
+        if (user?.email && user.passwordHash) {
+          const token = createVerificationToken();
+          await db.updatePasswordResetToken(user.id, hashVerificationToken(token), new Date(Date.now() + 60 * 60 * 1000));
+          await sendPasswordResetEmail({
+            to: user.email,
+            name: user.name || "학습자",
+            resetUrl: `${input.origin}/reset-password?token=${encodeURIComponent(token)}`,
+          });
+        }
+        return { success: true } as const;
+      }),
+
+    resetPassword: publicProcedure
+      .input(z.object({ token: z.string().min(32), password: z.string().min(8).max(128) }))
+      .mutation(async ({ input }) => {
+        const user = await db.getUserByPasswordResetTokenHash(hashVerificationToken(input.token));
+        if (!user || !user.passwordResetTokenExpiresAt || user.passwordResetTokenExpiresAt.getTime() < Date.now()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "재설정 링크가 만료되었거나 유효하지 않습니다." });
+        }
+        await db.resetUserPassword(user.id, hashPassword(input.password));
+        return { success: true } as const;
+      }),
+
     loginWithEmail: publicProcedure
       .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
@@ -148,6 +178,101 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+  }),
+
+  social: router({
+    providers: publicProcedure.query(async () => {
+      const configs = await db.listSocialProviderConfigs();
+      const byProvider = new Map(configs.map((config) => [config.provider, config]));
+      return (["google", "kakao", "naver"] as const).map((provider) => {
+        const config = byProvider.get(provider);
+        return { provider, enabled: Boolean(config?.enabled && config.clientId && config.clientSecretEncrypted) };
+      });
+    }),
+
+    settings: adminProcedure.query(async () => {
+      const configs = await db.listSocialProviderConfigs();
+      const byProvider = new Map(configs.map((config) => [config.provider, config]));
+      return (["google", "kakao", "naver"] as const).map((provider) => {
+        const config = byProvider.get(provider);
+        return { provider, clientId: config?.clientId ?? "", enabled: Boolean(config?.enabled), hasSecret: Boolean(config?.clientSecretEncrypted) };
+      });
+    }),
+
+    updateSettings: adminProcedure
+      .input(z.object({
+        provider: z.enum(["google", "kakao", "naver"]),
+        clientId: z.string().trim().max(512).default(""),
+        clientSecret: z.string().max(4096).optional(),
+        clearSecret: z.boolean().default(false),
+        enabled: z.boolean(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const existing = await db.getSocialProviderConfig(input.provider);
+        const encryptedSecret = input.clearSecret
+          ? null
+          : input.clientSecret
+            ? encryptSecret(input.clientSecret)
+            : existing?.clientSecretEncrypted ?? null;
+        await db.upsertSocialProviderConfig({
+          provider: input.provider,
+          clientId: input.clientId || null,
+          clientSecretEncrypted: encryptedSecret,
+          enabled: input.enabled ? 1 : 0,
+          updatedBy: ctx.user.id,
+        });
+        return { success: true } as const;
+      }),
+  }),
+
+  push: router({
+    config: publicProcedure.query(async () => {
+      const publicConfig = await db.getAppSecretConfig("vapidPublicKey");
+      const privateConfig = await db.getAppSecretConfig("vapidPrivateKey");
+      const subjectConfig = await db.getAppSecretConfig("vapidSubject");
+      if (!publicConfig?.encryptedValue || !privateConfig?.encryptedValue || !subjectConfig?.encryptedValue) return { enabled: false, publicKey: "" };
+      try {
+        return { enabled: true, publicKey: decryptSecret(publicConfig.encryptedValue) };
+      } catch {
+        return { enabled: false, publicKey: "" };
+      }
+    }),
+
+    settings: adminProcedure.query(async () => {
+      const [publicConfig, privateConfig, subjectConfig] = await Promise.all([db.getAppSecretConfig("vapidPublicKey"), db.getAppSecretConfig("vapidPrivateKey"), db.getAppSecretConfig("vapidSubject")]);
+      return { publicKey: publicConfig?.encryptedValue ? decryptSecret(publicConfig.encryptedValue) : "", hasPrivateKey: Boolean(privateConfig?.encryptedValue), hasSubject: Boolean(subjectConfig?.encryptedValue) };
+    }),
+
+    updateSettings: adminProcedure
+      .input(z.object({ publicKey: z.string().max(4096).default(""), privateKey: z.string().max(4096).optional(), subject: z.string().max(512).optional(), clearPrivateKey: z.boolean().default(false), clearSubject: z.boolean().default(false) }))
+      .mutation(async ({ ctx, input }) => {
+        const existingPrivate = await db.getAppSecretConfig("vapidPrivateKey");
+        const existingSubject = await db.getAppSecretConfig("vapidSubject");
+        const privateValue = input.clearPrivateKey ? null : input.privateKey ? encryptSecret(input.privateKey) : existingPrivate?.encryptedValue ?? null;
+        const subjectValue = input.clearSubject ? null : input.subject ? encryptSecret(input.subject) : existingSubject?.encryptedValue ?? null;
+        await db.upsertAppSecretConfig("vapidPublicKey", input.publicKey ? encryptSecret(input.publicKey) : null, ctx.user.id);
+        await db.upsertAppSecretConfig("vapidPrivateKey", privateValue, ctx.user.id);
+        await db.upsertAppSecretConfig("vapidSubject", subjectValue, ctx.user.id);
+        return { success: true } as const;
+      }),
+  }),
+
+  notifications: router({
+    subscribe: protectedProcedure
+      .input(z.object({ endpoint: z.string().url(), keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }) }))
+      .mutation(async ({ ctx, input }) => {
+        await saveSubscription(ctx.user.id, input, ctx.req.headers["user-agent"]?.toString());
+        return { success: true } as const;
+      }),
+
+    unsubscribe: protectedProcedure
+      .input(z.object({ endpoint: z.string().url() }))
+      .mutation(async ({ ctx, input }) => {
+        await removeSubscription(ctx.user.id, input.endpoint);
+        return { success: true } as const;
+      }),
+
+    test: protectedProcedure.mutation(async ({ ctx }) => sendPushToUser(ctx.user.id, { title: "논술 마스터 알림", body: "푸시 알림 설정이 정상적으로 연결되었습니다.", url: "/dashboard", tag: "push-test" })),
   }),
 
   // ========== Curriculum Routes ==========
@@ -325,8 +450,8 @@ export const appRouter = router({
           expressionScore: z.number().optional(),
         })
       )
-      .mutation(({ ctx, input }) =>
-        db.createTeacherFeedback({
+      .mutation(async ({ ctx, input }) => {
+        const feedback = await db.createTeacherFeedback({
           essayId: input.essayId,
           teacherId: ctx.user.id,
           overallComment: input.overallComment,
@@ -334,8 +459,11 @@ export const appRouter = router({
           structureScore: input.structureScore,
           logicScore: input.logicScore,
           expressionScore: input.expressionScore,
-        })
-      ),
+        });
+        const essay = await db.getEssaySubmissionById(input.essayId);
+        if (essay) void sendPushToUser(essay.userId, { title: "새로운 첨삭 피드백이 도착했어요", body: `${essay.title}에 선생님 피드백이 등록되었습니다.`, url: `/teacher-feedback?essayId=${essay.id}`, tag: `feedback-${essay.id}` });
+        return feedback;
+      }),
 
     update: protectedProcedure
       .input(

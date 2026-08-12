@@ -11,6 +11,11 @@ import {
   teacherFeedback,
   feedbackComment,
   aiAutoFeedback,
+  socialProviderConfig,
+  appSecretConfig,
+  pushSubscription,
+  type InsertSocialProviderConfig,
+  type InsertPushSubscription,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -104,6 +109,21 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function updateUserSocialProfile(userId: number, name: string | null, email: string | null, loginMethod: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ name, email, loginMethod, emailVerifiedAt: new Date(), lastSignedIn: new Date() }).where(eq(users.id, userId));
+  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return result[0];
+}
+
+export async function updateUserSocialIdentity(userId: number, openId: string, name: string | null, email: string | null, loginMethod: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ openId, name, email, loginMethod, emailVerifiedAt: new Date(), lastSignedIn: new Date() }).where(eq(users.id, userId));
+  return getUserByOpenId(openId);
+}
+
 export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
@@ -173,6 +193,89 @@ export async function updateUserLastSignedIn(userId: number) {
   if (!db) return;
 
   await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
+}
+
+export async function updatePasswordResetToken(userId: number, tokenHash: string, expiresAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ passwordResetTokenHash: tokenHash, passwordResetTokenExpiresAt: expiresAt }).where(eq(users.id, userId));
+}
+
+export async function getUserByPasswordResetTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.passwordResetTokenHash, tokenHash)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function resetUserPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ passwordHash, passwordResetTokenHash: null, passwordResetTokenExpiresAt: null }).where(eq(users.id, userId));
+}
+
+export async function listSocialProviderConfigs() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(socialProviderConfig);
+}
+
+export async function getSocialProviderConfig(provider: "google" | "kakao" | "naver") {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(socialProviderConfig).where(eq(socialProviderConfig.provider, provider)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function upsertSocialProviderConfig(input: InsertSocialProviderConfig) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(socialProviderConfig).values(input).onDuplicateKeyUpdate({
+    set: {
+      clientId: input.clientId ?? null,
+      clientSecretEncrypted: input.clientSecretEncrypted ?? null,
+      enabled: input.enabled ?? 0,
+      updatedBy: input.updatedBy ?? null,
+    },
+  });
+}
+
+export async function getAppSecretConfig(settingKey: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(appSecretConfig).where(eq(appSecretConfig.settingKey, settingKey)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function upsertAppSecretConfig(settingKey: string, encryptedValue: string | null, updatedBy: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(appSecretConfig).values({ settingKey, encryptedValue, updatedBy }).onDuplicateKeyUpdate({ set: { encryptedValue, updatedBy } });
+}
+
+export async function upsertPushSubscription(input: InsertPushSubscription) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(pushSubscription).values(input).onDuplicateKeyUpdate({
+    set: {
+      userId: input.userId,
+      p256dh: input.p256dh,
+      auth: input.auth,
+      userAgent: input.userAgent ?? null,
+    },
+  });
+}
+
+export async function deletePushSubscription(endpointHash: string, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(pushSubscription).where(and(eq(pushSubscription.endpointHash, endpointHash), eq(pushSubscription.userId, userId)));
+}
+
+export async function getPushSubscriptionsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(pushSubscription).where(eq(pushSubscription.userId, userId));
 }
 
 // ========== Curriculum Functions ==========

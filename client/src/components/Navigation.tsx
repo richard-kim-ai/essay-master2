@@ -23,6 +23,7 @@ import {
   LogOut,
   User,
   ChevronDown,
+  Settings,
 } from "lucide-react";
 
 interface NavItem {
@@ -153,6 +154,7 @@ export default function Navigation() {
                         </span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
+                      {user?.role === "admin" && <Link href="/admin/social-providers"><DropdownMenuItem className="cursor-pointer"><Settings className="w-4 h-4 mr-2" /><span>소셜 로그인 설정</span></DropdownMenuItem></Link>}
                       <DropdownMenuItem onClick={logout} className="cursor-pointer">
                         <LogOut className="w-4 h-4 mr-2" />
                         <span>로그아웃</span>
@@ -244,6 +246,7 @@ export default function Navigation() {
                         );
                       })}
 
+                      {user?.role === "admin" && <Link href="/admin/social-providers"><button className="mb-3 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><Settings className="w-4 h-4" />소셜 로그인 설정</button></Link>}
                       <div className="border-t border-gray-200 pt-4">
                         <Button
                           onClick={logout}

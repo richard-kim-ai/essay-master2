@@ -12,6 +12,7 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const socialProviders = trpc.social.providers.useQuery();
   const loginMutation = trpc.auth.loginWithEmail.useMutation({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
@@ -73,6 +74,8 @@ export default function Login() {
             </Button>
           </form>
 
+          <Link href="/forgot-password" className="mt-3 block text-right text-sm font-medium text-blue-600 hover:underline">비밀번호를 잊으셨나요?</Link>
+
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
             <div className="relative flex justify-center"><span className="bg-white px-3 text-sm text-slate-500">또는</span></div>
@@ -81,6 +84,14 @@ export default function Login() {
           <Button onClick={() => startLogin()} variant="outline" className="w-full border-2 border-blue-600 text-blue-600 hover:bg-blue-50">
             Manus 계정으로 로그인
           </Button>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {(["google", "kakao", "naver"] as const).map((provider) => {
+              const available = socialProviders.data?.find((item) => item.provider === provider)?.enabled;
+              const label = provider === "google" ? "Google" : provider === "kakao" ? "카카오" : "네이버";
+              return <Button key={provider} type="button" variant="outline" disabled={!available} onClick={() => { window.location.href = `/api/social/${provider}/start?origin=${encodeURIComponent(window.location.origin)}`; }}>{label}</Button>;
+            })}
+          </div>
+          <p className="mt-2 text-center text-xs text-slate-500">소셜 로그인은 관리자 설정이 완료된 제공자만 활성화됩니다.</p>
           <p className="mt-6 text-center text-sm text-slate-600">
             아직 계정이 없으신가요? <Link href="/signup" className="font-semibold text-blue-600 hover:underline">회원가입</Link>
           </p>

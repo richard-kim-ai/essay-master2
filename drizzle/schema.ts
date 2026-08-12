@@ -20,6 +20,8 @@ export const users = mysqlTable("users", {
   emailVerifiedAt: timestamp("emailVerifiedAt"),
   verificationTokenHash: varchar("verificationTokenHash", { length: 128 }),
   verificationTokenExpiresAt: timestamp("verificationTokenExpiresAt"),
+  passwordResetTokenHash: varchar("passwordResetTokenHash", { length: 128 }),
+  passwordResetTokenExpiresAt: timestamp("passwordResetTokenExpiresAt"),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -28,6 +30,47 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+export const socialProviderConfig = mysqlTable("social_provider_config", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: mysqlEnum("provider", ["google", "kakao", "naver"]).notNull().unique(),
+  clientId: varchar("clientId", { length: 512 }),
+  clientSecretEncrypted: text("clientSecretEncrypted"),
+  enabled: int("enabled").default(0).notNull(),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SocialProviderConfig = typeof socialProviderConfig.$inferSelect;
+export type InsertSocialProviderConfig = typeof socialProviderConfig.$inferInsert;
+
+export const appSecretConfig = mysqlTable("app_secret_config", {
+  id: int("id").autoincrement().primaryKey(),
+  settingKey: varchar("settingKey", { length: 128 }).notNull().unique(),
+  encryptedValue: text("encryptedValue"),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AppSecretConfig = typeof appSecretConfig.$inferSelect;
+export type InsertAppSecretConfig = typeof appSecretConfig.$inferInsert;
+
+export const pushSubscription = mysqlTable("push_subscription", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  endpoint: text("endpoint").notNull(),
+  endpointHash: varchar("endpointHash", { length: 64 }).notNull().unique(),
+  p256dh: varchar("p256dh", { length: 255 }).notNull(),
+  auth: varchar("auth", { length: 255 }).notNull(),
+  userAgent: text("userAgent"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PushSubscription = typeof pushSubscription.$inferSelect;
+export type InsertPushSubscription = typeof pushSubscription.$inferInsert;
 
 // 커리큘럼 테이블
 export const curriculum = mysqlTable("curriculum", {

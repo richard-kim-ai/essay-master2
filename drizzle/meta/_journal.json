@@ -22,6 +22,27 @@
       "when": 1786463867447,
       "tag": "0002_exotic_masked_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1786531839921,
+      "tag": "0003_careful_stryfe",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1786531879673,
+      "tag": "0004_cute_blue_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1786536152001,
+      "tag": "0005_glossy_shocker",
+      "breakpoints": true
     }
   ]
 }
