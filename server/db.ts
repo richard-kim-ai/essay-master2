@@ -254,7 +254,7 @@ export async function upsertProgress(input: {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
 
-  await db
+  const [result] = await db
     .insert(progress)
     .values({
       userId: input.userId,
@@ -270,6 +270,7 @@ export async function upsertProgress(input: {
         completedAt: input.completedAt ?? null,
       },
     });
+  return result;
 }
 
 // ========== Quiz Functions ==========

@@ -58,24 +58,9 @@ export default function Certificate() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <Link href="/">
-            <div className="flex items-center gap-2 cursor-pointer hover:opacity-80">
-              <BookOpen className="w-8 h-8 text-indigo-600" />
-              <span className="text-2xl font-bold text-gray-900">논술 마스터</span>
-            </div>
-          </Link>
-          <div className="text-right">
-            <p className="text-sm text-gray-600">{user?.name}</p>
-          </div>
-        </div>
-      </nav>
-
+    <div className="min-h-screen bg-gray-50 py-12">
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-8">수료증</h1>
 
         {/* Issue New Certificate */}

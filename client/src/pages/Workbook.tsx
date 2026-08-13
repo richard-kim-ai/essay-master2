@@ -102,18 +102,8 @@ export default function Workbook() {
   const workbookData = WORKBOOK_CONTENT[courseType]?.[level as keyof typeof WORKBOOK_CONTENT[typeof courseType]] as any;
   if (!workbookData) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <nav className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <Link href="/">
-              <div className="flex items-center gap-2 cursor-pointer hover:opacity-80">
-                <BookOpen className="w-8 h-8 text-indigo-600" />
-                <span className="text-2xl font-bold text-gray-900">논술 마스터</span>
-              </div>
-            </Link>
-          </div>
-        </nav>
-        <div className="text-center py-12">해당 워크북을 찾을 수 없습니다.</div>
+      <div className="min-h-screen bg-gray-50 py-12 text-center">
+        <p className="text-gray-600">해당 워크북을 찾을 수 없습니다.</p>
       </div>
     );
   }
@@ -152,24 +142,9 @@ export default function Workbook() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <Link href="/">
-            <div className="flex items-center gap-2 cursor-pointer hover:opacity-80">
-              <BookOpen className="w-8 h-8 text-indigo-600" />
-              <span className="text-2xl font-bold text-gray-900">논술 마스터</span>
-            </div>
-          </Link>
-          <div className="text-right">
-            <p className="text-sm text-gray-600">{user?.name}</p>
-          </div>
-        </div>
-      </nav>
-
+    <div className="min-h-screen bg-gray-50 py-12">
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-8">
           <Link href="/curriculum">
             <span className="text-indigo-600 hover:text-indigo-700 cursor-pointer">
