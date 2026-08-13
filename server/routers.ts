@@ -594,6 +594,23 @@ export const appRouter = router({
         });
       }),
   }),
+
+  admin: router({
+    getAnalytics: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      }
+      const usersStats = await db.getAllUsersStats();
+      const progressStats = await db.getAllProgressStats();
+      const aiStats = await db.getAllAIUsageStats();
+
+      return {
+        users: usersStats,
+        progress: progressStats,
+        ai: aiStats,
+      };
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

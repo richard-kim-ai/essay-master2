@@ -672,3 +672,42 @@ export async function getWeeklyAIUsageLogs(userId: number) {
 
   return logs;
 }
+
+export async function getAllUsersStats() {
+  const db = await getDb();
+  if (!db) return { totalUsers: 0, activeToday: 0, users: [] };
+
+  const allUsers = await db.select().from(users);
+  const totalUsers = allUsers.length;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const activeToday = allUsers.filter(u => u.lastSignedIn && new Date(u.lastSignedIn) >= todayStart).length;
+
+  return {
+    totalUsers,
+    activeToday,
+    users: allUsers.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      loginMethod: u.loginMethod,
+      createdAt: u.createdAt,
+      lastSignedIn: u.lastSignedIn,
+    })),
+  };
+}
+
+export async function getAllProgressStats() {
+  const db = await getDb();
+  if (!db) return { totalSubmissions: 0, avgScore: 0 };
+
+  const allProgress = await db.select().from(progress);
+  const totalSubmissions = allProgress.length;
+  const avgScore = totalSubmissions > 0
+    ? Math.round(allProgress.reduce((sum, p) => sum + (p.score || 0), 0) / totalSubmissions)
+    : 0;
+
+  return { totalSubmissions, avgScore };
+}

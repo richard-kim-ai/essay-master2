@@ -37,7 +37,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: "커리큘럼", href: "/curriculum", icon: BookOpen },
   { label: "대시보드", href: "/dashboard", icon: BarChart3 },
   { label: "오프라인 보관함", href: "/offline-essays", icon: FileText },
-  { label: "관리자", href: "/admin", icon: Settings },
   {
     label: "학습 도구",
     href: "#",
@@ -162,7 +161,24 @@ export default function Navigation() {
                         </span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      {user?.role === "admin" && <Link href="/admin/social-providers"><DropdownMenuItem className="cursor-pointer"><Settings className="w-4 h-4 mr-2" /><span>소셜 로그인 설정</span></DropdownMenuItem></Link>}
+                      {user?.role === "admin" && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <Link href="/admin">
+                            <DropdownMenuItem className="cursor-pointer font-bold text-indigo-600">
+                              <Settings className="w-4 h-4 mr-2" />
+                              <span>관리자 대시보드</span>
+                            </DropdownMenuItem>
+                          </Link>
+                          <Link href="/admin/social-providers">
+                            <DropdownMenuItem className="cursor-pointer">
+                              <Settings className="w-4 h-4 mr-2" />
+                              <span>소셜 로그인 및 푸시 설정</span>
+                            </DropdownMenuItem>
+                          </Link>
+                        </>
+                      )}
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={logout} className="cursor-pointer">
                         <LogOut className="w-4 h-4 mr-2" />
                         <span>로그아웃</span>
@@ -254,7 +270,23 @@ export default function Navigation() {
                         );
                       })}
 
-                      {user?.role === "admin" && <Link href="/admin/social-providers"><button className="mb-3 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><Settings className="w-4 h-4" />소셜 로그인 설정</button></Link>}
+                      {user?.role === "admin" && (
+                        <div className="border-t border-gray-200 pt-3 mt-2">
+                          <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">관리자 메뉴 (마이페이지 하위)</p>
+                          <Link href="/admin">
+                            <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 bg-indigo-50 hover:bg-indigo-100 font-semibold">
+                              <Settings className="w-4 h-4 text-indigo-600" />
+                              <span>학습자 전체 대시보드</span>
+                            </button>
+                          </Link>
+                          <Link href="/admin/social-providers">
+                            <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                              <Settings className="w-4 h-4" />
+                              <span>소셜 로그인 및 푸시 설정</span>
+                            </button>
+                          </Link>
+                        </div>
+                      )}
                       <div className="border-t border-gray-200 pt-4">
                         <Button
                           onClick={logout}
