@@ -37,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "커리큘럼", href: "/curriculum", icon: BookOpen },
   { label: "대시보드", href: "/dashboard", icon: BarChart3 },
   { label: "오프라인 보관함", href: "/offline-essays", icon: FileText },
+  { label: "관리자", href: "/admin", icon: Settings },
   {
     label: "학습 도구",
     href: "#",
@@ -72,7 +73,7 @@ export default function Navigation() {
               <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-800 rounded-lg flex items-center justify-center">
                 <BookOpen className="w-5 h-5 text-white" />
               </div>
-              <span className="font-bold text-lg text-gray-900 hidden sm:inline">
+              <span className="font-bold text-base sm:text-lg text-gray-900 tracking-tight">
                 논술 마스터
               </span>
             </div>

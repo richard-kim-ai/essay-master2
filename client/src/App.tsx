@@ -24,7 +24,8 @@ import Signup from "./pages/Signup";
 import VerifyEmail from "./pages/VerifyEmail";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
-import SocialProviderSettings from "./pages/SocialProviderSettings";
+import SocialProviderSettings from "@/pages/SocialProviderSettings";
+import AdminDashboard from "@/pages/AdminDashboard";
 import Layout from "./components/Layout";
 
 function Router() {
@@ -36,6 +37,13 @@ function Router() {
       <Route path={"/verify-email"} component={VerifyEmail} />
       <Route path={"/forgot-password"} component={ForgotPassword} />
       <Route path={"/reset-password"} component={ResetPassword} />
+      <Route path={"/admin"}>
+        {(params) => (
+          <Layout>
+            <AdminDashboard />
+          </Layout>
+        )}
+      </Route>
       <Route path={"/admin/social-providers"}>
         {(params) => (
           <Layout>
