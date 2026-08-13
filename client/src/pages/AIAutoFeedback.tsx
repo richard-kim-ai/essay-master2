@@ -19,7 +19,12 @@ export default function AIAutoFeedback() {
   const [feedback, setFeedback] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  const createFeedbackMutation = trpc.aiAutoFeedback.create.useMutation();
+  const { data: quota, refetch: refetchQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery();
+  const createFeedbackMutation = trpc.aiAutoFeedback.create.useMutation({
+    onSuccess: () => {
+      refetchQuota();
+    },
+  });
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
@@ -83,6 +88,23 @@ export default function AIAutoFeedback() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <h1 className="text-4xl font-bold text-gray-900 mb-8">AI 자동 첨삭</h1>
+
+        {quota && (
+          <div className="mb-6 flex items-center justify-between rounded-xl bg-blue-50 border border-blue-200 p-4 text-blue-900">
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-sm">AI</span>
+              <div>
+                <p className="text-sm font-semibold">공용 크레딧 일일 AI 첨삭 쿼터</p>
+                <p className="text-xs text-blue-700">오늘 사용한 횟수: <span className="font-bold">{quota.used}회</span> / 무료 제공 <span className="font-bold">{quota.limit}회</span> (잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</p>
+              </div>
+            </div>
+            {quota.remaining === 0 && user?.role !== "admin" && (
+              <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-3 py-1 rounded-full">
+                오늘 쿼터 소모 완료
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Input Section */}

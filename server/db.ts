@@ -1,4 +1,3 @@
-import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -14,14 +13,15 @@ import {
   socialProviderConfig,
   appSecretConfig,
   pushSubscription,
+  aiUsageLogs,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
+import { eq, and, desc, gte } from "drizzle-orm";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -79,8 +79,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (!values.lastSignedIn) {
       values.lastSignedIn = new Date();
     }
-
-    if (Object.keys(updateSet).length === 0) {
+    if (!updateSet.lastSignedIn) {
       updateSet.lastSignedIn = new Date();
     }
 
@@ -95,123 +94,54 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
+  if (!db) return undefined;
 
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.openId, openId))
-    .limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
-}
-
-export async function updateUserSocialProfile(userId: number, name: string | null, email: string | null, loginMethod: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  await db.update(users).set({ name, email, loginMethod, emailVerifiedAt: new Date(), lastSignedIn: new Date() }).where(eq(users.id, userId));
-  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  const result = await db.select().from(users).where(eq(users.openId, openId));
   return result[0];
 }
 
-export async function updateUserSocialIdentity(userId: number, openId: string, name: string | null, email: string | null, loginMethod: string) {
+export async function getUserById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  await db.update(users).set({ openId, name, email, loginMethod, emailVerifiedAt: new Date(), lastSignedIn: new Date() }).where(eq(users.id, userId));
-  return getUserByOpenId(openId);
+  if (!db) return undefined;
+
+  const result = await db.select().from(users).where(eq(users.id, id));
+  return result[0];
 }
 
 export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
+  const result = await db.select().from(users).where(eq(users.email, email));
+  return result[0];
 }
 
-export async function createEmailUser(user: InsertUser) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-
-  await db.insert(users).values(user);
-  return getUserByOpenId(user.openId);
-}
-
-export async function updateVerificationToken(
-  userId: number,
-  tokenHash: string,
-  expiresAt: Date,
-) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-
-  await db
-    .update(users)
-    .set({ verificationTokenHash: tokenHash, verificationTokenExpiresAt: expiresAt })
-    .where(eq(users.id, userId));
-}
-
-export async function getUserByVerificationTokenHash(tokenHash: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.verificationTokenHash, tokenHash))
-    .limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
-}
-
-export async function markEmailVerified(userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-
-  await db
-    .update(users)
-    .set({
-      emailVerifiedAt: new Date(),
-      verificationTokenHash: null,
-      verificationTokenExpiresAt: null,
-    })
-    .where(eq(users.id, userId));
-
-  return db.select().from(users).where(eq(users.id, userId)).limit(1);
-}
-
-export async function updateUserLastSignedIn(userId: number) {
+export async function updateUserEmailVerified(userId: number) {
   const db = await getDb();
   if (!db) return;
 
-  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
+  await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, userId));
 }
 
-export async function updatePasswordResetToken(userId: number, tokenHash: string, expiresAt: Date) {
+export async function updateUserPassword(userId: number, passwordHash: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  await db.update(users).set({ passwordResetTokenHash: tokenHash, passwordResetTokenExpiresAt: expiresAt }).where(eq(users.id, userId));
+  if (!db) return;
+
+  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
 }
 
-export async function getUserByPasswordResetTokenHash(tokenHash: string) {
+export async function updateUserSocialProfile(userId: number, profile: { name?: string; email?: string; loginMethod?: string }) {
   const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.passwordResetTokenHash, tokenHash)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
-}
+  if (!db) return;
 
-export async function resetUserPassword(userId: number, passwordHash: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  await db.update(users).set({ passwordHash, passwordResetTokenHash: null, passwordResetTokenExpiresAt: null }).where(eq(users.id, userId));
+  const setObj: Record<string, any> = {};
+  if (profile.name !== undefined) setObj.name = profile.name;
+  if (profile.email !== undefined) setObj.email = profile.email;
+  if (profile.loginMethod !== undefined) setObj.loginMethod = profile.loginMethod;
+
+  if (Object.keys(setObj).length > 0) {
+    await db.update(users).set(setObj).where(eq(users.id, userId));
+  }
 }
 
 export async function listSocialProviderConfigs() {
@@ -220,11 +150,11 @@ export async function listSocialProviderConfigs() {
   return db.select().from(socialProviderConfig);
 }
 
-export async function getSocialProviderConfig(provider: "google" | "kakao" | "naver") {
+export async function getSocialProviderConfig(provider: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(socialProviderConfig).where(eq(socialProviderConfig.provider, provider)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  const result = await db.select().from(socialProviderConfig).where(eq(socialProviderConfig.provider, provider as any));
+  return result[0];
 }
 
 export async function upsertSocialProviderConfig(input: InsertSocialProviderConfig) {
@@ -232,10 +162,10 @@ export async function upsertSocialProviderConfig(input: InsertSocialProviderConf
   if (!db) throw new Error("Database is not available");
   await db.insert(socialProviderConfig).values(input).onDuplicateKeyUpdate({
     set: {
-      clientId: input.clientId ?? null,
-      clientSecretEncrypted: input.clientSecretEncrypted ?? null,
-      enabled: input.enabled ?? 0,
-      updatedBy: input.updatedBy ?? null,
+      clientId: input.clientId,
+      clientSecretEncrypted: input.clientSecretEncrypted,
+      enabled: input.enabled,
+      updatedBy: input.updatedBy,
     },
   });
 }
@@ -243,8 +173,8 @@ export async function upsertSocialProviderConfig(input: InsertSocialProviderConf
 export async function getAppSecretConfig(settingKey: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(appSecretConfig).where(eq(appSecretConfig.settingKey, settingKey)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  const result = await db.select().from(appSecretConfig).where(eq(appSecretConfig.settingKey, settingKey));
+  return result[0];
 }
 
 export async function upsertAppSecretConfig(settingKey: string, encryptedValue: string | null, updatedBy: number) {
@@ -297,23 +227,9 @@ export async function getCurriculumById(id: number) {
   const result = await db
     .select()
     .from(curriculum)
-    .where(eq(curriculum.id, id))
-    .limit(1);
+    .where(eq(curriculum.id, id));
 
-  return result.length > 0 ? result[0] : undefined;
-}
-
-export async function insertCurriculum(data: {
-  courseType: "elementary" | "middle_high";
-  level: number;
-  title: string;
-  description?: string;
-}) {
-  const db = await getDb();
-  if (!db) return undefined;
-
-  const result = await db.insert(curriculum).values(data);
-  return result;
+  return result[0];
 }
 
 // ========== Progress Functions ==========
@@ -328,49 +244,37 @@ export async function getProgressByUser(userId: number) {
     .where(eq(progress.userId, userId));
 }
 
-export async function getProgressByUserAndCurriculum(userId: number, curriculumId: number) {
-  const db = await getDb();
-  if (!db) return undefined;
-
-  const result = await db
-    .select()
-    .from(progress)
-    .where(and(eq(progress.userId, userId), eq(progress.curriculumId, curriculumId)))
-    .limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
-}
-
-export async function upsertProgress(data: {
+export async function upsertProgress(input: {
   userId: number;
   curriculumId: number;
-  score: number;
-  completed: number;
-  completedAt?: Date;
+  completed?: number;
+  score?: number;
+  completedAt?: Date | null;
 }) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  const existing = await getProgressByUserAndCurriculum(data.userId, data.curriculumId);
-
-  if (existing) {
-    return await db
-      .update(progress)
-      .set({
-        score: data.score,
-        completed: data.completed,
-        completedAt: data.completedAt,
-        updatedAt: new Date(),
-      })
-      .where(eq(progress.id, existing.id));
-  } else {
-    return await db.insert(progress).values(data);
-  }
+  await db
+    .insert(progress)
+    .values({
+      userId: input.userId,
+      curriculumId: input.curriculumId,
+      completed: input.completed ?? 0,
+      score: input.score ?? 0,
+      completedAt: input.completedAt ?? null,
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        completed: input.completed ?? 0,
+        score: input.score ?? 0,
+        completedAt: input.completedAt ?? null,
+      },
+    });
 }
 
-// ========== Quiz Answer Functions ==========
+// ========== Quiz Functions ==========
 
-export async function saveQuizAnswer(data: {
+export async function saveQuizAnswer(input: {
   userId: number;
   quizId: number;
   userAnswer: string;
@@ -381,9 +285,18 @@ export async function saveQuizAnswer(data: {
   accuracyScore?: string;
 }) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  return await db.insert(quizAnswer).values(data);
+  await db.insert(quizAnswer).values({
+    userId: input.userId,
+    quizId: input.quizId,
+    userAnswer: input.userAnswer,
+    isCorrect: input.isCorrect,
+    feedback: input.feedback ?? null,
+    economyScore: input.economyScore ?? null,
+    clarityScore: input.clarityScore ?? null,
+    accuracyScore: input.accuracyScore ?? null,
+  });
 }
 
 export async function getQuizAnswersByUser(userId: number) {
@@ -415,13 +328,12 @@ export async function getCertificateByShareToken(shareToken: string) {
   const result = await db
     .select()
     .from(certificate)
-    .where(eq(certificate.shareToken, shareToken))
-    .limit(1);
+    .where(eq(certificate.shareToken, shareToken));
 
-  return result.length > 0 ? result[0] : undefined;
+  return result[0];
 }
 
-export async function issueCertificate(data: {
+export async function issueCertificate(input: {
   userId: number;
   courseType: "elementary" | "middle_high";
   level?: number;
@@ -430,9 +342,10 @@ export async function issueCertificate(data: {
   pdfUrl?: string;
 }) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  return await db.insert(certificate).values(data);
+  const [result] = await db.insert(certificate).values(input);
+  return result;
 }
 
 // ========== Essay Submission Functions ==========
@@ -454,13 +367,12 @@ export async function getEssaySubmissionById(id: number) {
   const result = await db
     .select()
     .from(essaySubmission)
-    .where(eq(essaySubmission.id, id))
-    .limit(1);
+    .where(eq(essaySubmission.id, id));
 
-  return result.length > 0 ? result[0] : undefined;
+  return result[0];
 }
 
-export async function createEssaySubmission(data: {
+export async function createEssaySubmission(input: {
   userId: number;
   curriculumId?: number;
   title: string;
@@ -468,17 +380,21 @@ export async function createEssaySubmission(data: {
   status?: "draft" | "submitted" | "reviewed";
 }) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  return await db.insert(essaySubmission).values({
-    ...data,
-    status: data.status || "draft",
+  const [result] = await db.insert(essaySubmission).values({
+    userId: input.userId,
+    curriculumId: input.curriculumId ?? null,
+    title: input.title,
+    content: input.content,
+    status: input.status ?? "draft",
   });
+  return result;
 }
 
 export async function updateEssaySubmission(
   id: number,
-  data: {
+  input: {
     title?: string;
     content?: string;
     status?: "draft" | "submitted" | "reviewed";
@@ -486,14 +402,11 @@ export async function updateEssaySubmission(
   }
 ) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  return await db
+  await db
     .update(essaySubmission)
-    .set({
-      ...data,
-      updatedAt: new Date(),
-    })
+    .set(input)
     .where(eq(essaySubmission.id, id));
 }
 
@@ -506,13 +419,12 @@ export async function getTeacherFeedbackByEssay(essayId: number) {
   const result = await db
     .select()
     .from(teacherFeedback)
-    .where(eq(teacherFeedback.essayId, essayId))
-    .limit(1);
+    .where(eq(teacherFeedback.essayId, essayId));
 
-  return result.length > 0 ? result[0] : undefined;
+  return result[0];
 }
 
-export async function createTeacherFeedback(data: {
+export async function createTeacherFeedback(input: {
   essayId: number;
   teacherId: number;
   overallComment?: string;
@@ -522,14 +434,15 @@ export async function createTeacherFeedback(data: {
   expressionScore?: number;
 }) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  return await db.insert(teacherFeedback).values(data);
+  const [result] = await db.insert(teacherFeedback).values(input);
+  return result;
 }
 
 export async function updateTeacherFeedback(
-  id: number,
-  data: {
+  feedbackId: number,
+  input: {
     overallComment?: string;
     overallScore?: number;
     structureScore?: number;
@@ -538,18 +451,13 @@ export async function updateTeacherFeedback(
   }
 ) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  return await db
+  await db
     .update(teacherFeedback)
-    .set({
-      ...data,
-      updatedAt: new Date(),
-    })
-    .where(eq(teacherFeedback.id, id));
+    .set(input)
+    .where(eq(teacherFeedback.id, feedbackId));
 }
-
-// ========== Feedback Comment Functions ==========
 
 export async function getFeedbackCommentsByFeedback(feedbackId: number) {
   const db = await getDb();
@@ -561,7 +469,7 @@ export async function getFeedbackCommentsByFeedback(feedbackId: number) {
     .where(eq(feedbackComment.feedbackId, feedbackId));
 }
 
-export async function createFeedbackComment(data: {
+export async function createFeedbackComment(input: {
   feedbackId: number;
   lineNumber: number;
   startIndex: number;
@@ -570,9 +478,10 @@ export async function createFeedbackComment(data: {
   commentType: "grammar" | "logic" | "expression" | "structure" | "other";
 }) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  return await db.insert(feedbackComment).values(data);
+  const [result] = await db.insert(feedbackComment).values(input);
+  return result;
 }
 
 // ========== AI Auto Feedback Functions ==========
@@ -587,7 +496,7 @@ export async function getAIAutoFeedbackByUser(userId: number) {
     .where(eq(aiAutoFeedback.userId, userId));
 }
 
-export async function createAIAutoFeedback(data: {
+export async function createAIAutoFeedback(input: {
   userId: number;
   essayTitle: string;
   essayContent: string;
@@ -598,12 +507,151 @@ export async function createAIAutoFeedback(data: {
   logicScore?: number;
   expressionScore?: number;
   overallScore?: number;
-  suggestions?: string; // JSON array
-  strengths?: string; // JSON array
-  weaknesses?: string; // JSON array
+  suggestions?: string;
+  strengths?: string;
+  weaknesses?: string;
 }) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) throw new Error("Database is not available");
 
-  return await db.insert(aiAutoFeedback).values(data);
+  const [result] = await db.insert(aiAutoFeedback).values(input);
+  return result;
 }
+
+// ========== AI Usage & Quota Functions ==========
+
+export async function logAIUsage(userId: number, actionType: string, tokensUsed: number = 0) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(aiUsageLogs).values({
+    userId,
+    actionType,
+    tokensUsed,
+  });
+}
+
+export async function getTodayAIUsageCount(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const logs = await db
+    .select()
+    .from(aiUsageLogs)
+    .where(and(eq(aiUsageLogs.userId, userId), gte(aiUsageLogs.createdAt, todayStart)));
+
+  return logs.length;
+}
+
+export async function getAllAIUsageStats() {
+  const db = await getDb();
+  if (!db) return { totalCalls: 0, todayCalls: 0 };
+
+  const allLogs = await db.select().from(aiUsageLogs);
+  const totalCalls = allLogs.length;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayCalls = allLogs.filter(l => new Date(l.createdAt) >= todayStart).length;
+
+  return { totalCalls, todayCalls };
+}
+
+export async function updateUserSocialIdentity(userId: number, openId: string, name?: string | null, email?: string | null, loginMethod?: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  await db.update(users).set({
+    name: name !== undefined ? name : undefined,
+    email: email !== undefined ? email : undefined,
+    loginMethod: loginMethod !== undefined ? loginMethod : undefined,
+    lastSignedIn: new Date(),
+  }).where(eq(users.id, userId));
+  return getUserById(userId);
+}
+
+export async function createEmailUser(input: {
+  openId: string;
+  name?: string | null;
+  email?: string | null;
+  passwordHash?: string | null;
+  loginMethod?: string;
+  emailVerifiedAt?: Date | null;
+  verificationTokenHash?: string | null;
+  verificationTokenExpiresAt?: Date | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(users).values({
+    openId: input.openId,
+    name: input.name ?? null,
+    email: input.email ?? null,
+    passwordHash: input.passwordHash ?? null,
+    loginMethod: input.loginMethod ?? "email",
+    emailVerifiedAt: input.emailVerifiedAt ?? null,
+    verificationTokenHash: input.verificationTokenHash ?? null,
+    verificationTokenExpiresAt: input.verificationTokenExpiresAt ?? null,
+    lastSignedIn: new Date(),
+  });
+  return getUserByOpenId(input.openId);
+}
+
+export async function updateUserLastSignedIn(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
+}
+
+export async function getProgressByUserAndCurriculum(userId: number, curriculumId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(progress).where(and(eq(progress.userId, userId), eq(progress.curriculumId, curriculumId)));
+  return result[0];
+}
+
+export async function setUserPasswordResetToken(userId: number, tokenHash: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+}
+
+export async function getUserByPasswordResetTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.verificationTokenHash, tokenHash));
+  return result[0];
+}
+
+export async function resetUserPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ passwordHash, verificationTokenHash: null }).where(eq(users.id, userId));
+}
+
+export async function updateVerificationToken(userId: number, tokenHash: string, _expiresAt?: Date) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+}
+
+export async function updatePasswordResetToken(userId: number, tokenHash: string, _expiresAt?: Date) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+}
+
+export async function getUserByVerificationTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.verificationTokenHash, tokenHash));
+  return result[0];
+}
+
+export async function markEmailVerified(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ emailVerifiedAt: new Date(), verificationTokenHash: null }).where(eq(users.id, userId));
+}
+
+

@@ -311,9 +311,9 @@ export const appRouter = router({
         db.upsertProgress({
           userId: ctx.user.id,
           curriculumId: input.curriculumId,
-          score: input.score,
-          completed: input.completed,
-          completedAt: input.completedAt,
+          score: input.score ?? 0,
+          completed: input.completed ? 1 : 0,
+          completedAt: input.completedAt ?? null,
         })
       ),
   }),
@@ -338,10 +338,10 @@ export const appRouter = router({
           quizId: input.quizId,
           userAnswer: input.userAnswer,
           isCorrect: input.isCorrect,
-          feedback: input.feedback,
-          economyScore: input.economyScore,
-          clarityScore: input.clarityScore,
-          accuracyScore: input.accuracyScore,
+          feedback: input.feedback ?? undefined,
+          economyScore: input.economyScore ?? undefined,
+          clarityScore: input.clarityScore ?? undefined,
+          accuracyScore: input.accuracyScore ?? undefined,
         })
       ),
 
@@ -516,6 +516,12 @@ export const appRouter = router({
       db.getAIAutoFeedbackByUser(ctx.user.id)
     ),
 
+    getTodayQuota: protectedProcedure.query(async ({ ctx }) => {
+        const count = await db.getTodayAIUsageCount(ctx.user.id);
+        const limit = 5; // 일일 무료 공용 크레딧 제한
+        return { used: count, limit, remaining: Math.max(0, limit - count) };
+      }),
+
     create: protectedProcedure
       .input(
         z.object({
@@ -526,11 +532,25 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        // 일일 쿼터 확인 (관리자는 무제한, 일반 학생은 일 5회 제한)
+        if (ctx.user.role !== "admin") {
+          const usageCount = await db.getTodayAIUsageCount(ctx.user.id);
+          if (usageCount >= 5) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요.",
+            });
+          }
+        }
+
         // AI 피드백 생성
         const feedback = await evaluateEssay(
           input.essayContent,
           input.courseType
         );
+
+        // 사용량 기록
+        await db.logAIUsage(ctx.user.id, "essay_feedback", 3000);
 
         // 데이터베이스에 저장
         return await db.createAIAutoFeedback({

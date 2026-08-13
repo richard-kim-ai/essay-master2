@@ -98,7 +98,8 @@ async function signInWithProfile(provider: Provider, profile: ProviderProfile, r
     if (user.openId === openId) {
       user = await db.updateUserSocialIdentity(user.id, openId, profile.name, profile.email?.toLowerCase() ?? user.email, provider);
     } else {
-      user = await db.updateUserSocialProfile(user.id, profile.name, profile.email?.toLowerCase() ?? user.email, provider);
+      await db.updateUserSocialProfile(user.id, { name: profile.name ?? undefined, email: profile.email?.toLowerCase() ?? undefined, loginMethod: provider });
+      user = await db.getUserById(user.id);
     }
   } else {
     user = await db.createEmailUser({ openId, name: profile.name, email: profile.email?.toLowerCase() ?? null, loginMethod: provider, emailVerifiedAt: new Date() });

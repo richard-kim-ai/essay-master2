@@ -202,3 +202,15 @@ export const aiAutoFeedback = mysqlTable("ai_auto_feedback", {
 
 export type AIAutoFeedback = typeof aiAutoFeedback.$inferSelect;
 export type InsertAIAutoFeedback = typeof aiAutoFeedback.$inferInsert;
+
+// AI 사용량 및 일일 쿼터 로그 테이블
+export const aiUsageLogs = mysqlTable("ai_usage_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  actionType: varchar("actionType", { length: 50 }).notNull(), // 'essay_feedback', 'sentence_quiz', etc.
+  tokensUsed: int("tokensUsed").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AIUsageLog = typeof aiUsageLogs.$inferSelect;
+export type InsertAIUsageLog = typeof aiUsageLogs.$inferInsert;
