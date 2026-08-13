@@ -58,9 +58,15 @@ export default function Navigation() {
   const { user, isAuthenticated, logout } = useAuth();
   const [location] = useLocation();
   const [openMobileSubmenu, setOpenMobileSubmenu] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleMobileSubmenuToggle = (label: string) => {
     setOpenMobileSubmenu(openMobileSubmenu === label ? null : label);
+  };
+
+  const handleMobileLinkClick = () => {
+    setMobileMenuOpen(false);
+    setOpenMobileSubmenu(null);
   };
 
   return (
@@ -166,13 +172,13 @@ export default function Navigation() {
                 </div>
 
                 {/* Mobile Menu */}
-                <Sheet>
+                <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
                   <SheetTrigger asChild className="md:hidden">
                     <Button variant="ghost" size="icon">
                       <Menu className="w-5 h-5" />
                     </Button>
                   </SheetTrigger>
-                  <SheetContent side="right" className="w-72">
+                  <SheetContent side="right" className="w-72 overflow-y-auto">
                     <div className="flex flex-col gap-4 mt-8">
                       {/* User Info */}
                       <div className="px-4 py-3 bg-blue-50 rounded-lg border border-blue-200">
@@ -221,7 +227,7 @@ export default function Navigation() {
                                         key={subitem.href}
                                         href={subitem.href}
                                       >
-                                        <button className="w-full flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm">
+                                        <button onClick={handleMobileLinkClick} className="w-full flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm">
                                           {SubIcon && (
                                             <SubIcon className="w-4 h-4" />
                                           )}
@@ -238,7 +244,7 @@ export default function Navigation() {
 
                         return (
                           <Link key={item.href} href={item.href}>
-                            <button className="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                            <button onClick={handleMobileLinkClick} className="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
                               {Icon && <Icon className="w-4 h-4" />}
                               <span className="text-sm font-medium">
                                 {item.label}

@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
@@ -208,23 +209,50 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>🤖 주간 AI 첨삭 사용량 통계 (최근 7일)</CardTitle>
-                <CardDescription>
-                  일자별 AI 자동 첨삭 이용 횟수를 한눈에 확인하세요 (공용 크레딧)
-                </CardDescription>
+            <Card className="border-sky-100 shadow-sm bg-gradient-to-br from-white to-sky-50/30">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div>
+                  <CardTitle className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <span>🤖 주간 AI 첨삭 사용량 통계</span>
+                    <span className="text-xs bg-sky-100 text-sky-800 font-semibold px-2.5 py-0.5 rounded-full">최근 7일</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs text-gray-500 mt-1">
+                    일자별 공용 크레딧 기반 AI 자동 첨삭 이용 횟수 현황입니다.
+                  </CardDescription>
+                </div>
+                <div className="text-right hidden sm:block">
+                  <span className="text-2xl font-extrabold text-sky-600">
+                    {weeklyUsageData ? weeklyUsageData.reduce((acc, curr) => acc + curr.count, 0) : 0}회
+                  </span>
+                  <p className="text-[11px] text-gray-400">총 이용 횟수</p>
+                </div>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={weeklyUsageData || []}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Bar dataKey="count" name="첨삭 횟수" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {weeklyUsageData && weeklyUsageData.some(d => d.count > 0) ? (
+                  <div className="pt-4">
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={weeklyUsageData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="date" stroke="#64748b" fontSize={12} tickLine={false} />
+                        <YAxis allowDecimals={false} stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
+                          formatter={(value: any) => [`${value}회`, "첨삭"]}
+                        />
+                        <Bar dataKey="count" name="첨삭 횟수" fill="#0284c7" radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-white/60 rounded-xl border border-dashed border-sky-200">
+                    <div className="w-12 h-12 rounded-full bg-sky-100 flex items-center justify-center text-sky-600 mb-3 font-bold text-lg">AI</div>
+                    <p className="text-sm font-semibold text-gray-800">아직 이번 주 AI 첨삭 기록이 없습니다.</p>
+                    <p className="text-xs text-gray-500 mt-1">AI 자동 첨삭 메뉴에서 글을 작성하고 첨삭을 받아보세요!</p>
+                    <Link href="/ai-auto-feedback">
+                      <Button size="sm" className="mt-4 bg-sky-600 hover:bg-sky-700 text-white text-xs">AI 자동 첨삭 하러 가기</Button>
+                    </Link>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
