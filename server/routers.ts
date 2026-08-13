@@ -522,6 +522,30 @@ export const appRouter = router({
         return { used: count, limit, remaining: Math.max(0, limit - count) };
       }),
 
+    getWeeklyUsage: protectedProcedure.query(async ({ ctx }) => {
+        const logs = await db.getWeeklyAIUsageLogs(ctx.user.id);
+        // 최근 7일간 일자별 그룹화
+        const daysMap: Record<string, number> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const key = d.toISOString().split("T")[0];
+          daysMap[key] = 0;
+        }
+
+        logs.forEach((log) => {
+          const key = new Date(log.createdAt).toISOString().split("T")[0];
+          if (daysMap[key] !== undefined) {
+            daysMap[key] += 1;
+          }
+        });
+
+        return Object.entries(daysMap).map(([date, count]) => ({
+          date: date.slice(5), // MM-DD
+          count,
+        }));
+      }),
+
     create: protectedProcedure
       .input(
         z.object({

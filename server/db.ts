@@ -655,3 +655,19 @@ export async function markEmailVerified(userId: number) {
 }
 
 
+
+export async function getWeeklyAIUsageLogs(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  weekAgo.setHours(0, 0, 0, 0);
+
+  const logs = await db
+    .select()
+    .from(aiUsageLogs)
+    .where(and(eq(aiUsageLogs.userId, userId), gte(aiUsageLogs.createdAt, weekAgo)));
+
+  return logs;
+}

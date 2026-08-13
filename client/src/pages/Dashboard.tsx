@@ -30,6 +30,9 @@ export default function Dashboard() {
   const { data: quizData } = trpc.quiz.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+  const { data: weeklyUsageData } = trpc.aiAutoFeedback.getWeeklyUsage.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
@@ -194,7 +197,7 @@ export default function Dashboard() {
           </TabsContent>
 
           <TabsContent value="growth">
-            <Card>
+            <Card className="mb-6">
               <CardHeader>
                 <CardTitle>성장 추이</CardTitle>
                 <CardDescription>
@@ -216,6 +219,26 @@ export default function Dashboard() {
                       name="점수"
                     />
                   </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>🤖 주간 AI 첨삭 사용량 통계 (최근 7일)</CardTitle>
+                <CardDescription>
+                  일자별 AI 자동 첨삭 이용 횟수를 한눈에 확인하세요 (공용 크레딧)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={weeklyUsageData || []}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="count" name="첨삭 횟수" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>

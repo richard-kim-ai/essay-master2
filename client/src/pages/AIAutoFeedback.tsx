@@ -20,9 +20,16 @@ export default function AIAutoFeedback() {
   const [loading, setLoading] = useState(false);
 
   const { data: quota, refetch: refetchQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery();
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
   const createFeedbackMutation = trpc.aiAutoFeedback.create.useMutation({
     onSuccess: () => {
       refetchQuota();
+    },
+    onError: (err) => {
+      if (err.message && err.message.includes("쿼터")) {
+        setShowUpgradeModal(true);
+      }
     },
   });
 
@@ -98,11 +105,48 @@ export default function AIAutoFeedback() {
                 <p className="text-xs text-blue-700">오늘 사용한 횟수: <span className="font-bold">{quota.used}회</span> / 무료 제공 <span className="font-bold">{quota.limit}회</span> (잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</p>
               </div>
             </div>
-            {quota.remaining === 0 && user?.role !== "admin" && (
-              <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-3 py-1 rounded-full">
-                오늘 쿼터 소모 완료
+            {quota.remaining === 0 && user?.role !== "admin" ? (
+              <button
+                onClick={() => setShowUpgradeModal(true)}
+                className="text-xs bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold px-4 py-2 rounded-lg shadow-sm transition"
+              >
+                프리미엄 업그레이드 / 충전
+              </button>
+            ) : (
+              <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-3 py-1 rounded-full">
+                이용 가능
               </span>
             )}
+          </div>
+        )}
+
+        {/* Upgrade / Credit Modal */}
+        {showUpgradeModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-900">✨ 일일 AI 쿼터 소진 안내</h3>
+                <button onClick={() => setShowUpgradeModal(false)} className="text-gray-400 hover:text-gray-600 font-bold text-lg">×</button>
+              </div>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                오늘 제공된 무료 AI 자동 첨삭 횟수(5회)를 모두 소진하셨습니다. 더 많은 첨삭과 심층 분석을 원하시면 프리미엄 플랜으로 업그레이드하거나 추가 크레딧을 충전하세요!
+              </p>
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="border border-indigo-200 bg-indigo-50/50 rounded-xl p-4 text-center space-y-2">
+                  <p className="text-xs font-bold text-indigo-700 uppercase">Pro Pass</p>
+                  <p className="text-lg font-extrabold text-gray-900">₩9,900<span className="text-xs font-normal text-gray-500">/월</span></p>
+                  <p className="text-xs text-gray-600">일일 30회 + 심층 분석</p>
+                  <button onClick={() => { toast.success("프로 플랜 신청이 완료되었습니다! (시뮬레이션)"); setShowUpgradeModal(false); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-2 rounded-lg font-semibold">구독하기</button>
+                </div>
+                <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 text-center space-y-2">
+                  <p className="text-xs font-bold text-emerald-700 uppercase">Extra Credit</p>
+                  <p className="text-lg font-extrabold text-gray-900">₩3,000<span className="text-xs font-normal text-gray-500">/10회</span></p>
+                  <p className="text-xs text-gray-600">추가 10회 즉시 충전</p>
+                  <button onClick={() => { toast.success("추가 크레딧 충전이 완료되었습니다! (시뮬레이션)"); setShowUpgradeModal(false); }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs py-2 rounded-lg font-semibold">충전하기</button>
+                </div>
+              </div>
+              <button onClick={() => setShowUpgradeModal(false)} className="w-full text-center text-xs text-gray-500 hover:text-gray-700 pt-2">다음에 할게요</button>
+            </div>
           </div>
         )}
 
