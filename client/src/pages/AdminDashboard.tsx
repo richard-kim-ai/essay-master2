@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter } from "lucide-react";
+import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter, ArrowUpDown } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -28,13 +28,14 @@ export default function AdminDashboard() {
   const [pendingDifficulty, setPendingDifficulty] = useState<"standard" | "advanced" | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
 
-  // Search and filter states
+  // Search, filter & sort states
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("recent"); // 'recent' | 'name' | 'id'
 
   const filteredUsers = useMemo(() => {
     if (!analytics?.users.users) return [];
-    return analytics.users.users.filter((u) => {
+    let list = analytics.users.users.filter((u) => {
       const matchQuery =
         (u.name && u.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -44,7 +45,22 @@ export default function AdminDashboard() {
 
       return matchQuery && matchRole;
     });
-  }, [analytics?.users.users, searchQuery, roleFilter]);
+
+    // Sorting
+    return list.sort((a, b) => {
+      if (sortBy === "recent") {
+        const timeA = a.lastSignedIn ? new Date(a.lastSignedIn).getTime() : 0;
+        const timeB = b.lastSignedIn ? new Date(b.lastSignedIn).getTime() : 0;
+        return timeB - timeA;
+      } else if (sortBy === "name") {
+        const nameA = a.name || `사용자 #${a.id}`;
+        const nameB = b.name || `사용자 #${b.id}`;
+        return nameA.localeCompare(nameB);
+      } else {
+        return b.id - a.id;
+      }
+    });
+  }, [analytics?.users.users, searchQuery, roleFilter, sortBy]);
 
   const handleExportCSV = () => {
     if (!analytics || !analytics.users.users.length) {
@@ -203,14 +219,14 @@ export default function AdminDashboard() {
                       <Users className="h-5 w-5 text-blue-600" />
                       <span>전체 학습자 현황 및 상세 관리</span>
                     </CardTitle>
-                    <CardDescription>학생을 검색하고 클릭하여 상세 진도 및 메모를 관리하세요.</CardDescription>
+                    <CardDescription>학생을 검색, 정렬 및 클릭하여 상세 진도와 메모를 관리하세요.</CardDescription>
                   </div>
                   <span className="text-xs bg-slate-100 text-slate-700 font-semibold px-2.5 py-1 rounded-full">
                     총 {filteredUsers.length}명 검색됨
                   </span>
                 </div>
 
-                {/* Search & Filter Bar */}
+                {/* Search, Filter & Sort Bar */}
                 <div className="flex flex-col sm:flex-row items-center gap-3 mt-4 pt-4 border-t border-slate-100">
                   <div className="relative flex-1 w-full">
                     <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -222,14 +238,26 @@ export default function AdminDashboard() {
                     />
                   </div>
                   <Select value={roleFilter} onValueChange={setRoleFilter}>
-                    <SelectTrigger className="w-full sm:w-[150px] text-sm">
+                    <SelectTrigger className="w-full sm:w-[130px] text-sm">
                       <Filter className="w-3.5 h-3.5 mr-2 text-slate-500" />
-                      <SelectValue placeholder="권한 필터" />
+                      <SelectValue placeholder="권한" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">모든 권한</SelectItem>
                       <SelectItem value="user">학습자</SelectItem>
                       <SelectItem value="admin">관리자</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={sortBy} onValueChange={setSortBy}>
+                    <SelectTrigger className="w-full sm:w-[140px] text-sm">
+                      <ArrowUpDown className="w-3.5 h-3.5 mr-2 text-slate-500" />
+                      <SelectValue placeholder="정렬 기준" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="recent">최근 접속일순</SelectItem>
+                      <SelectItem value="name">이름순 (가나다)</SelectItem>
+                      <SelectItem value="latest">최근 가입일순</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
