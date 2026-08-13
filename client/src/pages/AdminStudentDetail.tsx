@@ -1,9 +1,12 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, ArrowLeft, BookOpen, FileText, Award, BarChart3, UserCheck, Calendar } from "lucide-react";
+import { ShieldCheck, ArrowLeft, BookOpen, FileText, Award, BarChart3, UserCheck, Calendar, Save, StickyNote } from "lucide-react";
 import { Link, useParams } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { useState, useEffect } from "react";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 
 export default function AdminStudentDetail() {
   const { user, loading: authLoading } = useAuth();
@@ -11,10 +14,33 @@ export default function AdminStudentDetail() {
   const params = useParams<{ id: string }>();
   const studentId = parseInt(params.id || "0", 10);
 
+  const utils = trpc.useUtils();
   const { data: student, isLoading } = trpc.admin.getStudentDetail.useQuery(
     { studentId },
     { enabled: isAdmin && studentId > 0 }
   );
+
+  const updateNotesMutation = trpc.admin.updateStudentNotes.useMutation({
+    onSuccess: () => {
+      toast.success("관리자 메모가 성공적으로 저장되었습니다.");
+      utils.admin.getStudentDetail.invalidate({ studentId });
+    },
+    onError: (err) => {
+      toast.error(err.message || "메모 저장 중 오류가 발생했습니다.");
+    },
+  });
+
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (student?.user && (student.user as any).adminNotes !== undefined) {
+      setNotes((student.user as any).adminNotes || "");
+    }
+  }, [student]);
+
+  const handleSaveNotes = () => {
+    updateNotesMutation.mutate({ studentId, adminNotes: notes });
+  };
 
   if (authLoading) {
     return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-600">불러오는 중입니다...</div>;
@@ -56,7 +82,7 @@ export default function AdminStudentDetail() {
             </Button>
           </Link>
           <span className="text-xs font-semibold px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full">
-            학생 상세 분석 리포트
+            학생 상세 분석 및 관리자 메모
           </span>
         </div>
 
@@ -85,6 +111,38 @@ export default function AdminStudentDetail() {
             <div className="p-3 bg-white rounded-xl border border-slate-200">
               <p className="text-xs text-slate-500 font-medium">취득 수료증</p>
               <p className="text-xl font-bold text-indigo-600 mt-1">{student.certificates.length}개</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Admin Notes Card */}
+        <Card className="border-amber-200 bg-amber-50/30 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-bold flex items-center gap-2 text-amber-900">
+              <StickyNote className="w-5 h-5 text-amber-600" />
+              <span>관리자 전용 학습 상담 및 특이사항 메모</span>
+            </CardTitle>
+            <CardDescription className="text-xs text-amber-700">
+              선생님이나 관리자만 열람하고 수정할 수 있는 학생별 메모장입니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Textarea
+              placeholder="예: 글쓰기 구조는 우수하나 어휘 선택에 대한 피드백 필요 (학부모 상담 일지 등)..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="bg-white border-amber-200 min-h-[120px] text-sm"
+            />
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                onClick={handleSaveNotes}
+                disabled={updateNotesMutation.isPending}
+                className="bg-amber-600 hover:bg-amber-700 text-white gap-2"
+              >
+                <Save className="w-4 h-4" />
+                {updateNotesMutation.isPending ? "저장 중..." : "메모 저장하기"}
+              </Button>
             </div>
           </CardContent>
         </Card>

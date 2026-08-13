@@ -739,3 +739,10 @@ export async function getStudentDetailStats(userId: number) {
     aiFeedbacks,
   };
 }
+
+export async function updateStudentAdminNotes(userId: number, adminNotes: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ adminNotes }).where(eq(users.id, userId));
+  return getUserById(userId);
+}

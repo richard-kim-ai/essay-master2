@@ -1,10 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye } from "lucide-react";
+import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -14,6 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function AdminDashboard() {
   const { user, loading } = useAuth();
@@ -25,6 +27,24 @@ export default function AdminDashboard() {
   const [difficultyMode, setDifficultyMode] = useState<"standard" | "advanced">("standard");
   const [pendingDifficulty, setPendingDifficulty] = useState<"standard" | "advanced" | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+
+  // Search and filter states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+
+  const filteredUsers = useMemo(() => {
+    if (!analytics?.users.users) return [];
+    return analytics.users.users.filter((u) => {
+      const matchQuery =
+        (u.name && u.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        String(u.id).includes(searchQuery);
+
+      const matchRole = roleFilter === "all" || u.role === roleFilter;
+
+      return matchQuery && matchRole;
+    });
+  }, [analytics?.users.users, searchQuery, roleFilter]);
 
   const handleExportCSV = () => {
     if (!analytics || !analytics.users.users.length) {
@@ -176,15 +196,45 @@ export default function AdminDashboard() {
           {/* Left 2 Cols: Student List & Stats */}
           <div className="lg:col-span-2 space-y-6">
             <Card className="border-slate-200">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle className="text-xl font-bold flex items-center gap-2">
-                    <Users className="h-5 w-5 text-blue-600" />
-                    <span>전체 학습자 현황 및 상세 관리</span>
-                  </CardTitle>
-                  <CardDescription>학생을 클릭하면 제출 내역 및 진도를 상세히 조회할 수 있습니다.</CardDescription>
+              <CardHeader className="pb-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-xl font-bold flex items-center gap-2">
+                      <Users className="h-5 w-5 text-blue-600" />
+                      <span>전체 학습자 현황 및 상세 관리</span>
+                    </CardTitle>
+                    <CardDescription>학생을 검색하고 클릭하여 상세 진도 및 메모를 관리하세요.</CardDescription>
+                  </div>
+                  <span className="text-xs bg-slate-100 text-slate-700 font-semibold px-2.5 py-1 rounded-full">
+                    총 {filteredUsers.length}명 검색됨
+                  </span>
+                </div>
+
+                {/* Search & Filter Bar */}
+                <div className="flex flex-col sm:flex-row items-center gap-3 mt-4 pt-4 border-t border-slate-100">
+                  <div className="relative flex-1 w-full">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                    <Input
+                      placeholder="이름, 이메일 또는 ID로 검색..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9 text-sm"
+                    />
+                  </div>
+                  <Select value={roleFilter} onValueChange={setRoleFilter}>
+                    <SelectTrigger className="w-full sm:w-[150px] text-sm">
+                      <Filter className="w-3.5 h-3.5 mr-2 text-slate-500" />
+                      <SelectValue placeholder="권한 필터" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">모든 권한</SelectItem>
+                      <SelectItem value="user">학습자</SelectItem>
+                      <SelectItem value="admin">관리자</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardHeader>
+
               <CardContent>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
@@ -198,25 +248,33 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-sm">
-                      {analytics?.users.users.map((u) => (
-                        <tr key={u.id} className="hover:bg-slate-50/60 transition">
-                          <td className="py-3 px-4 font-semibold text-slate-900">{u.name || `사용자 #${u.id}`}</td>
-                          <td className="py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
-                              {u.role === 'admin' ? '관리자' : '학습자'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-slate-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
-                          <td className="py-3 px-4 text-right">
-                            <Link href={`/admin/student/${u.id}`}>
-                              <Button size="sm" variant="outline" className="h-8 gap-1 text-xs">
-                                <Eye className="w-3.5 h-3.5" /> 상세 보기
-                              </Button>
-                            </Link>
+                      {filteredUsers.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                            검색 결과와 일치하는 학습자가 없습니다.
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        filteredUsers.map((u) => (
+                          <tr key={u.id} className="hover:bg-slate-50/60 transition">
+                            <td className="py-3 px-4 font-semibold text-slate-900">{u.name || `사용자 #${u.id}`}</td>
+                            <td className="py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
+                            <td className="py-3 px-4">
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                                {u.role === 'admin' ? '관리자' : '학습자'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-slate-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
+                            <td className="py-3 px-4 text-right">
+                              <Link href={`/admin/student/${u.id}`}>
+                                <Button size="sm" variant="outline" className="h-8 gap-1 text-xs">
+                                  <Eye className="w-3.5 h-3.5" /> 상세 보기
+                                </Button>
+                              </Link>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>

@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Award, Eye, CheckCircle2, AlertCircle } from "lucide-react";
+import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
@@ -256,17 +256,33 @@ export default function Certificate() {
             </div>
           </div>
 
-          <DialogFooter className="flex gap-2 sm:justify-end">
-            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
-              취소
-            </Button>
-            <Button
-              disabled={loading}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
-              onClick={handleConfirmIssue}
-            >
-              {loading ? "발급 중..." : "최종 수료증 발급하기"}
-            </Button>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:justify-between items-center w-full">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto gap-1 text-xs"
+                onClick={() => {
+                  window.print();
+                  toast.success("수료증 인쇄창이 호출되었습니다.");
+                }}
+              >
+                <Printer className="w-3.5 h-3.5" /> 인쇄 / PDF 저장
+              </Button>
+            </div>
+            <div className="flex gap-2 w-full sm:w-auto justify-end">
+              <Button variant="outline" size="sm" onClick={() => setPreviewOpen(false)}>
+                취소
+              </Button>
+              <Button
+                size="sm"
+                disabled={loading}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 text-xs"
+                onClick={handleConfirmIssue}
+              >
+                {loading ? "발급 중..." : "최종 수료증 발급하기"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
