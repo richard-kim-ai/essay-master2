@@ -138,20 +138,7 @@ export default function EssaySubmission() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <Link href="/">
-            <div className="flex items-center gap-2 cursor-pointer hover:opacity-80">
-              <BookOpen className="w-8 h-8 text-indigo-600" />
-              <span className="text-2xl font-bold text-gray-900">논술 마스터</span>
-            </div>
-          </Link>
-          <div className="text-right">
-            <p className="text-sm text-gray-600">{user?.name}</p>
-          </div>
-        </div>
-      </nav>
+      {/* Layout의 Navigation으로 대체되므로 중복 헤더 제거 완료 */}
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
