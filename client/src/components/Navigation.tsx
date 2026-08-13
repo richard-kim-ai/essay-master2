@@ -36,6 +36,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "커리큘럼", href: "/curriculum", icon: BookOpen },
   { label: "대시보드", href: "/dashboard", icon: BarChart3 },
+  { label: "오프라인 보관함", href: "/offline-essays", icon: FileText },
   {
     label: "학습 도구",
     href: "#",

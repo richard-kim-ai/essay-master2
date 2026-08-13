@@ -17,7 +17,8 @@ import ParagraphReordering from "./pages/ParagraphReordering";
 import SummaryPractice from "./pages/SummaryPractice";
 import MistakeNotebook from "./pages/MistakeNotebook";
 import TopicWizard from "./pages/TopicWizard";
-import ThesisChecklist from "./pages/ThesisChecklist";
+import ThesisChecklist from "@/pages/ThesisChecklist";
+import OfflineEssays from "@/pages/OfflineEssays";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import VerifyEmail from "./pages/VerifyEmail";
@@ -68,6 +69,13 @@ function Router() {
         {(params) => (
           <Layout>
             <EssaySubmission />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/offline-essays"}>
+        {(params) => (
+          <Layout>
+            <OfflineEssays />
           </Layout>
         )}
       </Route>

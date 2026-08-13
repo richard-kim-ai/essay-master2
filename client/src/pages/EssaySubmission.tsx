@@ -26,8 +26,28 @@ export default function EssaySubmission() {
   useEffect(() => {
     if (getByUserQuery.data) {
       setEssays(getByUserQuery.data);
+      try {
+        localStorage.setItem("essay_master_offline_essays", JSON.stringify(getByUserQuery.data));
+      } catch (e) {
+        console.error("Failed to save offline essays cache:", e);
+      }
     }
   }, [getByUserQuery.data]);
+
+  // 로컬에 이미 저장된 오프라인 캐시 불러오기 (온라인 전환 전이나 오프라인 진입 시)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("essay_master_offline_essays");
+      if (cached && essays.length === 0) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setEssays(parsed);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load offline essays cache:", e);
+    }
+  }, []);
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
