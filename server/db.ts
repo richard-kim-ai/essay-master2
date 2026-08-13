@@ -711,3 +711,31 @@ export async function getAllProgressStats() {
 
   return { totalSubmissions, avgScore };
 }
+
+export async function getStudentDetailStats(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const userRecord = await getUserById(userId);
+  if (!userRecord) return null;
+
+  const submissions = await getEssaySubmissionsByUser(userId);
+  const userProgress = await getProgressByUser(userId);
+  const userCerts = await getCertificatesByUser(userId);
+  const aiFeedbacks = await getAIAutoFeedbackByUser(userId);
+
+  return {
+    user: {
+      id: userRecord.id,
+      name: userRecord.name,
+      email: userRecord.email,
+      role: userRecord.role,
+      createdAt: userRecord.createdAt,
+      lastSignedIn: userRecord.lastSignedIn,
+    },
+    submissions,
+    progress: userProgress,
+    certificates: userCerts,
+    aiFeedbacks,
+  };
+}

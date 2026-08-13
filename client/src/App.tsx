@@ -24,7 +24,8 @@ import Signup from "./pages/Signup";
 import VerifyEmail from "./pages/VerifyEmail";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
-import SocialProviderSettings from "@/pages/SocialProviderSettings";
+import SocialProviderSettings from "./pages/SocialProviderSettings";
+import AdminStudentDetail from "./pages/AdminStudentDetail";
 import AdminDashboard from "@/pages/AdminDashboard";
 import Layout from "./components/Layout";
 
@@ -41,6 +42,13 @@ function Router() {
         {(params) => (
           <Layout>
             <AdminDashboard />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/student/:id"}>
+        {(params) => (
+          <Layout>
+            <AdminStudentDetail />
           </Layout>
         )}
       </Route>

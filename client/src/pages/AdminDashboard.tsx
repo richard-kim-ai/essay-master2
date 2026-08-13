@@ -1,11 +1,19 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Settings, Users, BookOpen, Bell, ArrowRight, KeyRound, TrendingUp, Award, BarChart3, Sliders, CheckCircle2 } from "lucide-react";
+import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { useState } from "react";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function AdminDashboard() {
   const { user, loading } = useAuth();
@@ -15,6 +23,51 @@ export default function AdminDashboard() {
   });
 
   const [difficultyMode, setDifficultyMode] = useState<"standard" | "advanced">("standard");
+  const [pendingDifficulty, setPendingDifficulty] = useState<"standard" | "advanced" | null>(null);
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+
+  const handleExportCSV = () => {
+    if (!analytics || !analytics.users.users.length) {
+      toast.error("내보낼 학습자 데이터가 없습니다.");
+      return;
+    }
+
+    const headers = ["ID", "이름", "이메일", "권한", "로그인방식", "가입일", "최근접속일"];
+    const rows = analytics.users.users.map(u => [
+      u.id,
+      `"${u.name || '미설정'}"`,
+      `"${u.email || '소셜계정'}"`,
+      u.role,
+      u.loginMethod,
+      new Date(u.createdAt).toISOString().split('T')[0],
+      u.lastSignedIn ? new Date(u.lastSignedIn).toISOString().split('T')[0] : '기록없음'
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `essay_master_students_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("학습자 분석 데이터가 CSV 파일로 다운로드되었습니다.");
+  };
+
+  const handleDifficultyChangeRequest = (mode: "standard" | "advanced") => {
+    if (difficultyMode === mode) return;
+    setPendingDifficulty(mode);
+    setConfirmModalOpen(true);
+  };
+
+  const confirmDifficultyChange = () => {
+    if (pendingDifficulty) {
+      setDifficultyMode(pendingDifficulty);
+      toast.success(`커리큘럼 난이도가 '${pendingDifficulty === 'standard' ? '표준 (Standard)' : '심화 (Advanced)'}'(으)로 성공적으로 변경되었습니다.`);
+    }
+    setConfirmModalOpen(false);
+    setPendingDifficulty(null);
+  };
 
   if (loading) {
     return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-600">권한을 확인하는 중입니다...</div>;
@@ -56,12 +109,12 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /> 관리자 권한 활성화됨
-            </span>
+            <Button onClick={handleExportCSV} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+              <Download className="w-4 h-4" /> 학습자 데이터 내보내기 (CSV)
+            </Button>
             <Link href="/admin/social-providers">
               <Button size="sm" variant="outline" className="gap-2">
-                <Settings className="w-4 h-4" /> 소셜·푸시 설정
+                <Settings className="w-4 h-4" /> 설정
               </Button>
             </Link>
           </div>
@@ -123,12 +176,14 @@ export default function AdminDashboard() {
           {/* Left 2 Cols: Student List & Stats */}
           <div className="lg:col-span-2 space-y-6">
             <Card className="border-slate-200">
-              <CardHeader>
-                <CardTitle className="text-xl font-bold flex items-center gap-2">
-                  <Users className="h-5 w-5 text-blue-600" />
-                  <span>전체 학습자 현황 (최근 가입 및 접속)</span>
-                </CardTitle>
-                <CardDescription>플랫폼을 이용 중인 학생 및 교사 목록입니다.</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div>
+                  <CardTitle className="text-xl font-bold flex items-center gap-2">
+                    <Users className="h-5 w-5 text-blue-600" />
+                    <span>전체 학습자 현황 및 상세 관리</span>
+                  </CardTitle>
+                  <CardDescription>학생을 클릭하면 제출 내역 및 진도를 상세히 조회할 수 있습니다.</CardDescription>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -139,6 +194,7 @@ export default function AdminDashboard() {
                         <th className="py-3 px-4">이메일</th>
                         <th className="py-3 px-4">권한</th>
                         <th className="py-3 px-4">가입일</th>
+                        <th className="py-3 px-4 text-right">상세보기</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-sm">
@@ -152,6 +208,13 @@ export default function AdminDashboard() {
                             </span>
                           </td>
                           <td className="py-3 px-4 text-slate-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
+                          <td className="py-3 px-4 text-right">
+                            <Link href={`/admin/student/${u.id}`}>
+                              <Button size="sm" variant="outline" className="h-8 gap-1 text-xs">
+                                <Eye className="w-3.5 h-3.5" /> 상세 보기
+                              </Button>
+                            </Link>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -184,7 +247,7 @@ export default function AdminDashboard() {
                     <Button
                       size="sm"
                       variant={difficultyMode === "standard" ? "default" : "outline"}
-                      onClick={() => { setDifficultyMode("standard"); toast.success("표준 난이도로 적용되었습니다."); }}
+                      onClick={() => handleDifficultyChangeRequest("standard")}
                       className="text-xs"
                     >
                       표준 (Standard)
@@ -192,7 +255,7 @@ export default function AdminDashboard() {
                     <Button
                       size="sm"
                       variant={difficultyMode === "advanced" ? "default" : "outline"}
-                      onClick={() => { setDifficultyMode("advanced"); toast.success("심화 난이도로 적용되었습니다."); }}
+                      onClick={() => handleDifficultyChangeRequest("advanced")}
                       className="text-xs"
                     >
                       심화 (Advanced)
@@ -219,6 +282,26 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Difficulty Change Confirmation Modal */}
+      <Dialog open={confirmModalOpen} onOpenChange={setConfirmModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>커리큘럼 난이도 변경 확인</DialogTitle>
+            <DialogDescription>
+              난이도를 <span className="font-bold text-indigo-600 uppercase">{pendingDifficulty}</span> 프리셋으로 변경하시겠습니까? 전체 학습자들의 AI 첨삭 기준과 워크북 문제 수준에 즉시 반영됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setConfirmModalOpen(false)}>
+              취소
+            </Button>
+            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={confirmDifficultyChange}>
+              변경 적용하기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -610,6 +610,14 @@ export const appRouter = router({
         ai: aiStats,
       };
     }),
+    getStudentDetail: protectedProcedure
+      .input(z.object({ studentId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.getStudentDetailStats(input.studentId);
+      }),
   }),
 });
 

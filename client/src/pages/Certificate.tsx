@@ -2,17 +2,31 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Link } from "wouter";
-import { BookOpen, Loader2, Download, Share2, Award } from "lucide-react";
+import { Award, Eye, CheckCircle2, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Certificate() {
   const { user, isAuthenticated } = useAuth();
   const [certificates, setCertificates] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const getCertificatesQuery = trpc.certificate.getUserCertificates.useQuery();
+  // Preview Modal state
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [selectedCourse, setSelectedCourse] = useState<"elementary" | "middle_high">("elementary");
+  const [selectedLevel, setSelectedLevel] = useState<number>(1);
+
+  const getCertificatesQuery = trpc.certificate.getUserCertificates.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
   const issueMutation = trpc.certificate.issue.useMutation();
 
   useEffect(() => {
@@ -22,182 +36,240 @@ export default function Certificate() {
   }, [getCertificatesQuery.data]);
 
   if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <Card className="max-w-md w-full p-6 text-center shadow-md">
+          <Award className="w-12 h-12 text-blue-600 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-slate-900">로그인이 필요합니다</h2>
+          <p className="text-sm text-slate-600 mt-2">수료증을 발급받고 관리하려면 로그인해주세요.</p>
+          <Button onClick={() => window.location.href = "/login"} className="mt-6 w-full bg-blue-600 hover:bg-blue-700">
+            로그인하기
+          </Button>
+        </Card>
+      </div>
+    );
   }
 
-  const handleIssueCertificate = async (courseType: "elementary" | "middle_high", level: number) => {
+  // Check if user already has certificate for this course & level
+  const hasAlreadyIssued = (courseType: string, level: number) => {
+    return certificates.some((c) => c.courseType === courseType && c.level === level);
+  };
+
+  const handleOpenPreview = (courseType: "elementary" | "middle_high", level: number) => {
+    if (hasAlreadyIssued(courseType, level)) {
+      toast.error("이미 해당 레벨의 수료증이 발급되었습니다. 아래 발급 목록에서 확인하세요.");
+      return;
+    }
+    setSelectedCourse(courseType);
+    setSelectedLevel(level);
+    setPreviewOpen(true);
+  };
+
+  const handleConfirmIssue = async () => {
+    // 중복 발급 프론트 검사
+    if (hasAlreadyIssued(selectedCourse, selectedLevel)) {
+      toast.error("이미 해당 레벨의 수료증이 발급되었습니다.");
+      setPreviewOpen(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const result = await issueMutation.mutateAsync({
-        courseType,
-        level,
+      await issueMutation.mutateAsync({
+        courseType: selectedCourse,
+        level: selectedLevel,
         certificateType: "level_certificate",
       });
-      toast.success("수료증이 발급되었습니다.");
+      toast.success("수료증이 성공적으로 발급되었습니다!");
+      setPreviewOpen(false);
       getCertificatesQuery.refetch();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error issuing certificate:", error);
-      toast.error("수료증 발급 중 오류가 발생했습니다.");
+      toast.error(error.message || "수료증 발급 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDownload = (cert: any) => {
-    if (cert.pdfUrl) {
-      window.open(cert.pdfUrl, "_blank");
-    } else {
-      toast.error("다운로드 링크가 없습니다.");
-    }
-  };
-
-  const handleShare = (cert: any) => {
-    const shareUrl = `${window.location.origin}/certificate/${cert.shareToken}`;
-    navigator.clipboard.writeText(shareUrl);
-    toast.success("공유 링크가 복사되었습니다.");
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-8">수료증</h1>
+    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-6xl mx-auto space-y-12">
+        <div>
+          <h1 className="text-3xl font-extrabold text-slate-900">수료증 센터</h1>
+          <p className="text-sm text-slate-600 mt-1">단계별 과정을 수료하고 수료증을 미리보기 및 발급받으세요. (레벨당 1회 발급)</p>
+        </div>
 
-        {/* Issue New Certificate */}
-        <div className="mb-12">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">새 수료증 발급</h2>
+        {/* Issue New Certificate Section */}
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+            <Award className="w-5 h-5 text-blue-600" />
+            <span>새 수료증 신청 및 미리보기</span>
+          </h2>
+
           <div className="grid md:grid-cols-2 gap-6">
             {/* Elementary */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader className="bg-blue-50/50">
+                <CardTitle className="flex items-center gap-2 text-blue-900">
                   <Award className="w-5 h-5 text-blue-600" />
-                  초등 과정
+                  초등 과정 (Elementary Level 1~4)
                 </CardTitle>
-                <CardDescription>
-                  초등학생 대상 논술 교육 과정
-                </CardDescription>
+                <CardDescription>초등학생 대상 논술 교육 과정 단계별 수료증</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {[1, 2, 3, 4].map((level) => (
-                  <Button
-                    key={level}
-                    onClick={() => handleIssueCertificate("elementary", level)}
-                    disabled={loading}
-                    variant="outline"
-                    className="w-full"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        발급 중...
-                      </>
-                    ) : (
-                      `Level ${level} 수료증 발급`
-                    )}
-                  </Button>
-                ))}
+              <CardContent className="space-y-3 pt-6">
+                {[1, 2, 3, 4].map((level) => {
+                  const issued = hasAlreadyIssued("elementary", level);
+                  return (
+                    <div key={level} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-white">
+                      <div>
+                        <p className="font-bold text-sm text-slate-900">Level {level} 수료증</p>
+                        <p className="text-xs text-slate-500">{issued ? "이미 발급됨" : "발급 가능"}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={issued ? "secondary" : "default"}
+                        className={issued ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 text-white gap-1"}
+                        onClick={() => handleOpenPreview("elementary", level)}
+                        disabled={issued}
+                      >
+                        {issued ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" /> 발급 완료
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" /> 미리보기 및 발급
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
 
             {/* Middle/High */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader className="bg-purple-50/50">
+                <CardTitle className="flex items-center gap-2 text-purple-900">
                   <Award className="w-5 h-5 text-purple-600" />
-                  중고등 과정
+                  중고등 과정 (Middle & High Level 1~4)
                 </CardTitle>
-                <CardDescription>
-                  중고등학생 대상 논술 교육 과정
-                </CardDescription>
+                <CardDescription>중고등학생 대상 논술 교육 과정 단계별 수료증</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {[1, 2, 3, 4].map((level) => (
-                  <Button
-                    key={level}
-                    onClick={() => handleIssueCertificate("middle_high", level)}
-                    disabled={loading}
-                    variant="outline"
-                    className="w-full"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        발급 중...
-                      </>
-                    ) : (
-                      `Level ${level} 수료증 발급`
-                    )}
-                  </Button>
-                ))}
+              <CardContent className="space-y-3 pt-6">
+                {[1, 2, 3, 4].map((level) => {
+                  const issued = hasAlreadyIssued("middle_high", level);
+                  return (
+                    <div key={level} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-white">
+                      <div>
+                        <p className="font-bold text-sm text-slate-900">Level {level} 수료증</p>
+                        <p className="text-xs text-slate-500">{issued ? "이미 발급됨" : "발급 가능"}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={issued ? "secondary" : "default"}
+                        className={issued ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-purple-600 hover:bg-purple-700 text-white gap-1"}
+                        onClick={() => handleOpenPreview("middle_high", level)}
+                        disabled={issued}
+                      >
+                        {issued ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" /> 발급 완료
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" /> 미리보기 및 발급
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
           </div>
         </div>
 
-        {/* Issued Certificates */}
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">
-            발급된 수료증 ({certificates.length})
+        {/* Issued Certificates List Section */}
+        <div className="pt-6 border-t border-slate-200">
+          <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            <span>나의 발급된 수료증 목록 ({certificates.length}개)</span>
           </h2>
 
-          {certificates.length > 0 ? (
+          {certificates.length === 0 ? (
+            <Card className="border-slate-200 p-12 text-center">
+              <AlertCircle className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+              <p className="text-slate-700 font-semibold">아직 발급받은 수료증이 없습니다.</p>
+              <p className="text-xs text-slate-500 mt-1">위의 과정별 레벨에서 수료증을 미리보고 발급받아 보세요.</p>
+            </Card>
+          ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {certificates.map((cert) => (
-                <Card key={cert.id} className="border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-purple-50">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Award className="w-5 h-5 text-indigo-600" />
-                      {cert.courseType === "elementary" ? "초등" : "중고등"} Level {cert.level}
-                    </CardTitle>
-                    <CardDescription>
-                      {cert.certificateType === "level_certificate" ? "레벨 수료증" : "졸업증서"}
-                    </CardDescription>
+                <Card key={cert.id} className="border-indigo-100 shadow-sm bg-gradient-to-br from-white to-indigo-50/20">
+                  <CardHeader className="pb-3">
+                    <span className="text-[11px] uppercase tracking-wider font-bold text-indigo-600">
+                      {cert.courseType === "elementary" ? "초등 과정" : "중고등 과정"}
+                    </span>
+                    <CardTitle className="text-lg font-bold text-slate-900">{cert.title}</CardTitle>
+                    <CardDescription className="text-xs text-slate-500">인증번호: {cert.certNumber}</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="text-sm text-gray-600">
-                      <p>발급일: {new Date(cert.createdAt).toLocaleDateString("ko-KR")}</p>
-                      <p>공유 토큰: {cert.shareToken.substring(0, 8)}...</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => handleDownload(cert)}
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        다운로드
-                      </Button>
-                      <Button
-                        onClick={() => handleShare(cert)}
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                      >
-                        <Share2 className="w-4 h-4 mr-2" />
-                        공유
-                      </Button>
+                  <CardContent className="space-y-4">
+                    <div className="p-3 bg-white rounded-lg border border-indigo-100 text-xs text-slate-600">
+                      발급일: {new Date(cert.createdAt).toLocaleDateString()}
                     </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
-          ) : (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Award className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">
-                  아직 발급된 수료증이 없습니다.
-                </p>
-                <p className="text-sm text-gray-400 mt-2">
-                  과정을 완료하면 수료증을 발급받을 수 있습니다.
-                </p>
-              </CardContent>
-            </Card>
           )}
         </div>
       </div>
+
+      {/* Certificate Preview Modal */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-center">🏆 수료증 사전 미리보기</DialogTitle>
+            <DialogDescription className="text-center text-xs text-slate-500">
+              발급 전 수료증에 기재될 내용을 미리 확인하세요.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Certificate Mockup Preview Box */}
+          <div className="p-8 my-4 border-4 border-double border-indigo-300 bg-gradient-to-b from-amber-50/40 via-white to-blue-50/30 rounded-2xl text-center space-y-4 shadow-inner">
+            <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center mx-auto">
+              <Award className="w-6 h-6" />
+            </div>
+            <h3 className="text-xs font-bold tracking-widest uppercase text-indigo-700">Certificate of Completion</h3>
+            <h2 className="text-2xl font-extrabold text-slate-900">
+              {selectedCourse === "elementary" ? "초등 논술 과정" : "중고등 논술 과정"} Level {selectedLevel}
+            </h2>
+            <div className="py-2">
+              <p className="text-sm text-slate-600">본 수료증은 위 과정을 성실히 이수하였음을 증명합니다.</p>
+              <p className="text-lg font-bold text-slate-900 mt-2">{user?.name || "학습자"} 귀하</p>
+            </div>
+            <div className="pt-4 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+              <span>논술 마스터 교육 플랫폼</span>
+              <span>{new Date().toLocaleDateString()}</span>
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
+              취소
+            </Button>
+            <Button
+              disabled={loading}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+              onClick={handleConfirmIssue}
+            >
+              {loading ? "발급 중..." : "최종 수료증 발급하기"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
