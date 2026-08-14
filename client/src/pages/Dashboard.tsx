@@ -28,6 +28,10 @@ export default function Dashboard() {
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+  const { data: elementaryCurr } = trpc.curriculum.getDynamicByType.useQuery("elementary", { enabled: isAuthenticated });
+  const { data: middleHighCurr } = trpc.curriculum.getDynamicByType.useQuery("middle_high", { enabled: isAuthenticated });
+  const { data: highUnivCurr } = trpc.curriculum.getDynamicByType.useQuery("high_univ", { enabled: isAuthenticated });
+  const { data: generalAdultCurr } = trpc.curriculum.getDynamicByType.useQuery("general_adult", { enabled: isAuthenticated });
   const { data: quizData } = trpc.quiz.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -39,7 +43,22 @@ export default function Dashboard() {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
   }
 
-  // 진도 데이터 계산
+  // 과정별 동적 진도 계산
+  const completedIds = new Set(progressData?.filter((p) => p.completed === 1).map((p) => p.curriculumId) || []);
+
+  const calcCourseProgress = (currList: any[] = []) => {
+    const total = currList.length;
+    if (total === 0) return { percent: 0, completedCount: 0, total: 0 };
+    const completedCount = currList.filter((item) => completedIds.has(item.id)).length;
+    const percent = Math.round((completedCount / total) * 100);
+    return { percent, completedCount, total };
+  };
+
+  const elemProgress = calcCourseProgress(elementaryCurr);
+  const mhProgress = calcCourseProgress(middleHighCurr);
+  const huProgress = calcCourseProgress(highUnivCurr);
+  const gaProgress = calcCourseProgress(generalAdultCurr);
+
   const totalProgress = progressData?.length || 0;
   const completedProgress = progressData?.filter((p) => p.completed === 1).length || 0;
   const avgScore = progressData?.length
@@ -101,12 +120,12 @@ export default function Dashboard() {
             <CardContent className="space-y-2">
               <div className="flex justify-between text-xs font-semibold text-slate-600">
                 <span>완료율</span>
-                <span className="text-indigo-600">75%</span>
+                <span className="text-indigo-600">{elemProgress.percent}%</span>
               </div>
               <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-indigo-600 rounded-full transition-all duration-500" style={{ width: "75%" }} />
+                <div className="h-full bg-indigo-600 rounded-full transition-all duration-500" style={{ width: `${elemProgress.percent}%` }} />
               </div>
-              <p className="text-[11px] text-slate-400">총 4개 레벨 중 3개 수료</p>
+              <p className="text-[11px] text-slate-400">총 {elemProgress.total}개 레벨 중 {elemProgress.completedCount}개 수료</p>
             </CardContent>
           </Card>
 
@@ -117,12 +136,12 @@ export default function Dashboard() {
             <CardContent className="space-y-2">
               <div className="flex justify-between text-xs font-semibold text-slate-600">
                 <span>완료율</span>
-                <span className="text-blue-600">50%</span>
+                <span className="text-blue-600">{mhProgress.percent}%</span>
               </div>
               <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-blue-600 rounded-full transition-all duration-500" style={{ width: "50%" }} />
+                <div className="h-full bg-blue-600 rounded-full transition-all duration-500" style={{ width: `${mhProgress.percent}%` }} />
               </div>
-              <p className="text-[11px] text-slate-400">총 4개 레벨 중 2개 수료</p>
+              <p className="text-[11px] text-slate-400">총 {mhProgress.total}개 레벨 중 {mhProgress.completedCount}개 수료</p>
             </CardContent>
           </Card>
 
@@ -133,12 +152,12 @@ export default function Dashboard() {
             <CardContent className="space-y-2">
               <div className="flex justify-between text-xs font-semibold text-slate-600">
                 <span>완료율</span>
-                <span className="text-purple-600">25%</span>
+                <span className="text-purple-600">{huProgress.percent}%</span>
               </div>
               <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-purple-600 rounded-full transition-all duration-500" style={{ width: "25%" }} />
+                <div className="h-full bg-purple-600 rounded-full transition-all duration-500" style={{ width: `${huProgress.percent}%` }} />
               </div>
-              <p className="text-[11px] text-slate-400">총 4개 레벨 중 1개 수료</p>
+              <p className="text-[11px] text-slate-400">총 {huProgress.total}개 레벨 중 {huProgress.completedCount}개 수료</p>
             </CardContent>
           </Card>
 
@@ -149,12 +168,12 @@ export default function Dashboard() {
             <CardContent className="space-y-2">
               <div className="flex justify-between text-xs font-semibold text-slate-600">
                 <span>완료율</span>
-                <span className="text-amber-600">0%</span>
+                <span className="text-amber-600">{gaProgress.percent}%</span>
               </div>
               <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: "0%" }} />
+                <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${gaProgress.percent}%` }} />
               </div>
-              <p className="text-[11px] text-slate-400">총 3개 레벨 중 0개 수료</p>
+              <p className="text-[11px] text-slate-400">총 {gaProgress.total}개 레벨 중 {gaProgress.completedCount}개 수료</p>
             </CardContent>
           </Card>
         </div>
