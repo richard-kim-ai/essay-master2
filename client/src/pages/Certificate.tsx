@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download, Share2, Copy } from "lucide-react";
+import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
@@ -257,31 +257,17 @@ export default function Certificate() {
           </div>
 
           <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:justify-between items-center w-full">
-            <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-1 text-xs"
+                className="w-full sm:w-auto gap-1 text-xs"
                 onClick={() => {
                   window.print();
                   toast.success("수료증 인쇄창이 호출되었습니다.");
                 }}
               >
-                <Printer className="w-3.5 h-3.5" /> 인쇄 / PDF
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1 text-xs"
-                onClick={() => {
-                  const shareText = `[논술 마스터] ${selectedCourse === "elementary" ? "초등" : "중고등"} 과정 Level ${selectedLevel} 수료증을 획득했습니다!`;
-                  if (navigator.clipboard) {
-                    navigator.clipboard.writeText(window.location.href);
-                    toast.success("수료증 공유 링크가 클립보드에 복사되었습니다.");
-                  }
-                }}
-              >
-                <Copy className="w-3.5 h-3.5" /> 링크 복사
+                <Printer className="w-3.5 h-3.5" /> 인쇄 / PDF 저장
               </Button>
             </div>
             <div className="flex gap-2 w-full sm:w-auto justify-end">
