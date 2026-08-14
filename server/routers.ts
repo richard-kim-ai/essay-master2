@@ -281,6 +281,10 @@ export const appRouter = router({
       .input(z.enum(["elementary", "middle_high"]))
       .query(({ input }) => db.getCurriculumByType(input)),
 
+    getDynamicByType: protectedProcedure
+      .input(z.enum(["elementary", "middle_high"]))
+      .query(({ input }) => db.getDynamicCurriculumByType(input)),
+
     getById: protectedProcedure
       .input(z.number())
       .query(({ input }) => db.getCurriculumById(input)),
@@ -647,6 +651,7 @@ export const appRouter = router({
         courseType: z.enum(["elementary", "middle_high"]),
         level: z.number().optional(),
         certificateType: z.enum(["level_certificate", "graduation_certificate"]),
+        issueReason: z.string().trim().max(500).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
@@ -659,15 +664,17 @@ export const appRouter = router({
           level: input.level,
           certificateType: input.certificateType,
           shareToken,
+          issuedBy: ctx.user.id,
+          issueReason: input.issueReason,
         });
       }),
     revokeCertificateAdmin: protectedProcedure
-      .input(z.object({ certificateId: z.number() }))
+      .input(z.object({ certificateId: z.number(), reason: z.string().trim().min(2).max(500) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        return await db.adminRevokeCertificate(input.certificateId);
+        return await db.adminRevokeCertificate(input.certificateId, ctx.user.id, input.reason);
       }),
     deleteCertificateAdmin: protectedProcedure
       .input(z.object({ certificateId: z.number() }))
@@ -676,6 +683,50 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
         return await db.adminDeleteCertificate(input.certificateId);
+      }),
+    getCurriculumCategoriesAdmin: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminGetCurriculumCategories();
+      }),
+    createCurriculumCategoryAdmin: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high"]),
+        level: z.number().int().min(1).max(20),
+        title: z.string().trim().min(2).max(255),
+        description: z.string().trim().min(5).max(2000),
+        topics: z.array(z.string().trim().min(1).max(255)).max(20),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminCreateCurriculumCategory(input);
+      }),
+    updateCurriculumCategoryAdmin: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        courseType: z.enum(["elementary", "middle_high"]),
+        level: z.number().int().min(1).max(20),
+        title: z.string().trim().min(2).max(255),
+        description: z.string().trim().min(5).max(2000),
+        topics: z.array(z.string().trim().min(1).max(255)).max(20),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminUpdateCurriculumCategory(input);
+      }),
+    deleteCurriculumCategoryAdmin: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminDeleteCurriculumCategory(input.id);
       }),
     getOperationsStats: protectedProcedure
       .query(async ({ ctx }) => {

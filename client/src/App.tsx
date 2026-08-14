@@ -27,6 +27,8 @@ import ResetPassword from "./pages/ResetPassword";
 import SocialProviderSettings from "./pages/SocialProviderSettings";
 import AdminStudentDetail from "./pages/AdminStudentDetail";
 import AdminDashboard from "@/pages/AdminDashboard";
+import AdminCertificates from "@/pages/AdminCertificates";
+import AdminCurriculumManager from "@/pages/AdminCurriculumManager";
 import Layout from "./components/Layout";
 
 function Router() {
@@ -42,6 +44,20 @@ function Router() {
         {(params) => (
           <Layout>
             <AdminDashboard />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/certificates"}>
+        {(params) => (
+          <Layout>
+            <AdminCertificates />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/curriculum"}>
+        {(params) => (
+          <Layout>
+            <AdminCurriculumManager />
           </Layout>
         )}
       </Route>

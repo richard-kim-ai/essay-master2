@@ -14,6 +14,7 @@ import {
   appSecretConfig,
   pushSubscription,
   aiUsageLogs,
+  dynamicCurriculum,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -232,6 +233,22 @@ export async function getCurriculumById(id: number) {
   return result[0];
 }
 
+export async function getDynamicCurriculumByType(courseType: "elementary" | "middle_high") {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(dynamicCurriculum)
+    .where(eq(dynamicCurriculum.courseType, courseType))
+    .orderBy(dynamicCurriculum.level);
+  return rows.map((row) => ({
+    ...row,
+    topics: (() => {
+      try { return JSON.parse(row.topicsJson) as string[]; } catch { return []; }
+    })(),
+  }));
+}
+
 // ========== Progress Functions ==========
 
 export async function getProgressByUser(userId: number) {
@@ -319,7 +336,7 @@ export async function getCertificatesByUser(userId: number) {
   return await db
     .select()
     .from(certificate)
-    .where(eq(certificate.userId, userId));
+    .where(and(eq(certificate.userId, userId), eq(certificate.status, "active")));
 }
 
 export async function getCertificateByShareToken(shareToken: string) {
@@ -329,7 +346,7 @@ export async function getCertificateByShareToken(shareToken: string) {
   const result = await db
     .select()
     .from(certificate)
-    .where(eq(certificate.shareToken, shareToken));
+    .where(and(eq(certificate.shareToken, shareToken), eq(certificate.status, "active")));
 
   return result[0];
 }
@@ -761,7 +778,7 @@ export async function updateUsersTag(userIds: number[], tag: string) {
 export async function adminGetAllCertificates() {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(certificate);
+  return await db.select().from(certificate).orderBy(desc(certificate.createdAt));
 }
 
 export async function adminIssueCertificate(input: {
@@ -770,9 +787,26 @@ export async function adminIssueCertificate(input: {
   level?: number;
   certificateType: "level_certificate" | "graduation_certificate";
   shareToken: string;
+  issuedBy: number;
+  issueReason?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+
+  const existing = await db
+    .select()
+    .from(certificate)
+    .where(
+      and(
+        eq(certificate.userId, input.userId),
+        eq(certificate.courseType, input.courseType),
+        input.level === undefined ? eq(certificate.certificateType, input.certificateType) : eq(certificate.level, input.level),
+        eq(certificate.status, "active"),
+      ),
+    );
+  if (existing.length > 0) {
+    throw new Error("동일 학생·과정·레벨의 활성 수료증이 이미 존재합니다.");
+  }
 
   const [res] = await db.insert(certificate).values({
     userId: input.userId,
@@ -780,22 +814,101 @@ export async function adminIssueCertificate(input: {
     level: input.level ?? null,
     certificateType: input.certificateType,
     shareToken: input.shareToken,
+    issuedBy: input.issuedBy,
+    issueReason: input.issueReason?.trim() || null,
+    status: "active",
     issuedAt: new Date(),
+    updatedAt: new Date(),
   });
   return res;
 }
 
-export async function adminRevokeCertificate(certificateId: number) {
+export async function adminRevokeCertificate(certificateId: number, revokedBy: number, reason: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.delete(certificate).where(eq(certificate.id, certificateId));
+  const [target] = await db.select().from(certificate).where(eq(certificate.id, certificateId));
+  if (!target) throw new Error("수료증을 찾을 수 없습니다.");
+  if (target.status === "revoked") throw new Error("이미 발행취소된 수료증입니다.");
+  await db.update(certificate).set({
+    status: "revoked",
+    revokedAt: new Date(),
+    revokedBy,
+    revocationReason: reason.trim(),
+    updatedAt: new Date(),
+  }).where(eq(certificate.id, certificateId));
   return true;
 }
 
 export async function adminDeleteCertificate(certificateId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  const [target] = await db.select().from(certificate).where(eq(certificate.id, certificateId));
+  if (!target) throw new Error("수료증을 찾을 수 없습니다.");
+  if (target.status !== "revoked") throw new Error("삭제 전에 먼저 발행취소해야 합니다.");
   await db.delete(certificate).where(eq(certificate.id, certificateId));
+  return true;
+}
+
+export async function adminGetCurriculumCategories() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(dynamicCurriculum).orderBy(dynamicCurriculum.courseType, dynamicCurriculum.level);
+  return rows.map((row) => ({
+    ...row,
+    topics: (() => {
+      try { return JSON.parse(row.topicsJson) as string[]; } catch { return []; }
+    })(),
+  }));
+}
+
+export async function adminCreateCurriculumCategory(input: {
+  courseType: "elementary" | "middle_high";
+  level: number;
+  title: string;
+  description: string;
+  topics: string[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [created] = await db.insert(dynamicCurriculum).values({
+    courseType: input.courseType,
+    level: input.level,
+    title: input.title.trim(),
+    description: input.description.trim(),
+    topicsJson: JSON.stringify(input.topics.map((topic) => topic.trim()).filter(Boolean)),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return created;
+}
+
+export async function adminUpdateCurriculumCategory(input: {
+  id: number;
+  courseType: "elementary" | "middle_high";
+  level: number;
+  title: string;
+  description: string;
+  topics: string[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(dynamicCurriculum).set({
+    courseType: input.courseType,
+    level: input.level,
+    title: input.title.trim(),
+    description: input.description.trim(),
+    topicsJson: JSON.stringify(input.topics.map((topic) => topic.trim()).filter(Boolean)),
+    updatedAt: new Date(),
+  }).where(eq(dynamicCurriculum.id, input.id));
+  return true;
+}
+
+export async function adminDeleteCurriculumCategory(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [target] = await db.select().from(dynamicCurriculum).where(eq(dynamicCurriculum.id, id));
+  if (!target) throw new Error("커리큘럼 카테고리를 찾을 수 없습니다.");
+  await db.delete(dynamicCurriculum).where(eq(dynamicCurriculum.id, id));
   return true;
 }
 

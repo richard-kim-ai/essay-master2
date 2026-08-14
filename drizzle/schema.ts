@@ -128,8 +128,15 @@ export const certificate = mysqlTable("certificate", {
   certificateType: mysqlEnum("certificateType", ["level_certificate", "graduation_certificate"]).notNull(),
   shareToken: varchar("shareToken", { length: 64 }).unique(),
   pdfUrl: text("pdfUrl"),
+  status: mysqlEnum("status", ["active", "revoked"]).default("active").notNull(),
+  issuedBy: int("issuedBy"),
+  issueReason: text("issueReason"),
+  revokedAt: timestamp("revokedAt"),
+  revokedBy: int("revokedBy"),
+  revocationReason: text("revocationReason"),
   issuedAt: timestamp("issuedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type Certificate = typeof certificate.$inferSelect;
@@ -229,3 +236,18 @@ export const adminMemoHistory = mysqlTable("admin_memo_history", {
 
 export type AdminMemoHistory = typeof adminMemoHistory.$inferSelect;
 export type InsertAdminMemoHistory = typeof adminMemoHistory.$inferInsert;
+
+// 동적 커리큘럼 카테고리 테이블 (관리자가 추가/수정/삭제 가능)
+export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
+  id: int("id").autoincrement().primaryKey(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high"]).notNull(),
+  level: int("level").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  topicsJson: text("topicsJson").notNull(), // JSON string array of topics
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type DynamicCurriculum = typeof dynamicCurriculum.$inferSelect;
+export type InsertDynamicCurriculum = typeof dynamicCurriculum.$inferInsert;

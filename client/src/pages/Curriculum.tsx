@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -67,12 +68,17 @@ export default function Curriculum() {
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+  const { data: dynamicCurriculum } = trpc.curriculum.getDynamicByType.useQuery(courseType, {
+    enabled: isAuthenticated,
+  });
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
   }
 
-  const curriculumList = CURRICULUM_DATA[courseType];
+  const curriculumList = dynamicCurriculum && dynamicCurriculum.length > 0
+    ? dynamicCurriculum
+    : CURRICULUM_DATA[courseType];
   const progressMap = new Map(
     progressData?.map((p) => [p.curriculumId, p]) || []
   );
@@ -99,12 +105,13 @@ export default function Curriculum() {
           <TabsContent value={courseType} className="mt-8">
             <div className="grid gap-6">
               {curriculumList.map((item) => {
-                const progress = progressMap.get(item.level);
+                const curriculumId = (item as { id?: number }).id ?? item.level;
+                const progress = progressMap.get(curriculumId) ?? progressMap.get(item.level);
                 const isCompleted = progress?.completed === 1;
 
                 return (
                   <Card
-                    key={item.level}
+                    key={`${courseType}-${(item as { id?: number }).id ?? item.level}`}
                     className={`hover:shadow-lg transition-shadow ${
                       isCompleted ? "border-green-200 bg-green-50" : ""
                     }`}
@@ -163,7 +170,7 @@ export default function Curriculum() {
                         </div>
                       )}
 
-                      <Link href={`/workbook?type=${courseType}&level=${item.level}`}>
+                      <Link href={`/workbook/${courseType}/${item.level}`}>
                         <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white">
                           {isCompleted ? "다시 풀기" : "시작하기"}
                         </Button>
@@ -180,4 +187,3 @@ export default function Curriculum() {
   );
 }
 
-import React from "react";

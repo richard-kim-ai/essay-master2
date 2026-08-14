@@ -190,6 +190,12 @@ export default function AdminDashboard() {
             <Button onClick={handleExportCSV} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
               <Download className="w-4 h-4" /> 학습자 데이터 내보내기 (CSV)
             </Button>
+            <Link href="/admin/certificates">
+              <Button size="sm" variant="outline" className="gap-2">수료증 관리</Button>
+            </Link>
+            <Link href="/admin/curriculum">
+              <Button size="sm" variant="outline" className="gap-2">카테고리 관리</Button>
+            </Link>
             <Link href="/admin/social-providers">
               <Button size="sm" variant="outline" className="gap-2">
                 <Settings className="w-4 h-4" /> 설정
