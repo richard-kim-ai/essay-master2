@@ -7,6 +7,8 @@ import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { BookOpen, Lock } from "lucide-react";
 
+type CourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
+
 const CURRICULUM_DATA = {
   elementary: [
     {
@@ -60,11 +62,13 @@ const CURRICULUM_DATA = {
       topics: ["제시문 분석", "주장 구성", "주제 설정", "주제문 작성", "주제 설정 위저드"],
     },
   ],
+  high_univ: [],
+  general_adult: [],
 };
 
 export default function Curriculum() {
   const { user, isAuthenticated } = useAuth();
-  const [courseType, setCourseType] = React.useState<"elementary" | "middle_high">("middle_high");
+  const [courseType, setCourseType] = React.useState<CourseType>("middle_high");
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -93,13 +97,15 @@ export default function Curriculum() {
         <Tabs
           value={courseType}
           onValueChange={(value) =>
-            setCourseType(value as "elementary" | "middle_high")
+            setCourseType(value as CourseType)
           }
           className="mb-8"
         >
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="elementary">초등 과정</TabsTrigger>
-            <TabsTrigger value="middle_high">중고등 과정</TabsTrigger>
+          <TabsList className="grid w-full max-w-2xl grid-cols-2 gap-1 sm:grid-cols-4">
+            <TabsTrigger value="elementary">초등</TabsTrigger>
+            <TabsTrigger value="middle_high">중고등</TabsTrigger>
+            <TabsTrigger value="high_univ">고등/대입</TabsTrigger>
+            <TabsTrigger value="general_adult">일반/직장인</TabsTrigger>
           </TabsList>
 
           <TabsContent value={courseType} className="mt-8">
@@ -119,6 +125,9 @@ export default function Curriculum() {
                     <CardHeader>
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
+                          {(item as { thumbnailUrl?: string }).thumbnailUrl && (
+                            <img src={(item as { thumbnailUrl?: string }).thumbnailUrl} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" loading="lazy" />
+                          )}
                           <div className="flex items-center gap-2 mb-2">
                             <span className="inline-block bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold">
                               Level {item.level}
@@ -133,6 +142,12 @@ export default function Curriculum() {
                           <CardDescription className="text-base mt-2">
                             {item.description}
                           </CardDescription>
+                          {(item as { aiSummary?: string }).aiSummary && (
+                            <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3 text-sm leading-6 text-slate-700">
+                              <span className="mr-2 font-semibold text-indigo-700">AI 강의 요약</span>
+                              {(item as { aiSummary?: string }).aiSummary}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </CardHeader>

@@ -175,3 +175,20 @@
     }
   }
 }
+
+@keyframes curriculum-order-highlight {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.55); transform: translateY(-4px) scale(1.01); background-color: rgb(238 242 255); }
+  45% { box-shadow: 0 0 0 8px rgba(129, 140, 248, 0.18); transform: translateY(0) scale(1.01); background-color: rgb(224 231 255); }
+  100% { box-shadow: 0 0 0 0 rgba(129, 140, 248, 0); transform: translateY(0) scale(1); background-color: white; }
+}
+.curriculum-order-highlight {
+  animation: curriculum-order-highlight 850ms cubic-bezier(0.23, 1, 0.32, 1);
+  position: relative;
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .curriculum-order-highlight { animation: none; outline: 3px solid rgb(129 140 248); }
+}
+@media print {
+  .curriculum-order-highlight { animation: none; }
+}

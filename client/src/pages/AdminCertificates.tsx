@@ -54,7 +54,20 @@ export default function AdminCertificates() {
       const matchesEnd = !endDate || certDate <= new Date(endDate).getTime() + 86400000;
       return matchesSearch && matchesStatus && matchesCourse && matchesStart && matchesEnd;
     });
-  }, [certificates, search, statusFilter, students]);
+  }, [certificates, search, statusFilter, courseFilter, startDate, endDate, students]);
+
+  const filteredSummary = useMemo(() => {
+    const byCourse = filteredCertificates.reduce<Record<string, number>>((result, certificate) => {
+      result[certificate.courseType] = (result[certificate.courseType] ?? 0) + 1;
+      return result;
+    }, {});
+    return {
+      total: filteredCertificates.length,
+      active: filteredCertificates.filter((certificate) => certificate.status === "active").length,
+      revoked: filteredCertificates.filter((certificate) => certificate.status === "revoked").length,
+      byCourse,
+    };
+  }, [filteredCertificates]);
 
   const issueMutation = trpc.admin.issueCertificateAdmin.useMutation({
     onSuccess: () => {
@@ -160,6 +173,18 @@ export default function AdminCertificates() {
           <Card><CardContent className="p-5"><p className="text-xs font-semibold text-emerald-600">현재 유효</p><p className="mt-2 text-3xl font-bold text-emerald-700">{certificates?.filter((certificate) => certificate.status === "active").length ?? 0}</p></CardContent></Card>
           <Card><CardContent className="p-5"><p className="text-xs font-semibold text-rose-600">발행취소</p><p className="mt-2 text-3xl font-bold text-rose-700">{certificates?.filter((certificate) => certificate.status === "revoked").length ?? 0}</p></CardContent></Card>
         </div>
+
+        <Card className="border-indigo-100 bg-indigo-50/60">
+          <CardHeader className="pb-3"><CardTitle className="text-base">내보내기 미리보기</CardTitle><CardDescription>현재 검색·상태·과정·기간 필터가 적용된 결과입니다. 아래 수치와 동일한 행만 CSV로 다운로드됩니다.</CardDescription></CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">필터 결과</p><p className="mt-1 text-2xl font-bold text-indigo-700">{filteredSummary.total}건</p></div>
+            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">유효</p><p className="mt-1 text-2xl font-bold text-emerald-700">{filteredSummary.active}건</p></div>
+            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">발행취소</p><p className="mt-1 text-2xl font-bold text-rose-700">{filteredSummary.revoked}건</p></div>
+            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">초등 / 중고등</p><p className="mt-1 text-2xl font-bold text-slate-800">{(filteredSummary.byCourse.elementary ?? 0) + (filteredSummary.byCourse.middle_high ?? 0)}건</p></div>
+            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">고등 / 대입</p><p className="mt-1 text-2xl font-bold text-purple-700">{filteredSummary.byCourse.high_univ ?? 0}건</p></div>
+            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">일반 / 직장인</p><p className="mt-1 text-2xl font-bold text-amber-700">{filteredSummary.byCourse.general_adult ?? 0}건</p></div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="border-b border-slate-100">

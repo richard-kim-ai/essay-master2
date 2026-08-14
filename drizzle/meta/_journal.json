@@ -85,6 +85,13 @@
       "when": 1786686151545,
       "tag": "0011_steady_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1786695404512,
+      "tag": "0012_milky_naoko",
+      "breakpoints": true
     }
   ]
 }
