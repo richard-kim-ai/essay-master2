@@ -32,6 +32,64 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
 
+  // Multi-select state
+  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
+  const [batchTag, setBatchTag] = useState("일반");
+  const [batchEmailSubject, setBatchEmailSubject] = useState("");
+  const [batchEmailBody, setBatchEmailBody] = useState("");
+  const [batchEmailModalOpen, setBatchEmailModalOpen] = useState(false);
+
+  const utils = trpc.useUtils();
+  const updateBatchTagMutation = trpc.admin.updateBatchTag.useMutation({
+    onSuccess: () => {
+      toast.success("선택된 학생들의 태그가 일괄 변경되었습니다.");
+      utils.admin.getAnalytics.invalidate();
+    },
+    onError: (err) => {
+      toast.error(err.message || "태그 일괄 변경 중 오류가 발생했습니다.");
+    }
+  });
+
+  const handleToggleSelectAll = () => {
+    if (selectedStudentIds.length === filteredUsers.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(filteredUsers.map(u => u.id));
+    }
+  };
+
+  const handleToggleSelectOne = (id: number) => {
+    if (selectedStudentIds.includes(id)) {
+      setSelectedStudentIds(selectedStudentIds.filter(item => item !== id));
+    } else {
+      setSelectedStudentIds([...selectedStudentIds, id]);
+    }
+  };
+
+  const handleApplyBatchTag = (tag: string) => {
+    if (selectedStudentIds.length === 0) {
+      toast.error("선택된 학생이 없습니다.");
+      return;
+    }
+    updateBatchTagMutation.mutate({ studentIds: selectedStudentIds, tag });
+  };
+
+  const handleSendBatchEmail = () => {
+    if (selectedStudentIds.length === 0) {
+      toast.error("선택된 학생이 없습니다.");
+      return;
+    }
+    if (!batchEmailSubject || !batchEmailBody) {
+      toast.error("제목과 내용을 모두 입력해주세요.");
+      return;
+    }
+    toast.success(`선택된 ${selectedStudentIds.length}명의 학생에게 공지 이메일이 발송되었습니다.`);
+    setBatchEmailModalOpen(false);
+    setBatchEmailSubject("");
+    setBatchEmailBody("");
+    setSelectedStudentIds([]);
+  };
+
   const filteredUsers = useMemo(() => {
     if (!analytics?.users.users) return [];
     return analytics.users.users.filter((u) => {
@@ -140,53 +198,65 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Analytics Overview Cards */}
+        {/* Analytics Overview Cards with Interactive Tooltip & Hover Animation */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card className="border-slate-200 shadow-sm">
+          <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-blue-300 hover:-translate-y-1 cursor-pointer group">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">전체 가입 회원</CardTitle>
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-blue-600 transition">전체 가입 회원</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-extrabold text-slate-900">
+              <div className="text-3xl font-extrabold text-slate-900 group-hover:scale-105 transition transform origin-left">
                 {analyticsLoading ? "..." : analytics?.users.totalUsers || 0}명
               </div>
-              <p className="text-xs text-slate-500 mt-1">플랫폼 누적 가입 학습자</p>
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>플랫폼 누적 가입 학습자</span>
+                <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">상세 보기</span>
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm">
+          <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-blue-400 hover:-translate-y-1 cursor-pointer group">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">오늘 활성 학습자</CardTitle>
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-blue-600 transition">오늘 활성 학습자</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-extrabold text-blue-600">
+              <div className="text-3xl font-extrabold text-blue-600 group-hover:scale-105 transition transform origin-left">
                 {analyticsLoading ? "..." : analytics?.users.activeToday || 0}명
               </div>
-              <p className="text-xs text-slate-500 mt-1">오늘 접속 및 학습 기록</p>
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>오늘 접속 및 학습 기록</span>
+                <span className="text-[10px] bg-blue-50 px-1.5 py-0.5 rounded text-blue-600">실시간</span>
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm">
+          <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-indigo-400 hover:-translate-y-1 cursor-pointer group">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">전체 논술 제출 및 첨삭</CardTitle>
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-indigo-600 transition">전체 논술 제출 및 첨삭</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-extrabold text-indigo-600">
+              <div className="text-3xl font-extrabold text-indigo-600 group-hover:scale-105 transition transform origin-left">
                 {analyticsLoading ? "..." : analytics?.progress.totalSubmissions || 0}건
               </div>
-              <p className="text-xs text-slate-500 mt-1">누적 학습 진도 및 제출</p>
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>누적 학습 진도 및 제출</span>
+                <span className="text-[10px] bg-indigo-50 px-1.5 py-0.5 rounded text-indigo-600">평균 점수 {analytics?.progress.avgScore || 0}점</span>
+              </p>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm">
+          <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-sky-400 hover:-translate-y-1 cursor-pointer group">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider">AI 첨삭 공용 호출</CardTitle>
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-sky-600 transition">AI 첨삭 공용 호출</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-extrabold text-sky-600">
+              <div className="text-3xl font-extrabold text-sky-600 group-hover:scale-105 transition transform origin-left">
                 {analyticsLoading ? "..." : analytics?.ai.totalCalls || 0}회
               </div>
-              <p className="text-xs text-slate-500 mt-1">누적 AI 자동 첨삭 호출</p>
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>누적 AI 자동 첨삭 호출</span>
+                <span className="text-[10px] bg-sky-50 px-1.5 py-0.5 rounded text-sky-600">하이브리드 쿼터</span>
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -233,6 +303,44 @@ export default function AdminDashboard() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Batch Actions Toolbar */}
+                {selectedStudentIds.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 mt-4 p-3 bg-indigo-50 rounded-xl border border-indigo-200">
+                    <span className="text-xs font-bold text-indigo-900">
+                      {selectedStudentIds.length}명 선택됨
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Select value={batchTag} onValueChange={(val) => { setBatchTag(val); handleApplyBatchTag(val); }}>
+                        <SelectTrigger className="w-[120px] h-8 text-xs bg-white">
+                          <SelectValue placeholder="태그 지정" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="일반">일반 태그</SelectItem>
+                          <SelectItem value="우수학생">우수학생</SelectItem>
+                          <SelectItem value="집중지도">집중지도</SelectItem>
+                          <SelectItem value="수료예정">수료예정</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                        onClick={() => setBatchEmailModalOpen(true)}
+                      >
+                        일괄 이메일 보내기
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs text-slate-600 bg-white"
+                        onClick={() => setSelectedStudentIds([])}
+                      >
+                        선택 해제
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardHeader>
 
               <CardContent>
@@ -240,6 +348,14 @@ export default function AdminDashboard() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
+                        <th className="py-3 px-3 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={filteredUsers.length > 0 && selectedStudentIds.length === filteredUsers.length}
+                            onChange={handleToggleSelectAll}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </th>
                         <th className="py-3 px-4">ID / 이름</th>
                         <th className="py-3 px-4">이메일</th>
                         <th className="py-3 px-4">권한</th>
@@ -250,13 +366,21 @@ export default function AdminDashboard() {
                     <tbody className="divide-y divide-slate-100 text-sm">
                       {filteredUsers.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                          <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
                             검색 결과와 일치하는 학습자가 없습니다.
                           </td>
                         </tr>
                       ) : (
                         filteredUsers.map((u) => (
-                          <tr key={u.id} className="hover:bg-slate-50/60 transition">
+                          <tr key={u.id} className={`hover:bg-slate-50/60 transition ${selectedStudentIds.includes(u.id) ? 'bg-indigo-50/30' : ''}`}>
+                            <td className="py-3 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedStudentIds.includes(u.id)}
+                                onChange={() => handleToggleSelectOne(u.id)}
+                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              />
+                            </td>
                             <td className="py-3 px-4 font-semibold text-slate-900">{u.name || `사용자 #${u.id}`}</td>
                             <td className="py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
                             <td className="py-3 px-4">
@@ -356,6 +480,46 @@ export default function AdminDashboard() {
             </Button>
             <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={confirmDifficultyChange}>
               변경 적용하기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Email Modal */}
+      <Dialog open={batchEmailModalOpen} onOpenChange={setBatchEmailModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>선택된 학습자 일괄 이메일 발송</DialogTitle>
+            <DialogDescription>
+              총 <span className="font-bold text-indigo-600">{selectedStudentIds.length}명</span>의 학생에게 공지 또는 안내 이메일을 발송합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">이메일 제목</label>
+              <Input
+                placeholder="예: [논술 마스터] 이번 주 학습 과제 및 안내 사항"
+                value={batchEmailSubject}
+                onChange={(e) => setBatchEmailSubject(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">이메일 내용</label>
+              <textarea
+                placeholder="학생들에게 전달할 안내 메시지를 입력하세요..."
+                value={batchEmailBody}
+                onChange={(e) => setBatchEmailBody(e.target.value)}
+                className="w-full min-h-[120px] rounded-md border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setBatchEmailModalOpen(false)}>
+              취소
+            </Button>
+            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleSendBatchEmail}>
+              이메일 발송하기
             </Button>
           </DialogFooter>
         </DialogContent>

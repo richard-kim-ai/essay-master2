@@ -746,3 +746,12 @@ export async function updateStudentAdminNotes(userId: number, adminNotes: string
   await db.update(users).set({ adminNotes }).where(eq(users.id, userId));
   return getUserById(userId);
 }
+export async function updateUsersTag(userIds: number[], tag: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  for (const id of userIds) {
+    await db.update(users).set({ tag }).where(eq(users.id, id));
+  }
+  return true;
+}

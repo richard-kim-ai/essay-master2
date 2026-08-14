@@ -626,6 +626,14 @@ export const appRouter = router({
         }
         return await db.updateStudentAdminNotes(input.studentId, input.adminNotes);
       }),
+    updateBatchTag: protectedProcedure
+      .input(z.object({ studentIds: z.array(z.number()), tag: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.updateUsersTag(input.studentIds, input.tag);
+      }),
   }),
 });
 
