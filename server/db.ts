@@ -211,7 +211,7 @@ export async function getPushSubscriptionsForUser(userId: number) {
 
 // ========== Curriculum Functions ==========
 
-export async function getCurriculumByType(courseType: "elementary" | "middle_high") {
+export async function getCurriculumByType(courseType: "elementary" | "middle_high" | "high_univ" | "general_adult") {
   const db = await getDb();
   if (!db) return [];
 
@@ -233,7 +233,7 @@ export async function getCurriculumById(id: number) {
   return result[0];
 }
 
-export async function getDynamicCurriculumByType(courseType: "elementary" | "middle_high") {
+export async function getDynamicCurriculumByType(courseType: "elementary" | "middle_high" | "high_univ" | "general_adult") {
   const db = await getDb();
   if (!db) return [];
   const rows = await db
@@ -353,7 +353,7 @@ export async function getCertificateByShareToken(shareToken: string) {
 
 export async function issueCertificate(input: {
   userId: number;
-  courseType: "elementary" | "middle_high";
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
   level?: number;
   certificateType: "level_certificate" | "graduation_certificate";
   shareToken: string;
@@ -518,7 +518,7 @@ export async function createAIAutoFeedback(input: {
   userId: number;
   essayTitle: string;
   essayContent: string;
-  courseType: "elementary" | "middle_high";
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
   level: number;
   overallComment?: string;
   structureScore?: number;
@@ -783,7 +783,7 @@ export async function adminGetAllCertificates() {
 
 export async function adminIssueCertificate(input: {
   userId: number;
-  courseType: "elementary" | "middle_high";
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
   level?: number;
   certificateType: "level_certificate" | "graduation_certificate";
   shareToken: string;
@@ -862,7 +862,7 @@ export async function adminGetCurriculumCategories() {
 }
 
 export async function adminCreateCurriculumCategory(input: {
-  courseType: "elementary" | "middle_high";
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
   level: number;
   title: string;
   description: string;
@@ -884,7 +884,7 @@ export async function adminCreateCurriculumCategory(input: {
 
 export async function adminUpdateCurriculumCategory(input: {
   id: number;
-  courseType: "elementary" | "middle_high";
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
   level: number;
   title: string;
   description: string;

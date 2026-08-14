@@ -33,7 +33,7 @@ interface EssayFeedback {
  */
 export async function evaluateSentence(
   sentence: string,
-  courseType: "elementary" | "middle_high"
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"
 ): Promise<SentenceFeedback> {
   const prompt =
     courseType === "elementary"
@@ -99,7 +99,7 @@ export async function evaluateSentence(
 export async function evaluateSummary(
   originalText: string,
   summary: string,
-  courseType: "elementary" | "middle_high"
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"
 ): Promise<SummaryFeedback> {
   const prompt =
     courseType === "elementary"
@@ -172,7 +172,7 @@ export async function evaluateSummary(
  */
 export async function evaluateEssay(
   essayContent: string,
-  courseType: "elementary" | "middle_high"
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"
 ): Promise<EssayFeedback> {
   const prompt =
     courseType === "elementary"

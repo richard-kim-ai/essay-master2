@@ -77,7 +77,7 @@ export type InsertPushSubscription = typeof pushSubscription.$inferInsert;
 // 커리큘럼 테이블
 export const curriculum = mysqlTable("curriculum", {
   id: int("id").autoincrement().primaryKey(),
-  courseType: mysqlEnum("courseType", ["elementary", "middle_high"]).notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
   level: int("level").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
@@ -123,7 +123,7 @@ export type InsertQuizAnswer = typeof quizAnswer.$inferInsert;
 export const certificate = mysqlTable("certificate", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  courseType: mysqlEnum("courseType", ["elementary", "middle_high"]).notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
   level: int("level"),
   certificateType: mysqlEnum("certificateType", ["level_certificate", "graduation_certificate"]).notNull(),
   shareToken: varchar("shareToken", { length: 64 }).unique(),
@@ -196,7 +196,7 @@ export const aiAutoFeedback = mysqlTable("ai_auto_feedback", {
   userId: int("userId").notNull(),
   essayTitle: varchar("essayTitle", { length: 255 }).notNull(),
   essayContent: text("essayContent").notNull(),
-  courseType: mysqlEnum("courseType", ["elementary", "middle_high"]).notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
   level: int("level").notNull(),
   overallComment: text("overallComment"),
   structureScore: int("structureScore"), // 0-100
@@ -240,7 +240,7 @@ export type InsertAdminMemoHistory = typeof adminMemoHistory.$inferInsert;
 // 동적 커리큘럼 카테고리 테이블 (관리자가 추가/수정/삭제 가능)
 export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
   id: int("id").autoincrement().primaryKey(),
-  courseType: mysqlEnum("courseType", ["elementary", "middle_high"]).notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
   level: int("level").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description").notNull(),

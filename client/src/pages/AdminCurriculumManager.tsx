@@ -10,8 +10,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
+type CourseTypeEnum = "elementary" | "middle_high" | "high_univ" | "general_adult";
 const blankForm = {
-  courseType: "elementary" as "elementary" | "middle_high",
+  courseType: "elementary" as CourseTypeEnum,
   level: "1",
   title: "",
   description: "",

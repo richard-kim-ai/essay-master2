@@ -107,8 +107,43 @@ export default function AdminCertificates() {
               <p className="mt-1 text-sm text-slate-600">학생별 수료증을 발행하고, 사유를 남겨 발행취소 또는 삭제할 수 있습니다.</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Link href="/admin"><Button variant="outline">관리자 대시보드</Button></Link>
+            <Button variant="outline" className="gap-2" onClick={() => {
+              if (!certificates || certificates.length === 0) {
+                toast.error("내보낼 수료증 기록이 없습니다.");
+                return;
+              }
+              const headers = ["ID", "수료증번호", "학생명", "이메일", "과정", "유형", "레벨", "상태", "발급일"];
+              const rows = certificates.map(c => {
+                const st = students.find((s) => s.id === c.userId);
+                return [
+                  c.id,
+                  `"CERT-${c.id}"`,
+                  `"${st?.name || "알 수 없음"}"`,
+                  `"${st?.email || ""}"`,
+                  c.courseType === "elementary" ? "초등" : "중고등",
+                  c.certificateType === "graduation_certificate" ? "졸업증서" : "레벨수료증",
+                  c.level || "-",
+                  c.status === "revoked" ? "발행취소" : "유효",
+                  `"${new Date(c.issuedAt).toLocaleString()}"`
+                ];
+              });
+              const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+              const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.setAttribute("href", url);
+              link.setAttribute("download", `수료증_발급내역_${new Date().toISOString().slice(0, 10)}.csv`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              toast.success("수료증 내역이 CSV 파일로 다운로드되었습니다.");
+            }}>CSV 내보내기</Button>
+            <Button variant="outline" className="gap-2" onClick={() => {
+              window.print();
+              toast.success("인쇄 / PDF 저장 창을 호출했습니다.");
+            }}>인쇄 / PDF</Button>
             <Button className="gap-2 bg-amber-600 text-white hover:bg-amber-700" onClick={() => setIssueOpen(true)}><Plus className="h-4 w-4" /> 수료증 발행</Button>
           </div>
         </div>

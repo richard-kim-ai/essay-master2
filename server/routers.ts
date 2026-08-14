@@ -278,11 +278,11 @@ export const appRouter = router({
   // ========== Curriculum Routes ==========
   curriculum: router({
     getByType: protectedProcedure
-      .input(z.enum(["elementary", "middle_high"]))
+      .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
       .query(({ input }) => db.getCurriculumByType(input)),
 
     getDynamicByType: protectedProcedure
-      .input(z.enum(["elementary", "middle_high"]))
+      .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
       .query(({ input }) => db.getDynamicCurriculumByType(input)),
 
     getById: protectedProcedure
@@ -367,7 +367,7 @@ export const appRouter = router({
     issue: protectedProcedure
       .input(
         z.object({
-          courseType: z.enum(["elementary", "middle_high"]),
+          courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
           level: z.number().optional(),
           certificateType: z.enum([
             "level_certificate",
@@ -555,7 +555,7 @@ export const appRouter = router({
         z.object({
           essayTitle: z.string(),
           essayContent: z.string(),
-          courseType: z.enum(["elementary", "middle_high"]),
+          courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
           level: z.number(),
         })
       )
@@ -648,7 +648,7 @@ export const appRouter = router({
     issueCertificateAdmin: protectedProcedure
       .input(z.object({
         userId: z.number(),
-        courseType: z.enum(["elementary", "middle_high"]),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
         level: z.number().optional(),
         certificateType: z.enum(["level_certificate", "graduation_certificate"]),
         issueReason: z.string().trim().max(500).optional(),
@@ -693,7 +693,7 @@ export const appRouter = router({
       }),
     createCurriculumCategoryAdmin: protectedProcedure
       .input(z.object({
-        courseType: z.enum(["elementary", "middle_high"]),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
         level: z.number().int().min(1).max(20),
         title: z.string().trim().min(2).max(255),
         description: z.string().trim().min(5).max(2000),
@@ -708,7 +708,7 @@ export const appRouter = router({
     updateCurriculumCategoryAdmin: protectedProcedure
       .input(z.object({
         id: z.number(),
-        courseType: z.enum(["elementary", "middle_high"]),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
         level: z.number().int().min(1).max(20),
         title: z.string().trim().min(2).max(255),
         description: z.string().trim().min(5).max(2000),
