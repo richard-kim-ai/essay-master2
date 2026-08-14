@@ -95,6 +95,47 @@ export const appRouter = router({
         return { requiresVerification: true } as const;
       }),
 
+    teacherSignup: publicProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(2).max(80),
+          email: z.string().trim().email().transform((value) => value.toLowerCase()),
+          password: z.string().min(8).max(128),
+          teacherLevel: z.number().int().min(1).max(3).default(1),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const existing = await db.getUserByEmail(input.email);
+        const token = createVerificationToken();
+        const tokenHash = hashVerificationToken(token);
+        const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS);
+
+        if (existing) {
+          if (existing.emailVerifiedAt) {
+            throw new TRPCError({ code: "CONFLICT", message: "이미 가입된 이메일입니다." });
+          }
+          await db.updateVerificationToken(existing.id, tokenHash, expiresAt);
+          await sendUserVerificationEmail(ctx.req, existing, token);
+          return { requiresVerification: true } as const;
+        }
+
+        const user = await db.createEmailUser({
+          openId: `teacher_${nanoid(40)}`,
+          name: input.name,
+          email: input.email,
+          loginMethod: "email",
+          passwordHash: hashPassword(input.password),
+          verificationTokenHash: tokenHash,
+          verificationTokenExpiresAt: expiresAt,
+          role: "teacher",
+          teacherLevel: input.teacherLevel,
+        });
+
+        if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "교사회원 가입에 실패했습니다." });
+        await sendUserVerificationEmail(ctx.req, user, token);
+        return { requiresVerification: true } as const;
+      }),
+
     verifyEmail: publicProcedure
       .input(z.object({ token: z.string().min(32) }))
       .mutation(async ({ input }) => {

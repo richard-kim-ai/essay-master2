@@ -24,6 +24,7 @@ import {
   User,
   ChevronDown,
   Settings,
+  GraduationCap,
 } from "lucide-react";
 
 interface NavItem {
@@ -161,6 +162,17 @@ export default function Navigation() {
                         </span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
+                      {(user?.role === "teacher" || user?.role === "admin") && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <Link href="/teacher-mypage">
+                            <DropdownMenuItem className="cursor-pointer font-bold text-blue-600">
+                              <GraduationCap className="w-4 h-4 mr-2" />
+                              <span>교사 마이페이지 (지도학생)</span>
+                            </DropdownMenuItem>
+                          </Link>
+                        </>
+                      )}
                       {user?.role === "admin" && (
                         <>
                           <DropdownMenuSeparator />

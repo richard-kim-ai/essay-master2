@@ -112,4 +112,15 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(compareSource).toContain("feedback.revisedEssay");
     expect(aiSource).toContain("revisedEssay");
   });
+
+  it("교사회원 가입 및 교사 마이페이지 기능이 존재한다", () => {
+    const signupPath = new URL("../client/src/pages/TeacherSignup.tsx", import.meta.url);
+    const mypagePath = new URL("../client/src/pages/TeacherMyPage.tsx", import.meta.url);
+    const signupSource = readFileSync(signupPath, "utf8");
+    const mypageSource = readFileSync(mypagePath, "utf8");
+    expect(signupSource).toContain("교사 회원가입");
+    expect(signupSource).toContain("teacherLevel");
+    expect(mypageSource).toContain("교사 마이페이지");
+    expect(mypageSource).toContain("지도 학생 관리 목록");
+  });
 });

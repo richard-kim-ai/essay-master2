@@ -23,6 +23,8 @@ import ThesisChecklist from "@/pages/ThesisChecklist";
 import OfflineEssays from "@/pages/OfflineEssays";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import TeacherSignup from "./pages/TeacherSignup";
+import TeacherMyPage from "./pages/TeacherMyPage";
 import VerifyEmail from "./pages/VerifyEmail";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -39,6 +41,7 @@ function Router() {
     <Switch>
       <Route path={"/login"} component={Login} />
       <Route path={"/signup"} component={Signup} />
+      <Route path={"/teacher-signup"} component={TeacherSignup} />
       <Route path={"/verify-email"} component={VerifyEmail} />
       <Route path={"/forgot-password"} component={ForgotPassword} />
       <Route path={"/reset-password"} component={ResetPassword} />
@@ -96,6 +99,13 @@ function Router() {
         {(params) => (
           <Layout>
             <Dashboard />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/teacher-mypage"}>
+        {(params) => (
+          <Layout>
+            <TeacherMyPage />
           </Layout>
         )}
       </Route>

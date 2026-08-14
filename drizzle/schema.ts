@@ -22,7 +22,9 @@ export const users = mysqlTable("users", {
   verificationTokenExpiresAt: timestamp("verificationTokenExpiresAt"),
   passwordResetTokenHash: varchar("passwordResetTokenHash", { length: 128 }),
   passwordResetTokenExpiresAt: timestamp("passwordResetTokenExpiresAt"),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "teacher", "admin"]).default("user").notNull(),
+  teacherLevel: int("teacherLevel").default(1), // 1: 주니어 첨삭교사, 2: 시니어 첨삭교사, 3: 수석 교사(커리큘럼/반 관리)
+  teacherId: int("teacherId"), // 학생이 배정된 담당 교사 ID
   adminNotes: text("adminNotes"),
   tag: varchar("tag", { length: 64 }).default("일반").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

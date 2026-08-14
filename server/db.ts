@@ -603,6 +603,8 @@ export async function createEmailUser(input: {
   emailVerifiedAt?: Date | null;
   verificationTokenHash?: string | null;
   verificationTokenExpiresAt?: Date | null;
+  role?: "user" | "teacher" | "admin";
+  teacherLevel?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
@@ -615,6 +617,8 @@ export async function createEmailUser(input: {
     emailVerifiedAt: input.emailVerifiedAt ?? null,
     verificationTokenHash: input.verificationTokenHash ?? null,
     verificationTokenExpiresAt: input.verificationTokenExpiresAt ?? null,
+    role: input.role ?? "user",
+    teacherLevel: input.teacherLevel ?? 1,
     lastSignedIn: new Date(),
   });
   return getUserByOpenId(input.openId);

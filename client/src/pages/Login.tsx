@@ -92,9 +92,14 @@ export default function Login() {
             })}
           </div>
           <p className="mt-2 text-center text-xs text-slate-500">소셜 로그인은 관리자 설정이 완료된 제공자만 활성화됩니다.</p>
-          <p className="mt-6 text-center text-sm text-slate-600">
-            아직 계정이 없으신가요? <Link href="/signup" className="font-semibold text-blue-600 hover:underline">회원가입</Link>
-          </p>
+          <div className="mt-6 space-y-2 text-center text-sm text-slate-600">
+            <p>
+              아직 계정이 없으신가요? <Link href="/signup" className="font-semibold text-blue-600 hover:underline">학생 회원가입</Link>
+            </p>
+            <p>
+              선생님이신가요? <Link href="/teacher-signup" className="font-semibold text-indigo-600 hover:underline">교사회원 가입</Link>
+            </p>
+          </div>
         </Card>
       </div>
     </div>
