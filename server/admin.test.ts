@@ -84,4 +84,32 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("고등/대입 과정 진도");
     expect(source).toContain("일반/직장인 과정 진도");
   });
+
+  it("프로그레스 바 클릭 시 과정별 세부 모듈 상태를 확인할 수 있다", () => {
+    const dashboardPath = new URL("../client/src/pages/Dashboard.tsx", import.meta.url);
+    const source = readFileSync(dashboardPath, "utf8");
+    expect(source).toContain("세부 모듈 확인");
+    expect(source).toContain("세부 학습 모듈");
+    expect(source).toContain("완료");
+    expect(source).toContain("미시작");
+  });
+
+  it("진도 상세 모듈이 불리언·백분율 완료 저장 형식을 모두 해석한다", () => {
+    const dashboardPath = new URL("../client/src/pages/Dashboard.tsx", import.meta.url);
+    const source = readFileSync(dashboardPath, "utf8");
+    expect(source).toContain("completed >= 100");
+    expect(source).toContain("진행 중");
+    expect(source).toContain("미시작");
+  });
+
+  it("AI 피드백 비교 페이지가 원본과 개선 답안을 나란히 보여준다", () => {
+    const comparePath = new URL("../client/src/pages/AIFeedbackCompare.tsx", import.meta.url);
+    const aiPath = new URL("../server/aiFeedback.ts", import.meta.url);
+    const compareSource = readFileSync(comparePath, "utf8");
+    const aiSource = readFileSync(aiPath, "utf8");
+    expect(compareSource).toContain("학생 원본 답안");
+    expect(compareSource).toContain("AI 첨삭 답안");
+    expect(compareSource).toContain("feedback.revisedEssay");
+    expect(aiSource).toContain("revisedEssay");
+  });
 });

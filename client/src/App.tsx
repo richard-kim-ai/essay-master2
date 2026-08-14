@@ -9,6 +9,7 @@ import Curriculum from "./pages/Curriculum";
 import CurriculumDetail from "./pages/CurriculumDetail";
 import Dashboard from "./pages/Dashboard";
 import AIAutoFeedback from "./pages/AIAutoFeedback";
+import AIFeedbackCompare from "./pages/AIFeedbackCompare";
 import EssaySubmission from "./pages/EssaySubmission";
 import TeacherFeedback from "./pages/TeacherFeedback";
 import Certificate from "./pages/Certificate";
@@ -102,6 +103,13 @@ function Router() {
         {(params) => (
           <Layout>
             <AIAutoFeedback />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/ai-feedback-compare/:id"}>
+        {(params) => (
+          <Layout>
+            <AIFeedbackCompare />
           </Layout>
         )}
       </Route>

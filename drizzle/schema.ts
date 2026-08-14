@@ -196,6 +196,7 @@ export const aiAutoFeedback = mysqlTable("ai_auto_feedback", {
   userId: int("userId").notNull(),
   essayTitle: varchar("essayTitle", { length: 255 }).notNull(),
   essayContent: text("essayContent").notNull(),
+  revisedEssay: text("revisedEssay"), // AI가 제안하는 개선 답안 본문
   courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
   level: int("level").notNull(),
   overallComment: text("overallComment"),

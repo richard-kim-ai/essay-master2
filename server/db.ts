@@ -522,6 +522,7 @@ export async function createAIAutoFeedback(input: {
   userId: number;
   essayTitle: string;
   essayContent: string;
+  revisedEssay?: string;
   courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
   level: number;
   overallComment?: string;

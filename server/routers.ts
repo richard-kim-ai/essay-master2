@@ -592,6 +592,7 @@ export const appRouter = router({
           logicScore: feedback.logicScore,
           expressionScore: feedback.expressionScore,
           overallScore: feedback.overallScore,
+          revisedEssay: feedback.revisedEssay,
           suggestions: JSON.stringify(feedback.suggestions),
           strengths: JSON.stringify(feedback.strengths),
           weaknesses: JSON.stringify(feedback.weaknesses),

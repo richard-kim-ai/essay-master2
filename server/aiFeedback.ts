@@ -26,6 +26,7 @@ interface EssayFeedback {
   weaknesses: string[];
   suggestions: string[];
   overallComment: string;
+  revisedEssay: string;
 }
 
 /**
@@ -187,7 +188,8 @@ export async function evaluateEssay(
   "strengths": ["강점 1", "강점 2"],
   "weaknesses": ["약점 1", "약점 2"],
   "suggestions": ["개선 제안 1", "개선 제안 2"],
-  "overallComment": "종합 평가"
+  "overallComment": "종합 평가",
+  "revisedEssay": "원문의 핵심 의도와 학생의 목소리를 유지하면서 문장·구조·논리를 개선한 전체 답안"
 }`
       : `학생의 논술: "${essayContent}"
 
@@ -200,7 +202,8 @@ export async function evaluateEssay(
   "strengths": ["강점 1", "강점 2"],
   "weaknesses": ["약점 1", "약점 2"],
   "suggestions": ["개선 제안 1", "개선 제안 2"],
-  "overallComment": "종합 평가"
+  "overallComment": "종합 평가",
+  "revisedEssay": "원문의 핵심 의도와 학생의 목소리를 유지하면서 문장·구조·논리를 개선한 전체 답안"
 }`;
 
   const response = await invokeLLM({
@@ -228,6 +231,7 @@ export async function evaluateEssay(
       weaknesses: result.weaknesses || [],
       suggestions: result.suggestions || [],
       overallComment: result.overallComment || "",
+      revisedEssay: result.revisedEssay || essayContent,
     };
   } catch (error) {
     console.error("Failed to parse essay feedback:", error);
@@ -240,6 +244,7 @@ export async function evaluateEssay(
       weaknesses: [],
       suggestions: [],
       overallComment: "평가 중 오류가 발생했습니다.",
+      revisedEssay: essayContent,
     };
   }
 }

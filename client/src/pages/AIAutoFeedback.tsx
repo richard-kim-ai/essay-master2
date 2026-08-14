@@ -55,6 +55,8 @@ export default function AIAutoFeedback() {
       // 피드백 데이터 파싱
       if (!result) return;
       const feedbackData = {
+        feedbackId: (result as any).id,
+        revisedEssay: (result as any).revisedEssay || content,
         structureScore: (result as any).structureScore || 0,
         logicScore: (result as any).logicScore || 0,
         expressionScore: (result as any).expressionScore || 0,
@@ -270,6 +272,8 @@ export default function AIAutoFeedback() {
           <div className="space-y-6">
             {feedback ? (
               <>
+                {feedback.feedbackId && <Link href={`/ai-feedback-compare/${feedback.feedbackId}`}><Button variant="outline" className="w-full gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">원본 답안과 AI 첨삭 답안 나란히 비교하기</Button></Link>}
+
                 {/* Score Summary */}
                 <Card>
                   <CardHeader>

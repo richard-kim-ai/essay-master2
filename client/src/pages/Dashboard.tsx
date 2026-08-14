@@ -1,10 +1,12 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { BookOpen, TrendingUp, Award, Target } from "lucide-react";
+import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight } from "lucide-react";
+import { useState } from "react";
 import {
   LineChart,
   Line,
@@ -32,6 +34,35 @@ export default function Dashboard() {
   const { data: middleHighCurr } = trpc.curriculum.getDynamicByType.useQuery("middle_high", { enabled: isAuthenticated });
   const { data: highUnivCurr } = trpc.curriculum.getDynamicByType.useQuery("high_univ", { enabled: isAuthenticated });
   const { data: generalAdultCurr } = trpc.curriculum.getDynamicByType.useQuery("general_adult", { enabled: isAuthenticated });
+  const { data: elementaryStatic } = trpc.curriculum.getByType.useQuery("elementary", { enabled: isAuthenticated });
+  const { data: middleHighStatic } = trpc.curriculum.getByType.useQuery("middle_high", { enabled: isAuthenticated });
+  const { data: highUnivStatic } = trpc.curriculum.getByType.useQuery("high_univ", { enabled: isAuthenticated });
+  const { data: generalAdultStatic } = trpc.curriculum.getByType.useQuery("general_adult", { enabled: isAuthenticated });
+  const [selectedCourse, setSelectedCourse] = useState<{ title: string; rows: any[]; percent: number; color: string } | null>(null);
+  const DASHBOARD_FALLBACK = {
+    elementary: [
+      { level: 1, title: "재미있는 낱말과 문장", description: "낱말 익히기와 짧은 문장 만들기" },
+      { level: 2, title: "이야기 만들기", description: "그림 보고 이야기 꾸미기와 육하원칙 글쓰기" },
+      { level: 3, title: "생각 정리하기", description: "핵심 내용 찾기와 짧은 글 요약하기" },
+      { level: 4, title: "상상력 키우기", description: "동화·편지·일기 등 창의적 글쓰기" },
+    ],
+    middle_high: [
+      { level: 1, title: "문장의 기초", description: "정확한 어휘와 문장 성분 호응" },
+      { level: 2, title: "단락의 논리적 연결", description: "소주제문과 뒷받침 문장 구성" },
+      { level: 3, title: "구조적 분석 및 요약", description: "서론·본론·결론과 개요 작성" },
+      { level: 4, title: "비판적 사고와 주제 설정", description: "제시문 분석과 자신의 견해 논증" },
+    ],
+    high_univ: [
+      { level: 1, title: "인문·사회 제시문 심층 분석", description: "다면적 제시문 비교 및 독해 훈련" },
+      { level: 2, title: "수리·과학적 사고와 논증", description: "도표·통계 자료를 활용한 논증" },
+      { level: 3, title: "대입 논술 실전 모의고사", description: "시간 관리와 실전 답안 작성" },
+    ],
+    general_adult: [
+      { level: 1, title: "비즈니스 기획서와 보고서 작성법", description: "결론 우선의 간결한 문서 구조화" },
+      { level: 2, title: "논리적 설득 스피치와 논설문", description: "근거 배치와 반박 대응" },
+      { level: 3, title: "직장인 실전 글쓰기 프로젝트", description: "제안서·이메일·회의록 실전 작성" },
+    ],
+  };
   const { data: quizData } = trpc.quiz.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -43,21 +74,44 @@ export default function Dashboard() {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
   }
 
-  // 과정별 동적 진도 계산
-  const completedIds = new Set(progressData?.filter((p) => p.completed === 1).map((p) => p.curriculumId) || []);
+  // 과정별 동적 진도 계산. 기존 불리언(1)과 워크북의 백분율(100) 저장 형식을 모두 지원합니다.
+  const isProgressComplete = (progress: { completed?: number | null } | undefined) => {
+    const completed = Number(progress?.completed ?? 0);
+    return completed === 1 || completed >= 100;
+  };
+  const progressStatus = (progress: { completed?: number | null } | undefined) => {
+    const completed = Number(progress?.completed ?? 0);
+    if (isProgressComplete(progress)) return "complete" as const;
+    if (completed > 0) return "in_progress" as const;
+    return "not_started" as const;
+  };
+  const completedIds = new Set(progressData?.filter((p) => isProgressComplete(p)).map((p) => p.curriculumId) || []);
 
   const calcCourseProgress = (currList: any[] = []) => {
     const total = currList.length;
     if (total === 0) return { percent: 0, completedCount: 0, total: 0 };
-    const completedCount = currList.filter((item) => completedIds.has(item.id)).length;
+    const completedCount = currList.filter((item) => completedIds.has(item.id) || completedIds.has(item.level)).length;
     const percent = Math.round((completedCount / total) * 100);
     return { percent, completedCount, total };
   };
 
-  const elemProgress = calcCourseProgress(elementaryCurr);
-  const mhProgress = calcCourseProgress(middleHighCurr);
-  const huProgress = calcCourseProgress(highUnivCurr);
-  const gaProgress = calcCourseProgress(generalAdultCurr);
+  const courseRows = {
+    elementary: elementaryCurr?.length ? elementaryCurr : elementaryStatic?.length ? elementaryStatic : DASHBOARD_FALLBACK.elementary,
+    middle_high: middleHighCurr?.length ? middleHighCurr : middleHighStatic?.length ? middleHighStatic : DASHBOARD_FALLBACK.middle_high,
+    high_univ: highUnivCurr?.length ? highUnivCurr : highUnivStatic?.length ? highUnivStatic : DASHBOARD_FALLBACK.high_univ,
+    general_adult: generalAdultCurr?.length ? generalAdultCurr : generalAdultStatic?.length ? generalAdultStatic : DASHBOARD_FALLBACK.general_adult,
+  };
+  const elemProgress = calcCourseProgress(courseRows.elementary);
+  const mhProgress = calcCourseProgress(courseRows.middle_high);
+  const huProgress = calcCourseProgress(courseRows.high_univ);
+  const gaProgress = calcCourseProgress(courseRows.general_adult);
+
+  const courseCards = [
+    { key: "elementary", title: "초등 과정 진도", rows: courseRows.elementary, progress: elemProgress, color: "indigo" },
+    { key: "middle_high", title: "중고등 과정 진도", rows: courseRows.middle_high, progress: mhProgress, color: "blue" },
+    { key: "high_univ", title: "고등/대입 과정 진도", rows: courseRows.high_univ, progress: huProgress, color: "purple" },
+    { key: "general_adult", title: "일반/직장인 과정 진도", rows: courseRows.general_adult, progress: gaProgress, color: "amber" },
+  ];
 
   const totalProgress = progressData?.length || 0;
   const completedProgress = progressData?.filter((p) => p.completed === 1).length || 0;
@@ -113,70 +167,47 @@ export default function Dashboard() {
 
         {/* Course Progress Breakdown Bars */}
         <div className="mb-8 grid gap-6 lg:grid-cols-4">
-          <Card className="border-indigo-100 bg-white shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-bold text-slate-700">초등 과정 진도</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex justify-between text-xs font-semibold text-slate-600">
-                <span>완료율</span>
-                <span className="text-indigo-600">{elemProgress.percent}%</span>
-              </div>
-              <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-indigo-600 rounded-full transition-all duration-500" style={{ width: `${elemProgress.percent}%` }} />
-              </div>
-              <p className="text-[11px] text-slate-400">총 {elemProgress.total}개 레벨 중 {elemProgress.completedCount}개 수료</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-blue-100 bg-white shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-bold text-slate-700">중고등 과정 진도</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex justify-between text-xs font-semibold text-slate-600">
-                <span>완료율</span>
-                <span className="text-blue-600">{mhProgress.percent}%</span>
-              </div>
-              <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-blue-600 rounded-full transition-all duration-500" style={{ width: `${mhProgress.percent}%` }} />
-              </div>
-              <p className="text-[11px] text-slate-400">총 {mhProgress.total}개 레벨 중 {mhProgress.completedCount}개 수료</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-purple-100 bg-white shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-bold text-slate-700">고등/대입 과정 진도</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex justify-between text-xs font-semibold text-slate-600">
-                <span>완료율</span>
-                <span className="text-purple-600">{huProgress.percent}%</span>
-              </div>
-              <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-purple-600 rounded-full transition-all duration-500" style={{ width: `${huProgress.percent}%` }} />
-              </div>
-              <p className="text-[11px] text-slate-400">총 {huProgress.total}개 레벨 중 {huProgress.completedCount}개 수료</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-amber-100 bg-white shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-bold text-slate-700">일반/직장인 과정 진도</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex justify-between text-xs font-semibold text-slate-600">
-                <span>완료율</span>
-                <span className="text-amber-600">{gaProgress.percent}%</span>
-              </div>
-              <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${gaProgress.percent}%` }} />
-              </div>
-              <p className="text-[11px] text-slate-400">총 {gaProgress.total}개 레벨 중 {gaProgress.completedCount}개 수료</p>
-            </CardContent>
-          </Card>
+          {courseCards.map((course) => (
+            <Card
+              key={course.key}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedCourse({ title: course.title, rows: course.rows, percent: course.progress.percent, color: course.color })}
+              onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedCourse({ title: course.title, rows: course.rows, percent: course.progress.percent, color: course.color }); } }}
+              className="cursor-pointer border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+              aria-label={`${course.title} 상세 모듈 보기`}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center justify-between text-sm font-bold text-slate-700"><span>{course.title}</span><ChevronRight className="h-4 w-4 text-slate-400" /></CardTitle>
+                <CardDescription className="text-[11px]">클릭하여 세부 모듈 확인</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex justify-between text-xs font-semibold text-slate-600"><span>완료율</span><span className={`text-${course.color}-600`}>{course.progress.percent}%</span></div>
+                <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full bg-${course.color}-600 transition-all duration-500`} style={{ width: `${course.progress.percent}%` }} /></div>
+                <p className="text-[11px] text-slate-400">총 {course.progress.total}개 레벨 중 {course.progress.completedCount}개 수료</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
+
+        <Dialog open={Boolean(selectedCourse)} onOpenChange={(open) => { if (!open) setSelectedCourse(null); }}>
+          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{selectedCourse?.title} 세부 학습 모듈</DialogTitle>
+              <DialogDescription>과정 내 모듈별 완료 상태와 현재 학습 점수를 확인하세요. 전체 완료율은 {selectedCourse?.percent ?? 0}%입니다.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              {selectedCourse?.rows?.length ? selectedCourse.rows.map((module: any) => {
+                const moduleId = module.id ?? module.level;
+                const moduleProgress = progressData?.find((item) => item.curriculumId === moduleId || item.curriculumId === module.level);
+                const status = progressStatus(moduleProgress);
+                const complete = status === "complete";
+                const inProgress = status === "in_progress";
+                return <div key={`${selectedCourse.title}-${moduleId}`} className={`flex items-start gap-3 rounded-xl border p-4 ${complete ? "border-emerald-200 bg-emerald-50/60" : inProgress ? "border-amber-200 bg-amber-50/50" : "border-slate-200 bg-white"}`}><div className="mt-0.5">{complete ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Circle className={`h-5 w-5 ${inProgress ? "text-amber-500" : "text-slate-300"}`} />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold text-slate-900">Level {module.level} · {module.title}</p><span className={`text-xs font-bold ${complete ? "text-emerald-700" : inProgress ? "text-amber-700" : "text-slate-500"}`}>{complete ? "완료" : inProgress ? `진행 중 (${Number(moduleProgress?.completed ?? 0)}%)` : "미시작"}</span></div><p className="mt-1 text-sm leading-6 text-slate-600">{module.description}</p>{moduleProgress?.score != null && <p className="mt-2 text-xs font-medium text-indigo-600">학습 점수 {moduleProgress.score}점</p>}</div></div>;
+              }) : <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">아직 등록된 학습 모듈이 없습니다.</div>}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Summary Cards */}
         <div className="grid md:grid-cols-4 gap-6 mb-8">
