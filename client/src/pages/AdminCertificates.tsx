@@ -27,6 +27,9 @@ export default function AdminCertificates() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "revoked">("all");
+  const [courseFilter, setCourseFilter] = useState<string>("all");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueForm, setIssueForm] = useState(emptyIssueForm);
   const [revokeTarget, setRevokeTarget] = useState<number | null>(null);
@@ -45,7 +48,11 @@ export default function AdminCertificates() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalized));
       const matchesStatus = statusFilter === "all" || certificate.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesCourse = courseFilter === "all" || certificate.courseType === courseFilter;
+      const certDate = new Date(certificate.issuedAt).getTime();
+      const matchesStart = !startDate || certDate >= new Date(startDate).getTime();
+      const matchesEnd = !endDate || certDate <= new Date(endDate).getTime() + 86400000;
+      return matchesSearch && matchesStatus && matchesCourse && matchesStart && matchesEnd;
     });
   }, [certificates, search, statusFilter, students]);
 
@@ -115,14 +122,14 @@ export default function AdminCertificates() {
                 return;
               }
               const headers = ["ID", "수료증번호", "학생명", "이메일", "과정", "유형", "레벨", "상태", "발급일"];
-              const rows = certificates.map(c => {
+              const rows = filteredCertificates.map(c => {
                 const st = students.find((s) => s.id === c.userId);
                 return [
                   c.id,
                   `"CERT-${c.id}"`,
                   `"${st?.name || "알 수 없음"}"`,
                   `"${st?.email || ""}"`,
-                  c.courseType === "elementary" ? "초등" : "중고등",
+                  c.courseType === "elementary" ? "초등" : c.courseType === "middle_high" ? "중고등" : c.courseType === "high_univ" ? "고등/대입" : "일반/직장인",
                   c.certificateType === "graduation_certificate" ? "졸업증서" : "레벨수료증",
                   c.level || "-",
                   c.status === "revoked" ? "발행취소" : "유효",
@@ -158,11 +165,24 @@ export default function AdminCertificates() {
           <CardHeader className="border-b border-slate-100">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div><CardTitle>발급 기록</CardTitle><CardDescription>발행취소는 기록을 보존하며, 삭제는 발행취소된 기록에만 허용됩니다.</CardDescription></div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input className="w-full sm:w-72" placeholder="학생명, 이메일, ID, 수료증 ID 검색" value={search} onChange={(event) => setSearch(event.target.value)} />
-                <select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} aria-label="수료증 상태 필터">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Input className="w-full sm:w-60" placeholder="학생명, 이메일, ID 검색" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
+                  <option value="all">모든 과정</option>
+                  <option value="elementary">초등 논술</option>
+                  <option value="middle_high">중고등 논술</option>
+                  <option value="high_univ">고등 / 대입</option>
+                  <option value="general_adult">일반 / 직장인</option>
+                </select>
+                <select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
                   <option value="all">모든 상태</option><option value="active">유효</option><option value="revoked">발행취소</option>
                 </select>
+                <div className="flex items-center gap-1 text-xs text-slate-500">
+                  <span>시작일:</span>
+                  <Input type="date" className="h-10 w-36 text-xs" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+                  <span>~ 종료일:</span>
+                  <Input type="date" className="h-10 w-36 text-xs" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+                </div>
               </div>
             </div>
           </CardHeader>

@@ -932,3 +932,60 @@ export async function getAdminOperationsDashboardStats() {
     aiUsageCount: allAiLogs.length,
   };
 }
+
+export async function seedHighUnivAndGeneralAdultCategories() {
+  const db = await getDb();
+  if (!db) return;
+
+  const existing = await db.select().from(dynamicCurriculum);
+  const highUnivExists = existing.some(e => e.courseType === "high_univ");
+  const generalAdultExists = existing.some(e => e.courseType === "general_adult");
+
+  if (!highUnivExists) {
+    const samples = [
+      { level: 1, title: "인문·사회 제시문 심층 분석", description: "대입 수시 논술의 핵심인 다면적 제시문 비교 및 독해 능력을 기릅니다.", topics: ["제시문 공통점과 차이점 추출", "비판적 독해와 논지 재구성", "출제자의 숨은 의도 파악"] },
+      { level: 2, title: "수리·과학적 사고와 논증", description: "논리적 인과관계와 확률·통계 데이터를 활용한 설득력 있는 논술 글쓰기입니다.", topics: ["도표와 통계 자료 해석", "논리적 오류 검증", "과학적 가설 검증형 논증"] },
+      { level: 3, title: "대학별 모의논술 실전 파이널", description: "주요 대학 기출문제 분석을 통해 실전 감각을 극대화하고 최종 완성도를 높입니다.", topics: ["연세대·고려대 기출 유형 분석", "시간 관리와 개요 작성 법", "실전 모의논술 첨삭 피드백"] },
+    ];
+    for (const s of samples) {
+      await db.insert(dynamicCurriculum).values({
+        courseType: "high_univ",
+        level: s.level,
+        title: s.title,
+        description: s.description,
+        topicsJson: JSON.stringify(s.topics),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+  }
+
+  if (!generalAdultExists) {
+    const samples = [
+      { level: 1, title: "비즈니스 기획서와 보고서 작성법", description: "직장인 필수 역량인 간결하고 명확한 비즈니스 문서 기획 및 논리 전개법입니다.", topics: ["결론 우선 두괄식 구조화", "핵심 데이터 시각화 개요", "상사 설득을 위한 기획서 작성"] },
+      { level: 2, title: "논리적 설득 스피치와 논설문", description: "공식적인 석상과 이메일, 제안서에서 상대를 논리적으로 설득하는 글쓰기입니다.", topics: ["타당한 근거와 논거 배치", "반박에 대응하는 방어 논리", "설득력 있는 어휘 선택"] },
+      { level: 3, title: "실무 에세이 및 칼럼 기고문", description: "전문 분야의 통찰을 담은 에세이와 사회적 이슈를 다루는 칼럼 기고문 작성입니다.", topics: ["문제 정의와 시사점 도출", "독자 타겟팅 맞춤형 문체", "완성도 높은 칼럼 에세이 편집"] },
+    ];
+    for (const s of samples) {
+      await db.insert(dynamicCurriculum).values({
+        courseType: "general_adult",
+        level: s.level,
+        title: s.title,
+        description: s.description,
+        topicsJson: JSON.stringify(s.topics),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+  }
+}
+
+export async function adminReorderCurriculumCategories(orderedIds: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await seedHighUnivAndGeneralAdultCategories();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.update(dynamicCurriculum).set({ level: i + 1, updatedAt: new Date() }).where(eq(dynamicCurriculum.id, orderedIds[i]));
+  }
+  return true;
+}

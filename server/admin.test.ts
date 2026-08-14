@@ -32,8 +32,8 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("동적 커리큘럼 관리자 화면에 추가·수정·삭제 흐름이 포함된다", () => {
     const source = readFileSync(curriculumManagerPath, "utf8");
     expect(source).toContain("새 커리큘럼 카테고리 추가");
-    expect(source).toContain("커리큘럼 카테고리 수정");
-    expect(source).toContain("카테고리 삭제 확인");
+    expect(source).toContain("커리큘럼 수정 확인");
+    expect(source).toContain("카테고리 삭제 실수 방지 경고");
     expect(source).toContain("getCurriculumCategoriesAdmin");
   });
 

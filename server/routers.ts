@@ -728,6 +728,22 @@ export const appRouter = router({
         }
         return await db.adminDeleteCurriculumCategory(input.id);
       }),
+    reorderCurriculumCategoriesAdmin: protectedProcedure
+      .input(z.object({ orderedIds: z.array(z.number()) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminReorderCurriculumCategories(input.orderedIds);
+      }),
+    seedDefaultCurriculumSamples: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        await db.seedHighUnivAndGeneralAdultCategories();
+        return true;
+      }),
     getOperationsStats: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== "admin") {
