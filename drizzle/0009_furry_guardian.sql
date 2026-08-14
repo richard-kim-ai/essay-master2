@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `tag` varchar(64) DEFAULT '일반' NOT NULL;

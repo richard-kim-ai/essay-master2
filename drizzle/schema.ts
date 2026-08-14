@@ -24,6 +24,7 @@ export const users = mysqlTable("users", {
   passwordResetTokenExpiresAt: timestamp("passwordResetTokenExpiresAt"),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   adminNotes: text("adminNotes"),
+  tag: varchar("tag", { length: 64 }).default("일반").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -215,3 +216,16 @@ export const aiUsageLogs = mysqlTable("ai_usage_logs", {
 
 export type AIUsageLog = typeof aiUsageLogs.$inferSelect;
 export type InsertAIUsageLog = typeof aiUsageLogs.$inferInsert;
+
+// 관리자 메모 히스토리 테이블
+export const adminMemoHistory = mysqlTable("admin_memo_history", {
+  id: int("id").autoincrement().primaryKey(),
+  studentId: int("studentId").notNull(),
+  adminId: int("adminId").notNull(),
+  adminName: varchar("adminName", { length: 255 }).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AdminMemoHistory = typeof adminMemoHistory.$inferSelect;
+export type InsertAdminMemoHistory = typeof adminMemoHistory.$inferInsert;
