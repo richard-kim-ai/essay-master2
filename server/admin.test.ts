@@ -68,4 +68,20 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("검색어 지우기");
     expect(source).toContain("검색 결과");
   });
+
+  it("AI 자동 첨삭 페이지가 문서 파일 업로드 및 텍스트 추출을 지원한다", () => {
+    const aiFeedbackPath = new URL("../client/src/pages/AIAutoFeedback.tsx", import.meta.url);
+    const source = readFileSync(aiFeedbackPath, "utf8");
+    expect(source).toContain("답안 파일 업로드");
+    expect(source).toContain("FileReader");
+  });
+
+  it("대시보드가 과정별 진도 프로그레스 바를 제공한다", () => {
+    const dashboardPath = new URL("../client/src/pages/Dashboard.tsx", import.meta.url);
+    const source = readFileSync(dashboardPath, "utf8");
+    expect(source).toContain("초등 과정 진도");
+    expect(source).toContain("중고등 과정 진도");
+    expect(source).toContain("고등/대입 과정 진도");
+    expect(source).toContain("일반/직장인 과정 진도");
+  });
 });

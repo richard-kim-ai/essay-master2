@@ -92,6 +92,73 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-8">학습 대시보드</h1>
 
+        {/* Course Progress Breakdown Bars */}
+        <div className="mb-8 grid gap-6 lg:grid-cols-4">
+          <Card className="border-indigo-100 bg-white shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold text-slate-700">초등 과정 진도</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex justify-between text-xs font-semibold text-slate-600">
+                <span>완료율</span>
+                <span className="text-indigo-600">75%</span>
+              </div>
+              <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full bg-indigo-600 rounded-full transition-all duration-500" style={{ width: "75%" }} />
+              </div>
+              <p className="text-[11px] text-slate-400">총 4개 레벨 중 3개 수료</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-100 bg-white shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold text-slate-700">중고등 과정 진도</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex justify-between text-xs font-semibold text-slate-600">
+                <span>완료율</span>
+                <span className="text-blue-600">50%</span>
+              </div>
+              <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full bg-blue-600 rounded-full transition-all duration-500" style={{ width: "50%" }} />
+              </div>
+              <p className="text-[11px] text-slate-400">총 4개 레벨 중 2개 수료</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-purple-100 bg-white shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold text-slate-700">고등/대입 과정 진도</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex justify-between text-xs font-semibold text-slate-600">
+                <span>완료율</span>
+                <span className="text-purple-600">25%</span>
+              </div>
+              <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full bg-purple-600 rounded-full transition-all duration-500" style={{ width: "25%" }} />
+              </div>
+              <p className="text-[11px] text-slate-400">총 4개 레벨 중 1개 수료</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-amber-100 bg-white shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold text-slate-700">일반/직장인 과정 진도</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex justify-between text-xs font-semibold text-slate-600">
+                <span>완료율</span>
+                <span className="text-amber-600">0%</span>
+              </div>
+              <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: "0%" }} />
+              </div>
+              <p className="text-[11px] text-slate-400">총 3개 레벨 중 0개 수료</p>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Summary Cards */}
         <div className="grid md:grid-cols-4 gap-6 mb-8">
           <Card>
