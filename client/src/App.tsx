@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Curriculum from "./pages/Curriculum";
+import CurriculumDetail from "./pages/CurriculumDetail";
 import Dashboard from "./pages/Dashboard";
 import AIAutoFeedback from "./pages/AIAutoFeedback";
 import EssaySubmission from "./pages/EssaySubmission";
@@ -76,6 +77,13 @@ function Router() {
         )}
       </Route>
       <Route path={"/"} component={Home} />
+      <Route path={"/curriculum/:courseType/:level"}>
+        {(params) => (
+          <Layout>
+            <CurriculumDetail />
+          </Layout>
+        )}
+      </Route>
       <Route path={"/curriculum"}>
         {(params) => (
           <Layout>

@@ -114,6 +114,7 @@ export default function Curriculum() {
                 const curriculumId = (item as { id?: number }).id ?? item.level;
                 const progress = progressMap.get(curriculumId) ?? progressMap.get(item.level);
                 const isCompleted = progress?.completed === 1;
+                const isDynamicCourse = courseType === "high_univ" || courseType === "general_adult";
 
                 return (
                   <Card
@@ -146,6 +147,11 @@ export default function Curriculum() {
                             <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3 text-sm leading-6 text-slate-700">
                               <span className="mr-2 font-semibold text-indigo-700">AI 강의 요약</span>
                               {(item as { aiSummary?: string }).aiSummary}
+                            </div>
+                          )}
+                          {((item as { aiTags?: string[] }).aiTags ?? []).length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-1.5" aria-label="강의 특징 태그">
+                              {((item as { aiTags?: string[] }).aiTags ?? []).map((tag) => <span key={tag} className="rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700">#{tag}</span>)}
                             </div>
                           )}
                         </div>
@@ -185,9 +191,10 @@ export default function Curriculum() {
                         </div>
                       )}
 
-                      <Link href={`/workbook/${courseType}/${item.level}`}>
+                      {(item as { id?: number }).id && (courseType === "high_univ" || courseType === "general_adult") && <Link href={`/curriculum/${courseType}/${item.level}`}><Button variant="outline" className="mb-2 w-full gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">강의 상세 보기 · PDF 자료</Button></Link>}
+                      <Link href={isDynamicCourse ? `/curriculum/${courseType}/${item.level}` : `/workbook/${courseType}/${item.level}`}>
                         <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white">
-                          {isCompleted ? "다시 풀기" : "시작하기"}
+                          {isDynamicCourse ? "강의 열기" : isCompleted ? "다시 풀기" : "시작하기"}
                         </Button>
                       </Link>
                     </CardContent>

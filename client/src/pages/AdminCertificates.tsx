@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { Award, Plus, ShieldCheck, Trash2, XCircle } from "lucide-react";
+import { Award, Plus, Search, ShieldCheck, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -189,9 +189,9 @@ export default function AdminCertificates() {
         <Card>
           <CardHeader className="border-b border-slate-100">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div><CardTitle>발급 기록</CardTitle><CardDescription>발행취소는 기록을 보존하며, 삭제는 발행취소된 기록에만 허용됩니다.</CardDescription></div>
+              <div><CardTitle>발급 기록</CardTitle><CardDescription>발행취소는 기록을 보존하며, 삭제는 발행취소된 기록에만 허용됩니다.</CardDescription>{search.trim() && <p className="mt-1 text-xs font-semibold text-indigo-600">“{search.trim()}” 검색 결과 {filteredCertificates.length}건</p>}</div>
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <Input className="w-full sm:w-60" placeholder="학생명, 이메일, ID 검색" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <div className="relative w-full sm:w-60"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input className="w-full pl-9 pr-9" aria-label="학생 이름 또는 이메일 검색" placeholder="학생명 또는 이메일 검색" value={search} onChange={(event) => setSearch(event.target.value)} />{search && <button type="button" aria-label="검색어 지우기" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={() => setSearch("")}><XCircle className="h-4 w-4" /></button>}</div>
                 <select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
                   <option value="all">모든 과정</option>
                   <option value="elementary">초등 논술</option>
@@ -221,7 +221,7 @@ export default function AdminCertificates() {
                     const isRevoked = certificate.status === "revoked";
                     return <tr key={certificate.id} className="hover:bg-slate-50">
                       <td className="px-5 py-4"><p className="font-semibold text-slate-900">{student?.name || `사용자 #${certificate.userId}`}</p><p className="text-xs text-slate-500">{student?.email || `ID ${certificate.userId}`}</p></td>
-                      <td className="px-5 py-4">{certificate.courseType === "elementary" ? "초등 논술" : "중고등 논술"}</td>
+                      <td className="px-5 py-4">{certificate.courseType === "elementary" ? "초등 논술" : certificate.courseType === "middle_high" ? "중고등 논술" : certificate.courseType === "high_univ" ? "고등 / 대입" : "일반 / 직장인"}</td>
                       <td className="px-5 py-4">{certificate.certificateType === "graduation_certificate" ? "졸업증서" : `Level ${certificate.level} 수료증`}</td>
                       <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isRevoked ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>{isRevoked ? "발행취소" : "유효"}</span></td>
                       <td className="px-5 py-4 text-xs text-slate-500">{new Date(certificate.issuedAt).toLocaleString()}</td>

@@ -5,6 +5,8 @@ const adminPagePath = new URL("../client/src/pages/AdminDashboard.tsx", import.m
 const navPath = new URL("../client/src/components/Navigation.tsx", import.meta.url);
 const certificatesPagePath = new URL("../client/src/pages/AdminCertificates.tsx", import.meta.url);
 const curriculumManagerPath = new URL("../client/src/pages/AdminCurriculumManager.tsx", import.meta.url);
+const curriculumDetailPath = new URL("../client/src/pages/CurriculumDetail.tsx", import.meta.url);
+const curriculumPagePath = new URL("../client/src/pages/Curriculum.tsx", import.meta.url);
 const routersPath = new URL("./routers.ts", import.meta.url);
 
 describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
@@ -43,5 +45,27 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("revokeCertificateAdmin");
     expect(source).toContain("deleteCurriculumCategoryAdmin");
     expect(source).toContain("ctx.user.role !== \"admin\"");
+  });
+
+  it("학생용 신규 과정 상세 페이지가 AI 태그와 샘플 PDF 다운로드를 제공한다", () => {
+    const source = readFileSync(curriculumDetailPath, "utf8");
+    expect(source).toContain("getDynamicByType.useQuery");
+    expect(source).toContain("item.samplePdfUrl");
+    expect(source).toContain("PDF 다운로드");
+    expect(source).toContain("item.aiTags");
+  });
+
+  it("학생용 커리큘럼 카드가 신규 과정의 상세 페이지와 자동 태그를 연결한다", () => {
+    const source = readFileSync(curriculumPagePath, "utf8");
+    expect(source).toContain("강의 상세 보기 · PDF 자료");
+    expect(source).toContain("aiTags");
+    expect(source).toContain("isDynamicCourse");
+  });
+
+  it("수료증 검색 UI가 학생 이름·이메일 검색과 검색어 초기화를 제공한다", () => {
+    const source = readFileSync(certificatesPagePath, "utf8");
+    expect(source).toContain("학생 이름 또는 이메일 검색");
+    expect(source).toContain("검색어 지우기");
+    expect(source).toContain("검색 결과");
   });
 });

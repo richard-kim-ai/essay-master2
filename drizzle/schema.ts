@@ -247,6 +247,8 @@ export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
   topicsJson: text("topicsJson").notNull(), // JSON string array of topics
   thumbnailUrl: varchar("thumbnailUrl", { length: 500 }),
   aiSummary: text("aiSummary"),
+  aiTags: text("aiTags"), // JSON string array of auto-generated tags
+  samplePdfUrl: varchar("samplePdfUrl", { length: 500 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

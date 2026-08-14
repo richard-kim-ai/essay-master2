@@ -247,6 +247,9 @@ export async function getDynamicCurriculumByType(courseType: "elementary" | "mid
     topics: (() => {
       try { return JSON.parse(row.topicsJson) as string[]; } catch { return []; }
     })(),
+    aiTags: (() => {
+      try { return row.aiTags ? (JSON.parse(row.aiTags) as string[]) : []; } catch { return []; }
+    })(),
   }));
 }
 
@@ -859,6 +862,9 @@ export async function adminGetCurriculumCategories() {
     topics: (() => {
       try { return JSON.parse(row.topicsJson) as string[]; } catch { return []; }
     })(),
+    aiTags: (() => {
+      try { return row.aiTags ? (JSON.parse(row.aiTags) as string[]) : []; } catch { return []; }
+    })(),
   }));
 }
 
@@ -960,6 +966,25 @@ async function createAiCourseSummary(title: string, description: string, topics:
   }
 }
 
+async function createAiTagsFromSummary(title: string, aiSummary: string, topics: string[]) {
+  const defaultTags = [title.split(" ")[0] || "논술", "핵심역량", "실전대비"];
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: "system", content: "당신은 교육 태그 생성기입니다. 강의 요약과 주제를 분석하여 핵심 특징을 나타내는 3~4개의 짧은 한글 태그(각 2~6자)를 쉼표로 구분하여 출력하세요. 예: 수시분석, 논리독해, 실전파이널" },
+        { role: "user", content: `강의명: ${title}\n요약: ${aiSummary}\n주제: ${topics.join(", ")}` },
+      ],
+    });
+    const content = typeof response === "string" ? response : (response as any)?.choices?.[0]?.message?.content || (response as any)?.message?.content || "";
+    const cleaned = String(content).trim().replace(/[\[\]"]/g, "");
+    const tags = cleaned.split(/[,，\n]/).map(t => t.trim().replace(/^#/, "")).filter(Boolean);
+    return tags.length >= 2 ? tags.slice(0, 4) : defaultTags;
+  } catch (error) {
+    console.warn("[Curriculum] AI tags generation failed; using defaults", error);
+    return defaultTags;
+  }
+}
+
 export async function seedHighUnivAndGeneralAdultCategories() {
   const db = await getDb();
   if (!db) return;
@@ -990,6 +1015,21 @@ export async function seedHighUnivAndGeneralAdultCategories() {
     for (const sample of group.samples) {
       const found = existing.find((item) => item.courseType === group.courseType && item.title === sample.title);
       const aiSummary = found?.aiSummary || await createAiCourseSummary(sample.title, sample.description, sample.topics);
+      let aiTags: string[] = [];
+      try {
+        aiTags = found?.aiTags ? JSON.parse(found.aiTags) : await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
+      } catch {
+        aiTags = await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
+      }
+      const uploadedPdfUrls: Record<string, string> = {
+    "high_univ-1": "/manus-storage/sample-high_univ-level1_1354f588.pdf",
+    "high_univ-2": "/manus-storage/sample-high_univ-level2_7a0b9bcb.pdf",
+    "high_univ-3": "/manus-storage/sample-high_univ-level3_790def1f.pdf",
+    "general_adult-1": "/manus-storage/sample-general_adult-level1_53bcd928.pdf",
+    "general_adult-2": "/manus-storage/sample-general_adult-level2_8ec417c6.pdf",
+    "general_adult-3": "/manus-storage/sample-general_adult-level3_c1c91ff8.pdf",
+  };
+      const samplePdfUrl = uploadedPdfUrls[`${group.courseType}-${sample.level}`] || found?.samplePdfUrl || null;
       const values = {
         courseType: group.courseType,
         level: sample.level,
@@ -998,6 +1038,8 @@ export async function seedHighUnivAndGeneralAdultCategories() {
         topicsJson: JSON.stringify(sample.topics),
         thumbnailUrl: group.thumbnailUrl,
         aiSummary,
+        aiTags: JSON.stringify(aiTags),
+        samplePdfUrl,
         updatedAt: new Date(),
       };
       if (found) {
