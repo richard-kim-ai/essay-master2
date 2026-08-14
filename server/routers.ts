@@ -634,6 +634,56 @@ export const appRouter = router({
         }
         return await db.updateUsersTag(input.studentIds, input.tag);
       }),
+    getAllCertificatesAdmin: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminGetAllCertificates();
+      }),
+    issueCertificateAdmin: protectedProcedure
+      .input(z.object({
+        userId: z.number(),
+        courseType: z.enum(["elementary", "middle_high"]),
+        level: z.number().optional(),
+        certificateType: z.enum(["level_certificate", "graduation_certificate"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        const shareToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        return await db.adminIssueCertificate({
+          userId: input.userId,
+          courseType: input.courseType,
+          level: input.level,
+          certificateType: input.certificateType,
+          shareToken,
+        });
+      }),
+    revokeCertificateAdmin: protectedProcedure
+      .input(z.object({ certificateId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminRevokeCertificate(input.certificateId);
+      }),
+    deleteCertificateAdmin: protectedProcedure
+      .input(z.object({ certificateId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminDeleteCertificate(input.certificateId);
+      }),
+    getOperationsStats: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.getAdminOperationsDashboardStats();
+      }),
   }),
 });
 

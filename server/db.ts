@@ -755,3 +755,67 @@ export async function updateUsersTag(userIds: number[], tag: string) {
   }
   return true;
 }
+
+// ========== Admin Certificate & Category Management Functions ==========
+
+export async function adminGetAllCertificates() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(certificate);
+}
+
+export async function adminIssueCertificate(input: {
+  userId: number;
+  courseType: "elementary" | "middle_high";
+  level?: number;
+  certificateType: "level_certificate" | "graduation_certificate";
+  shareToken: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  const [res] = await db.insert(certificate).values({
+    userId: input.userId,
+    courseType: input.courseType,
+    level: input.level ?? null,
+    certificateType: input.certificateType,
+    shareToken: input.shareToken,
+    issuedAt: new Date(),
+  });
+  return res;
+}
+
+export async function adminRevokeCertificate(certificateId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(certificate).where(eq(certificate.id, certificateId));
+  return true;
+}
+
+export async function adminDeleteCertificate(certificateId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(certificate).where(eq(certificate.id, certificateId));
+  return true;
+}
+
+export async function getAdminOperationsDashboardStats() {
+  const db = await getDb();
+  if (!db) return null;
+
+  const allUsers = await db.select().from(users);
+  const allSubs = await db.select().from(essaySubmission);
+  const allCerts = await db.select().from(certificate);
+  const allAiLogs = await db.select().from(aiUsageLogs);
+
+  const students = allUsers.filter(u => u.role !== 'admin');
+  const teachers = allUsers.filter(u => u.role === 'admin');
+
+  return {
+    studentCount: students.length,
+    teacherCount: teachers.length,
+    submissionCount: allSubs.length,
+    certificateCount: allCerts.length,
+    aiUsageCount: allAiLogs.length,
+  };
+}
