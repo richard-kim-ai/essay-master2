@@ -133,10 +133,10 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(compareSource).toContain("하이라이트 켜짐");
   });
 
-  it("관리자 커리큘럼 운영 안내 문구가 부드러운 강조 표현으로 수정되어 있다", () => {
+  it("관리자 커리큘럼 운영 안내 문구가 정제되어 있다", () => {
     const managerPath = new URL("../client/src/pages/AdminCurriculumManager.tsx", import.meta.url);
     const managerSource = readFileSync(managerPath, "utf8");
-    expect(managerSource).toContain("부드러운 강조 배경 효과로 즉시 안내됩니다");
+    expect(managerSource).toContain("노출 순서를 변경할 수 있습니다");
   });
 
   it("ManusDialog에 DialogTitle이 항상 렌더링되어 접근성 오류를 방지한다", () => {
@@ -148,7 +148,7 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("관리자 커리큘럼 화면에 필터 탭, 검색, 노출 토글, 미리보기 기능이 포함되어 있다", () => {
     const managerPath = new URL("../client/src/pages/AdminCurriculumManager.tsx", import.meta.url);
     const managerSource = readFileSync(managerPath, "utf8");
-    expect(managerSource).toContain("selectedCourseTab");
+    expect(managerSource).toContain("activeTab");
     expect(managerSource).toContain("searchQuery");
     expect(managerSource).toContain("toggleCurriculumActiveAdmin");
     expect(managerSource).toContain("학생 화면 상세 미리보기");

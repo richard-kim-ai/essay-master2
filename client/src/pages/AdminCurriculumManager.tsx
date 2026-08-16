@@ -1,196 +1,250 @@
-import { useState } from "react";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { trpc } from "@/lib/trpc";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { BookOpen, Plus, Edit3, Trash2, Layers3, Sparkles, ShieldCheck, GripVertical, ArrowUp, ArrowDown, Eye, Search, CheckCircle2, FileText, Tag, Filter, Copy, Smartphone, Monitor } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { BookOpen, Plus, ArrowUp, ArrowDown, Edit3, Trash2, GripVertical, Search, Eye, Sparkles, Copy, Monitor, Smartphone } from "lucide-react";
 import { Link } from "wouter";
-
-type CourseTypeEnum = "elementary" | "middle_high" | "high_univ" | "general_adult";
-
-const blankForm = {
-  courseType: "elementary" as CourseTypeEnum,
-  level: "1",
-  title: "",
-  description: "",
-  topicsText: "",
-  aiSummary: "",
-  isActive: 1,
-};
-
-type CurriculumForm = typeof blankForm;
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function AdminCurriculumManager() {
-  const { user, loading } = useAuth();
-  const isAdmin = user?.role === "admin";
-  const utils = trpc.useUtils();
-  const { data: categories, isLoading } = trpc.admin.getCurriculumCategoriesAdmin.useQuery(undefined, { enabled: isAdmin });
-  const [formOpen, setFormOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<CurriculumForm>(blankForm);
-  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [draggedId, setDraggedId] = useState<number | null>(null);
-  const [previewCategory, setPreviewCategory] = useState<any | null>(null);
-  const [previewDevice, setPreviewDevice] = useState<"pc" | "mobile">("pc");
-  const [selectedCourseTab, setSelectedCourseTab] = useState<string>("all");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+
+  // Multi-select state
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
-  const createMutation = trpc.admin.createCurriculumCategoryAdmin.useMutation({
-    onSuccess: () => { toast.success("커리큘럼 카테고리를 추가했습니다."); closeForm(); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
-    onError: (error) => toast.error(error.message || "카테고리 추가에 실패했습니다."),
-  });
-  const updateMutation = trpc.admin.updateCurriculumCategoryAdmin.useMutation({
-    onSuccess: () => { toast.success("커리큘럼 카테고리를 수정했습니다."); closeForm(); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
-    onError: (error) => toast.error(error.message || "카테고리 수정에 실패했습니다."),
-  });
-  const deleteMutation = trpc.admin.deleteCurriculumCategoryAdmin.useMutation({
-    onSuccess: () => { toast.success("커리큘럼 카테고리를 삭제했습니다."); setDeleteId(null); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
-    onError: (error) => toast.error(error.message || "카테고리 삭제에 실패했습니다."),
-  });
-  const reorderMutation = trpc.admin.reorderCurriculumCategoriesAdmin.useMutation({
-    onSuccess: () => { toast.success("커리큘럼 순서가 변경되었습니다."); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
-    onError: (error) => toast.error(error.message || "순서 변경에 실패했습니다."),
-  });
-  const toggleActiveMutation = trpc.admin.toggleCurriculumActiveAdmin.useMutation({
-    onSuccess: () => { toast.success("과정 노출 상태가 변경되었습니다."); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
-    onError: (error) => toast.error(error.message || "노출 상태 변경에 실패했습니다."),
-  });
-  const batchToggleMutation = trpc.admin.batchToggleCurriculumActiveAdmin.useMutation({
-    onSuccess: () => { toast.success("선택한 과정들의 노출 상태가 일괄 변경되었습니다."); setSelectedIds([]); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
-    onError: (error) => toast.error(error.message || "일괄 노출 변경에 실패했습니다."),
-  });
-  const duplicateMutation = trpc.admin.duplicateCurriculumAdmin.useMutation({
-    onSuccess: () => { toast.success("커리큘럼 카테고리를 복제했습니다."); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
-    onError: (error) => toast.error(error.message || "카테고리 복제에 실패했습니다."),
-  });
-  const seedMutation = trpc.admin.seedDefaultCurriculumSamples.useMutation({
-    onSuccess: () => { toast.success("고등/대입 및 일반/직장인 샘플 강의가 추가되었습니다."); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
-    onError: (error) => toast.error(error.message || "샘플 추가에 실패했습니다."),
+  // Preview Modal State
+  const [previewCategory, setPreviewCategory] = useState<any | null>(null);
+  const [previewDevice, setPreviewDevice] = useState<"pc" | "mobile">("pc");
+
+  // Create / Edit Form State
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState({
+    courseType: "elementary" as "elementary" | "middle_high" | "high_univ" | "general_adult",
+    level: 1,
+    title: "",
+    description: "",
+    topicsText: "",
+    aiSummary: "",
+    isActive: 1,
   });
 
-  function closeForm() { setFormOpen(false); setEditingId(null); setForm(blankForm); }
-  function openCreate() { setEditingId(null); setForm(blankForm); setFormOpen(true); }
-  function openEdit(category: NonNullable<typeof categories>[number]) {
-    setEditingId(category.id);
+  // Delete Confirmation State
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  const { data: categories, isLoading, refetch } = trpc.admin.getCurriculumCategoriesAdmin.useQuery();
+  const utils = trpc.useUtils();
+
+  const createMutation = trpc.admin.createCurriculumCategoryAdmin.useMutation({
+    onSuccess: () => {
+      toast.success("새 커리큘럼 카테고리가 생성되었습니다.");
+      closeForm();
+      refetch();
+    },
+    onError: (err: any) => toast.error(err.message || "생성 중 오류가 발생했습니다."),
+  });
+
+  const updateMutation = trpc.admin.updateCurriculumCategoryAdmin.useMutation({
+    onSuccess: () => {
+      toast.success("커리큘럼이 수정되었습니다.");
+      closeForm();
+      refetch();
+    },
+    onError: (err: any) => toast.error(err.message || "수정 중 오류가 발생했습니다."),
+  });
+
+  const deleteMutation = trpc.admin.deleteCurriculumCategoryAdmin.useMutation({
+    onSuccess: () => {
+      toast.success("카테고리가 삭제되었습니다.");
+      setDeleteId(null);
+      refetch();
+    },
+    onError: (err: any) => toast.error(err.message || "삭제 중 오류가 발생했습니다."),
+  });
+
+  const reorderMutation = trpc.admin.reorderCurriculumCategoriesAdmin.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (err: any) => toast.error(err.message || "순서 변경 중 오류가 발생했습니다."),
+  });
+
+  const seedMutation = trpc.admin.seedDefaultCurriculumSamples.useMutation({
+    onSuccess: () => {
+      toast.success("고등/대입 및 일반/직장인 샘플 강의가 추가되었습니다.");
+      refetch();
+    },
+    onError: (err: any) => toast.error(err.message || "샘플 추가 중 오류가 발생했습니다."),
+  });
+
+  const toggleActiveMutation = trpc.admin.toggleCurriculumActiveAdmin.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (err: any) => toast.error(err.message || "노출 상태 변경 중 오류가 발생했습니다."),
+  });
+
+  const batchToggleMutation = trpc.admin.batchToggleCurriculumActiveAdmin.useMutation({
+    onSuccess: () => {
+      toast.success("선택한 항목의 노출 상태가 일괄 변경되었습니다.");
+      setSelectedIds([]);
+      refetch();
+    },
+    onError: (err: any) => toast.error(err.message || "일괄 처리 중 오류가 발생했습니다."),
+  });
+
+  const duplicateMutation = trpc.admin.duplicateCurriculumAdmin.useMutation({
+    onSuccess: () => {
+      toast.success("커리큘럼 카드가 복제되었습니다.");
+      refetch();
+    },
+    onError: (err: any) => toast.error(err.message || "복제 중 오류가 발생했습니다."),
+  });
+
+  const openCreate = () => {
+    setEditingId(null);
     setForm({
-      courseType: category.courseType as CourseTypeEnum,
-      level: String(category.level),
-      title: category.title,
-      description: category.description,
-      topicsText: category.topics.join("\n"),
-      aiSummary: category.aiSummary ?? "",
-      isActive: category.isActive ?? 1,
+      courseType: "elementary",
+      level: 1,
+      title: "",
+      description: "",
+      topicsText: "주제 분석, 논리 전개, 글쓰기 실습",
+      aiSummary: "",
+      isActive: 1,
     });
     setFormOpen(true);
-  }
-  function submitForm() {
+  };
+
+  const openEdit = (cat: any) => {
+    setEditingId(cat.id);
+    setForm({
+      courseType: cat.courseType,
+      level: cat.level,
+      title: cat.title,
+      description: cat.description,
+      topicsText: Array.isArray(cat.topics) ? cat.topics.join(", ") : "",
+      aiSummary: cat.aiSummary || "",
+      isActive: cat.isActive ?? 1,
+    });
+    setFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingId(null);
+  };
+
+  const handleSaveForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    const topics = form.topicsText.split(",").map((t) => t.trim()).filter(Boolean);
+    if (!form.title || !form.description || topics.length === 0) {
+      toast.error("제목, 설명, 학습 주제를 올바르게 입력해주세요.");
+      return;
+    }
     const payload = {
       courseType: form.courseType,
       level: Number(form.level),
-      title: form.title.trim(),
-      description: form.description.trim(),
-      topics: form.topicsText.split("\n").map((topic) => topic.trim()).filter(Boolean),
-      aiSummary: form.aiSummary.trim() || undefined,
+      title: form.title,
+      description: form.description,
+      topics,
+      aiSummary: form.aiSummary,
       isActive: form.isActive,
     };
-    if (!payload.level || !payload.title || !payload.description || payload.topics.length === 0) {
-      toast.error("레벨, 제목, 설명, 주제 항목을 모두 입력해 주세요.");
-      return;
-    }
-    if (editingId) updateMutation.mutate({ id: editingId, ...payload });
-    else createMutation.mutate(payload);
-  }
 
-  function persistListOrder(list: NonNullable<typeof categories>, nextHighlightId: number) {
-    const groupIds = list.map((item) => item.id);
-    const groupIdSet = new Set(groupIds);
-    let groupCursor = 0;
-    const finalOrderedIds = (categories ?? []).map((item) => groupIdSet.has(item.id) ? groupIds[groupCursor++] : item.id);
-    setHighlightId(nextHighlightId);
-    window.setTimeout(() => setHighlightId(null), 1100);
-    reorderMutation.mutate({ orderedIds: finalOrderedIds });
-  }
-
-  function moveCategory(index: number, direction: "up" | "down", list: NonNullable<typeof categories>) {
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= list.length) return;
-    const newList = [...list];
-    [newList[index], newList[targetIndex]] = [newList[targetIndex], newList[index]];
-    persistListOrder(newList, newList[targetIndex].id);
-  }
-
-  function dropCategory(sourceId: number, targetId: number, list: NonNullable<typeof categories>) {
-    const sourceIndex = list.findIndex((item) => item.id === sourceId);
-    const targetIndex = list.findIndex((item) => item.id === targetId);
-    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
-    const newList = [...list];
-    const [moved] = newList.splice(sourceIndex, 1);
-    newList.splice(targetIndex, 0, moved);
-    persistListOrder(newList, sourceId);
-  }
-
-  function toggleSelectAll(list: NonNullable<typeof categories>) {
-    const ids = list.map(i => i.id);
-    const allSelected = ids.every(id => selectedIds.includes(id));
-    if (allSelected) {
-      setSelectedIds(selectedIds.filter(id => !ids.includes(id)));
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, ...payload });
     } else {
-      const merged = Array.from(new Set([...selectedIds, ...ids]));
+      createMutation.mutate(payload);
+    }
+  };
+
+  const moveCategory = (index: number, direction: "up" | "down", items: any[]) => {
+    const newItems = [...items];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newItems.length) return;
+    const temp = newItems[index];
+    newItems[index] = newItems[targetIndex];
+    newItems[targetIndex] = temp;
+
+    const orderedIds = newItems.map((item) => item.id);
+    setHighlightId(temp.id);
+    setTimeout(() => setHighlightId(null), 1200);
+    reorderMutation.mutate({ orderedIds });
+  };
+
+  const dropCategory = (sourceId: number, targetId: number, items: any[]) => {
+    if (sourceId === targetId) return;
+    const sourceIdx = items.findIndex((i) => i.id === sourceId);
+    const targetIdx = items.findIndex((i) => i.id === targetId);
+    if (sourceIdx < 0 || targetIdx < 0) return;
+
+    const newItems = [...items];
+    const [moved] = newItems.splice(sourceIdx, 1);
+    newItems.splice(targetIdx, 0, moved);
+
+    const orderedIds = newItems.map((item) => item.id);
+    setHighlightId(moved.id);
+    setTimeout(() => setHighlightId(null), 1200);
+    reorderMutation.mutate({ orderedIds });
+  };
+
+  const toggleSelectAll = (items: any[]) => {
+    const itemIds = items.map((i) => i.id);
+    const allSelected = itemIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds(selectedIds.filter((id) => !itemIds.includes(id)));
+    } else {
+      const merged = Array.from(new Set([...selectedIds, ...itemIds]));
       setSelectedIds(merged);
     }
-  }
+  };
 
-  if (loading) return <div className="p-12 text-center text-slate-600">권한을 확인하는 중입니다...</div>;
-  if (!isAdmin) return <div className="p-12 text-center text-slate-600">관리자 권한이 필요합니다.</div>;
+  const filteredCategories = useMemo(() => {
+    if (!categories) return [];
+    return categories.filter((c) => {
+      const matchTab = activeTab === "all" || c.courseType === activeTab;
+      const matchQuery =
+        !searchQuery ||
+        c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.topics?.some((t: string) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchTab && matchQuery;
+    });
+  }, [categories, activeTab, searchQuery]);
 
-  const filteredCategories = (categories ?? []).filter((category) => {
-    if (selectedCourseTab !== "all" && category.courseType !== selectedCourseTab) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = category.title.toLowerCase().includes(q);
-      const matchDesc = category.description.toLowerCase().includes(q);
-      const matchTopics = category.topics.some((t) => t.toLowerCase().includes(q));
-      return matchTitle || matchDesc || matchTopics;
-    }
-    return true;
-  });
+  const elementary = filteredCategories.filter((c) => c.courseType === "elementary");
+  const middleHigh = filteredCategories.filter((c) => c.courseType === "middle_high");
+  const highUniv = filteredCategories.filter((c) => c.courseType === "high_univ");
+  const generalAdult = filteredCategories.filter((c) => c.courseType === "general_adult");
 
-  const elementary = filteredCategories.filter((category) => category.courseType === "elementary");
-  const middleHigh = filteredCategories.filter((category) => category.courseType === "middle_high");
-  const highUniv = filteredCategories.filter((category) => category.courseType === "high_univ");
-  const generalAdult = filteredCategories.filter((category) => category.courseType === "general_adult");
-
-  const renderGroup = (title: string, items: typeof elementary, color: string) => {
-    if (items.length === 0 && selectedCourseTab !== "all") return null;
-    const allChecked = items.length > 0 && items.every(i => selectedIds.includes(i.id));
+  const renderGroup = (title: string, items: any[], titleColorClass: string) => {
+    if (activeTab !== "all" && activeTab !== items[0]?.courseType && items.length === 0) return null;
+    const allChecked = items.length > 0 && items.every((i) => selectedIds.includes(i.id));
 
     return (
-      <Card className="mb-6">
-        <CardHeader>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Layers3 className={`h-5 w-5 ${color}`} /> {title}
-              <span className="ml-2 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">{items.length}개</span>
+      <Card className="mb-6 border-slate-200 shadow-sm">
+        <CardHeader className="pb-3 border-b border-slate-100">
+          <div className="flex items-center justify-between">
+            <CardTitle className={`text-lg font-bold flex items-center gap-2 ${titleColorClass}`}>
+              <span>{title}</span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">{items.length}개</span>
             </CardTitle>
             {items.length > 0 && (
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-600">
-                  <Checkbox checked={allChecked} onCheckedChange={() => toggleSelectAll(items)} /> 전체 선택
-                </label>
-              </div>
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-600">
+                <Checkbox checked={allChecked} onCheckedChange={() => toggleSelectAll(items)} /> 전체 선택
+              </label>
             )}
           </div>
           <CardDescription>카드를 드래그하거나 위아래 버튼으로 노출 순서를 변경할 수 있습니다. 토글 또는 일괄 체크박스로 학생 화면 노출 여부를 제어하세요.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4 pt-4">
           {items.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
               {searchQuery ? "검색 결과와 일치하는 카테고리가 없습니다." : "아직 등록된 카테고리가 없습니다."}
@@ -218,10 +272,11 @@ export default function AdminCurriculumManager() {
                     if (sourceId) dropCategory(sourceId, category.id, items);
                     setDraggedId(null);
                   }}
-                  className={`rounded-xl border p-4 transition ${category.isActive === 0 ? "border-slate-300 bg-slate-100/70 opacity-75" : "border-slate-200 bg-white hover:border-indigo-200 hover:shadow-sm"} ${highlightId === category.id ? "curriculum-order-highlight" : ""} ${draggedId === category.id ? "opacity-50" : ""} ${isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/20" : ""}`}
+                  className={`rounded-xl border p-5 transition bg-white ${category.isActive === 0 ? "border-slate-300 bg-slate-100/70 opacity-75" : "border-slate-200 hover:border-indigo-300 hover:shadow-md"} ${highlightId === category.id ? "curriculum-order-highlight" : ""} ${draggedId === category.id ? "opacity-50" : ""} ${isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/20" : ""}`}
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                    {/* Left Checkbox & Main Info (Cols 1-8) */}
+                    <div className="lg:col-span-8 flex items-start gap-3.5">
                       <Checkbox
                         className="mt-1"
                         checked={isSelected}
@@ -230,70 +285,72 @@ export default function AdminCurriculumManager() {
                           else setSelectedIds(selectedIds.filter(id => id !== category.id));
                         }}
                       />
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-2 flex flex-wrap items-center gap-2">
-                          <span className="inline-flex cursor-grab items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-700 active:cursor-grabbing">
+                      <div className="min-w-0 flex-1 space-y-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex cursor-grab items-center gap-1 rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700 active:cursor-grabbing">
                             <GripVertical className="h-3.5 w-3.5" /> 순서 #{idx + 1} (Level {category.level})
                           </span>
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${category.isActive !== 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold ${category.isActive !== 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
                             {category.isActive !== 0 ? "학생 노출 중" : "비공개 (숨김)"}
                           </span>
-                          <h3 className="font-bold text-slate-900">{category.title}</h3>
+                          <h3 className="text-base font-bold text-slate-900">{category.title}</h3>
                         </div>
-                        <p className="text-sm leading-6 text-slate-600">{category.description}</p>
+                        <p className="text-sm leading-relaxed text-slate-600">{category.description}</p>
                         {category.aiSummary && (
-                          <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3">
+                          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3.5">
                             <p className="mb-1 text-xs font-semibold text-indigo-700">AI 강의 요약</p>
-                            <p className="text-sm leading-6 text-slate-700">{category.aiSummary}</p>
+                            <p className="text-sm leading-relaxed text-slate-700">{category.aiSummary}</p>
                           </div>
                         )}
-                        <div className="mt-3 flex flex-wrap gap-1.5">
+                        <div className="flex flex-wrap gap-1.5 pt-1">
                           {category.topics.map((topic: string) => (
-                            <span key={topic} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">{topic}</span>
+                            <span key={topic} className="rounded-md bg-slate-100 px-2.5 py-1 text-xs text-slate-600 font-medium">{topic}</span>
                           ))}
                         </div>
                         {category.aiTags?.length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-1.5">
                             {category.aiTags.map((tag: string) => (
-                              <span key={tag} className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">#{tag}</span>
+                              <span key={tag} className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">#{tag}</span>
                             ))}
                           </div>
                         )}
                         {category.samplePdfUrl && (
-                          <a href={category.samplePdfUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-amber-700 underline-offset-4 hover:underline">
+                          <a href={category.samplePdfUrl} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-700 underline-offset-4 hover:underline pt-1">
                             샘플 PDF 학습 자료 열기
                           </a>
                         )}
                       </div>
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-col sm:items-end">
-                      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5">
-                        <span className="text-xs font-medium text-slate-600">노출</span>
+
+                    {/* Right Action Controls & Buttons (Cols 9-12) */}
+                    <div className="lg:col-span-4 flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center lg:items-end justify-between lg:justify-start gap-3 border-t lg:border-t-0 lg:border-l border-slate-100 pt-4 lg:pt-0 lg:pl-5">
+                      <div className="flex items-center justify-between lg:justify-end w-full gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+                        <span className="text-xs font-semibold text-slate-700">학생 화면 노출</span>
                         <Switch
                           checked={category.isActive !== 0}
-                          onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: category.id, isActive: checked ? 1 : 0 })}
+                          onCheckedChange={() => toggleActiveMutation.mutate({ id: category.id, isActive: category.isActive !== 0 ? 0 : 1 })}
                           disabled={toggleActiveMutation.isPending}
                         />
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="flex flex-col gap-1">
-                          <Button size="icon" variant="outline" className="h-7 w-7" disabled={idx === 0 || reorderMutation.isPending} onClick={() => moveCategory(idx, "up", items)} aria-label="위로 이동">
-                            <ArrowUp className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button size="icon" variant="outline" className="h-7 w-7" disabled={idx === items.length - 1 || reorderMutation.isPending} onClick={() => moveCategory(idx, "down", items)} aria-label="아래로 이동">
-                            <ArrowDown className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                        <Button size="sm" variant="outline" className="gap-1 text-indigo-700 border-indigo-200 bg-indigo-50 hover:bg-indigo-100" onClick={() => { setPreviewDevice("pc"); setPreviewCategory(category); }}>
+                      <div className="flex items-center gap-1.5 w-full justify-end">
+                        <Button size="sm" variant="outline" className="h-8 w-9 p-0" disabled={idx === 0 || reorderMutation.isPending} onClick={() => moveCategory(idx, "up", items)} aria-label="위로 이동">
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-8 w-9 p-0" disabled={idx === items.length - 1 || reorderMutation.isPending} onClick={() => moveCategory(idx, "down", items)} aria-label="아래로 이동">
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-2 w-full pt-1">
+                        <Button size="sm" variant="outline" className="gap-1 text-indigo-700 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-xs h-8" onClick={() => { setPreviewDevice("pc"); setPreviewCategory(category); }}>
                           <Eye className="h-3.5 w-3.5" /> 미리보기
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1 text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100" title="카드 복제" onClick={() => duplicateMutation.mutate({ id: category.id })} disabled={duplicateMutation.isPending}>
+                        <Button size="sm" variant="outline" className="gap-1 text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-xs h-8" title="카드 복제" onClick={() => duplicateMutation.mutate({ id: category.id })} disabled={duplicateMutation.isPending}>
                           <Copy className="h-3.5 w-3.5" /> 복제
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1" onClick={() => openEdit(category)}>
+                        <Button size="sm" variant="outline" className="gap-1 text-xs h-8" onClick={() => openEdit(category)}>
                           <Edit3 className="h-3.5 w-3.5" /> 수정
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1 text-rose-700 hover:bg-rose-50" onClick={() => setDeleteId(category.id)}>
+                        <Button size="sm" variant="outline" className="gap-1 text-rose-700 hover:bg-rose-50 text-xs h-8" onClick={() => setDeleteId(category.id)}>
                           <Trash2 className="h-3.5 w-3.5" /> 삭제
                         </Button>
                       </div>
@@ -352,29 +409,31 @@ export default function AdminCurriculumManager() {
           </div>
         )}
 
-        <Card className="border-indigo-100 bg-indigo-50/60">
-          <CardContent className="flex gap-3 p-5">
-            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-indigo-700" />
-            <div>
-              <p className="font-semibold text-indigo-950">운영 안내</p>
-              <p className="mt-1 text-sm leading-6 text-indigo-900/80">각 카드를 마우스로 끌어 놓거나 상하 화살표 버튼을 사용해 학생 화면 노출 순서를 간편하게 변경할 수 있으며, 순서가 변경된 카드는 부드러운 강조 배경 효과로 즉시 안내됩니다. '샘플 강의 3개씩 추가' 버튼을 누르면 고등/대입 및 일반/직장인 과정의 테스트용 강의가 즉시 생성됩니다.</p>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Filter Tabs & Search Bar */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500 mr-2"><Filter className="h-3.5 w-3.5" /> 과정 필터</span>
-            <Button size="sm" variant={selectedCourseTab === "all" ? "default" : "outline"} className={selectedCourseTab === "all" ? "bg-indigo-600 text-white hover:bg-indigo-700" : ""} onClick={() => setSelectedCourseTab("all")}>전체 과정</Button>
-            <Button size="sm" variant={selectedCourseTab === "elementary" ? "default" : "outline"} className={selectedCourseTab === "elementary" ? "bg-emerald-600 text-white hover:bg-emerald-700" : ""} onClick={() => setSelectedCourseTab("elementary")}>초등 논술</Button>
-            <Button size="sm" variant={selectedCourseTab === "middle_high" ? "default" : "outline"} className={selectedCourseTab === "middle_high" ? "bg-blue-600 text-white hover:bg-blue-700" : ""} onClick={() => setSelectedCourseTab("middle_high")}>중고등 논술</Button>
-            <Button size="sm" variant={selectedCourseTab === "high_univ" ? "default" : "outline"} className={selectedCourseTab === "high_univ" ? "bg-purple-600 text-white hover:bg-purple-700" : ""} onClick={() => setSelectedCourseTab("high_univ")}>고등 / 대입</Button>
-            <Button size="sm" variant={selectedCourseTab === "general_adult" ? "default" : "outline"} className={selectedCourseTab === "general_adult" ? "bg-amber-600 text-white hover:bg-amber-700" : ""} onClick={() => setSelectedCourseTab("general_adult")}>일반 / 직장인</Button>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "all", label: "전체 보기" },
+              { id: "elementary", label: "초등 논술" },
+              { id: "middle_high", label: "중고등 논술" },
+              { id: "high_univ", label: "고등 / 대입" },
+              { id: "general_adult", label: "일반 / 직장인" },
+            ].map((tab) => (
+              <Button
+                key={tab.id}
+                size="sm"
+                variant={activeTab === tab.id ? "default" : "outline"}
+                className={`text-xs ${activeTab === tab.id ? "bg-indigo-600 text-white" : "text-slate-700"}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </Button>
+            ))}
           </div>
+
           <div className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-            <Input className="pl-9" placeholder="강의 제목, 설명, 주제 검색..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <Input className="pl-9 text-sm" placeholder="강의 제목, 설명, 주제 검색..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
           </div>
         </div>
 
@@ -397,7 +456,7 @@ export default function AdminCurriculumManager() {
             <DialogTitle>{editingId ? "⚠️ 커리큘럼 수정 확인" : "새 커리큘럼 카테고리 추가"}</DialogTitle>
             <DialogDescription>{editingId ? "수정 내용을 저장하면 학생용 커리큘럼에 즉시 반영됩니다." : "새로운 과정 카테고리를 개설합니다."}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <form onSubmit={handleSaveForm} className="space-y-4 py-2">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium">과정</label>
@@ -409,40 +468,38 @@ export default function AdminCurriculumManager() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium">레벨 순서</label>
-                <Input type="number" min={1} max={20} value={form.level} onChange={(event) => setForm({ ...form, level: event.target.value })} />
+                <label className="mb-1 block text-sm font-medium">레벨 번호 (Level)</label>
+                <Input type="number" min={1} max={20} value={form.level} onChange={(e) => setForm({ ...form, level: Number(e.target.value) })} />
               </div>
             </div>
+
             <div>
-              <label className="mb-1 block text-sm font-medium">카테고리 제목</label>
-              <Input placeholder="예: 인문·사회 제시문 심층 분석" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
+              <label className="mb-1 block text-sm font-medium">강의 제목</label>
+              <Input required placeholder="예: 수리·과학적 사고와 논증" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
             </div>
+
             <div>
-              <label className="mb-1 block text-sm font-medium">설명</label>
-              <Textarea className="min-h-24" placeholder="과정 개요를 입력하세요" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+              <label className="mb-1 block text-sm font-medium">강의 상세 설명</label>
+              <textarea required placeholder="강의 개요 및 학습 목표를 상세히 입력하세요..." className="w-full min-h-[90px] rounded-md border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             </div>
+
             <div>
-              <label className="mb-1 block text-sm font-medium">주제 및 콘텐츠 항목 (줄바꿈 구분)</label>
-              <Textarea className="min-h-32" placeholder={"주제 1\n주제 2"} value={form.topicsText} onChange={(event) => setForm({ ...form, topicsText: event.target.value })} />
+              <label className="mb-1 block text-sm font-medium">AI 강의 요약 (선택)</label>
+              <Input placeholder="AI가 도출한 핵심 요약 설명..." value={form.aiSummary} onChange={(e) => setForm({ ...form, aiSummary: e.target.value })} />
             </div>
+
             <div>
-              <label className="mb-1 block text-sm font-medium">AI 강의 요약 설명 (선택)</label>
-              <Textarea className="min-h-20" placeholder="학습자가 얻는 핵심 역량을 2문장 이내로 입력합니다." value={form.aiSummary} onChange={(event) => setForm({ ...form, aiSummary: event.target.value })} />
+              <label className="mb-1 block text-sm font-medium">학습 주제 (쉼표로 구분)</label>
+              <Input placeholder="논리적 인과관계, 통계 데이터 분석, 설득력 있는 글쓰기" value={form.topicsText} onChange={(e) => setForm({ ...form, topicsText: e.target.value })} />
             </div>
-            <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div>
-                <p className="font-medium text-slate-900">학생 화면 즉시 노출</p>
-                <p className="text-xs text-slate-500">비활성화하면 학생용 커리큘럼 및 워크북에서 숨겨집니다.</p>
-              </div>
-              <Switch checked={form.isActive === 1} onCheckedChange={(checked) => setForm({ ...form, isActive: checked ? 1 : 0 })} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeForm}>취소</Button>
-            <Button className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={createMutation.isPending || updateMutation.isPending} onClick={submitForm}>
-              {createMutation.isPending || updateMutation.isPending ? "저장 중..." : editingId ? "수정 확정 저장" : "추가 저장"}
-            </Button>
-          </DialogFooter>
+
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="outline" onClick={closeForm}>취소</Button>
+              <Button type="submit" className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={createMutation.isPending || updateMutation.isPending}>
+                {createMutation.isPending || updateMutation.isPending ? "저장 중..." : "저장 완료"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -479,65 +536,35 @@ export default function AdminCurriculumManager() {
                 </Button>
               </div>
             </div>
-            <DialogDescription>학생들이 실제로 보게 되는 강의 상세 페이지의 레이아웃과 콘텐츠 구성입니다 ({previewDevice.toUpperCase()} 화면).</DialogDescription>
+            <DialogDescription>학생들이 실제로 보게 될 커리큘럼 상세 페이지 레이아웃입니다.</DialogDescription>
           </DialogHeader>
           {previewCategory && (
-            <div className={`space-y-6 py-4 mx-auto w-full ${previewDevice === "mobile" ? "max-w-[320px] border-x-4 border-slate-800 px-2 rounded-xl bg-slate-50" : ""}`}>
-              <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-6 shadow-xs">
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-bold text-white">Level {previewCategory.level}</span>
-                  <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
-                    {previewCategory.courseType === "elementary" ? "초등 논술" : previewCategory.courseType === "middle_high" ? "중고등 논술" : previewCategory.courseType === "high_univ" ? "고등 / 대입" : "일반 / 직장인"}
-                  </span>
+            <div className="py-4 space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700">Level {previewCategory.level}</span>
+                  <h2 className="text-xl font-bold text-slate-900">{previewCategory.title}</h2>
                 </div>
-                <h2 className="text-2xl font-extrabold text-slate-900">{previewCategory.title}</h2>
-                <p className="mt-2 text-base leading-relaxed text-slate-600">{previewCategory.description}</p>
-              </div>
-
-              {previewCategory.aiSummary && (
-                <div className="rounded-xl border border-indigo-200 bg-white p-5 shadow-xs">
-                  <h4 className="flex items-center gap-2 font-bold text-indigo-900"><Sparkles className="h-4 w-4 text-indigo-600" /> AI 강의 요약 및 특징</h4>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">{previewCategory.aiSummary}</p>
-                  {previewCategory.aiTags?.length > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {previewCategory.aiTags.map((tag: string) => (
-                        <span key={tag} className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">#{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-                <h4 className="font-bold text-slate-900">핵심 학습 주제 ({previewCategory.topics?.length ?? 0}개)</h4>
-                <div className={`mt-3 grid gap-2.5 ${previewDevice === "mobile" ? "grid-cols-1" : "sm:grid-cols-2"}`}>
-                  {previewCategory.topics?.map((topic: string, i: number) => (
-                    <div key={topic} className="flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm font-medium text-slate-800">
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                      <span>{i + 1}. {topic}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {previewCategory.samplePdfUrl && (
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-amber-100 p-2.5 text-amber-700"><FileText className="h-5 w-5" /></div>
-                    <div>
-                      <p className="font-bold text-amber-900">샘플 PDF 학습 자료</p>
-                      <p className="text-xs text-amber-700">학생들이 워크북 실습을 위해 다운로드할 수 있는 교재입니다.</p>
-                    </div>
+                <p className="text-sm leading-relaxed text-slate-700">{previewCategory.description}</p>
+                {previewCategory.aiSummary && (
+                  <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-4">
+                    <h4 className="text-xs font-bold text-indigo-700 mb-1">AI 강의 요약</h4>
+                    <p className="text-sm text-slate-700">{previewCategory.aiSummary}</p>
                   </div>
-                  <a href={previewCategory.samplePdfUrl} target="_blank" rel="noreferrer" className="w-full sm:w-auto">
-                    <Button size="sm" className="w-full bg-amber-700 text-white hover:bg-amber-800">PDF 열기</Button>
-                  </a>
+                )}
+                <div>
+                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">핵심 학습 주제</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {previewCategory.topics?.map((topic: string) => (
+                      <span key={topic} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">{topic}</span>
+                    ))}
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPreviewCategory(null)}>닫기</Button>
+            <Button onClick={() => setPreviewCategory(null)}>미리보기 닫기</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
