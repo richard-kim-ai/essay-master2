@@ -312,7 +312,19 @@ export default function Certificate() {
                             const element = document.getElementById(`cert-card-${cert.id}`);
                             if (!element) return;
                             try {
-                              const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+                              const canvas = await html2canvas(element, {
+                                scale: 2,
+                                useCORS: true,
+                                backgroundColor: "#ffffff",
+                                onclone: (clonedDoc) => {
+                                  // Tailwind 4 oklch 및 그라데이션 색상 파싱 오류 방지를 위해 스타일 정리
+                                  const clonedEl = clonedDoc.getElementById(`cert-card-${cert.id}`);
+                                  if (clonedEl) {
+                                    clonedEl.style.background = "#ffffff";
+                                    clonedEl.style.color = "#1e293b";
+                                  }
+                                },
+                              });
                               const image = canvas.toDataURL("image/png");
                               const a = document.createElement("a");
                               a.href = image;
@@ -428,7 +440,18 @@ export default function Certificate() {
                   const element = document.getElementById("preview-certificate-box");
                   if (!element) return;
                   try {
-                    const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+                    const canvas = await html2canvas(element, {
+                      scale: 2,
+                      useCORS: true,
+                      backgroundColor: "#ffffff",
+                      onclone: (clonedDoc) => {
+                        const clonedEl = clonedDoc.getElementById("preview-certificate-box");
+                        if (clonedEl) {
+                          clonedEl.style.background = "#ffffff";
+                          clonedEl.style.color = "#1e293b";
+                        }
+                      },
+                    });
                     const image = canvas.toDataURL("image/png");
                     const a = document.createElement("a");
                     a.href = image;
