@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter, FileText } from "lucide-react";
+import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter, FileText, Database } from "lucide-react";
 import { WeeklyReportPdfModal } from "@/components/WeeklyReportPdfModal";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -188,36 +188,13 @@ export default function AdminDashboard() {
               <p className="text-sm text-slate-600 mt-1">전체 학생 현황, AI 사용량 통계 및 커리큘럼 난이도를 총괄 관리합니다.</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Button onClick={handleExportCSV} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
-              <Download className="w-4 h-4" /> 학습자 데이터 (CSV)
+          <div className="flex items-center gap-2">
+            <Button onClick={handleExportCSV} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 text-xs">
+              <Download className="w-3.5 h-3.5" /> CSV 내보내기
             </Button>
-            <Button onClick={() => setWeeklyReportModalOpen(true)} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-              <FileText className="w-4 h-4" /> 주간 학습 리포트 (PDF)
+            <Button onClick={() => setWeeklyReportModalOpen(true)} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 text-xs">
+              <FileText className="w-3.5 h-3.5" /> 주간 리포트(PDF)
             </Button>
-            <Link href="/admin/certificates">
-              <Button size="sm" variant="outline" className="gap-2">수료증 관리</Button>
-            </Link>
-            <Link href="/admin/curriculum">
-              <Button size="sm" variant="outline" className="gap-2">카테고리 관리</Button>
-            </Link>
-            <Link href="/admin/question-bank">
-              <Button size="sm" variant="outline" className="gap-2 bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100">문제은행 관리</Button>
-            </Link>
-            <Link href="/admin/terms">
-              <Button size="sm" variant="outline" className="gap-2">약관 관리</Button>
-            </Link>
-            <Link href="/master-admin">
-              <Button size="sm" variant="outline" className="gap-2 bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100">총괄 콘솔</Button>
-            </Link>
-            <Link href="/parent-portal">
-              <Button size="sm" variant="outline" className="gap-2 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100">학부모 포털</Button>
-            </Link>
-            <Link href="/admin/social-providers">
-              <Button size="sm" variant="outline" className="gap-2">
-                <Settings className="w-4 h-4" /> 설정
-              </Button>
-            </Link>
           </div>
         </div>
 
@@ -550,6 +527,80 @@ export default function AdminDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Optimized Admin Categories & Quick Management Section */}
+      <div className="mt-12 pt-8 border-t border-slate-200 space-y-6">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <Sliders className="w-5 h-5 text-indigo-600" /> 관리자 전용 운영 카테고리 및 도구
+          </h2>
+          <p className="text-xs text-slate-500 mt-1">
+            수료증, 커리큘럼 카테고리, 문제은행, 총괄 콘솔 및 약관 설정을 한눈에 관리할 수 있습니다.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <Link href="/admin/certificates">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <FileText className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">수료증 관리</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">발급 및 취소</span>
+            </div>
+          </Link>
+
+          <Link href="/admin/curriculum">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">카테고리 관리</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">커리큘럼 및 과정</span>
+            </div>
+          </Link>
+
+          <Link href="/admin/question-bank">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <Database className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">문제은행 관리</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">AI 출제 및 통계</span>
+            </div>
+          </Link>
+
+          <Link href="/master-admin">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <Users className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">총괄 콘솔</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">전체 사용자 통계</span>
+            </div>
+          </Link>
+
+          <Link href="/parent-portal">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">학부모 포털</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">학생 연동 관리</span>
+            </div>
+          </Link>
+
+          <Link href="/admin/social-providers">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <Settings className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">약관 및 설정</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">소셜 키 및 정책</span>
+            </div>
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
