@@ -1000,12 +1000,17 @@ export const appRouter = router({
         return await db.adminReorderCurriculumCategories(input.orderedIds);
       }),
     seedDefaultCurriculumSamples: protectedProcedure
-      .mutation(async ({ ctx }) => {
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional() }))
+      .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        await db.seedHighUnivAndGeneralAdultCategories();
-        return true;
+        if (input.courseType) {
+          return await db.seedSamplesForSpecificCourse(input.courseType);
+        } else {
+          await db.seedHighUnivAndGeneralAdultCategories();
+          return { success: true, count: 6 };
+        }
       }),
     getOperationsStats: protectedProcedure
       .query(async ({ ctx }) => {

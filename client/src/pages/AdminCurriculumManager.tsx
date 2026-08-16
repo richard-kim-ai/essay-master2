@@ -83,8 +83,9 @@ export default function AdminCurriculumManager() {
   });
 
   const seedMutation = trpc.admin.seedDefaultCurriculumSamples.useMutation({
-    onSuccess: () => {
-      toast.success("고등/대입 및 일반/직장인 샘플 강의가 추가되었습니다.");
+    onSuccess: (data: any) => {
+      const courseLabel = activeTab === "elementary" ? "초등" : activeTab === "middle_high" ? "중고등" : activeTab === "high_univ" ? "고등/대입" : activeTab === "general_adult" ? "일반/직장인" : "선택한 과정";
+      toast.success(`${activeTab === "all" ? "전체" : courseLabel} 과정에 맞춤형 샘플 강의가 추가되었습니다.`);
       refetch();
     },
     onError: (err: any) => toast.error(err.message || "샘플 추가 중 오류가 발생했습니다."),
@@ -414,8 +415,24 @@ export default function AdminCurriculumManager() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/admin"><Button variant="outline">관리자 대시보드</Button></Link>
-            <Button variant="outline" className="gap-2 text-indigo-700 border-indigo-200 bg-indigo-50 hover:bg-indigo-100" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
-              <Sparkles className="h-4 w-4" /> 샘플 강의 추가
+            <Button
+              variant="outline"
+              className="gap-2 text-indigo-700 border-indigo-200 bg-indigo-50 hover:bg-indigo-100"
+              onClick={() => {
+                if (activeTab === "all") {
+                  if (confirm("현재 '전체' 탭이 선택되어 있습니다. 고등/대입 및 일반/직장인 과정을 기본 샘플로 추가하시겠습니까? (특정 과정에 추가하려면 해당 탭을 먼저 선택해주세요)")) {
+                    seedMutation.mutate({});
+                  }
+                } else {
+                  const label = activeTab === "elementary" ? "초등" : activeTab === "middle_high" ? "중고등" : activeTab === "high_univ" ? "고등/대입" : "일반/직장인";
+                  if (confirm(`현재 선택하신 '${label}' 과정에 맞춤형 실전 샘플 강의 3개를 추가하시겠습니까?`)) {
+                    seedMutation.mutate({ courseType: activeTab as any });
+                  }
+                }
+              }}
+              disabled={seedMutation.isPending}
+            >
+              <Sparkles className="h-4 w-4" /> {activeTab === "all" ? "샘플 강의 추가" : `${activeTab === "elementary" ? "초등" : activeTab === "middle_high" ? "중고등" : activeTab === "high_univ" ? "고등/대입" : "일반/직장인"} 샘플 추가`}
             </Button>
             <Button className="gap-2 bg-indigo-600 text-white hover:bg-indigo-700" onClick={openCreate}>
               <Plus className="h-4 w-4" /> 카테고리 추가

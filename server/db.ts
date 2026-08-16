@@ -1758,3 +1758,65 @@ export async function deleteQuestionFeedback(feedbackId: number) {
   await db.delete(questionFeedbacks).where(eq(questionFeedbacks.id, feedbackId));
   return { success: true };
 }
+
+export async function seedSamplesForSpecificCourse(targetCourse: "elementary" | "middle_high" | "high_univ" | "general_adult") {
+  const db = await getDb();
+  if (!db) return;
+
+  const sampleLibrary: Record<string, { level: number; title: string; description: string; topics: string[] }[]> = {
+    elementary: [
+      { level: 1, title: "기초 문장 다지기와 어휘력 키우기", description: "주어와 서술어의 호응 관계를 바로잡고 바른 문장을 쓰는 초등 논술 기초 과정입니다.", topics: ["문장의 뼈대 이해하기", "알맞은 낱말과 띄어쓰기", "짧은 일기 글쓰기 훈련"] },
+      { level: 2, title: "이야기 중심의 생각 넓히기", description: "동화를 읽고 주인공의 감정과 중심 생각을 파악하여 자신의 의견을 말하는 과정입니다.", topics: ["이야기 요약하기", "주인공에게 편지 쓰기", "내 생각과 비교하여 말하기"] },
+      { level: 3, title: "주장과 근거가 담긴 꼬마 글쓰기", description: "찬반 의견이 나뉘는 주제에 대해 타당한 근거를 들어 글을 쓰는 논술 입문 과정입니다.", topics: ["찬반 의견 정하기", "까닭(근거) 한 가지씩 대기", "첫 문장과 끝 문장 맺기"] },
+    ],
+    middle_high: [
+      { level: 1, title: "교과 시사 논술과 비판적 읽기", description: "중고등 교과 과정 속 사회적 이슈를 다루고 양측의 입장을 균형 있게 분석합니다.", topics: ["매체 자료 비판적 수용", "쟁점별 핵심 키워드 정리", "논설문 구조 분석하기"] },
+      { level: 2, title: "논리적 인과관계와 비교 대조", description: "두 가지 제시문을 비교 분석하고 공통점과 차이점을 논리적으로 서술하는 훈련입니다.", topics: ["제시문 비교 기준 설정", "상반된 관점 분석", "논리적 연결어 사용법"] },
+      { level: 3, title: "고입·수능형 논술 실전 완성", description: "실전 논술 기출 문항을 바탕으로 개요 작성부터 완성도 높은 글쓰기까지 마무리합니다.", topics: ["30분 개요 작성 요령", "퇴고와 문장 다듬기", "실전 모의 논술 연습"] },
+    ],
+    high_univ: [
+      { level: 1, title: "인문·사회 제시문 심층 분석", description: "대입 수시 논술의 핵심인 다면적 제시문 비교 및 독해 능력을 기릅니다.", topics: ["제시문 공통점과 차이점 추출", "비판적 독해와 논지 재구성", "출제자의 숨은 의도 파악"] },
+      { level: 2, title: "수리·과학적 사고와 논증", description: "논리적 인과관계와 확률·통계 데이터를 활용한 설득력 있는 논술 글쓰기입니다.", topics: ["도표와 통계 자료 해석", "논리적 오류 검증", "과학적 가설 검증형 논증"] },
+      { level: 3, title: "대학별 모의논술 실전 파이널", description: "주요 대학 기출문제 분석을 통해 실전 감각을 극대화하고 최종 완성도를 높입니다.", topics: ["연세대·고려대 기출 유형 분석", "시간 관리와 개요 작성 법", "실전 모의논술 첨삭 피드백"] },
+    ],
+    general_adult: [
+      { level: 1, title: "비즈니스 기획서와 보고서 작성법", description: "직장인 필수 역량인 간결하고 명확한 비즈니스 문서 기획 및 논리 전개법입니다.", topics: ["결론 우선 두괄식 구조화", "핵심 데이터 시각화 개요", "상사 설득을 위한 기획서 작성"] },
+      { level: 2, title: "논리적 설득 스피치와 논설문", description: "공식적인 석상과 이메일, 제안서에서 상대를 논리적으로 설득하는 글쓰기입니다.", topics: ["타당한 근거와 논거 배치", "반박에 대응하는 방어 논리", "설득력 있는 어휘 선택"] },
+      { level: 3, title: "실무 에세이 및 칼럼 기고문", description: "전문 분야의 통찰을 담은 에세이와 사회적 이슈를 다루는 칼럼 기고문 작성입니다.", topics: ["문제 정의와 시사점 도출", "독자 타겟팅 맞춤형 문체", "완성도 높은 칼럼 에세이 편집"] },
+    ],
+  };
+
+  const groupSamples = sampleLibrary[targetCourse];
+  if (!groupSamples) return;
+
+  const existing = await db.select().from(dynamicCurriculum).where(eq(dynamicCurriculum.courseType, targetCourse));
+
+  for (const sample of groupSamples) {
+    const found = existing.find(item => item.title === sample.title);
+    const aiSummary = found?.aiSummary || await createAiCourseSummary(sample.title, sample.description, sample.topics);
+    let aiTags: string[] = [];
+    try {
+      aiTags = found?.aiTags ? JSON.parse(found.aiTags) : await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
+    } catch {
+      aiTags = await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
+    }
+    const values = {
+      courseType: targetCourse,
+      level: sample.level,
+      title: sample.title,
+      description: sample.description,
+      topicsJson: JSON.stringify(sample.topics),
+      thumbnailUrl: null,
+      aiSummary,
+      aiTags: JSON.stringify(aiTags),
+      samplePdfUrl: `/manus-storage/sample-${targetCourse}-level${sample.level}.pdf`,
+      updatedAt: new Date(),
+    };
+    if (found) {
+      await db.update(dynamicCurriculum).set(values).where(eq(dynamicCurriculum.id, found.id));
+    } else {
+      await db.insert(dynamicCurriculum).values({ ...values, createdAt: new Date() });
+    }
+  }
+  return { success: true, courseType: targetCourse, count: groupSamples.length };
+}
