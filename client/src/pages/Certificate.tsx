@@ -2,7 +2,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download } from "lucide-react";
+import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download, FileImage } from "lucide-react";
+import html2canvas from "html2canvas";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
@@ -289,7 +290,7 @@ export default function Certificate() {
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {certificates.map((cert) => (
-                <Card key={cert.id} className="border-indigo-100 shadow-sm bg-gradient-to-br from-white to-indigo-50/20">
+                <Card key={cert.id} id={`cert-card-${cert.id}`} className="border-indigo-100 shadow-sm bg-gradient-to-br from-white to-indigo-50/20">
                   <CardHeader className="pb-3">
                     <span className="text-[11px] uppercase tracking-wider font-bold text-indigo-600">
                       {cert.courseType === "elementary" ? "초등 과정" : cert.courseType === "middle_high" ? "중고등 과정" : cert.courseType === "high_univ" ? "고등/대입 과정" : "일반/직장인 과정"}
@@ -298,8 +299,44 @@ export default function Certificate() {
                     <CardDescription className="text-xs font-slate-600 font-semibold">인증번호: {cert.certNumber || `CERT-2026-${cert.id}`}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="p-3 bg-white rounded-lg border border-indigo-100 text-xs text-slate-600">
-                      발급일: {new Date(cert.createdAt).toLocaleDateString()}
+                    <div className="p-3 bg-white rounded-lg border border-indigo-100 text-xs text-slate-600 space-y-1">
+                      <p>발급일: {new Date(cert.createdAt).toLocaleDateString()}</p>
+                      <p className="text-indigo-600 font-medium">상태: 정식 인증됨 (Active)</p>
+                    </div>
+                    <div className="flex items-center gap-2 pt-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1"
+                        onClick={async () => {
+                          const element = document.getElementById(`cert-card-${cert.id}`);
+                          if (!element) return;
+                          try {
+                            const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+                            const image = canvas.toDataURL("image/png");
+                            const a = document.createElement("a");
+                            a.href = image;
+                            a.download = `Certificate_${cert.certNumber || cert.id}.png`;
+                            a.click();
+                            toast.success("고해상도 수료증 이미지(PNG)가 다운로드되었습니다.");
+                          } catch (e) {
+                            console.error(e);
+                            toast.error("이미지 다운로드 중 오류가 발생했습니다.");
+                          }
+                        }}
+                      >
+                        <FileImage className="w-3.5 h-3.5" /> 이미지 저장
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs gap-1"
+                        onClick={() => {
+                          window.print();
+                          toast.success("수료증 인쇄 및 PDF 저장 창이 호출되었습니다.");
+                        }}
+                      >
+                        <Download className="w-3.5 h-3.5" /> PDF 저장
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -320,7 +357,7 @@ export default function Certificate() {
           </DialogHeader>
 
           {/* Certificate Mockup Preview Box */}
-          <div className="p-8 my-4 border-4 border-double border-indigo-300 bg-gradient-to-b from-amber-50/40 via-white to-blue-50/30 rounded-2xl text-center space-y-4 shadow-inner">
+          <div id="preview-certificate-box" className="p-8 my-4 border-4 border-double border-indigo-300 bg-gradient-to-b from-amber-50/40 via-white to-blue-50/30 rounded-2xl text-center space-y-4 shadow-inner">
             <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center mx-auto">
               <Award className="w-6 h-6" />
             </div>
@@ -343,13 +380,36 @@ export default function Certificate() {
               <Button
                 variant="outline"
                 size="sm"
+                className="w-full sm:w-auto gap-1 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                onClick={async () => {
+                  const element = document.getElementById("preview-certificate-box");
+                  if (!element) return;
+                  try {
+                    const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+                    const image = canvas.toDataURL("image/png");
+                    const a = document.createElement("a");
+                    a.href = image;
+                    a.download = `Preview_Certificate_${selectedCourse}_Lv${selectedLevel}.png`;
+                    a.click();
+                    toast.success("고해상도 수료증 이미지(PNG)가 다운로드되었습니다.");
+                  } catch (e) {
+                    console.error(e);
+                    toast.error("이미지 다운로드 중 오류가 발생했습니다.");
+                  }
+                }}
+              >
+                <FileImage className="w-3.5 h-3.5" /> 이미지 다운로드
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 className="w-full sm:w-auto gap-1 text-xs"
                 onClick={() => {
                   window.print();
                   toast.success("수료증 인쇄창이 호출되었습니다.");
                 }}
               >
-                <Printer className="w-3.5 h-3.5" /> 인쇄 / PDF 저장
+                <Printer className="w-3.5 h-3.5" /> PDF 저장 (인쇄)
               </Button>
             </div>
             <div className="flex gap-2 w-full sm:w-auto justify-end">
