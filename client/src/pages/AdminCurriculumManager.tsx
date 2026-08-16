@@ -7,8 +7,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { BookOpen, Plus, Edit3, Trash2, Layers3, Sparkles, ShieldCheck, GripVertical, ArrowUp, ArrowDown, Eye, Search, CheckCircle2, FileText, Tag, Filter } from "lucide-react";
+import { BookOpen, Plus, Edit3, Trash2, Layers3, Sparkles, ShieldCheck, GripVertical, ArrowUp, ArrowDown, Eye, Search, CheckCircle2, FileText, Tag, Filter, Copy, Smartphone, Monitor } from "lucide-react";
 import { Link } from "wouter";
 
 type CourseTypeEnum = "elementary" | "middle_high" | "high_univ" | "general_adult";
@@ -37,8 +38,10 @@ export default function AdminCurriculumManager() {
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [previewCategory, setPreviewCategory] = useState<any | null>(null);
+  const [previewDevice, setPreviewDevice] = useState<"pc" | "mobile">("pc");
   const [selectedCourseTab, setSelectedCourseTab] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   const createMutation = trpc.admin.createCurriculumCategoryAdmin.useMutation({
     onSuccess: () => { toast.success("커리큘럼 카테고리를 추가했습니다."); closeForm(); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
@@ -59,6 +62,14 @@ export default function AdminCurriculumManager() {
   const toggleActiveMutation = trpc.admin.toggleCurriculumActiveAdmin.useMutation({
     onSuccess: () => { toast.success("과정 노출 상태가 변경되었습니다."); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
     onError: (error) => toast.error(error.message || "노출 상태 변경에 실패했습니다."),
+  });
+  const batchToggleMutation = trpc.admin.batchToggleCurriculumActiveAdmin.useMutation({
+    onSuccess: () => { toast.success("선택한 과정들의 노출 상태가 일괄 변경되었습니다."); setSelectedIds([]); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
+    onError: (error) => toast.error(error.message || "일괄 노출 변경에 실패했습니다."),
+  });
+  const duplicateMutation = trpc.admin.duplicateCurriculumAdmin.useMutation({
+    onSuccess: () => { toast.success("커리큘럼 카테고리를 복제했습니다."); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
+    onError: (error) => toast.error(error.message || "카테고리 복제에 실패했습니다."),
   });
   const seedMutation = trpc.admin.seedDefaultCurriculumSamples.useMutation({
     onSuccess: () => { toast.success("고등/대입 및 일반/직장인 샘플 강의가 추가되었습니다."); utils.admin.getCurriculumCategoriesAdmin.invalidate(); },
@@ -126,6 +137,17 @@ export default function AdminCurriculumManager() {
     persistListOrder(newList, sourceId);
   }
 
+  function toggleSelectAll(list: NonNullable<typeof categories>) {
+    const ids = list.map(i => i.id);
+    const allSelected = ids.every(id => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds(selectedIds.filter(id => !ids.includes(id)));
+    } else {
+      const merged = Array.from(new Set([...selectedIds, ...ids]));
+      setSelectedIds(merged);
+    }
+  }
+
   if (loading) return <div className="p-12 text-center text-slate-600">권한을 확인하는 중입니다...</div>;
   if (!isAdmin) return <div className="p-12 text-center text-slate-600">관리자 권한이 필요합니다.</div>;
 
@@ -148,14 +170,25 @@ export default function AdminCurriculumManager() {
 
   const renderGroup = (title: string, items: typeof elementary, color: string) => {
     if (items.length === 0 && selectedCourseTab !== "all") return null;
+    const allChecked = items.length > 0 && items.every(i => selectedIds.includes(i.id));
+
     return (
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Layers3 className={`h-5 w-5 ${color}`} /> {title}
-            <span className="ml-2 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">{items.length}개</span>
-          </CardTitle>
-          <CardDescription>카드를 드래그하거나 위아래 버튼으로 노출 순서를 변경할 수 있습니다. 토글을 통해 학생 화면 노출 여부를 제어하세요.</CardDescription>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Layers3 className={`h-5 w-5 ${color}`} /> {title}
+              <span className="ml-2 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">{items.length}개</span>
+            </CardTitle>
+            {items.length > 0 && (
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-600">
+                  <Checkbox checked={allChecked} onCheckedChange={() => toggleSelectAll(items)} /> 전체 선택
+                </label>
+              </div>
+            )}
+          </div>
+          <CardDescription>카드를 드래그하거나 위아래 버튼으로 노출 순서를 변경할 수 있습니다. 토글 또는 일괄 체크박스로 학생 화면 노출 여부를 제어하세요.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {items.length === 0 ? (
@@ -163,97 +196,112 @@ export default function AdminCurriculumManager() {
               {searchQuery ? "검색 결과와 일치하는 카테고리가 없습니다." : "아직 등록된 카테고리가 없습니다."}
             </div>
           ) : (
-            items.map((category, idx) => (
-              <div
-                key={category.id}
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("text/plain", String(category.id));
-                  setDraggedId(category.id);
-                }}
-                onDragEnd={() => setDraggedId(null)}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const sourceId = Number(event.dataTransfer.getData("text/plain"));
-                  if (sourceId) dropCategory(sourceId, category.id, items);
-                  setDraggedId(null);
-                }}
-                className={`rounded-xl border p-4 transition ${category.isActive === 0 ? "border-slate-300 bg-slate-100/70 opacity-75" : "border-slate-200 bg-white hover:border-indigo-200 hover:shadow-sm"} ${highlightId === category.id ? "curriculum-order-highlight" : ""} ${draggedId === category.id ? "opacity-50" : ""}`}
-                title="카드를 마우스로 끌어 순서를 변경할 수 있습니다"
-              >
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <span className="inline-flex cursor-grab items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-700 active:cursor-grabbing">
-                        <GripVertical className="h-3.5 w-3.5" /> 순서 #{idx + 1} (Level {category.level})
-                      </span>
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${category.isActive !== 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
-                        {category.isActive !== 0 ? "학생 노출 중" : "비공개 (숨김)"}
-                      </span>
-                      <h3 className="font-bold text-slate-900">{category.title}</h3>
-                    </div>
-                    <p className="text-sm leading-6 text-slate-600">{category.description}</p>
-                    {category.aiSummary && (
-                      <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3">
-                        <p className="mb-1 text-xs font-semibold text-indigo-700">AI 강의 요약</p>
-                        <p className="text-sm leading-6 text-slate-700">{category.aiSummary}</p>
-                      </div>
-                    )}
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {category.topics.map((topic) => (
-                        <span key={topic} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">{topic}</span>
-                      ))}
-                    </div>
-                    {category.aiTags?.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1.5" aria-label="자동 생성 강의 태그">
-                        {category.aiTags.map((tag) => (
-                          <span key={tag} className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">#{tag}</span>
-                        ))}
-                      </div>
-                    )}
-                    {category.samplePdfUrl && (
-                      <a href={category.samplePdfUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-amber-700 underline-offset-4 hover:underline">
-                        샘플 PDF 학습 자료 열기
-                      </a>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-col sm:items-end">
-                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5">
-                      <span className="text-xs font-medium text-slate-600">노출</span>
-                      <Switch
-                        checked={category.isActive !== 0}
-                        onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: category.id, isActive: checked ? 1 : 0 })}
-                        disabled={toggleActiveMutation.isPending}
+            items.map((category, idx) => {
+              const isSelected = selectedIds.includes(category.id);
+              return (
+                <div
+                  key={category.id}
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", String(category.id));
+                    setDraggedId(category.id);
+                  }}
+                  onDragEnd={() => setDraggedId(null)}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const sourceId = Number(event.dataTransfer.getData("text/plain"));
+                    if (sourceId) dropCategory(sourceId, category.id, items);
+                    setDraggedId(null);
+                  }}
+                  className={`rounded-xl border p-4 transition ${category.isActive === 0 ? "border-slate-300 bg-slate-100/70 opacity-75" : "border-slate-200 bg-white hover:border-indigo-200 hover:shadow-sm"} ${highlightId === category.id ? "curriculum-order-highlight" : ""} ${draggedId === category.id ? "opacity-50" : ""} ${isSelected ? "ring-2 ring-indigo-500 bg-indigo-50/20" : ""}`}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <Checkbox
+                        className="mt-1"
+                        checked={isSelected}
+                        onCheckedChange={(checked) => {
+                          if (checked) setSelectedIds([...selectedIds, category.id]);
+                          else setSelectedIds(selectedIds.filter(id => id !== category.id));
+                        }}
                       />
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span className="inline-flex cursor-grab items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-700 active:cursor-grabbing">
+                            <GripVertical className="h-3.5 w-3.5" /> 순서 #{idx + 1} (Level {category.level})
+                          </span>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${category.isActive !== 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                            {category.isActive !== 0 ? "학생 노출 중" : "비공개 (숨김)"}
+                          </span>
+                          <h3 className="font-bold text-slate-900">{category.title}</h3>
+                        </div>
+                        <p className="text-sm leading-6 text-slate-600">{category.description}</p>
+                        {category.aiSummary && (
+                          <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/70 p-3">
+                            <p className="mb-1 text-xs font-semibold text-indigo-700">AI 강의 요약</p>
+                            <p className="text-sm leading-6 text-slate-700">{category.aiSummary}</p>
+                          </div>
+                        )}
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {category.topics.map((topic: string) => (
+                            <span key={topic} className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">{topic}</span>
+                          ))}
+                        </div>
+                        {category.aiTags?.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {category.aiTags.map((tag: string) => (
+                              <span key={tag} className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">#{tag}</span>
+                            ))}
+                          </div>
+                        )}
+                        {category.samplePdfUrl && (
+                          <a href={category.samplePdfUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-sm font-semibold text-amber-700 underline-offset-4 hover:underline">
+                            샘플 PDF 학습 자료 열기
+                          </a>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex flex-col gap-1">
-                        <Button size="icon" variant="outline" className="h-7 w-7" disabled={idx === 0 || reorderMutation.isPending} onClick={() => moveCategory(idx, "up", items)} aria-label="위로 이동">
-                          <ArrowUp className="h-3.5 w-3.5" />
+                    <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+                      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5">
+                        <span className="text-xs font-medium text-slate-600">노출</span>
+                        <Switch
+                          checked={category.isActive !== 0}
+                          onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: category.id, isActive: checked ? 1 : 0 })}
+                          disabled={toggleActiveMutation.isPending}
+                        />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex flex-col gap-1">
+                          <Button size="icon" variant="outline" className="h-7 w-7" disabled={idx === 0 || reorderMutation.isPending} onClick={() => moveCategory(idx, "up", items)} aria-label="위로 이동">
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="icon" variant="outline" className="h-7 w-7" disabled={idx === items.length - 1 || reorderMutation.isPending} onClick={() => moveCategory(idx, "down", items)} aria-label="아래로 이동">
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        <Button size="sm" variant="outline" className="gap-1 text-indigo-700 border-indigo-200 bg-indigo-50 hover:bg-indigo-100" onClick={() => { setPreviewDevice("pc"); setPreviewCategory(category); }}>
+                          <Eye className="h-3.5 w-3.5" /> 미리보기
                         </Button>
-                        <Button size="icon" variant="outline" className="h-7 w-7" disabled={idx === items.length - 1 || reorderMutation.isPending} onClick={() => moveCategory(idx, "down", items)} aria-label="아래로 이동">
-                          <ArrowDown className="h-3.5 w-3.5" />
+                        <Button size="sm" variant="outline" className="gap-1 text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100" title="카드 복제" onClick={() => duplicateMutation.mutate({ id: category.id })} disabled={duplicateMutation.isPending}>
+                          <Copy className="h-3.5 w-3.5" /> 복제
+                        </Button>
+                        <Button size="sm" variant="outline" className="gap-1" onClick={() => openEdit(category)}>
+                          <Edit3 className="h-3.5 w-3.5" /> 수정
+                        </Button>
+                        <Button size="sm" variant="outline" className="gap-1 text-rose-700 hover:bg-rose-50" onClick={() => setDeleteId(category.id)}>
+                          <Trash2 className="h-3.5 w-3.5" /> 삭제
                         </Button>
                       </div>
-                      <Button size="sm" variant="outline" className="gap-1 text-indigo-700 border-indigo-200 bg-indigo-50 hover:bg-indigo-100" onClick={() => setPreviewCategory(category)}>
-                        <Eye className="h-3.5 w-3.5" /> 미리보기
-                      </Button>
-                      <Button size="sm" variant="outline" className="gap-1" onClick={() => openEdit(category)}>
-                        <Edit3 className="h-3.5 w-3.5" /> 수정
-                      </Button>
-                      <Button size="sm" variant="outline" className="gap-1 text-rose-700 hover:bg-rose-50" onClick={() => setDeleteId(category.id)}>
-                        <Trash2 className="h-3.5 w-3.5" /> 삭제
-                      </Button>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </CardContent>
       </Card>
@@ -269,7 +317,7 @@ export default function AdminCurriculumManager() {
             <div>
               <p className="text-sm font-semibold text-indigo-700">관리자 운영 콘솔</p>
               <h1 className="text-3xl font-bold text-slate-900">커리큘럼 카테고리 관리</h1>
-              <p className="mt-1 text-sm text-slate-600">과정별 필터링, 검색, 노출 토글 및 학생용 상세 미리보기 기능을 제공합니다.</p>
+              <p className="mt-1 text-sm text-slate-600">과정별 필터링, 검색, 다중선택 일괄 노출, 카드 복제 및 기기별 미리보기 기능을 제공합니다.</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -282,6 +330,27 @@ export default function AdminCurriculumManager() {
             </Button>
           </div>
         </div>
+
+        {/* Batch Action Toolbar when items selected */}
+        {selectedIds.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between rounded-xl border border-indigo-200 bg-indigo-600 p-4 text-white shadow-md">
+            <div className="flex items-center gap-2 font-medium">
+              <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-bold">{selectedIds.length}개 선택됨</span>
+              <span>선택한 커리큘럼 항목을 일괄 제어할 수 있습니다.</span>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" className="bg-white text-indigo-900 hover:bg-indigo-50" onClick={() => batchToggleMutation.mutate({ ids: selectedIds, isActive: 1 })} disabled={batchToggleMutation.isPending}>
+                일괄 노출 활성
+              </Button>
+              <Button size="sm" variant="secondary" className="bg-white/10 text-white hover:bg-white/20" onClick={() => batchToggleMutation.mutate({ ids: selectedIds, isActive: 0 })} disabled={batchToggleMutation.isPending}>
+                일괄 비공개(숨김)
+              </Button>
+              <Button size="sm" variant="ghost" className="text-white hover:bg-white/10" onClick={() => setSelectedIds([])}>
+                선택 해제
+              </Button>
+            </div>
+          </div>
+        )}
 
         <Card className="border-indigo-100 bg-indigo-50/60">
           <CardContent className="flex gap-3 p-5">
@@ -393,17 +462,27 @@ export default function AdminCurriculumManager() {
         </DialogContent>
       </Dialog>
 
-      {/* Student View Preview Modal */}
+      {/* Student View Preview Modal with Device Switcher */}
       <Dialog open={previewCategory !== null} onOpenChange={(open) => { if (!open) setPreviewCategory(null); }}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className={`max-h-[85vh] overflow-y-auto transition-all duration-300 ${previewDevice === "mobile" ? "max-w-sm" : "sm:max-w-2xl"}`}>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Eye className="h-5 w-5 text-indigo-600" /> 학생 화면 상세 미리보기
-            </DialogTitle>
-            <DialogDescription>학생들이 실제로 보게 되는 강의 상세 페이지의 레이아웃과 콘텐츠 구성입니다.</DialogDescription>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2">
+                <Eye className="h-5 w-5 text-indigo-600" /> 학생 화면 상세 미리보기
+              </DialogTitle>
+              <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 p-1">
+                <Button size="sm" variant={previewDevice === "pc" ? "default" : "ghost"} className={`h-7 gap-1 px-2.5 text-xs ${previewDevice === "pc" ? "bg-indigo-600 text-white" : "text-slate-600"}`} onClick={() => setPreviewDevice("pc")}>
+                  <Monitor className="h-3.5 w-3.5" /> PC 뷰
+                </Button>
+                <Button size="sm" variant={previewDevice === "mobile" ? "default" : "ghost"} className={`h-7 gap-1 px-2.5 text-xs ${previewDevice === "mobile" ? "bg-indigo-600 text-white" : "text-slate-600"}`} onClick={() => setPreviewDevice("mobile")}>
+                  <Smartphone className="h-3.5 w-3.5" /> 모바일 뷰
+                </Button>
+              </div>
+            </div>
+            <DialogDescription>학생들이 실제로 보게 되는 강의 상세 페이지의 레이아웃과 콘텐츠 구성입니다 ({previewDevice.toUpperCase()} 화면).</DialogDescription>
           </DialogHeader>
           {previewCategory && (
-            <div className="space-y-6 py-4">
+            <div className={`space-y-6 py-4 mx-auto w-full ${previewDevice === "mobile" ? "max-w-[320px] border-x-4 border-slate-800 px-2 rounded-xl bg-slate-50" : ""}`}>
               <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-white p-6 shadow-xs">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-bold text-white">Level {previewCategory.level}</span>
@@ -431,7 +510,7 @@ export default function AdminCurriculumManager() {
 
               <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
                 <h4 className="font-bold text-slate-900">핵심 학습 주제 ({previewCategory.topics?.length ?? 0}개)</h4>
-                <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                <div className={`mt-3 grid gap-2.5 ${previewDevice === "mobile" ? "grid-cols-1" : "sm:grid-cols-2"}`}>
                   {previewCategory.topics?.map((topic: string, i: number) => (
                     <div key={topic} className="flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm font-medium text-slate-800">
                       <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -442,7 +521,7 @@ export default function AdminCurriculumManager() {
               </div>
 
               {previewCategory.samplePdfUrl && (
-                <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
                   <div className="flex items-center gap-3">
                     <div className="rounded-lg bg-amber-100 p-2.5 text-amber-700"><FileText className="h-5 w-5" /></div>
                     <div>
@@ -450,8 +529,8 @@ export default function AdminCurriculumManager() {
                       <p className="text-xs text-amber-700">학생들이 워크북 실습을 위해 다운로드할 수 있는 교재입니다.</p>
                     </div>
                   </div>
-                  <a href={previewCategory.samplePdfUrl} target="_blank" rel="noreferrer">
-                    <Button size="sm" className="bg-amber-700 text-white hover:bg-amber-800">PDF 열기</Button>
+                  <a href={previewCategory.samplePdfUrl} target="_blank" rel="noreferrer" className="w-full sm:w-auto">
+                    <Button size="sm" className="w-full bg-amber-700 text-white hover:bg-amber-800">PDF 열기</Button>
                   </a>
                 </div>
               )}

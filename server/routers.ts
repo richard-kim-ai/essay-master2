@@ -783,6 +783,22 @@ export const appRouter = router({
         }
         return await db.adminToggleCurriculumActive(input.id, input.isActive);
       }),
+    batchToggleCurriculumActiveAdmin: protectedProcedure
+      .input(z.object({ ids: z.array(z.number()), isActive: z.number().int().min(0).max(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminBatchToggleCurriculumActive(input.ids, input.isActive);
+      }),
+    duplicateCurriculumAdmin: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminDuplicateCurriculumCategory(input.id);
+      }),
     deleteCurriculumCategoryAdmin: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {

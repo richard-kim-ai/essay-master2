@@ -946,6 +946,40 @@ export async function adminToggleCurriculumActive(id: number, isActive: number) 
   return true;
 }
 
+export async function adminBatchToggleCurriculumActive(ids: number[], isActive: number) {
+  const db = await getDb();
+  if (!db || ids.length === 0) return false;
+  for (const id of ids) {
+    await db.update(dynamicCurriculum).set({
+      isActive: isActive ? 1 : 0,
+      updatedAt: new Date(),
+    }).where(eq(dynamicCurriculum.id, id));
+  }
+  return true;
+}
+
+export async function adminDuplicateCurriculumCategory(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [target] = await db.select().from(dynamicCurriculum).where(eq(dynamicCurriculum.id, id));
+  if (!target) throw new Error("복제할 커리큘럼을 찾을 수 없습니다.");
+  const [created] = await db.insert(dynamicCurriculum).values({
+    courseType: target.courseType,
+    level: target.level + 1,
+    title: `${target.title} (복사본)`,
+    description: target.description,
+    topicsJson: target.topicsJson,
+    thumbnailUrl: target.thumbnailUrl,
+    aiSummary: target.aiSummary,
+    aiTags: target.aiTags,
+    samplePdfUrl: target.samplePdfUrl,
+    isActive: target.isActive,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return created;
+}
+
 export async function adminDeleteCurriculumCategory(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
