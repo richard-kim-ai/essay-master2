@@ -727,6 +727,18 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         return await db.updateQuestionBankItem(input.id, { difficulty: input.difficulty });
       }),
+    trendStats: protectedProcedure
+      .input(z.object({ period: z.enum(["week", "month"]).default("week") }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.getQuestionBankTrendStats(input.period);
+      }),
+    aiInsight: protectedProcedure
+      .input(z.object({ questionId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.getQuestionBankAiInsight(input.questionId);
+      }),
   }),
 
   admin: router({

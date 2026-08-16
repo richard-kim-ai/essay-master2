@@ -88,10 +88,17 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("문제은행 관리자 콘솔이 정답률 통계와 AI 난이도 최적화 기능을 제공한다", () => {
     const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
     const source = readFileSync(adminQBankPath, "utf8");
-    expect(source).toContain("정답률 & AI 통계 보기");
+    expect(source).toContain("정답률 & 오답 패턴 통계 보기");
     expect(source).toContain("AI 난이도 일괄 최적화 적용");
-    expect(source).toContain("AI 추천 난이도");
-    expect(source).toContain("correctRate");
+    expect(source).toContain("AI 오답 패턴 자연어 요약 인사이트");
+    expect(source).toContain("기간별 문제은행 정답률 변화 추이");
+    expect(source).toContain("낮은 정답률순 (취약점)");
+  });
+
+  it("백엔드가 기간별 정답률 추이 및 AI 오답 인사이트 프로시저를 포함한다", () => {
+    const routersSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    expect(routersSource).toContain("trendStats:");
+    expect(routersSource).toContain("aiInsight:");
   });
 
   it("백엔드가 문제은행 통계 및 AI 난이도 적용 프로시저를 포함한다", () => {
