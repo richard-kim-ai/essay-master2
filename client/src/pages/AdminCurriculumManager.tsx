@@ -323,35 +323,38 @@ export default function AdminCurriculumManager() {
                     </div>
 
                     {/* Right Action Controls & Buttons (Cols 9-12) */}
-                    <div className="lg:col-span-4 flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center lg:items-end justify-between lg:justify-start gap-3 border-t lg:border-t-0 lg:border-l border-slate-100 pt-4 lg:pt-0 lg:pl-5">
-                      <div className="flex items-center justify-between lg:justify-end w-full gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
-                        <span className="text-xs font-semibold text-slate-700">학생 화면 노출</span>
+                    <div className="lg:col-span-4 flex flex-col items-stretch justify-start gap-3.5 border-t lg:border-t-0 lg:border-l border-slate-100 pt-4 lg:pt-0 lg:pl-6 min-w-[210px]">
+                      <div className="flex items-center justify-between w-full gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 shadow-xs">
+                        <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">학생 화면 노출</span>
                         <Switch
                           checked={category.isActive !== 0}
                           onCheckedChange={() => toggleActiveMutation.mutate({ id: category.id, isActive: category.isActive !== 0 ? 0 : 1 })}
                           disabled={toggleActiveMutation.isPending}
                         />
                       </div>
-                      <div className="flex items-center gap-1.5 w-full justify-end">
-                        <Button size="sm" variant="outline" className="h-8 w-9 p-0" disabled={idx === 0 || reorderMutation.isPending} onClick={() => moveCategory(idx, "up", items)} aria-label="위로 이동">
-                          <ArrowUp className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 w-9 p-0" disabled={idx === items.length - 1 || reorderMutation.isPending} onClick={() => moveCategory(idx, "down", items)} aria-label="아래로 이동">
-                          <ArrowDown className="h-4 w-4" />
-                        </Button>
+                      <div className="flex items-center justify-between w-full gap-2 bg-slate-50/70 p-2 rounded-xl border border-slate-100">
+                        <span className="text-xs font-medium text-slate-500 pl-1">순서 이동</span>
+                        <div className="flex items-center gap-1.5">
+                          <Button size="sm" variant="outline" className="h-8 w-9 p-0 bg-white shadow-xs" disabled={idx === 0 || reorderMutation.isPending} onClick={() => moveCategory(idx, "up", items)} aria-label="위로 이동">
+                            <ArrowUp className="h-4 w-4 text-slate-700" />
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-8 w-9 p-0 bg-white shadow-xs" disabled={idx === items.length - 1 || reorderMutation.isPending} onClick={() => moveCategory(idx, "down", items)} aria-label="아래로 이동">
+                            <ArrowDown className="h-4 w-4 text-slate-700" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-2 w-full pt-1">
-                        <Button size="sm" variant="outline" className="gap-1 text-indigo-700 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-xs h-8" onClick={() => { setPreviewDevice("pc"); setPreviewCategory(category); }}>
-                          <Eye className="h-3.5 w-3.5" /> 미리보기
+                      <div className="grid grid-cols-2 gap-2 w-full pt-1">
+                        <Button size="sm" variant="outline" className="gap-1.5 text-indigo-700 border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-xs h-9 font-medium shadow-xs" onClick={() => { setPreviewDevice("pc"); setPreviewCategory(category); }}>
+                          <Eye className="h-3.5 w-3.5 shrink-0" /> 미리보기
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1 text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-xs h-8" title="카드 복제" onClick={() => duplicateMutation.mutate({ id: category.id })} disabled={duplicateMutation.isPending}>
-                          <Copy className="h-3.5 w-3.5" /> 복제
+                        <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 bg-emerald-50/80 hover:bg-emerald-100 text-xs h-9 font-medium shadow-xs" title="카드 복제" onClick={() => duplicateMutation.mutate({ id: category.id })} disabled={duplicateMutation.isPending}>
+                          <Copy className="h-3.5 w-3.5 shrink-0" /> 복제
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1 text-xs h-8" onClick={() => openEdit(category)}>
-                          <Edit3 className="h-3.5 w-3.5" /> 수정
+                        <Button size="sm" variant="outline" className="gap-1.5 text-slate-700 border-slate-200 bg-white hover:bg-slate-50 text-xs h-9 font-medium shadow-xs" onClick={() => openEdit(category)}>
+                          <Edit3 className="h-3.5 w-3.5 shrink-0" /> 수정
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1 text-rose-700 hover:bg-rose-50 text-xs h-8" onClick={() => setDeleteId(category.id)}>
-                          <Trash2 className="h-3.5 w-3.5" /> 삭제
+                        <Button size="sm" variant="outline" className="gap-1.5 text-rose-700 border-rose-200 bg-rose-50/60 hover:bg-rose-100 text-xs h-9 font-medium shadow-xs" onClick={() => setDeleteId(category.id)}>
+                          <Trash2 className="h-3.5 w-3.5 shrink-0" /> 삭제
                         </Button>
                       </div>
                     </div>
