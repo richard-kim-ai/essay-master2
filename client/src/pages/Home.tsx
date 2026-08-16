@@ -108,8 +108,8 @@ export default function Home() {
             {/* Left Content */}
             <div className="space-y-8">
               <div className="space-y-4">
-                <Badge className="w-fit bg-blue-100 text-blue-700 px-4 py-2">
-                  ✨ 2024년 최고의 논술 학습 플랫폼
+                <Badge className="w-fit bg-blue-100 text-blue-700 px-4 py-2 font-semibold">
+                  ✨ 2026년 최고의 논술 학습 플랫폼
                 </Badge>
                 <h1 className="text-5xl md:text-6xl font-bold text-gray-900 leading-tight">
                   논술 마스터와 함께
@@ -132,15 +132,7 @@ export default function Home() {
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </Button>
                 </Link>
-                <Link href="/quiz">
-                  <Button
-                    variant="outline"
-                    className="w-full sm:w-auto px-8 py-6 text-lg rounded-lg border-2 border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100"
-                  >
-                    <Sparkles className="w-5 h-5 mr-2 text-indigo-600" />
-                    로그인 전 샘플 퀴즈 체험하기
-                  </Button>
-                </Link>
+
               </div>
 
               {/* Stats */}
@@ -184,63 +176,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* 로그인 전용 샘플 체험 미리보기 섹션 */}
-      <section className="py-16 bg-gradient-to-br from-slate-900 to-blue-950 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <span className="bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border border-blue-400/30">Live Sample Experience</span>
-            <h2 className="text-3xl md:text-4xl font-ext500 font-bold mt-3 mb-3">로그인 없이 바로 살펴보는 샘플 데이터</h2>
-            <p className="text-slate-300 max-w-2xl mx-auto text-sm md:text-base">논술 마스터가 제공하는 AI 첨삭, 커리큘럼, 대시보드 성취도 및 수료증 발급 프리뷰를 체험해 보세요.</p>
-          </div>
 
-          <div className="grid md:grid-cols-3 gap-6">
-            <Card className="bg-slate-800/80 border-slate-700 p-6 text-white backdrop-blur shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded font-bold">샘플 대시보드</span>
-                <span className="text-xs text-slate-400">초등 3단계 과정</span>
-              </div>
-              <h3 className="text-lg font-bold mb-2">학습 진도율 75% 프리뷰</h3>
-              <div className="w-full bg-slate-700 h-2.5 rounded-full overflow-hidden my-3">
-                <div className="bg-emerald-400 h-full w-3/4"></div>
-              </div>
-              <p className="text-xs text-slate-300 mb-4">이번 주 AI 첨삭 5회 완료, 글쓰기 정답률 92% 달성 현황 샘플 데이터</p>
-              <Link href="/dashboard">
-                <Button size="sm" variant="outline" className="w-full border-slate-600 text-slate-200 hover:bg-slate-700">대시보드 샘플 구경하기</Button>
-              </Link>
-            </Card>
-
-            <Card className="bg-slate-800/80 border-slate-700 p-6 text-white backdrop-blur shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-1 rounded font-bold">샘플 AI 첨삭</span>
-                <span className="text-xs text-slate-400">경제성·명료성 분석</span>
-              </div>
-              <h3 className="text-lg font-bold mb-2">실시간 논술 첨삭 결과</h3>
-              <div className="p-3 bg-slate-900/80 rounded-lg text-xs space-y-2 mb-4 border border-slate-700">
-                <p className="text-emerald-400 font-semibold">✓ 점수: 92점 (우수)</p>
-                <p className="text-slate-300 line-clamp-2">"주어와 서술어의 호응이 자연스럽고 논리 전개가 명확합니다."</p>
-              </div>
-              <Link href="/quiz">
-                <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700 text-white">AI 퀴즈 바로 풀어보기</Button>
-              </Link>
-            </Card>
-
-            <Card className="bg-slate-800/80 border-slate-700 p-6 text-white backdrop-blur shadow-xl">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded font-bold">샘플 수료증</span>
-                <span className="text-xs text-slate-400">인증번호 발급됨</span>
-              </div>
-              <h3 className="text-lg font-bold mb-2">초등 논술 마스터 수료증</h3>
-              <div className="p-3 bg-slate-900/80 rounded-lg text-xs space-y-1 mb-4 border border-slate-700">
-                <p className="text-purple-300 font-mono">CERT-2026-SAMPLE</p>
-                <p className="text-slate-400">발급일: 2026. 8. 16</p>
-              </div>
-              <Link href="/certificate">
-                <Button size="sm" variant="outline" className="w-full border-slate-600 text-slate-200 hover:bg-slate-700">수료증 미리보기</Button>
-              </Link>
-            </Card>
-          </div>
-        </div>
-      </section>
 
       {/* Learning Tools Section */}
       <section className="py-20 bg-gray-50">
