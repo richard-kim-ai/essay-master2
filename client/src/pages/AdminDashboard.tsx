@@ -201,6 +201,9 @@ export default function AdminDashboard() {
             <Link href="/admin/curriculum">
               <Button size="sm" variant="outline" className="gap-2">카테고리 관리</Button>
             </Link>
+            <Link href="/admin/question-bank">
+              <Button size="sm" variant="outline" className="gap-2 bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100">문제은행 관리</Button>
+            </Link>
             <Link href="/admin/terms">
               <Button size="sm" variant="outline" className="gap-2">약관 관리</Button>
             </Link>

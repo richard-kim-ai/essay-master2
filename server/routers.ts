@@ -652,6 +652,55 @@ export const appRouter = router({
       }),
   }),
 
+  questionBank: router({
+    list: protectedProcedure
+      .input(z.object({ courseType: z.string().optional(), toolType: z.string().optional() }))
+      .query(async ({ input }) => {
+        await db.seedQuestionBankIfNeeded();
+        return await db.getQuestionBankList(input.courseType, input.toolType);
+      }),
+    random: protectedProcedure
+      .input(z.object({ courseType: z.string(), toolType: z.string(), limit: z.number().default(10) }))
+      .query(async ({ input }) => {
+        await db.seedQuestionBankIfNeeded();
+        return await db.getRandomQuestions(input.courseType, input.toolType, input.limit);
+      }),
+    create: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        toolType: z.string(),
+        title: z.string(),
+        contentData: z.string(),
+        difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+        isActive: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.createQuestionBankItem(input);
+      }),
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
+        toolType: z.string().optional(),
+        title: z.string().optional(),
+        contentData: z.string().optional(),
+        difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+        isActive: z.number().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, ...data } = input;
+        return await db.updateQuestionBankItem(id, data);
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.deleteQuestionBankItem(input.id);
+      }),
+  }),
+
   admin: router({
     getAnalytics: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") {

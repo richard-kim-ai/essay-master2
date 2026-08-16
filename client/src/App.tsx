@@ -33,6 +33,7 @@ import AdminStudentDetail from "./pages/AdminStudentDetail";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminCertificates from "@/pages/AdminCertificates";
 import AdminCurriculumManager from "@/pages/AdminCurriculumManager";
+import AdminQuestionBank from "@/pages/AdminQuestionBank";
 import AdminTermsManager from "@/pages/AdminTermsManager";
 import MasterAdminConsole from "@/pages/MasterAdminConsole";
 import ParentPortal from "@/pages/ParentPortal";
@@ -66,6 +67,13 @@ function Router() {
         {(params) => (
           <Layout>
             <AdminCurriculumManager />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/question-bank"}>
+        {(params) => (
+          <Layout>
+            <AdminQuestionBank />
           </Layout>
         )}
       </Route>

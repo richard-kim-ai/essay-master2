@@ -1,193 +1,133 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { Lightbulb, Send, RotateCcw, CheckCircle2 } from "lucide-react";
-
-interface SummaryFeedback {
-  keywords: string[];
-  logicFlow: string;
-  suggestions: string[];
-  score: number;
-}
-
-const SAMPLE_ARTICLE = `
-인공지능(AI)은 현대 사회의 모든 분야에서 빠르게 확산되고 있습니다. 의료, 교육, 제조업 등 다양한 산업에서 AI 기술이 활용되면서 업무 효율성이 크게 향상되고 있습니다. 
-
-그러나 AI의 발전에 따라 일자리 감소, 개인정보 침해, 윤리적 문제 등 새로운 사회 문제들이 대두되고 있습니다. 특히 AI 알고리즘의 편향성 문제는 차별과 불공정을 초래할 수 있어 심각한 우려의 대상이 되고 있습니다.
-
-따라서 AI의 긍정적 발전을 도모하면서도 이러한 부작용을 최소화하기 위해서는 정부의 규제, 기업의 윤리 의식, 그리고 시민의 참여가 함께 이루어져야 합니다.
-`;
+import { BookOpen, Send, RotateCcw, CheckCircle2, Award } from "lucide-react";
+import { Link } from "wouter";
 
 export default function SummaryPractice() {
+  const { isAuthenticated } = useAuth();
+  const [courseType, setCourseType] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("middle_high");
+  const { data: qList, isLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "summary", limit: 1 });
+
+  const [articleTitle, setArticleTitle] = useState("AI와 미래 사회의 명암");
+  const [articleContent, setArticleContent] = useState("");
   const [summary, setSummary] = useState("");
-  const [feedback, setFeedback] = useState<SummaryFeedback | null>(null);
+  const [feedback, setFeedback] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  const analyzeSummary = async () => {
-    if (!summary.trim()) {
-      toast.error("요약을 입력해주세요.");
-      return;
-    }
+  const awardBadgeMutation = trpc.badges.award.useMutation();
+  const utils = trpc.useUtils();
 
-    if (summary.length < 20) {
-      toast.error("더 자세한 요약을 작성해주세요.");
+  useEffect(() => {
+    if (qList && qList.length > 0) {
+      try {
+        const parsed = JSON.parse(qList[0].contentData);
+        setArticleTitle(qList[0].title);
+        setArticleContent(parsed.prompt || parsed.content || "요약할 제시문 본문 내용입니다.");
+        setSummary("");
+        setFeedback(null);
+      } catch {
+        setArticleTitle("기본 제시문");
+        setArticleContent("현대 사회에서 비판적 사고력과 논리적 글쓰기는 매우 중요합니다.");
+      }
+    }
+  }, [qList]);
+
+  if (!isAuthenticated) return <div className="text-center py-12 text-slate-600">로그인이 필요합니다.</div>;
+  if (isLoading) return <div className="text-center py-12 text-slate-600">문제은행에서 요약 지문을 불러오는 중...</div>;
+
+  const analyzeSummary = () => {
+    if (!summary.trim() || summary.length < 15) {
+      toast.error("핵심 내용이 포함된 15자 이상의 요약문을 작성해주세요.");
       return;
     }
 
     setIsAnalyzing(true);
-
-    // 시뮬레이션된 분석 (실제로는 LLM 호출)
     setTimeout(() => {
-      const mockFeedback: SummaryFeedback = {
-        keywords: ["인공지능", "사회 문제", "규제", "윤리"],
-        logicFlow:
-          "주제 제시 → 문제점 지적 → 해결방안 제시의 논리적 흐름이 명확합니다.",
-        suggestions: [
-          "구체적인 사례를 추가하면 더 설득력 있을 것 같습니다.",
-          "AI의 긍정적 영향도 함께 언급하면 균형잡힌 요약이 될 것입니다.",
-        ],
-        score: 82,
+      const mock = {
+        keywords: ["핵심 요지", "논리적 전개", "구조화"],
+        logicFlow: "제시문의 핵심 주장을 파악하고 간결하게 압축하였습니다.",
+        suggestions: ["두괄식 구조를 더욱 명확히 하면 좋습니다."],
+        score: 88,
       };
-
-      setFeedback(mockFeedback);
+      setFeedback(mock);
       setIsAnalyzing(false);
-      toast.success("분석이 완료되었습니다!");
-    }, 1500);
-  };
+      toast.success("요약 분석이 완료되었습니다!");
 
-  const resetForm = () => {
-    setSummary("");
-    setFeedback(null);
+      awardBadgeMutation.mutate({
+        courseType,
+        badgeType: "summary",
+        badgeName: `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 요약 전문가 뱃지`,
+      }, {
+        onSuccess: () => {
+          utils.badges.getByUser.invalidate();
+          toast.success("요약 연습 완료 뱃지가 발급되었습니다!");
+        }
+      });
+    }, 1200);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            실시간 요약 연습장
-          </h1>
-          <p className="text-lg text-gray-600">
-            주어진 글을 읽고 핵심 내용을 요약해보세요. AI가 실시간으로 피드백을
-            제공합니다.
-          </p>
+    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <Link href="/curriculum"><Button variant="ghost" className="text-slate-600 pl-0">← 커리큘럼으로 돌아가기</Button></Link>
+          <div className="flex gap-2">
+            {(["elementary", "middle_high", "high_univ", "general_adult"] as const).map(c => (
+              <Button key={c} size="sm" variant={courseType === c ? "default" : "outline"} className={courseType === c ? "bg-indigo-600 text-white" : ""} onClick={() => setCourseType(c)}>
+                {c === "elementary" ? "초등" : c === "middle_high" ? "중고등" : c === "high_univ" ? "고등/대입" : "일반"}
+              </Button>
+            ))}
+          </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Original Article */}
-          <div>
-            <Card className="p-6 h-full bg-white">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                📖 원문
-              </h3>
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                  {SAMPLE_ARTICLE}
-                </p>
-              </div>
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-xs text-blue-700">
-                  💡 팁: 원문의 주요 주제, 핵심 논점, 결론을 파악하고 요약하세요.
-                </p>
-              </div>
-            </Card>
-          </div>
+        <Card className="border-indigo-100 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-slate-900">실시간 요약 연습장</CardTitle>
+            <CardDescription>제시문을 읽고 핵심 주장과 논거를 3문장 이내로 요약해 보세요.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="p-6 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-3">
+              <h3 className="font-bold text-slate-900 text-lg">{articleTitle}</h3>
+              <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-line">{articleContent}</p>
+            </div>
 
-          {/* Summary Input & Feedback */}
-          <div className="space-y-4">
-            {/* Input */}
-            <Card className="p-6 bg-white">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                ✍️ 요약 작성
-              </h3>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-slate-900">나의 요약문 작성</label>
               <Textarea
-                placeholder="원문의 핵심 내용을 요약해주세요..."
+                rows={5}
+                placeholder="제시문의 핵심 내용을 간결하고 명확하게 요약하세요..."
                 value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                className="min-h-[200px] resize-none"
+                onChange={e => setSummary(e.target.value)}
+                className="bg-white"
               />
-              <div className="mt-3 text-xs text-gray-500">
-                {summary.length} / 500 자
-              </div>
-            </Card>
+            </div>
 
-            {/* Buttons */}
-            <div className="flex gap-2">
-              <Button
-                onClick={analyzeSummary}
-                disabled={isAnalyzing}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                <Send className="w-4 h-4 mr-2" />
-                {isAnalyzing ? "분석 중..." : "분석 요청"}
-              </Button>
-              <Button onClick={resetForm} variant="outline" className="flex-1">
-                <RotateCcw className="w-4 h-4 mr-2" />
-                초기화
+            {feedback && (
+              <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3 text-emerald-900">
+                <div className="flex items-center gap-2 font-bold text-base">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600" /> AI 요약 분석 피드백 (점수: {feedback.score}점)
+                </div>
+                <p className="text-sm">{feedback.logicFlow}</p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {feedback.keywords.map((kw: string) => (
+                    <span key={kw} className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-full">#{kw}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-4">
+              <Button onClick={analyzeSummary} disabled={isAnalyzing} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
+                {isAnalyzing ? "분석 중..." : "요약 제출 및 분석 받기"}
               </Button>
             </div>
-          </div>
-        </div>
-
-        {/* Feedback */}
-        {feedback && (
-          <div className="mt-6 space-y-4">
-            {/* Score */}
-            <Card className="p-6 bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">요약 점수</p>
-                  <p className="text-4xl font-bold text-purple-600">
-                    {feedback.score}점
-                  </p>
-                </div>
-                <CheckCircle2 className="w-16 h-16 text-purple-400" />
-              </div>
-            </Card>
-
-            {/* Keywords */}
-            <Card className="p-6 bg-white">
-              <h4 className="font-semibold text-gray-900 mb-3">🎯 핵심 키워드</h4>
-              <div className="flex flex-wrap gap-2">
-                {feedback.keywords.map((keyword, idx) => (
-                  <Badge key={idx} className="bg-purple-100 text-purple-700">
-                    {keyword}
-                  </Badge>
-                ))}
-              </div>
-            </Card>
-
-            {/* Logic Flow */}
-            <Card className="p-6 bg-white">
-              <h4 className="font-semibold text-gray-900 mb-3">
-                📊 논리 흐름 분석
-              </h4>
-              <p className="text-gray-700 leading-relaxed">
-                {feedback.logicFlow}
-              </p>
-            </Card>
-
-            {/* Suggestions */}
-            <Card className="p-6 bg-blue-50 border-blue-200">
-              <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <Lightbulb className="w-5 h-5 text-blue-600" />
-                개선 제안
-              </h4>
-              <ul className="space-y-2">
-                {feedback.suggestions.map((suggestion, idx) => (
-                  <li key={idx} className="flex gap-2 text-gray-700">
-                    <span className="text-blue-600 font-semibold">•</span>
-                    <span>{suggestion}</span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          </div>
-        )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

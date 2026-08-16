@@ -295,3 +295,19 @@ export const userBadges = mysqlTable("user_badges", {
 
 export type UserBadge = typeof userBadges.$inferSelect;
 export type InsertUserBadge = typeof userBadges.$inferInsert;
+
+// 문제은행 (Question Bank) 테이블 - 각 커리큘럼별 50개씩 총 200개 이상 관리
+export const questionBank = mysqlTable("question_bank", {
+  id: int("id").autoincrement().primaryKey(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  toolType: varchar("toolType", { length: 64 }).notNull(), // quiz, reordering, summary, topic_wizard, thesis_checklist
+  title: varchar("title", { length: 255 }).notNull(),
+  contentData: text("contentData").notNull(), // JSON 문자열로 문제 본문, 보기, 정답, 해설 등 저장
+  difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium").notNull(),
+  isActive: int("isActive").default(1).notNull(), // 1: 활성, 0: 비활성
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type QuestionBank = typeof questionBank.$inferSelect;
+export type InsertQuestionBank = typeof questionBank.$inferInsert;

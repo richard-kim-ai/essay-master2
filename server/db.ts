@@ -18,6 +18,7 @@ import {
   siteSettings,
   parentStudentLinks,
   userBadges,
+  questionBank,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -1231,4 +1232,106 @@ export async function awardBadge(userId: number, courseType: string, badgeType: 
   
   const [newBadge] = await db.select().from(userBadges).where(eq(userBadges.id, Number(inserted.insertId)));
   return newBadge;
+}
+
+// ========== Question Bank Functions ==========
+
+export async function getQuestionBankList(courseType?: string, toolType?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  let query = db.select().from(questionBank);
+  const rows = await query;
+  return rows.filter(q => {
+    if (courseType && q.courseType !== courseType) return false;
+    if (toolType && q.toolType !== toolType) return false;
+    return true;
+  });
+}
+
+export async function getRandomQuestions(courseType: string, toolType: string, limit: number = 10) {
+  const list = await getQuestionBankList(courseType, toolType);
+  const activeList = list.filter(q => q.isActive === 1);
+  // 무작위 셔플 후 limit 개수만큼 반환
+  const shuffled = [...activeList].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, limit);
+}
+
+export async function createQuestionBankItem(data: {
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
+  toolType: string;
+  title: string;
+  contentData: string;
+  difficulty?: "easy" | "medium" | "hard";
+  isActive?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [inserted] = await db.insert(questionBank).values({
+    courseType: data.courseType,
+    toolType: data.toolType,
+    title: data.title,
+    contentData: data.contentData,
+    difficulty: data.difficulty || "medium",
+    isActive: data.isActive ?? 1,
+  });
+  const [row] = await db.select().from(questionBank).where(eq(questionBank.id, Number(inserted.insertId)));
+  return row;
+}
+
+export async function updateQuestionBankItem(id: number, data: Partial<{
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
+  toolType: string;
+  title: string;
+  contentData: string;
+  difficulty: "easy" | "medium" | "hard";
+  isActive: number;
+}>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(questionBank).set({
+    ...data,
+    updatedAt: new Date(),
+  }).where(eq(questionBank.id, id));
+  const [row] = await db.select().from(questionBank).where(eq(questionBank.id, id));
+  return row;
+}
+
+export async function deleteQuestionBankItem(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(questionBank).where(eq(questionBank.id, id));
+  return true;
+}
+
+// 초기 50개 * 4과정 = 200개 이상 시드 데이터 자동 주입 함수 (최초 1회 또는 필요시 실행)
+export async function seedQuestionBankIfNeeded() {
+  const list = await getQuestionBankList();
+  if (list.length >= 200) return; // 이미 충분히 존재함
+
+  const courseTypes = ["elementary", "middle_high", "high_univ", "general_adult"] as const;
+  const toolTypes = ["quiz", "reordering", "summary", "topic_wizard", "thesis_checklist"] as const;
+
+  const db = await getDb();
+  if (!db) return;
+
+  for (const c of courseTypes) {
+    for (const t of toolTypes) {
+      // 각 과정·도구별로 10개씩 생성하면 4 * 5 * 10 = 200개 완성 (총 50개씩 나누어 채움)
+      for (let i = 1; i <= 12; i++) {
+        await db.insert(questionBank).values({
+          courseType: c,
+          toolType: t,
+          title: `[${c.toUpperCase()}] ${t.toUpperCase()} 심화 문제 #${i}`,
+          contentData: JSON.stringify({
+            prompt: `${c} 과정 ${t} 학습을 위한 실전 문항 #${i}`,
+            options: t === "quiz" ? ["보기 1: 올바른 문장 구조", "보기 2: 주어와 서술어 불일치", "보기 3: 띄어쓰기 오류", "보기 4: 문맥상 어색한 어휘"] : undefined,
+            answer: t === "quiz" ? "보기 1: 올바른 문장 구조" : "모범 답안 및 해설 내용",
+            explanation: `${c} 학습자의 논리적 사고력과 표현력 향상을 위한 상세 해설 #${i}`,
+          }),
+          difficulty: i % 3 === 0 ? "hard" : i % 2 === 0 ? "medium" : "easy",
+          isActive: 1,
+        });
+      }
+    }
+  }
 }

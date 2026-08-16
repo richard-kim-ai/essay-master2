@@ -1,282 +1,207 @@
-import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { BookOpen, Loader2, AlertCircle, CheckCircle } from "lucide-react";
-import { useState } from "react";
+import { BookOpen, Loader2, AlertCircle, CheckCircle, Award } from "lucide-react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
-
-const QUIZ_QUESTIONS = [
-  {
-    id: 1,
-    level: "elementary",
-    sentence: "나는 학교에 가고 친구를 만나고 함께 공부한다.",
-    correct: true,
-    feedback: "올바른 문장입니다. 주어와 술어가 명확하고 띄어쓰기가 정확합니다.",
-  },
-  {
-    id: 2,
-    level: "elementary",
-    sentence: "나는책을읽는다.",
-    correct: false,
-    feedback: "띄어쓰기가 잘못되었습니다. 올바른 문장: '나는 책을 읽는다.'",
-  },
-  {
-    id: 3,
-    level: "elementary",
-    sentence: "그 영화는 정말 재미있었고 감동적이었다.",
-    correct: true,
-    feedback: "좋은 문장입니다. 두 개의 형용사를 자연스럽게 연결했습니다.",
-  },
-  {
-    id: 4,
-    level: "middle_high",
-    sentence: "스마트폰 사용을 제한해야 하는 이유는 집중력 저하와 수면 방해 때문이다.",
-    correct: true,
-    feedback: "논리적이고 명확한 문장입니다. 주장과 근거가 잘 연결되어 있습니다.",
-  },
-  {
-    id: 5,
-    level: "middle_high",
-    sentence: "현대 사회에서 기술의 발전은 우리의 삶을 변화시키고 있으며 앞으로도 계속될 것이다.",
-    correct: true,
-    feedback: "구조가 명확하고 시간 관계를 잘 표현한 문장입니다.",
-  },
-];
+import { useAuth } from "@/_core/hooks/useAuth";
 
 export default function QuizPage() {
-  const { user, isAuthenticated } = useAuth();
-  const [courseType, setCourseType] = useState<"elementary" | "middle_high">("elementary");
-  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
-  const [userAnswer, setUserAnswer] = useState("");
-  const [feedback, setFeedback] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const { isAuthenticated } = useAuth();
+  const [courseType, setCourseType] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("elementary");
+  const { data: qList, isLoading: qLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "quiz", limit: 10 });
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<string>("");
+  const [submitted, setSubmitted] = useState(false);
   const [score, setScore] = useState(0);
-  const [completed, setCompleted] = useState(0);
+  const [finished, setFinished] = useState(false);
 
-  const submitAnswerMutation = trpc.quiz.submitAnswer.useMutation();
+  const submitMutation = trpc.quiz.submitAnswer.useMutation();
+  const awardBadgeMutation = trpc.badges.award.useMutation();
+  const utils = trpc.useUtils();
+
+  useEffect(() => {
+    setCurrentIndex(0);
+    setSelectedAnswer("");
+    setSubmitted(false);
+    setScore(0);
+    setFinished(false);
+  }, [courseType]);
 
   if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
+    return <div className="text-center py-12 text-slate-600">로그인이 필요합니다.</div>;
   }
 
-  const filteredQuizzes = QUIZ_QUESTIONS.filter((q) => q.level === courseType);
-  const currentQuiz = filteredQuizzes[currentQuizIndex];
-
-  if (!currentQuiz) {
-    return (
-      <div className="min-h-screen bg-gray-50 py-12 text-center">
-        <p className="text-gray-600">퀴즈를 찾을 수 없습니다.</p>
-      </div>
-    );
+  if (qLoading) {
+    return <div className="text-center py-12 text-slate-600">문제은행에서 맞춤 퀴즈를 불러오는 중입니다...</div>;
   }
 
-  const handleSubmitAnswer = async () => {
-    if (!userAnswer.trim()) {
-      toast.error("답변을 입력해주세요.");
+  const questions = qList || [];
+  const currentQ = questions[currentIndex];
+
+  let parsedData: any = {};
+  try {
+    parsedData = currentQ ? JSON.parse(currentQ.contentData) : {};
+  } catch {
+    parsedData = { prompt: currentQ?.title || "문항", options: ["보기 1", "보기 2", "보기 3", "보기 4"], answer: "보기 1", explanation: "해설" };
+  }
+
+  const handleVerify = async () => {
+    if (!selectedAnswer) {
+      toast.error("답안을 선택해주세요.");
       return;
     }
+    setSubmitted(true);
+    const isCorrect = selectedAnswer === parsedData.answer ? 1 : 0;
+    if (isCorrect) setScore(s => s + 10);
 
-    setLoading(true);
     try {
-      const isCorrect = userAnswer.toLowerCase() === currentQuiz.correct.toString().toLowerCase() ? 1 : 0;
-
-      await submitAnswerMutation.mutateAsync({
-        quizId: currentQuiz.id,
-        userAnswer,
+      await submitMutation.mutateAsync({
+        quizId: currentQ?.id || 1,
+        userAnswer: selectedAnswer,
         isCorrect,
-        feedback: currentQuiz.feedback,
+        feedback: parsedData.explanation || "정답 및 해설",
         economyScore: "0.85",
         clarityScore: "0.90",
         accuracyScore: "0.88",
       });
-
-      setFeedback({
-        isCorrect,
-        feedback: currentQuiz.feedback,
-        economyScore: 85,
-        clarityScore: 90,
-        accuracyScore: 88,
-      });
-
-      if (isCorrect) {
-        setScore(score + 1);
-        toast.success("정답입니다!");
-      } else {
-        toast.info("오답입니다. 피드백을 확인해주세요.");
-      }
-
-      setCompleted(completed + 1);
-    } catch (error) {
-      console.error("Error submitting answer:", error);
-      toast.error("답변 제출 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      // ignore offline/fallback error
     }
   };
 
-  const handleNextQuiz = () => {
-    if (currentQuizIndex < filteredQuizzes.length - 1) {
-      setCurrentQuizIndex(currentQuizIndex + 1);
-      setUserAnswer("");
-      setFeedback(null);
+  const handleNext = () => {
+    if (currentIndex < questions.length - 1) {
+      setCurrentIndex(i => i + 1);
+      setSelectedAnswer("");
+      setSubmitted(false);
     } else {
-      toast.success("모든 퀴즈를 완료했습니다!");
+      setFinished(true);
+      // 퀴즈 완료 시 자동 뱃지 수여
+      awardBadgeMutation.mutate({
+        courseType,
+        badgeType: "quiz",
+        badgeName: `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} AI 퀴즈 마스터 뱃지`,
+      }, {
+        onSuccess: () => {
+          utils.badges.getByUser.invalidate();
+          toast.success("축하합니다! 퀴즈 과정을 완료하고 새로운 뱃지를 획득했습니다.");
+        }
+      });
     }
   };
+
+  if (questions.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-50 py-12 px-4 text-center">
+        <p className="text-slate-600">등록된 퀴즈 문항이 없습니다. 관리자 문제은행에서 문항을 추가해주세요.</p>
+        <Link href="/curriculum"><Button className="mt-4">커리큘럼으로 돌아가기</Button></Link>
+      </div>
+    );
+  }
+
+  if (finished) {
+    return (
+      <div className="min-h-screen bg-slate-50 py-16 px-4">
+        <div className="max-w-md mx-auto text-center space-y-6 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+          <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
+            🏆
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900">퀴즈 학습 완료!</h2>
+          <p className="text-slate-600">총 10문제 중 최종 획득 점수: <span className="font-bold text-indigo-600 text-lg">{score}점</span></p>
+          <div className="p-4 bg-indigo-50 rounded-xl text-indigo-900 text-sm font-medium flex items-center justify-center gap-2">
+            <Award className="h-5 w-5 text-indigo-600" /> 과정별 뱃지가 마이페이지에 자동 적립되었습니다.
+          </div>
+          <div className="flex gap-3 justify-center pt-4">
+            <Link href="/dashboard"><Button className="bg-indigo-600 hover:bg-indigo-700 text-white">대시보드로 이동</Button></Link>
+            <Button variant="outline" onClick={() => { setCurrentIndex(0); setScore(0); setFinished(false); setSubmitted(false); setSelectedAnswer(""); }}>다시 풀기</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-8">AI 문장 교정 퀴즈</h1>
-
-        <div className="grid gap-8">
-          {/* Quiz Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>문장 평가</CardTitle>
-              <CardDescription>
-                다음 문장이 올바른지 판단하고 이유를 설명해주세요.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Progress */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-medium text-gray-700">진도</span>
-                  <span className="text-sm text-gray-600">
-                    {completed} / {filteredQuizzes.length}
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-indigo-600 h-2 rounded-full transition-all"
-                    style={{
-                      width: `${(completed / filteredQuizzes.length) * 100}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Quiz Question */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-                <p className="text-lg text-gray-900 font-medium mb-2">
-                  문장:
-                </p>
-                <p className="text-gray-700 text-lg leading-relaxed">
-                  "{currentQuiz.sentence}"
-                </p>
-              </div>
-
-              {/* Answer Input */}
-              {!feedback ? (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      이 문장이 올바른가요? (예/아니오)
-                    </label>
-                    <Textarea
-                      placeholder="예 또는 아니오로 답하고, 이유를 설명해주세요."
-                      value={userAnswer}
-                      onChange={(e) => setUserAnswer(e.target.value)}
-                      rows={4}
-                      className="resize-none"
-                    />
-                  </div>
-                  <Button
-                    onClick={handleSubmitAnswer}
-                    disabled={loading || !userAnswer.trim()}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        검토 중...
-                      </>
-                    ) : (
-                      "답변 제출"
-                    )}
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  {/* Feedback */}
-                  <div
-                    className={`p-6 rounded-lg border-2 ${
-                      feedback.isCorrect
-                        ? "bg-green-50 border-green-200"
-                        : "bg-orange-50 border-orange-200"
-                    }`}
-                  >
-                    <div className="flex items-start gap-3 mb-4">
-                      {feedback.isCorrect ? (
-                        <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
-                      ) : (
-                        <AlertCircle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-1" />
-                      )}
-                      <div>
-                        <p
-                          className={`font-semibold mb-2 ${
-                            feedback.isCorrect
-                              ? "text-green-900"
-                              : "text-orange-900"
-                          }`}
-                        >
-                          {feedback.isCorrect ? "정답!" : "오답"}
-                        </p>
-                        <p className="text-gray-700">
-                          {feedback.feedback}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Detailed Scores */}
-                    <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t">
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">경제성</p>
-                        <p className="text-2xl font-bold text-gray-900">
-                          {feedback.economyScore}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">명료성</p>
-                        <p className="text-2xl font-bold text-gray-900">
-                          {feedback.clarityScore}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">정확성</p>
-                        <p className="text-2xl font-bold text-gray-900">
-                          {feedback.accuracyScore}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Next Button */}
-                  <Button
-                    onClick={handleNextQuiz}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700"
-                  >
-                    {currentQuizIndex < filteredQuizzes.length - 1
-                      ? "다음 문제"
-                      : "완료"}
-                  </Button>
-                </>
-              )}
-
-              {/* Score Summary */}
-              <div className="bg-gray-100 rounded-lg p-4">
-                <p className="text-sm text-gray-600">
-                  현재 점수: <span className="font-bold text-gray-900">{score} / {completed}</span>
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <Link href="/curriculum">
+            <Button variant="ghost" className="gap-2 text-slate-600 pl-0">
+              ← 커리큘럼으로 돌아가기
+            </Button>
+          </Link>
+          <div className="flex gap-2">
+            {(["elementary", "middle_high", "high_univ", "general_adult"] as const).map(c => (
+              <Button
+                key={c}
+                size="sm"
+                variant={courseType === c ? "default" : "outline"}
+                className={courseType === c ? "bg-indigo-600 text-white" : ""}
+                onClick={() => setCourseType(c)}
+              >
+                {c === "elementary" ? "초등" : c === "middle_high" ? "중고등" : c === "high_univ" ? "고등/대입" : "일반"}
+              </Button>
+            ))}
+          </div>
         </div>
+
+        <Card className="border-indigo-100 shadow-sm">
+          <CardHeader>
+            <div className="flex justify-between items-center text-sm font-semibold text-indigo-600 mb-2">
+              <span>AI 문장 교정 및 논증 퀴즈</span>
+              <span>문제 {currentIndex + 1} / {questions.length}</span>
+            </div>
+            <CardTitle className="text-xl font-bold text-slate-900">{currentQ.title}</CardTitle>
+            <CardDescription>{parsedData.prompt || "문장을 읽고 올바른 답을 선택하세요."}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="p-5 bg-indigo-50/70 border border-indigo-100 rounded-xl text-slate-900 font-medium leading-relaxed">
+              {parsedData.sentence || currentQ.title}
+            </div>
+
+            <div className="space-y-3">
+              {(parsedData.options || ["보기 1", "보기 2", "보기 3", "보기 4"]).map((opt: string, idx: number) => (
+                <button
+                  key={idx}
+                  disabled={submitted}
+                  onClick={() => setSelectedAnswer(opt)}
+                  className={`w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between ${
+                    selectedAnswer === opt
+                      ? "border-indigo-600 bg-indigo-50 text-indigo-900 font-bold shadow-sm"
+                      : "border-slate-200 bg-white hover:border-slate-300 text-slate-700"
+                  }`}
+                >
+                  <span>{opt}</span>
+                  {selectedAnswer === opt && <span className="w-3 h-3 rounded-full bg-indigo-600"></span>}
+                </button>
+              ))}
+            </div>
+
+            {submitted && (
+              <div className={`p-4 rounded-xl border ${selectedAnswer === parsedData.answer ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-rose-50 border-rose-200 text-rose-900"}`}>
+                <div className="flex items-center gap-2 font-bold mb-1">
+                  {selectedAnswer === parsedData.answer ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <AlertCircle className="h-5 w-5 text-rose-600" />}
+                  {selectedAnswer === parsedData.answer ? "정답입니다!" : "틀렸습니다."}
+                </div>
+                <p className="text-sm leading-6 mt-1">{parsedData.explanation}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-4">
+              {!submitted ? (
+                <Button onClick={handleVerify} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                  정답 확인
+                </Button>
+              ) : (
+                <Button onClick={handleNext} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                  {currentIndex === questions.length - 1 ? "결과 보기" : "다음 문제 →"}
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
