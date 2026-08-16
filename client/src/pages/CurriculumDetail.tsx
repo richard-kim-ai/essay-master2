@@ -31,7 +31,6 @@ export default function CurriculumDetail() {
       <div className="mx-auto max-w-4xl space-y-6">
         <Link href="/curriculum"><Button variant="ghost" className="gap-2 px-0 text-slate-600 hover:text-indigo-700"><ArrowLeft className="h-4 w-4" /> 커리큘럼으로 돌아가기</Button></Link>
         <Card className="overflow-hidden border-indigo-100 shadow-sm">
-          {item.thumbnailUrl && <img src={item.thumbnailUrl} alt="" className="h-56 w-full object-cover sm:h-72" />}
           <CardHeader className="space-y-4 p-6 sm:p-8">
             <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-indigo-700"><span className="rounded-full bg-indigo-100 px-3 py-1">{courseLabels[courseType]}</span><span className="rounded-full bg-slate-100 px-3 py-1">Level {item.level}</span></div>
             <CardTitle className="text-3xl leading-tight text-slate-900 sm:text-4xl">{item.title}</CardTitle>

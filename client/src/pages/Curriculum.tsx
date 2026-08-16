@@ -126,9 +126,6 @@ export default function Curriculum() {
                     <CardHeader>
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
-                          {(item as { thumbnailUrl?: string }).thumbnailUrl && (
-                            <img src={(item as { thumbnailUrl?: string }).thumbnailUrl} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" loading="lazy" />
-                          )}
                           <div className="flex items-center gap-2 mb-2">
                             <span className="inline-block bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-semibold">
                               Level {item.level}
