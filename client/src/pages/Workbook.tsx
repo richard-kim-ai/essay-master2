@@ -1,4 +1,13 @@
-const WORKBOOK_CONTENT = {
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { trpc } from "@/lib/trpc";
+import { Link, useRoute } from "wouter";
+import { Loader2, CheckCircle } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { useAuth } from "@/_core/hooks/useAuth";
+
+const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: { id: number; title: string; content: string; example: string }[] }>> = {
   elementary: {
     1: {
       title: "Level 1: 문장 쓰기 기초",
@@ -98,3 +107,125 @@ const WORKBOOK_CONTENT = {
     },
   },
 };
+
+export default function Workbook() {
+  const { isAuthenticated } = useAuth();
+  const [, params] = useRoute("/workbook/:courseType/:level");
+  const courseType = (params?.courseType as string) || "elementary";
+  const level = params?.level ? parseInt(params.level) : 1;
+
+  const [currentLesson, setCurrentLesson] = useState(0);
+  const [completedLessons, setCompletedLessons] = useState<number[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const progressMutation = trpc.progress.upsert.useMutation();
+
+  if (!isAuthenticated) {
+    return <div className="text-center py-12">로그인이 필요합니다.</div>;
+  }
+
+  const workbookData = WORKBOOK_CONTENT[courseType]?.[level] || {
+    title: `Level ${level}: 맞춤형 논술 실습`,
+    lessons: [
+      {
+        id: 1,
+        title: "핵심 개념 정리",
+        content: "해당 과정의 핵심 개념을 학습하고 실전 논술 문항에 적용해 봅니다.",
+        example: "예시 문항: 주제에 대한 논리적 찬반 근거 서술하기",
+      },
+    ],
+  };
+
+  const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
+
+  const handleCompleteLesson = async () => {
+    setLoading(true);
+    try {
+      if (!completedLessons.includes(currentLesson)) {
+        setCompletedLessons([...completedLessons, currentLesson]);
+      }
+      await progressMutation.mutateAsync({
+        curriculumId: level,
+        completed: currentLesson === workbookData.lessons.length - 1 ? 1 : 0,
+        score: Math.round(((completedLessons.length + 1) / workbookData.lessons.length) * 100),
+      });
+      toast.success("학습 진도가 성공적으로 저장되었습니다.");
+    } catch (err: any) {
+      toast.error(err.message || "진도 저장 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <Link href="/curriculum">
+            <Button variant="ghost" className="gap-2 text-slate-600 pl-0">
+              ← 커리큘럼으로 돌아가기
+            </Button>
+          </Link>
+          <span className="px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-semibold rounded-full">
+            {courseType === "elementary" ? "초등 논술" : courseType === "middle_high" ? "중고등 논술" : courseType === "high_univ" ? "고등 / 대입" : "일반 / 직장인"} 워크북
+          </span>
+        </div>
+
+        <Card className="border-indigo-100 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-2xl font-bold text-slate-900">{workbookData.title}</CardTitle>
+            <CardDescription>과정별 맞춤 핵심 개념과 예시를 학습하고 진도를 체크하세요.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex gap-2 border-b border-slate-200 pb-4 overflow-x-auto">
+              {workbookData.lessons.map((l: any, idx: number) => (
+                <Button
+                  key={l.id}
+                  variant={currentLesson === idx ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setCurrentLesson(idx)}
+                  className={currentLesson === idx ? "bg-indigo-600 text-white" : ""}
+                >
+                  Lesson {idx + 1}: {l.title}
+                </Button>
+              ))}
+            </div>
+
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-6 space-y-4">
+              <h3 className="text-xl font-bold text-slate-900">{lesson.title}</h3>
+              <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
+              <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm font-medium text-indigo-900">
+                {lesson.example}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-4">
+              <Button
+                variant="outline"
+                disabled={currentLesson === 0}
+                onClick={() => setCurrentLesson(currentLesson - 1)}
+              >
+                이전 레슨
+              </Button>
+              <Button
+                onClick={handleCompleteLesson}
+                disabled={loading}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                레슨 완료 및 진도 저장
+              </Button>
+              <Button
+                variant="outline"
+                disabled={currentLesson === workbookData.lessons.length - 1}
+                onClick={() => setCurrentLesson(currentLesson + 1)}
+              >
+                다음 레슨
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
