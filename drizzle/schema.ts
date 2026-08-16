@@ -59,6 +59,16 @@ export const appSecretConfig = mysqlTable("app_secret_config", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const parentStudentLinks = mysqlTable("parent_student_links", {
+  id: int("id").autoincrement().primaryKey(),
+  parentId: int("parentId").notNull(),
+  studentId: int("studentId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ParentStudentLink = typeof parentStudentLinks.$inferSelect;
+export type InsertParentStudentLink = typeof parentStudentLinks.$inferInsert;
+
 export type AppSecretConfig = typeof appSecretConfig.$inferSelect;
 export type InsertAppSecretConfig = typeof appSecretConfig.$inferInsert;
 

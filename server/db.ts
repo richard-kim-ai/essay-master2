@@ -16,6 +16,7 @@ import {
   aiUsageLogs,
   dynamicCurriculum,
   siteSettings,
+  parentStudentLinks,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -735,6 +736,7 @@ export async function getAllUsersStats() {
       loginMethod: u.loginMethod,
       createdAt: u.createdAt,
       lastSignedIn: u.lastSignedIn,
+      adminNotes: u.adminNotes,
     })),
   };
 }
@@ -772,6 +774,7 @@ export async function getStudentDetailStats(userId: number) {
       role: userRecord.role,
       createdAt: userRecord.createdAt,
       lastSignedIn: userRecord.lastSignedIn,
+      adminNotes: userRecord.adminNotes,
     },
     submissions,
     progress: userProgress,
@@ -1151,4 +1154,40 @@ export async function adminReorderCurriculumCategories(orderedIds: number[]) {
     await db.update(dynamicCurriculum).set({ level: i + 1, updatedAt: new Date() }).where(eq(dynamicCurriculum.id, orderedIds[i]));
   }
   return true;
+}
+
+export async function updateUserRole(userId: number, newRole: "user" | "teacher" | "admin") {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ role: newRole }).where(eq(users.id, userId));
+  return true;
+}
+
+export async function getLinkedStudentsForParent(parentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(parentStudentLinks).where(eq(parentStudentLinks.parentId, parentId));
+  const studentIds = links.map(l => l.studentId);
+  if (studentIds.length === 0) return [];
+  
+  const allU = await db.select().from(users);
+  return allU.filter(u => studentIds.includes(u.id));
+}
+
+export async function linkParentAndStudent(parentId: number, studentEmail: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [student] = await db.select().from(users).where(eq(users.email, studentEmail));
+  if (!student) {
+    throw new Error("해당 이메일을 가진 학생 계정을 찾을 수 없습니다.");
+  }
+  const [existing] = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), eq(parentStudentLinks.studentId, student.id)));
+  if (existing) {
+    return { success: true, studentId: student.id };
+  }
+  await db.insert(parentStudentLinks).values({
+    parentId,
+    studentId: student.id,
+  });
+  return { success: true, studentId: student.id };
 }

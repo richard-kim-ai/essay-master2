@@ -33,6 +33,9 @@ import AdminStudentDetail from "./pages/AdminStudentDetail";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminCertificates from "@/pages/AdminCertificates";
 import AdminCurriculumManager from "@/pages/AdminCurriculumManager";
+import AdminTermsManager from "@/pages/AdminTermsManager";
+import MasterAdminConsole from "@/pages/MasterAdminConsole";
+import ParentPortal from "@/pages/ParentPortal";
 import Layout from "./components/Layout";
 
 function Router() {
@@ -77,6 +80,27 @@ function Router() {
         {(params) => (
           <Layout>
             <SocialProviderSettings />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/terms"}>
+        {(params) => (
+          <Layout>
+            <AdminTermsManager />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/master-admin"}>
+        {(params) => (
+          <Layout>
+            <MasterAdminConsole />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/parent-portal"}>
+        {(params) => (
+          <Layout>
+            <ParentPortal />
           </Layout>
         )}
       </Route>

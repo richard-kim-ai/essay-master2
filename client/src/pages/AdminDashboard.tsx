@@ -196,6 +196,15 @@ export default function AdminDashboard() {
             <Link href="/admin/curriculum">
               <Button size="sm" variant="outline" className="gap-2">카테고리 관리</Button>
             </Link>
+            <Link href="/admin/terms">
+              <Button size="sm" variant="outline" className="gap-2">약관 관리</Button>
+            </Link>
+            <Link href="/master-admin">
+              <Button size="sm" variant="outline" className="gap-2 bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100">총괄 콘솔</Button>
+            </Link>
+            <Link href="/parent-portal">
+              <Button size="sm" variant="outline" className="gap-2 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100">학부모 포털</Button>
+            </Link>
             <Link href="/admin/social-providers">
               <Button size="sm" variant="outline" className="gap-2">
                 <Settings className="w-4 h-4" /> 설정

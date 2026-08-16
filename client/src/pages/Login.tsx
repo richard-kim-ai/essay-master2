@@ -7,11 +7,14 @@ import { toast } from "sonner";
 import { Mail, Lock, ArrowRight, BookOpen } from "lucide-react";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { TermsAndPrivacyModal } from "@/components/TermsAndPrivacyModal";
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [modalType, setModalType] = useState<"terms" | "privacy" | null>(null);
+
   const socialProviders = trpc.social.providers.useQuery();
   const loginMutation = trpc.auth.loginWithEmail.useMutation({
     onSuccess: () => {
@@ -58,23 +61,41 @@ export default function Login() {
               이메일
               <span className="relative mt-2 block">
                 <Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
-                <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="your@email.com" className="pl-10" disabled={loginMutation.isPending} />
+                <Input
+                  type="email"
+                  required
+                  placeholder="name@example.com"
+                  className="pl-10"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
               </span>
             </label>
+
             <label className="block text-sm font-medium text-slate-700">
               비밀번호
               <span className="relative mt-2 block">
                 <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
-                <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8자 이상" className="pl-10" disabled={loginMutation.isPending} />
+                <Input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  className="pl-10"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
               </span>
             </label>
-            <Button type="submit" disabled={loginMutation.isPending} className="w-full gap-2 bg-blue-600 hover:bg-blue-700">
-              {loginMutation.isPending ? "로그인 중..." : "이메일로 로그인"}
-              <ArrowRight className="h-4 w-4" />
+
+            <div className="flex items-center justify-between text-sm">
+              <Link href="/signup" className="text-blue-600 hover:underline">회원가입</Link>
+              <Link href="/forgot-password" className="text-slate-500 hover:underline">비밀번호 찾기</Link>
+            </div>
+
+            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={loginMutation.isPending}>
+              {loginMutation.isPending ? "로그인 중..." : "이메일 로그인"} <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </form>
-
-          <Link href="/forgot-password" className="mt-3 block text-right text-sm font-medium text-blue-600 hover:underline">비밀번호를 잊으셨나요?</Link>
 
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
@@ -100,8 +121,15 @@ export default function Login() {
               선생님이신가요? <Link href="/teacher-signup" className="font-semibold text-indigo-600 hover:underline">교사회원 가입</Link>
             </p>
           </div>
+
+          <div className="mt-6 border-t border-slate-100 pt-4 text-center text-xs text-slate-400 flex justify-center gap-4">
+            <button type="button" onClick={() => setModalType("terms")} className="hover:text-slate-600 hover:underline">이용약관</button>
+            <span>·</span>
+            <button type="button" onClick={() => setModalType("privacy")} className="hover:text-slate-600 hover:underline">개인정보처리방침</button>
+          </div>
         </Card>
       </div>
+      <TermsAndPrivacyModal type={modalType} onClose={() => setModalType(null)} />
     </div>
   );
 }

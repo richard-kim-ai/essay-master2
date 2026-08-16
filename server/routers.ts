@@ -851,6 +851,61 @@ export const appRouter = router({
         const stats = await db.getAllUsersStats();
         return stats?.users ?? [];
       }),
+    updateUserRole: protectedProcedure
+      .input(z.object({ userId: z.number(), newRole: z.enum(["user", "teacher", "admin"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        await db.updateUserRole(input.userId, input.newRole);
+        return true;
+      }),
+    approveTeacher: protectedProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        await db.updateTeacherStatus(input.userId, "approved");
+        return true;
+      }),
+  }),
+  parent: router({
+    linkedStudents: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getLinkedStudentsForParent(ctx.user.id);
+    }),
+    linkStudent: protectedProcedure
+      .input(z.object({ studentEmail: z.string().email() }))
+      .mutation(async ({ ctx, input }) => {
+        return await db.linkParentAndStudent(ctx.user.id, input.studentEmail);
+      }),
+    studentDetail: protectedProcedure
+      .input(z.object({ studentId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        // 부모가 링크된 학생인지 검증하거나 관리자/교사인 경우 허용
+        const linked = await db.getLinkedStudentsForParent(ctx.user.id);
+        const isAuthorized = ctx.user.role === "admin" || ctx.user.role === "teacher" || linked.some(s => s.id === input.studentId);
+        if (!isAuthorized) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생의 학습 정보에 접근할 권한이 없습니다." });
+        }
+        return await db.getStudentDetailStats(input.studentId);
+      }),
+    addComment: protectedProcedure
+      .input(z.object({ studentId: z.number(), comment: z.string().min(1).max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        const linked = await db.getLinkedStudentsForParent(ctx.user.id);
+        const isAuthorized = ctx.user.role === "admin" || linked.some(s => s.id === input.studentId);
+        if (!isAuthorized) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생에게 코멘트를 남길 권한이 없습니다." });
+        }
+        const studentUser = await db.getUserById(input.studentId);
+        if (!studentUser) throw new TRPCError({ code: "NOT_FOUND", message: "학생을 찾을 수 없습니다." });
+        const existingNotes = studentUser.adminNotes || "";
+        const newMemo = `[학부모 코멘트(${ctx.user.name || "학부모"})] ${input.comment.trim()} (${new Date().toLocaleString()})`;
+        const updatedNotes = existingNotes ? `${existingNotes}\n${newMemo}` : newMemo;
+        await db.updateStudentAdminNotes(input.studentId, updatedNotes);
+        return true;
+      }),
   }),
 });
 
