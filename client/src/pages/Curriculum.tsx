@@ -78,19 +78,7 @@ export default function Curriculum() {
     enabled: isAuthenticated,
   });
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-slate-50 py-16 px-4 text-center">
-        <div className="max-w-xl mx-auto space-y-4 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-          <h2 className="text-2xl font-bold text-slate-900">로그인 후 나만의 맞춤 커리큘럼을 확인하세요</h2>
-          <p className="text-sm text-slate-600">회원가입 시 선택하신 과정(초등, 중고등, 고등/대입, 일반/직장인)에 맞춤형 논술 커리큘럼과 문제은행이 연동됩니다.</p>
-          <div className="pt-4 flex justify-center gap-3">
-            <Link href="/"><Button className="bg-indigo-600 text-white">홈으로 이동하기</Button></Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // 비로그인 방문자도 샘플 모드로 전체 커리큘럼을 바로 탐색할 수 있도록 허용
 
   const curriculumList = dynamicCurriculum && dynamicCurriculum.length > 0
     ? dynamicCurriculum

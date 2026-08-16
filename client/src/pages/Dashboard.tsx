@@ -134,9 +134,16 @@ export default function Dashboard() {
     enabled: isAuthenticated,
   });
 
-  if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
-  }
+  // 비로그인 방문자도 샘플 대시보드를 탐색할 수 있도록 가상 사용자 지정
+  const effectiveUser = user || {
+    id: 999,
+    name: "샘플 학습자 (방문자 체험 모드)",
+    email: "visitor@sample.com",
+    role: "user" as const,
+    tag: "초등",
+    teacherLevel: 1,
+    teacherStatus: "approved" as const,
+  };
 
   // 과정별 동적 진도 계산. 기존 불리언(1)과 워크북의 백분율(100) 저장 형식을 모두 지원합니다.
   const isProgressComplete = (progress: { completed?: number | null } | undefined) => {

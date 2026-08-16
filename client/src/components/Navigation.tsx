@@ -142,6 +142,34 @@ export default function Navigation() {
 
           {/* Right Side */}
           <div className="flex items-center gap-2">
+            {!isAuthenticated && (
+              <div className="hidden lg:flex items-center gap-1.5 mr-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-bold gap-1"
+                  onClick={async () => {
+                    try {
+                      const res = await fetch("/api/trpc/auth.loginWithEmail", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ json: { email: "student@sample.com", password: "sample1234" } }),
+                      });
+                      if (res.ok) {
+                        window.location.href = "/dashboard";
+                      } else {
+                        window.location.href = "/login";
+                      }
+                    } catch {
+                      window.location.href = "/login";
+                    }
+                  }}
+                >
+                  ✨ 샘플 모드 체험
+                </Button>
+              </div>
+            )}
+
             {isAuthenticated ? (
               <>
                 {/* Desktop User Menu */}
