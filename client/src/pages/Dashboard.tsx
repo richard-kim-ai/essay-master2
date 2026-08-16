@@ -170,14 +170,37 @@ export default function Dashboard() {
   const huProgress = calcCourseProgress(courseRows.high_univ);
   const gaProgress = calcCourseProgress(courseRows.general_adult);
 
-  const courseCards = [
+  // 사용자가 가입 시 선택한 과정(user.tag 등)에 맞추어 마이페이지 진도 카드를 정렬하거나 필터링합니다.
+  const allCourseCards = [
     { key: "elementary", title: "초등 과정 진도", rows: courseRows.elementary, progress: elemProgress, color: "indigo" },
     { key: "middle_high", title: "중고등 과정 진도", rows: courseRows.middle_high, progress: mhProgress, color: "blue" },
     { key: "high_univ", title: "고등/대입 과정 진도", rows: courseRows.high_univ, progress: huProgress, color: "purple" },
     { key: "general_adult", title: "일반/직장인 과정 진도", rows: courseRows.general_adult, progress: gaProgress, color: "amber" },
   ];
 
+  const userCourseTag = user?.tag; // "초등", "중고등", "고등/대입", "일반" 등
+  const courseCards = userCourseTag
+    ? allCourseCards.filter(c => {
+        if (userCourseTag.includes("초등")) return c.key === "elementary";
+        if (userCourseTag.includes("중고등")) return c.key === "middle_high";
+        if (userCourseTag.includes("고등")) return c.key === "high_univ";
+        if (userCourseTag.includes("일반")) return c.key === "general_adult";
+        return true;
+      })
+    : allCourseCards;
+  const displayCards = courseCards.length > 0 ? courseCards : allCourseCards;
+
   const totalProgress = progressData?.length || 0;
+
+  const getCourseTitleLabel = (key: string) => {
+    switch (key) {
+      case "elementary": return "초등 논술 과정";
+      case "middle_high": return "중고등 논술 과정";
+      case "high_univ": return "고등/대입 논술 과정";
+      case "general_adult": return "일반/직장인 논술 과정";
+      default: return "종합 논술 과정";
+    }
+  };
   const completedProgress = progressData?.filter((p) => p.completed === 1).length || 0;
   const avgScore = progressData?.length
     ? Math.round(
@@ -229,9 +252,9 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-8">학습 대시보드</h1>
 
-        {/* Course Progress Breakdown Bars */}
+        {/* Course Progress Breakdown Bars (개인화된 가입 과정에 맞춤 표시) */}
         <div className="mb-8 grid gap-6 lg:grid-cols-4">
-          {courseCards.map((course) => (
+          {displayCards.map((course) => (
             <Card
               key={course.key}
               role="button"

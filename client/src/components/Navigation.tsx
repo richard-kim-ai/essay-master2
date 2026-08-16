@@ -180,25 +180,7 @@ export default function Navigation() {
                           <Link href="/admin">
                             <DropdownMenuItem className="cursor-pointer font-bold text-indigo-600">
                               <Settings className="w-4 h-4 mr-2" />
-                              <span>관리자 대시보드</span>
-                            </DropdownMenuItem>
-                          </Link>
-                          <Link href="/admin/certificates">
-                            <DropdownMenuItem className="cursor-pointer">
-                              <Award className="w-4 h-4 mr-2" />
-                              <span>수료증 관리</span>
-                            </DropdownMenuItem>
-                          </Link>
-                          <Link href="/admin/curriculum">
-                            <DropdownMenuItem className="cursor-pointer">
-                              <BookOpen className="w-4 h-4 mr-2" />
-                              <span>커리큘럼 카테고리 관리</span>
-                            </DropdownMenuItem>
-                          </Link>
-                          <Link href="/admin/social-providers">
-                            <DropdownMenuItem className="cursor-pointer">
-                              <Settings className="w-4 h-4 mr-2" />
-                              <span>소셜 로그인 및 푸시 설정</span>
+                              <span>관리자 운영 콘솔 (대시보드)</span>
                             </DropdownMenuItem>
                           </Link>
                         </>
@@ -297,29 +279,11 @@ export default function Navigation() {
 
                       {user?.role === "admin" && (
                         <div className="border-t border-gray-200 pt-3 mt-2">
-                          <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">관리자 메뉴 (마이페이지 하위)</p>
+                          <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">관리자 운영 메뉴</p>
                           <Link href="/admin">
                             <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 bg-indigo-50 hover:bg-indigo-100 font-semibold">
                               <Settings className="w-4 h-4 text-indigo-600" />
-                              <span>학습자 전체 대시보드</span>
-                            </button>
-                          </Link>
-                          <Link href="/admin/certificates">
-                            <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                              <Award className="w-4 h-4" />
-                              <span>수료증 관리</span>
-                            </button>
-                          </Link>
-                          <Link href="/admin/curriculum">
-                            <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                              <BookOpen className="w-4 h-4" />
-                              <span>커리큘럼 카테고리 관리</span>
-                            </button>
-                          </Link>
-                          <Link href="/admin/social-providers">
-                            <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                              <Settings className="w-4 h-4" />
-                              <span>소셜 로그인 및 푸시 설정</span>
+                              <span>관리자 운영 콘솔 (대시보드)</span>
                             </button>
                           </Link>
                         </div>
