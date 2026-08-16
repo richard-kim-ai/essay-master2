@@ -830,6 +830,27 @@ export const appRouter = router({
         }
         return await db.getAdminOperationsDashboardStats();
       }),
+    getSiteSettingAdmin: publicProcedure
+      .input(z.object({ settingKey: z.string() }))
+      .query(async ({ input }) => {
+        return await db.getSiteSetting(input.settingKey);
+      }),
+    saveSiteSettingAdmin: protectedProcedure
+      .input(z.object({ settingKey: z.string(), content: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.saveSiteSetting(input.settingKey, input.content, ctx.user.id);
+      }),
+    getAllUsersMasterAdmin: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        const stats = await db.getAllUsersStats();
+        return stats?.users ?? [];
+      }),
   }),
 });
 

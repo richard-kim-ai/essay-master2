@@ -15,6 +15,7 @@ import {
   pushSubscription,
   aiUsageLogs,
   dynamicCurriculum,
+  siteSettings,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -986,6 +987,35 @@ export async function adminDeleteCurriculumCategory(id: number) {
   const [target] = await db.select().from(dynamicCurriculum).where(eq(dynamicCurriculum.id, id));
   if (!target) throw new Error("커리큘럼 카테고리를 찾을 수 없습니다.");
   await db.delete(dynamicCurriculum).where(eq(dynamicCurriculum.id, id));
+  return true;
+}
+
+export async function getSiteSetting(settingKey: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, settingKey));
+  return row?.content ?? "";
+}
+
+export async function saveSiteSetting(settingKey: string, content: string, adminId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, settingKey));
+  if (existing) {
+    await db.update(siteSettings).set({
+      content,
+      updatedBy: adminId,
+      updatedAt: new Date(),
+    }).where(eq(siteSettings.settingKey, settingKey));
+  } else {
+    await db.insert(siteSettings).values({
+      settingKey,
+      content,
+      updatedBy: adminId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
   return true;
 }
 

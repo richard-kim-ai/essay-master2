@@ -62,6 +62,18 @@ export const appSecretConfig = mysqlTable("app_secret_config", {
 export type AppSecretConfig = typeof appSecretConfig.$inferSelect;
 export type InsertAppSecretConfig = typeof appSecretConfig.$inferInsert;
 
+export const siteSettings = mysqlTable("site_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  settingKey: varchar("settingKey", { length: 128 }).notNull().unique(), // 'terms_of_service', 'privacy_policy' 등
+  content: text("content"),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SiteSetting = typeof siteSettings.$inferSelect;
+export type InsertSiteSetting = typeof siteSettings.$inferInsert;
+
 export const pushSubscription = mysqlTable("push_subscription", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
