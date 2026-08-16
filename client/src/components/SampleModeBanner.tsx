@@ -3,10 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Sparkles, X, ArrowRight, UserPlus } from "lucide-react";
 import { Link } from "wouter";
 
+import { useAuth } from "@/_core/hooks/useAuth";
+
 export function SampleModeBanner() {
   const [dismissed, setDismissed] = useState(false);
+  const { isAuthenticated } = useAuth();
 
-  if (dismissed) return null;
+  if (dismissed || isAuthenticated) return null;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-r from-indigo-900 via-blue-900 to-slate-900 text-white shadow-2xl border-t border-indigo-700/50 py-3 px-4 sm:px-8">
