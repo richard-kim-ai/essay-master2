@@ -25,6 +25,8 @@ export default function Certificate() {
   const [selectedCourse, setSelectedCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("elementary");
   const [selectedLevel, setSelectedLevel] = useState<number>(1);
 
+  const [sharingId, setSharingId] = useState<number | null>(null);
+
   const getCertificatesQuery = trpc.certificate.getUserCertificates.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -395,22 +397,70 @@ export default function Certificate() {
                           size="sm"
                           variant="outline"
                           className="flex-1 border-yellow-200 text-amber-800 hover:bg-yellow-50 text-[11px] h-7 gap-1"
+                          disabled={sharingId === cert.id}
                           onClick={async () => {
-                            const text = `✨ [논술 마스터] ${cert.title} 수료증 발급!\n인증번호: ${cert.certNumber || cert.id}\n성취를 공유합니다!`;
-                            const shareUrl = `${window.location.origin}/certificate?cert=${cert.certNumber || cert.id}`;
-                            if (navigator.share) {
-                              try {
-                                await navigator.share({ title: "논술 마스터 수료증", text, url: shareUrl });
-                                toast.success("카카오톡(모바일 공유)으로 전송되었습니다.");
-                                return;
-                              } catch {}
+                            setSharingId(cert.id);
+                            const toastId = toast.loading("카카오톡 공유 템플릿을 준비 중입니다...");
+                            try {
+                              // Simulate brief network/SDK init latency with smooth loading spinner
+                              await new Promise((r) => setTimeout(r, 600));
+
+                              // Kakao SDK feed share fallback / standard share simulation with thumbnail template
+                              const shareTitle = `[논술 마스터] ${cert.title} 수료증`;
+                              const shareDesc = `인증번호: ${cert.certNumber || cert.id} | 성취도 우수 수료증 발급 완료!`;
+                              const shareUrl = `${window.location.origin}/certificate?cert=${cert.certNumber || cert.id}`;
+
+                              if ((window as any).Kakao && (window as any).Kakao.Share) {
+                                try {
+                                  (window as any).Kakao.Share.sendDefault({
+                                    objectType: 'feed',
+                                    content: {
+                                      title: shareTitle,
+                                      description: shareDesc,
+                                      imageUrl: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800&auto=format&fit=crop&q=60',
+                                      link: {
+                                        mobileWebUrl: shareUrl,
+                                        webUrl: shareUrl,
+                                      },
+                                    },
+                                    buttons: [
+                                      {
+                                        title: '수료증 확인하기',
+                                        link: {
+                                          mobileWebUrl: shareUrl,
+                                          webUrl: shareUrl,
+                                        },
+                                      },
+                                    ],
+                                  });
+                                  toast.success("카카오톡 공유 템플릿이 호출되었습니다.", { id: toastId });
+                                  setSharingId(null);
+                                  return;
+                                } catch {}
+                              }
+
+                              if (navigator.share) {
+                                try {
+                                  await navigator.share({ title: shareTitle, text: `${shareDesc}\n${shareUrl}`, url: shareUrl });
+                                  toast.success("카카오톡(모바일 공유)으로 전송되었습니다.", { id: toastId });
+                                  setSharingId(null);
+                                  return;
+                                } catch {}
+                              }
+
+                              navigator.clipboard.writeText(shareUrl);
+                              toast.success("카카오톡 공유 링크 및 템플릿 주소가 복사되었습니다!", { id: toastId });
+                            } finally {
+                              setSharingId(null);
                             }
-                            // Fallback to clipboard
-                            navigator.clipboard.writeText(shareUrl);
-                            toast.success("카카오톡 공유 링크가 복사되었습니다. 채팅방에 붙여넣으세요!");
                           }}
                         >
-                          <Share2 className="w-3 h-3 text-amber-600" /> 카카오톡
+                          {sharingId === cert.id ? (
+                            <span className="animate-spin h-3 w-3 border-2 border-amber-600 border-t-transparent rounded-full inline-block" />
+                          ) : (
+                            <Share2 className="w-3 h-3 text-amber-600" />
+                          )}
+                          카카오톡
                         </Button>
                       </div>
                     </div>

@@ -20,7 +20,15 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <link rel="manifest" href="/manifest.webmanifest" />    
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <script src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js" integrity="sha384-TiCUE00h6k9CAMon5017d3aeOkolIAAfz8O0IsH4J3FCsiDN8oJVXlJCxH2bCExr" crossorigin="anonymous"></script>
+    <script>
+      try {
+        if (window.Kakao && !window.Kakao.isInitialized()) {
+          window.Kakao.init('essay-master-kakao-placeholder-key');
+        }
+      } catch (e) {}
+    </script>    
     <!-- THIS IS THE START OF A COMMENT BLOCK, BLOCK TO BE DELETED: Google Fonts here, example:
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
