@@ -739,6 +739,27 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         return await db.getQuestionBankAiInsight(input.questionId);
       }),
+    submitFeedback: protectedProcedure
+      .input(z.object({
+        questionId: z.number(),
+        isHelpful: z.number(),
+        reportType: z.string().optional(),
+        comment: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        return await db.submitQuestionFeedback({
+          userId: ctx.user.id,
+          questionId: input.questionId,
+          isHelpful: input.isHelpful,
+          reportType: input.reportType,
+          comment: input.comment,
+        });
+      }),
+    feedbackSummary: protectedProcedure
+      .input(z.object({ questionId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return await db.getQuestionFeedbacksSummary(input.questionId);
+      }),
   }),
 
   admin: router({

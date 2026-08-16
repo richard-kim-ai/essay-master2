@@ -311,3 +311,17 @@ export const questionBank = mysqlTable("question_bank", {
 
 export type QuestionBank = typeof questionBank.$inferSelect;
 export type InsertQuestionBank = typeof questionBank.$inferInsert;
+
+// 문제 피드백 및 오류 신고 테이블
+export const questionFeedbacks = mysqlTable("question_feedbacks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionId: int("questionId").notNull(),
+  isHelpful: int("isHelpful").notNull(), // 1: 도움됨, 0: 도움 안됨
+  reportType: varchar("reportType", { length: 50 }), // 'none', 'typo', 'wrong_answer', 'unclear', 'other'
+  comment: text("comment"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type QuestionFeedback = typeof questionFeedbacks.$inferSelect;
+export type InsertQuestionFeedback = typeof questionFeedbacks.$inferInsert;

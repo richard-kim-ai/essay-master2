@@ -19,6 +19,7 @@ import {
   parentStudentLinks,
   userBadges,
   questionBank,
+  questionFeedbacks,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -1530,5 +1531,31 @@ export async function getQuestionBankAiInsight(questionId: number) {
     summary,
     commonMistakes,
     recommendation,
+  };
+}
+
+export async function submitQuestionFeedback(data: { userId: number; questionId: number; isHelpful: number; reportType?: string; comment?: string }) {
+  const db = await getDb();
+  if (!db) return null;
+  const [res] = await db.insert(questionFeedbacks).values({
+    userId: data.userId,
+    questionId: data.questionId,
+    isHelpful: data.isHelpful,
+    reportType: data.reportType || "none",
+    comment: data.comment || "",
+  });
+  return res;
+}
+
+export async function getQuestionFeedbacksSummary(questionId: number) {
+  const db = await getDb();
+  if (!db) return { helpfulCount: 0, unhelpfulCount: 0, reports: [] };
+  const rows = await db.select().from(questionFeedbacks).where(eq(questionFeedbacks.questionId, questionId));
+  const helpfulCount = rows.filter(r => r.isHelpful === 1).length;
+  const unhelpfulCount = rows.filter(r => r.isHelpful === 0).length;
+  return {
+    helpfulCount,
+    unhelpfulCount,
+    reports: rows.filter(r => r.reportType && r.reportType !== "none"),
   };
 }

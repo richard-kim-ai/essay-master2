@@ -99,6 +99,18 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     const routersSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
     expect(routersSource).toContain("trendStats:");
     expect(routersSource).toContain("aiInsight:");
+    expect(routersSource).toContain("submitFeedback:");
+  });
+
+  it("추천 논술 아카이브 페이지와 문제 피드백 컴포넌트가 존재한다", () => {
+    const archivePath = new URL("../client/src/pages/EssayArchive.tsx", import.meta.url);
+    const feedbackBoxPath = new URL("../client/src/components/QuestionFeedbackBox.tsx", import.meta.url);
+    const arcSource = readFileSync(archivePath, "utf8");
+    const fbSource = readFileSync(feedbackBoxPath, "utf8");
+    expect(arcSource).toContain("추천 논술 아카이브");
+    expect(arcSource).toContain("바로 학습 시작하기");
+    expect(fbSource).toContain("이 문제가 도움이 되었나요?");
+    expect(fbSource).toContain("문제 오류 신고");
   });
 
   it("백엔드가 문제은행 통계 및 AI 난이도 적용 프로시저를 포함한다", () => {

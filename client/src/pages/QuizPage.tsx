@@ -8,6 +8,7 @@ import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
+import QuestionFeedbackBox from "@/components/QuestionFeedbackBox";
 
 export default function QuizPage() {
   const { isAuthenticated } = useAuth();
@@ -212,6 +213,8 @@ export default function QuizPage() {
                 </Button>
               )}
             </div>
+
+            {currentQ && <QuestionFeedbackBox questionId={currentQ.id} />}
           </CardContent>
         </Card>
       </div>
