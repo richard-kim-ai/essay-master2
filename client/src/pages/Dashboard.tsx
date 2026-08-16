@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
+import { toast } from "sonner";
 import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import {
@@ -24,6 +25,69 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+
+function BadgeSection() {
+  const { data: badges, isLoading } = trpc.badges.getByUser.useQuery();
+  const awardMutation = trpc.badges.award.useMutation();
+  const utils = trpc.useUtils();
+
+  const handleTestAward = (courseType: string, badgeType: string, badgeName: string) => {
+    awardMutation.mutate({ courseType, badgeType, badgeName }, {
+      onSuccess: () => {
+        utils.badges.getByUser.invalidate();
+        toast.success(`'${badgeName}' 뱃지를 획득했습니다!`);
+      },
+      onError: (err) => {
+        toast.error(err.message);
+      }
+    });
+  };
+
+  if (isLoading) return <div className="text-sm text-slate-500">뱃지 불러오는 중...</div>;
+
+  const earnedBadgeTypes = new Set(badges?.map(b => `${b.courseType}-${b.badgeType}`) || []);
+
+  const badgeDefinitions = [
+    { courseType: "elementary", badgeType: "summary", badgeName: "초등 요약왕 뱃지" },
+    { courseType: "elementary", badgeType: "reordering", badgeName: "초등 문장 마스터 뱃지" },
+    { courseType: "middle_high", badgeType: "quiz", badgeName: "중고등 퀴즈 달인 뱃지" },
+    { courseType: "middle_high", badgeType: "thesis_checklist", badgeName: "중고등 논증 설계사 뱃지" },
+    { courseType: "high_univ", badgeType: "topic_wizard", badgeName: "고등/대입 심층 논증 뱃지" },
+    { courseType: "general_adult", badgeType: "summary", badgeName: "비즈니스 기획 전문가 뱃지" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {badgeDefinitions.map((def) => {
+          const isEarned = earnedBadgeTypes.has(`${def.courseType}-${def.badgeType}`);
+          return (
+            <div key={`${def.courseType}-${def.badgeType}`} className={`p-4 rounded-xl border flex items-center justify-between ${isEarned ? "bg-amber-50/70 border-amber-200" : "bg-white border-slate-200 opacity-60"}`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${isEarned ? "bg-amber-500 text-white shadow-md" : "bg-slate-200 text-slate-500"}`}>
+                  🏆
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">{def.badgeName}</h4>
+                  <p className="text-xs text-slate-500">{def.courseType === "elementary" ? "초등 논술" : def.courseType === "middle_high" ? "중고등 논술" : def.courseType === "high_univ" ? "고등 / 대입" : "일반 / 직장인"}</p>
+                </div>
+              </div>
+              <div>
+                {isEarned ? (
+                  <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded-full">획득 완료</span>
+                ) : (
+                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => handleTestAward(def.courseType, def.badgeType, def.badgeName)}>
+                    수행하기
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
@@ -265,6 +329,23 @@ export default function Dashboard() {
             <CardContent>
               <div className="text-3xl font-bold text-purple-600">12</div>
               <p className="text-xs text-gray-500 mt-2">일</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Badges Section */}
+        <div className="mb-8">
+          <Card className="border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-blue-50/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
+                <Award className="h-6 w-6 text-indigo-600" /> 학습 뱃지 현황 (Badge System)
+              </CardTitle>
+              <CardDescription>
+                요약 연습, 단락 재구성, 퀴즈, 주제 위저드 등 학습 도구를 수행할 때마다 과정별 전문 뱃지가 수여됩니다.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <BadgeSection />
             </CardContent>
           </Card>
         </div>

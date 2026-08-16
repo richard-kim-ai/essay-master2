@@ -141,6 +141,13 @@
       "when": 1786846005974,
       "tag": "0019_bumpy_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1786880872477,
+      "tag": "0020_superb_manta",
+      "breakpoints": true
     }
   ]
 }

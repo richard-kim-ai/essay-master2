@@ -282,3 +282,16 @@ export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
 
 export type DynamicCurriculum = typeof dynamicCurriculum.$inferSelect;
 export type InsertDynamicCurriculum = typeof dynamicCurriculum.$inferInsert;
+
+// 학습도구 뱃지 테이블
+export const userBadges = mysqlTable("user_badges", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  courseType: varchar("courseType", { length: 64 }).notNull(), // elementary, middle_high, high_univ, general_adult
+  badgeType: varchar("badgeType", { length: 64 }).notNull(), // summary, reordering, quiz, topic_wizard, thesis_checklist
+  badgeName: varchar("badgeName", { length: 128 }).notNull(),
+  earnedAt: timestamp("earnedAt").defaultNow().notNull(),
+});
+
+export type UserBadge = typeof userBadges.$inferSelect;
+export type InsertUserBadge = typeof userBadges.$inferInsert;

@@ -17,6 +17,7 @@ import {
   dynamicCurriculum,
   siteSettings,
   parentStudentLinks,
+  userBadges,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -1197,4 +1198,37 @@ export async function adminResetAllCertificates() {
   if (!db) throw new Error("Database is not available");
   await db.delete(certificate);
   return true;
+}
+
+// ========== User Badges Functions ==========
+
+export async function getUserBadges(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(userBadges).where(eq(userBadges.userId, userId));
+}
+
+export async function awardBadge(userId: number, courseType: string, badgeType: string, badgeName: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  
+  const [existing] = await db
+    .select()
+    .from(userBadges)
+    .where(and(eq(userBadges.userId, userId), eq(userBadges.courseType, courseType), eq(userBadges.badgeType, badgeType)));
+  
+  if (existing) {
+    return existing; // 이미 획득한 뱃지
+  }
+
+  const [inserted] = await db.insert(userBadges).values({
+    userId,
+    courseType,
+    badgeType,
+    badgeName,
+    earnedAt: new Date(),
+  });
+  
+  const [newBadge] = await db.select().from(userBadges).where(eq(userBadges.id, Number(inserted.insertId)));
+  return newBadge;
 }

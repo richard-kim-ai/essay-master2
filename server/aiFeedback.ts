@@ -175,9 +175,9 @@ export async function evaluateEssay(
   essayContent: string,
   courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"
 ): Promise<EssayFeedback> {
-  const prompt =
-    courseType === "elementary"
-      ? `학생의 논술: "${essayContent}"
+    let prompt = "";
+  if (courseType === "elementary") {
+    prompt = `학생의 논술: "${essayContent}"
 
 초등학생 수준의 논술을 종합적으로 평가하고 JSON 형식으로 응답해주세요:
 {
@@ -190,8 +190,9 @@ export async function evaluateEssay(
   "suggestions": ["개선 제안 1", "개선 제안 2"],
   "overallComment": "종합 평가",
   "revisedEssay": "원문의 핵심 의도와 학생의 목소리를 유지하면서 문장·구조·논리를 개선한 전체 답안"
-}`
-      : `학생의 논술: "${essayContent}"
+}`;
+  } else if (courseType === "middle_high") {
+    prompt = `학생의 논술: "${essayContent}"
 
 중고등학생 수준의 논술을 종합적으로 평가하고 JSON 형식으로 응답해주세요:
 {
@@ -205,6 +206,37 @@ export async function evaluateEssay(
   "overallComment": "종합 평가",
   "revisedEssay": "원문의 핵심 의도와 학생의 목소리를 유지하면서 문장·구조·논리를 개선한 전체 답안"
 }`;
+  } else if (courseType === "high_univ") {
+    prompt = `학생의 논술: "${essayContent}"
+
+고등/대입 수험생 수준의 논술(대학별 고사, 심층 논증, 제시문 비교 분석)을 종합적으로 평가하고 JSON 형식으로 응답해주세요:
+{
+  "structureScore": 제시문 간 비교와 논증 구조가 정교한가 (0-100),
+  "logicScore": 비판적 분석력과 논리적 엄밀성이 돋보이는가 (0-100),
+  "expressionScore": 학술적이고 설득력 있는 어휘와 문장력인가 (0-100),
+  "overallScore": 전체 평가 점수 (0-100),
+  "strengths": ["강점 1", "강점 2"],
+  "weaknesses": ["약점 1", "약점 2"],
+  "suggestions": ["개선 제안 1", "개선 제안 2"],
+  "overallComment": "대학별 논술 심층 평가",
+  "revisedEssay": "원문의 핵심 의도와 학생의 목소리를 유지하면서 문장·구조·논리를 개선한 전체 답안"
+}`;
+  } else {
+    prompt = `학생의 논술: "${essayContent}"
+
+일반/직장인 수준의 논술 및 비즈니스 글쓰기(보고서, 기획서, 실무 설득력)를 종합적으로 평가하고 JSON 형식으로 응답해주세요:
+{
+  "structureScore": 논리적 구조와 결론 중심의 전개가 명확한가 (0-100),
+  "logicScore": 실무적 타당성과 설득력 있는 근거인가 (0-100),
+  "expressionScore": 간결하고 명료한 프로페셔널 표현력인가 (0-100),
+  "overallScore": 전체 평가 점수 (0-100),
+  "strengths": ["강점 1", "강점 2"],
+  "weaknesses": ["약점 1", "약점 2"],
+  "suggestions": ["개선 제안 1", "개선 제안 2"],
+  "overallComment": "비즈니스 글쓰기 종합 평가",
+  "revisedEssay": "원문의 핵심 의도와 학생의 목소리를 유지하면서 문장·구조·논리를 개선한 전체 답안"
+}`;
+  }
 
   const response = await invokeLLM({
     messages: [

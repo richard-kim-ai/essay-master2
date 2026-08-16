@@ -641,6 +641,17 @@ export const appRouter = router({
       }),
   }),
 
+  badges: router({
+    getByUser: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getUserBadges(ctx.user.id);
+    }),
+    award: protectedProcedure
+      .input(z.object({ courseType: z.string(), badgeType: z.string(), badgeName: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        return await db.awardBadge(ctx.user.id, input.courseType, input.badgeType, input.badgeName);
+      }),
+  }),
+
   admin: router({
     getAnalytics: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") {
