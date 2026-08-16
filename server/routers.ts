@@ -760,6 +760,24 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         return await db.getQuestionFeedbacksSummary(input.questionId);
       }),
+    toggleBookmark: protectedProcedure
+      .input(z.object({ questionId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        return await db.toggleQuestionBookmark(ctx.user.id, input.questionId);
+      }),
+    getBookmarks: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getUserBookmarks(ctx.user.id);
+    }),
+    allFeedbacks: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await db.getAllQuestionFeedbacks();
+    }),
+    generateAiQuestions: protectedProcedure
+      .input(z.object({ courseType: z.string(), toolType: z.string(), count: z.number().default(3) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.generateAiQuestionsForCategory(input.courseType, input.toolType, input.count);
+      }),
   }),
 
   admin: router({

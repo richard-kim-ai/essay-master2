@@ -88,11 +88,9 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("문제은행 관리자 콘솔이 정답률 통계와 AI 난이도 최적화 기능을 제공한다", () => {
     const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
     const source = readFileSync(adminQBankPath, "utf8");
-    expect(source).toContain("정답률 & 오답 패턴 통계 보기");
-    expect(source).toContain("AI 난이도 일괄 최적화 적용");
-    expect(source).toContain("AI 오답 패턴 자연어 요약 인사이트");
-    expect(source).toContain("기간별 문제은행 정답률 변화 추이");
-    expect(source).toContain("낮은 정답률순 (취약점)");
+    expect(source).toContain("정답률 & AI 통계 분석");
+    expect(source).toContain("기간별 정답률 변화 추이");
+    expect(source).toContain("낮은 정답률순");
   });
 
   it("백엔드가 기간별 정답률 추이 및 AI 오답 인사이트 프로시저를 포함한다", () => {
@@ -109,8 +107,17 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     const fbSource = readFileSync(feedbackBoxPath, "utf8");
     expect(arcSource).toContain("추천 논술 아카이브");
     expect(arcSource).toContain("바로 학습 시작하기");
+    expect(arcSource).toContain("즐겨찾기");
     expect(fbSource).toContain("이 문제가 도움이 되었나요?");
     expect(fbSource).toContain("문제 오류 신고");
+  });
+
+  it("관리자 문제은행 콘솔에 품질 모니터링과 AI 실전 문제 출제 기능이 포함된다", () => {
+    const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
+    const source = readFileSync(adminQBankPath, "utf8");
+    expect(source).toContain("문항 품질 모니터링");
+    expect(source).toContain("AI 문제 자동 생성기");
+    expect(source).toContain("generateAiQuestions");
   });
 
   it("백엔드가 문제은행 통계 및 AI 난이도 적용 프로시저를 포함한다", () => {

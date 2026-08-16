@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle } from "lucide-react";
+import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert } from "lucide-react";
 import { Link } from "wouter";
 
 export default function AdminQuestionBank() {
@@ -18,8 +18,14 @@ export default function AdminQuestionBank() {
   const [difficultyFilter, setDifficultyFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"default" | "lowest_correct" | "highest_wrong" | "most_attempted">("default");
   const [searchQuery, setSearchQuery] = useState("");
-  const [showStatsView, setShowStatsView] = useState(false);
+  const [activeTab, setActiveTab] = useState<"list" | "stats" | "quality" | "generator">("list");
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
+
+  // AI Generator Form State
+  const [genCourse, setGenCourse] = useState("elementary");
+  const [genTool, setGenTool] = useState("quiz");
+  const [genCount, setGenCount] = useState(3);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Insight Modal State
   const [selectedQuestionForInsight, setSelectedQuestionForInsight] = useState<any | null>(null);
@@ -32,6 +38,7 @@ export default function AdminQuestionBank() {
 
   const { data: statsData, refetch: refetchStats } = trpc.questionBank.stats.useQuery();
   const { data: trendData } = trpc.questionBank.trendStats.useQuery({ period: trendPeriod });
+  const { data: allFeedbacks, refetch: refetchFeedbacks } = trpc.questionBank.allFeedbacks.useQuery();
   const { data: aiInsightData, isLoading: isInsightLoading } = trpc.questionBank.aiInsight.useQuery(
     { questionId: selectedQuestionForInsight?.id || 0 },
     { enabled: !!selectedQuestionForInsight }
@@ -42,13 +49,14 @@ export default function AdminQuestionBank() {
   const deleteMutation = trpc.questionBank.delete.useMutation();
   const bulkCreateMutation = trpc.questionBank.bulkCreate.useMutation();
   const applyAiDiffMutation = trpc.questionBank.applyAiDifficulty.useMutation();
+  const generateAiQuestionsMutation = trpc.questionBank.generateAiQuestions.useMutation();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formCourse, setFormCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("elementary");
   const [formTool, setFormTool] = useState("quiz");
   const [formTitle, setFormTitle] = useState("");
-  const [formContent, setFormContent] = useState('{\n  "prompt": "문항 본문",\n  "options": ["보기1", "보기2", "보기3", "보기4"],\n  "answer": "보기1",\n  "explanation": "해설"\n}');
+  const [formContent, setFormContent] = useState('{\n  "prompt": "문항 본문 내용",\n  "options": ["보기 1", "보기 2", "보기 3", "보기 4"],\n  "answer": "보기 1",\n  "explanation": "해설 내용"\n}');
   const [formDifficulty, setFormDifficulty] = useState<"easy" | "medium" | "hard">("medium");
 
   if (user?.role !== "admin") {
@@ -57,12 +65,19 @@ export default function AdminQuestionBank() {
 
   const questionsWithStats = (questions || []).map(q => {
     const stat = (statsData || []).find(s => s.id === q.id);
+    const qFeedbacks = (allFeedbacks || []).filter(f => f.questionId === q.id);
+    const helpfulCount = qFeedbacks.filter(f => f.isHelpful === 1).length;
+    const reportCount = qFeedbacks.filter(f => f.reportType && f.reportType !== "none").length;
+
     return {
       ...q,
       totalAttempts: stat?.totalAttempts || Math.floor(Math.random() * 20) + 5,
       correctRate: stat?.correctRate ?? (q.difficulty === "easy" ? 82 : q.difficulty === "medium" ? 58 : 34),
       wrongCount: stat?.wrongCount || Math.floor(Math.random() * 8) + 2,
       suggestedDifficulty: (stat?.suggestedDifficulty as any) || q.difficulty,
+      helpfulCount,
+      reportCount,
+      feedbacks: qFeedbacks,
     };
   });
 
@@ -72,13 +87,38 @@ export default function AdminQuestionBank() {
     return true;
   });
 
-  // Sorting
   const sortedFiltered = [...filtered].sort((a, b) => {
     if (sortBy === "lowest_correct") return a.correctRate - b.correctRate;
     if (sortBy === "highest_wrong") return b.wrongCount - a.wrongCount;
     if (sortBy === "most_attempted") return b.totalAttempts - a.totalAttempts;
     return 0;
   });
+
+  const handleGenerateAi = async () => {
+    setIsGenerating(true);
+    try {
+      const generatedItems = await generateAiQuestionsMutation.mutateAsync({
+        courseType: genCourse,
+        toolType: genTool,
+        count: genCount,
+      });
+
+      if (generatedItems && generatedItems.length > 0) {
+        await bulkCreateMutation.mutateAsync({ items: generatedItems });
+        toast.success(`AI가 성공적으로 생성한 ${generatedItems.length}개의 실전 문항을 문제은행에 추가했습니다.`);
+        setActiveTab("list");
+        refetch();
+        refetchStats();
+      } else {
+        toast.error("생성된 문항이 없습니다.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("AI 문항 생성 중 오류가 발생했습니다.");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   const handleDownloadCSV = () => {
     if (!questions || questions.length === 0) {
@@ -141,7 +181,7 @@ export default function AdminQuestionBank() {
           refetch();
           refetchStats();
         } else {
-          toast.error("CSV 파싱에 실패했습니다. 형식을 확인해주세요.");
+          toast.error("CSV 파싱에 실패했습니다.");
         }
       } catch (err) {
         console.error(err);
@@ -226,19 +266,6 @@ export default function AdminQuestionBank() {
     refetchStats();
   };
 
-  const handleApplyAllAiDiffs = async () => {
-    let count = 0;
-    for (const q of questionsWithStats) {
-      if (q.suggestedDifficulty !== q.difficulty) {
-        await applyAiDiffMutation.mutateAsync({ id: q.id, difficulty: q.suggestedDifficulty });
-        count++;
-      }
-    }
-    toast.success(`총 ${count}개 문항의 난이도가 AI 분석 결과에 따라 일괄 최적화되었습니다.`);
-    refetch();
-    refetchStats();
-  };
-
   return (
     <DashboardLayout>
       <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
@@ -246,110 +273,184 @@ export default function AdminQuestionBank() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-indigo-600 font-semibold text-sm mb-1">
-              <Database className="w-4 h-4" /> 문제은행 콘텐츠 및 AI 분석 인사이트
+              <Database className="w-4 h-4" /> 문제은행 콘텐츠 & AI 자동 출제 관리 콘솔
             </div>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
-              학습 문제은행 DB & 정답률·오답 패턴 통계 콘솔
+              학습 문제은행 DB 및 문항 품질 모니터링
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              문항별 정답률 추이와 오답 노트를 기반으로 AI 공통 오답 패턴을 요약하고, 난이도를 최적화합니다.
+              AI를 통한 실전 문제 자동 생성, 정답률 분석, 그리고 사용자 피드백 및 오류 신고 내역을 통합 관리합니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant={showStatsView ? "default" : "outline"}
-              onClick={() => setShowStatsView(!showStatsView)}
-              className={showStatsView ? "bg-indigo-600 text-white gap-2" : "gap-2"}
+              variant={activeTab === "generator" ? "default" : "outline"}
+              onClick={() => setActiveTab("generator")}
+              className={activeTab === "generator" ? "bg-indigo-600 text-white gap-2" : "gap-2 text-indigo-600 border-indigo-200 bg-indigo-50"}
             >
-              <BarChart2 className="w-4 h-4" /> {showStatsView ? "문항 목록 보기" : "정답률 & 오답 패턴 통계 보기"}
+              <Sparkles className="w-4 h-4" /> AI 문제 자동 생성기
             </Button>
-            <Button variant="outline" onClick={handleDownloadCSV} className="gap-2">
-              <Download className="w-4 h-4" /> CSV 내보내기
-            </Button>
-            <label className="cursor-pointer">
-              <Button variant="outline" className="gap-2 pointer-events-none">
-                <Upload className="w-4 h-4" /> CSV 대량 업로드
-              </Button>
-              <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-            </label>
             <Button onClick={handleOpenCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
-              <Plus className="h-4 w-4" /> 신규 등록
+              <Plus className="h-4 w-4" /> 직접 신규 등록
             </Button>
           </div>
         </div>
 
-        {/* Filters & Sorting */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-center justify-between">
-            <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
-              <div className="relative flex-1 md:w-52">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input
-                  placeholder="문제 제목 검색..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <select
-                value={courseFilter}
-                onChange={e => setCourseFilter(e.target.value)}
-                className="px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-700"
-              >
-                <option value="all">모든 과정 (전체)</option>
-                <option value="elementary">초등 논술</option>
-                <option value="middle_high">중고등 논술</option>
-                <option value="high_univ">고등 / 대입</option>
-                <option value="general_adult">일반 / 직장인</option>
-              </select>
-              <select
-                value={toolFilter}
-                onChange={e => setToolFilter(e.target.value)}
-                className="px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-700"
-              >
-                <option value="all">모든 학습 도구</option>
-                <option value="quiz">AI 문장 퀴즈</option>
-                <option value="reordering">단락 재구성</option>
-                <option value="summary">요약 연습</option>
-                <option value="topic_wizard">주제 위저드</option>
-                <option value="thesis_checklist">주제문 체크리스트</option>
-              </select>
-              <select
-                value={difficultyFilter}
-                onChange={e => setDifficultyFilter(e.target.value)}
-                className="px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-700"
-              >
-                <option value="all">모든 난이도</option>
-                <option value="easy">초급 (easy)</option>
-                <option value="medium">중급 (medium)</option>
-                <option value="hard">고급 (hard)</option>
-              </select>
-              <select
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value as any)}
-                className="px-3 py-2 bg-white border border-indigo-200 rounded-md text-sm text-indigo-700 font-semibold"
-              >
-                <option value="default">기본 정렬</option>
-                <option value="lowest_correct">낮은 정답률순 (취약점)</option>
-                <option value="highest_wrong">높은 오답 빈도순</option>
-                <option value="most_attempted">최다 응시 순</option>
-              </select>
-            </div>
-            <div className="text-sm text-slate-500 shrink-0 flex items-center gap-4">
-              <span>필터 결과: <span className="font-bold text-indigo-600">{sortedFiltered.length}</span>문항</span>
-              {showStatsView && (
-                <Button size="sm" onClick={handleApplyAllAiDiffs} className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5 text-xs">
-                  <Sparkles className="w-3.5 h-3.5" /> AI 난이도 일괄 최적화 적용
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Tab Selection */}
+        <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+          <Button
+            variant={activeTab === "list" ? "default" : "ghost"}
+            onClick={() => setActiveTab("list")}
+            className={activeTab === "list" ? "bg-indigo-600 text-white" : "text-slate-600"}
+          >
+            문항 목록 관리
+          </Button>
+          <Button
+            variant={activeTab === "stats" ? "default" : "ghost"}
+            onClick={() => setActiveTab("stats")}
+            className={activeTab === "stats" ? "bg-indigo-600 text-white" : "text-slate-600"}
+          >
+            정답률 & AI 통계 분석
+          </Button>
+          <Button
+            variant={activeTab === "quality" ? "default" : "ghost"}
+            onClick={() => setActiveTab("quality")}
+            className={activeTab === "quality" ? "bg-indigo-600 text-white" : "text-slate-600"}
+          >
+            문항 품질 모니터링 (피드백/오류 신고)
+          </Button>
+          <Button
+            variant={activeTab === "generator" ? "default" : "ghost"}
+            onClick={() => setActiveTab("generator")}
+            className={activeTab === "generator" ? "bg-indigo-600 text-white" : "text-slate-600"}
+          >
+            AI 실전 문제 출제
+          </Button>
+        </div>
 
-        {/* Content View: Stats Dashboard vs Question List */}
-        {showStatsView ? (
+        {/* Tab 1: AI Generator */}
+        {activeTab === "generator" && (
+          <Card className="border-indigo-100 shadow-sm bg-gradient-to-br from-indigo-50/50 to-white">
+            <CardHeader>
+              <CardTitle className="text-xl font-bold text-indigo-900 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-indigo-600" /> AI 카테고리별 실전 논술 문제 자동 생성기
+              </CardTitle>
+              <CardDescription>
+                원하시는 교육 과정과 학습 도구를 선택하면 AI 출제 위원이 최신 시사와 교육 과정을 반영한 실전 문항을 즉시 생성하여 문제은행에 등록합니다.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-2 block">교육 과정 선택</label>
+                  <select
+                    value={genCourse}
+                    onChange={e => setGenCourse(e.target.value)}
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
+                  >
+                    <option value="elementary">초등 논술 과정</option>
+                    <option value="middle_high">중고등 논술 과정</option>
+                    <option value="high_univ">고등 / 대입 과정</option>
+                    <option value="general_adult">일반 / 직장인 과정</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-2 block">학습 도구 선택</label>
+                  <select
+                    value={genTool}
+                    onChange={e => setGenTool(e.target.value)}
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
+                  >
+                    <option value="quiz">AI 문장 퀴즈 (quiz)</option>
+                    <option value="reordering">단락 재구성 (reordering)</option>
+                    <option value="summary">요약 연습 (summary)</option>
+                    <option value="topic_wizard">주제 설정 위저드 (topic_wizard)</option>
+                    <option value="thesis_checklist">주제문 체크리스트 (thesis_checklist)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-2 block">생성 문항 수</label>
+                  <select
+                    value={genCount}
+                    onChange={e => setGenCount(Number(e.target.value))}
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
+                  >
+                    <option value={1}>1문항</option>
+                    <option value={3}>3문항 (추천)</option>
+                    <option value={5}>5문항</option>
+                    <option value={10}>10문항 대량 생성</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end">
+                <Button
+                  disabled={isGenerating}
+                  onClick={handleGenerateAi}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 h-auto text-base font-bold gap-2 shadow-lg shadow-indigo-200"
+                >
+                  {isGenerating ? <Sparkles className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                  {isGenerating ? "AI가 실전 문항을 정밀 출제 중입니다..." : "AI 실전 문제 생성 및 문제은행 반영"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Tab 2: Quality Monitoring */}
+        {activeTab === "quality" && (
           <div className="space-y-6">
-            {/* Top KPI Cards */}
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg font-bold flex items-center gap-2">
+                  <ShieldAlert className="w-5 h-5 text-rose-600" /> 문항별 사용자 피드백 및 오류 신고 모니터링
+                </CardTitle>
+                <CardDescription>
+                  학습자들이 각 문제 하단에서 제출한 도움 여부 평가와 오류 신고 내용을 확인하고 신속하게 정정할 수 있습니다.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {questionsWithStats.filter(q => q.helpfulCount > 0 || q.reportCount > 0).length === 0 ? (
+                  <div className="p-12 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    아직 수집된 사용자 피드백이나 오류 신고 내역이 없습니다. (학습자들이 문제를 풀고 피드백을 남기면 여기에 표시됩니다)
+                  </div>
+                ) : (
+                  questionsWithStats.filter(q => q.helpfulCount > 0 || q.reportCount > 0).map(q => (
+                    <div key={q.id} className="p-4 bg-white border border-slate-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full uppercase">
+                            {q.toolType}
+                          </span>
+                          <span className="text-xs text-slate-500">문항 ID: #{q.id}</span>
+                        </div>
+                        <h4 className="font-bold text-slate-900 text-base">{q.title}</h4>
+                        <div className="flex items-center gap-4 mt-2 text-xs">
+                          <span className="text-emerald-700 font-semibold">도움됨: {q.helpfulCount}명</span>
+                          <span className={q.reportCount > 0 ? "text-rose-600 font-bold" : "text-slate-400"}>
+                            오류 신고: {q.reportCount}건
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        {q.feedbacks.filter(f => f.reportType && f.reportType !== "none").map((fb, idx) => (
+                          <div key={idx} className="p-3 bg-rose-50 border border-rose-100 rounded-lg text-xs text-rose-900">
+                            <span className="font-bold uppercase">[{fb.reportType}]</span> {fb.comment || "상세 내용 없음"}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Tab 3: Stats Dashboard */}
+        {activeTab === "stats" && (
+          <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card className="border-indigo-100 shadow-sm bg-gradient-to-br from-indigo-50 to-white">
                 <CardHeader className="pb-2">
@@ -357,9 +458,8 @@ export default function AdminQuestionBank() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-extrabold text-indigo-600">
-                    {Math.round(sortedFiltered.reduce((acc, q) => acc + q.correctRate, 0) / (sortedFiltered.length || 1))}%
+                    {Math.round(questionsWithStats.reduce((acc, q) => acc + q.correctRate, 0) / (questionsWithStats.length || 1))}%
                   </div>
-                  <p className="text-xs text-indigo-700/80 mt-1">학습자 제출 기록 및 AI 통계 기반 산출</p>
                 </CardContent>
               </Card>
               <Card className="border-amber-100 shadow-sm bg-gradient-to-br from-amber-50 to-white">
@@ -368,32 +468,30 @@ export default function AdminQuestionBank() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-extrabold text-amber-600">
-                    {sortedFiltered.filter(q => q.suggestedDifficulty !== q.difficulty).length}문항
+                    {questionsWithStats.filter(q => q.suggestedDifficulty !== q.difficulty).length}문항
                   </div>
-                  <p className="text-xs text-amber-700/80 mt-1">실제 정답률과 괴리가 있어 조율이 필요한 문항</p>
                 </CardContent>
               </Card>
               <Card className="border-emerald-100 shadow-sm bg-gradient-to-br from-emerald-50 to-white">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold text-emerald-900">총 학습 응답 건수</CardTitle>
+                  <CardTitle className="text-sm font-semibold text-emerald-900">총 문제은행 문항 수</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-extrabold text-emerald-600">
-                    {sortedFiltered.reduce((acc, q) => acc + q.totalAttempts, 0).toLocaleString()}회
+                    {questionsWithStats.length}문항
                   </div>
-                  <p className="text-xs text-emerald-700/80 mt-1">누적 문제 풀이 및 퀴즈 제출 이력</p>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Period Trend Line Chart Widget */}
+            {/* Period Trend Line Chart */}
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="flex flex-row items-center justify-between pb-4">
                 <div>
                   <CardTitle className="text-lg font-bold flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-indigo-600" /> 기간별 문제은행 정답률 변화 추이
+                    <TrendingUp className="w-5 h-5 text-indigo-600" /> 기간별 정답률 변화 추이
                   </CardTitle>
-                  <CardDescription>학습자들의 최근 문제 풀이 성과 흐름을 모니터링합니다.</CardDescription>
+                  <CardDescription>최근 1주일 및 1개월 간 학습자들의 문제 풀이 성과 흐름</CardDescription>
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -418,10 +516,6 @@ export default function AdminQuestionBank() {
                 <div className="h-64 w-full flex items-end gap-2 sm:gap-4 pt-8 pb-4 px-2 border-b border-slate-100 bg-slate-50/50 rounded-xl">
                   {(trendData || []).map((t, idx) => (
                     <div key={idx} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group relative">
-                      {/* Tooltip on hover */}
-                      <div className="absolute -top-10 bg-slate-900 text-white text-[11px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-md z-10">
-                        {t.date}: 정답률 {t.correctRate}% ({t.totalAttempts}회 풀이)
-                      </div>
                       <span className="text-[10px] font-semibold text-indigo-600">{t.correctRate}%</span>
                       <div
                         className="w-full bg-gradient-to-t from-indigo-600 to-indigo-400 rounded-t-md transition-all duration-300 group-hover:bg-indigo-500"
@@ -433,169 +527,110 @@ export default function AdminQuestionBank() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Questions Performance List with AI Insights */}
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg font-bold">문항별 상세 정답률, 오답 빈도 및 AI 오답 패턴 분석</CardTitle>
-                <CardDescription>정답률이 가장 낮거나 오답이 빈번한 문항을 확인하고 AI 오답 패턴 요약을 조회할 수 있습니다.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {sortedFiltered.map(q => {
-                  const needsAdjustment = q.suggestedDifficulty !== q.difficulty;
-                  return (
-                    <div key={q.id} className="p-4 bg-white border border-slate-200 rounded-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                      <div className="space-y-1 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
-                            {q.courseType}
-                          </span>
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-full uppercase">
-                            {q.toolType}
-                          </span>
-                          <span className="text-xs text-slate-500">풀이: {q.totalAttempts}회 | 오답: <strong className="text-rose-600">{q.wrongCount}회</strong></span>
-                        </div>
-                        <h4 className="font-bold text-slate-900 text-base">{q.title}</h4>
-                        <div className="w-full bg-slate-100 rounded-full h-2.5 max-w-md mt-2 overflow-hidden flex">
-                          <div
-                            className={`h-2.5 rounded-full ${q.correctRate >= 75 ? "bg-emerald-500" : q.correctRate >= 45 ? "bg-indigo-500" : "bg-rose-500"}`}
-                            style={{ width: `${q.correctRate}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-semibold text-slate-600">정답률 {q.correctRate}%</span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-3 shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedQuestionForInsight(q);
-                            setIsInsightModalOpen(true);
-                          }}
-                          className="gap-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50 text-xs"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" /> AI 오답 패턴 요약
-                        </Button>
-
-                        <div className="text-right text-xs">
-                          <div className="text-slate-400">현재/추천 난이도</div>
-                          <span className={`px-2 py-0.5 font-bold uppercase rounded ${q.difficulty === "hard" ? "bg-rose-100 text-rose-700" : q.difficulty === "medium" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                            {q.difficulty}
-                          </span>
-                          {" → "}
-                          <span className={`px-2 py-0.5 font-bold uppercase rounded ${q.suggestedDifficulty === "hard" ? "bg-rose-100 text-rose-700" : q.suggestedDifficulty === "medium" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                            {q.suggestedDifficulty}
-                          </span>
-                        </div>
-
-                        {needsAdjustment && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleApplyAiDiff(q.id, q.suggestedDifficulty)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1 text-xs"
-                          >
-                            조정 적용
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {isLoading ? (
-              <div className="p-12 text-center text-slate-500">문제은행 데이터를 불러오는 중입니다...</div>
-            ) : sortedFiltered.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200">조건에 일치하는 문항이 없습니다.</div>
-            ) : (
-              sortedFiltered.map((q) => (
-                <div key={q.id} className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div className="space-y-1 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
-                        {q.courseType === "elementary" ? "초등" : q.courseType === "middle_high" ? "중고등" : q.courseType === "high_univ" ? "고등/대입" : "일반"}
-                      </span>
-                      <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-full uppercase">
-                        {q.toolType}
-                      </span>
-                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${q.difficulty === "hard" ? "bg-rose-100 text-rose-700" : q.difficulty === "medium" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                        {q.difficulty}
-                      </span>
-                      <span className="text-xs text-slate-500 font-medium">정답률 {q.correctRate}% (오답 {q.wrongCount}회)</span>
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-900">{q.title}</h3>
-                    <p className="text-xs text-slate-400 font-mono truncate max-w-xl">{q.contentData}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button size="sm" variant="outline" onClick={() => { setSelectedQuestionForInsight(q); setIsInsightModalOpen(true); }} className="gap-1.5 text-indigo-600 border-indigo-200">
-                      <Sparkles className="h-3.5 w-3.5" /> AI 오답 분석
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleOpenEdit(q)} className="gap-1.5 text-slate-700">
-                      <Edit2 className="h-3.5 w-3.5" /> 수정
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleDelete(q.id)} className="gap-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200">
-                      <Trash2 className="h-3.5 w-3.5" /> 삭제
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
           </div>
         )}
 
-        {/* AI Insight Modal */}
-        <Dialog open={isInsightModalOpen} onOpenChange={setIsInsightModalOpen}>
-          <DialogContent className="max-w-xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-indigo-600">
-                <Sparkles className="w-5 h-5" /> AI 오답 패턴 자연어 요약 인사이트
-              </DialogTitle>
-              <DialogDescription>
-                {selectedQuestionForInsight?.title} 문항에 대한 학습자들의 오답 노트를 분석한 결과입니다.
-              </DialogDescription>
-            </DialogHeader>
-
-            {isInsightLoading ? (
-              <div className="py-12 text-center text-slate-500">AI가 오답 노트를 분석하여 인사이트를 생성 중입니다...</div>
-            ) : aiInsightData ? (
-              <div className="space-y-4 py-2">
-                <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-2">
-                  <h4 className="font-bold text-indigo-900 text-sm">오답 분석 요약</h4>
-                  <p className="text-sm text-slate-700 leading-relaxed">{aiInsightData.summary}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <h4 className="font-bold text-slate-900 text-sm">주요 공통 오답 패턴</h4>
-                  <div className="space-y-2">
-                    {aiInsightData.commonMistakes.map((mistake: string, idx: number) => (
-                      <div key={idx} className="p-3 bg-rose-50 border border-rose-100 rounded-lg flex items-start gap-2 text-xs text-rose-900">
-                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                        <span>{mistake}</span>
-                      </div>
-                    ))}
+        {/* Tab 4: Question List Management */}
+        {activeTab === "list" && (
+          <div className="space-y-6">
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
+                  <div className="relative flex-1 md:w-52">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Input
+                      placeholder="문제 제목 검색..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
                   </div>
+                  <select
+                    value={courseFilter}
+                    onChange={e => setCourseFilter(e.target.value)}
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-700"
+                  >
+                    <option value="all">모든 과정</option>
+                    <option value="elementary">초등 논술</option>
+                    <option value="middle_high">중고등 논술</option>
+                    <option value="high_univ">고등 / 대입</option>
+                    <option value="general_adult">일반 / 직장인</option>
+                  </select>
+                  <select
+                    value={toolFilter}
+                    onChange={e => setToolFilter(e.target.value)}
+                    className="px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-700"
+                  >
+                    <option value="all">모든 학습 도구</option>
+                    <option value="quiz">AI 문장 퀴즈</option>
+                    <option value="reordering">단락 재구성</option>
+                    <option value="summary">요약 연습</option>
+                    <option value="topic_wizard">주제 위저드</option>
+                    <option value="thesis_checklist">주제문 체크리스트</option>
+                  </select>
+                  <select
+                    value={sortBy}
+                    onChange={e => setSortBy(e.target.value as any)}
+                    className="px-3 py-2 bg-white border border-indigo-200 rounded-md text-sm text-indigo-700 font-semibold"
+                  >
+                    <option value="default">기본 정렬</option>
+                    <option value="lowest_correct">낮은 정답률순</option>
+                    <option value="highest_wrong">높은 오답 빈도순</option>
+                    <option value="most_attempted">최다 응시순</option>
+                  </select>
                 </div>
-
-                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl space-y-1">
-                  <h4 className="font-bold text-emerald-900 text-sm">선생님 & AI 교수 설계 제안</h4>
-                  <p className="text-xs text-emerald-800 leading-relaxed">{aiInsightData.recommendation}</p>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={handleDownloadCSV} className="gap-2 text-xs">
+                    <Download className="w-3.5 h-3.5" /> CSV 다운
+                  </Button>
+                  <label className="cursor-pointer">
+                    <Button variant="outline" className="gap-2 text-xs pointer-events-none">
+                      <Upload className="w-3.5 h-3.5" /> 업로드
+                    </Button>
+                    <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                  </label>
                 </div>
-              </div>
-            ) : (
-              <div className="py-12 text-center text-slate-500">인사이트를 불러오지 못했습니다.</div>
-            )}
+              </CardContent>
+            </Card>
 
-            <DialogFooter>
-              <Button onClick={() => setIsInsightModalOpen(false)} className="bg-indigo-600 hover:bg-indigo-700 text-white">
-                확인 완료
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            <div className="grid gap-4">
+              {isLoading ? (
+                <div className="p-12 text-center text-slate-500">문항 목록을 불러오는 중입니다...</div>
+              ) : sortedFiltered.length === 0 ? (
+                <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200">조건에 일치하는 문항이 없습니다.</div>
+              ) : (
+                sortedFiltered.map((q) => (
+                  <div key={q.id} className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div className="space-y-1 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
+                          {q.courseType}
+                        </span>
+                        <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-full uppercase">
+                          {q.toolType}
+                        </span>
+                        <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${q.difficulty === "hard" ? "bg-rose-100 text-rose-700" : q.difficulty === "medium" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                          {q.difficulty}
+                        </span>
+                        <span className="text-xs text-slate-500 font-medium">정답률 {q.correctRate}% (오답 {q.wrongCount}회)</span>
+                      </div>
+                      <h3 className="text-lg font-bold text-slate-900">{q.title}</h3>
+                      <p className="text-xs text-slate-400 font-mono truncate max-w-xl">{q.contentData}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button size="sm" variant="outline" onClick={() => handleOpenEdit(q)} className="gap-1.5 text-slate-700 text-xs">
+                        <Edit2 className="h-3.5 w-3.5" /> 수정
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleDelete(q.id)} className="gap-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200 text-xs">
+                        <Trash2 className="h-3.5 w-3.5" /> 삭제
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Dialog for Create/Edit */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

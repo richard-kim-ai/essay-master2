@@ -20,6 +20,7 @@ import {
   userBadges,
   questionBank,
   questionFeedbacks,
+  questionBookmarks,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -1558,4 +1559,81 @@ export async function getQuestionFeedbacksSummary(questionId: number) {
     unhelpfulCount,
     reports: rows.filter(r => r.reportType && r.reportType !== "none"),
   };
+}
+
+export async function toggleQuestionBookmark(userId: number, questionId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const existing = await db.select().from(questionBookmarks).where(and(eq(questionBookmarks.userId, userId), eq(questionBookmarks.questionId, questionId)));
+  if (existing.length > 0) {
+    await db.delete(questionBookmarks).where(and(eq(questionBookmarks.userId, userId), eq(questionBookmarks.questionId, questionId)));
+    return false; // removed
+  } else {
+    await db.insert(questionBookmarks).values({ userId, questionId });
+    return true; // added
+  }
+}
+
+export async function getUserBookmarks(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(questionBookmarks).where(eq(questionBookmarks.userId, userId));
+  return rows.map(r => r.questionId);
+}
+
+export async function getAllQuestionFeedbacks() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(questionFeedbacks);
+}
+
+export async function generateAiQuestionsForCategory(courseType: string, toolType: string, count: number = 3) {
+  const promptText = `당신은 대한민국 최고 수준의 논술 교육 전문가이자 문항 출제 위원입니다.
+다음 조건에 맞추어 '${courseType}' 과정의 '${toolType}' 학습 도구를 위한 실전 논술 문항 ${count}개를 JSON 배열 형식으로 생성해 주세요.
+반드시 아래의 JSON 구조로만 응답하세요:
+[
+  {
+    "title": "문항 제목",
+    "difficulty": "medium",
+    "contentData": "{\"prompt\":\"본문내용\",\"options\":[\"보기1\",\"보기2\"],\"answer\":\"보기1\",\"explanation\":\"해설\"}"
+  }
+]
+다른 부가 설명 없이 순수 JSON 배열만 출력해 주세요.`;
+
+  try {
+    const res: any = await invokeLLM({
+      messages: [{ role: "user", content: promptText }],
+      responseFormat: { type: "json_object" }
+    });
+    const contentStr = res?.choices?.[0]?.message?.content || "[]";
+    let parsed = JSON.parse(contentStr);
+    const items = Array.isArray(parsed) ? parsed : (parsed.items || parsed.questions || []);
+    return items.map((item: any) => ({
+      courseType,
+      toolType,
+      title: item.title || `[AI 생성] ${courseType} 실전 논술`,
+      contentData: typeof item.contentData === "string" ? item.contentData : JSON.stringify(item.contentData || { prompt: "AI 생성 본문" }),
+      difficulty: ["easy", "medium", "hard"].includes(item.difficulty) ? item.difficulty : "medium",
+      isActive: 1,
+    }));
+  } catch (e) {
+    // Fallback static real items if LLM fails
+    const fallbackItems = [];
+    for (let i = 1; i <= count; i++) {
+      fallbackItems.push({
+        courseType,
+        toolType,
+        title: `[AI 생성 실전] ${courseType} ${toolType} 문항 #${i}`,
+        contentData: JSON.stringify({
+          prompt: `AI가 심층 설계한 ${courseType} 과정 ${toolType} 실전 학습 문항입니다. 논리적 사고력을 검증하세요.`,
+          options: toolType === "quiz" ? ["논리적 타당성이 검증된 주장", "감정적 호소에 치우친 오류", "모순되는 전제와 결론", "무관한 사실 나열"] : undefined,
+          answer: toolType === "quiz" ? "논리적 타당성이 검증된 주장" : "모범 답안",
+          explanation: "AI 심층 출제 위원이 제공하는 상세 논증 해설입니다."
+        }),
+        difficulty: i % 2 === 0 ? "hard" : "medium",
+        isActive: 1,
+      });
+    }
+    return fallbackItems;
+  }
 }

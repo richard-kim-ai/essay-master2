@@ -325,3 +325,14 @@ export const questionFeedbacks = mysqlTable("question_feedbacks", {
 
 export type QuestionFeedback = typeof questionFeedbacks.$inferSelect;
 export type InsertQuestionFeedback = typeof questionFeedbacks.$inferInsert;
+
+// 문제 즐겨찾기(북마크) 테이블
+export const questionBookmarks = mysqlTable("question_bookmarks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionId: int("questionId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type QuestionBookmark = typeof questionBookmarks.$inferSelect;
+export type InsertQuestionBookmark = typeof questionBookmarks.$inferInsert;
