@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter } from "lucide-react";
+import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter, FileText } from "lucide-react";
+import { WeeklyReportPdfModal } from "@/components/WeeklyReportPdfModal";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -38,6 +39,7 @@ export default function AdminDashboard() {
   const [batchEmailSubject, setBatchEmailSubject] = useState("");
   const [batchEmailBody, setBatchEmailBody] = useState("");
   const [batchEmailModalOpen, setBatchEmailModalOpen] = useState(false);
+  const [weeklyReportModalOpen, setWeeklyReportModalOpen] = useState(false);
 
   const utils = trpc.useUtils();
   const updateBatchTagMutation = trpc.admin.updateBatchTag.useMutation({
@@ -188,7 +190,10 @@ export default function AdminDashboard() {
           </div>
           <div className="flex items-center gap-3">
             <Button onClick={handleExportCSV} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
-              <Download className="w-4 h-4" /> 학습자 데이터 내보내기 (CSV)
+              <Download className="w-4 h-4" /> 학습자 데이터 (CSV)
+            </Button>
+            <Button onClick={() => setWeeklyReportModalOpen(true)} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+              <FileText className="w-4 h-4" /> 주간 학습 리포트 (PDF)
             </Button>
             <Link href="/admin/certificates">
               <Button size="sm" variant="outline" className="gap-2">수료증 관리</Button>
@@ -499,6 +504,9 @@ export default function AdminDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Weekly Report PDF Modal */}
+      <WeeklyReportPdfModal open={weeklyReportModalOpen} onClose={() => setWeeklyReportModalOpen(false)} analyticsData={analytics} />
 
       {/* Batch Email Modal */}
       <Dialog open={batchEmailModalOpen} onOpenChange={setBatchEmailModalOpen}>
