@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download, FileImage } from "lucide-react";
+import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download, FileImage, Share2, Link2, ExternalLink } from "lucide-react";
 import html2canvas from "html2canvas";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -303,40 +303,81 @@ export default function Certificate() {
                       <p>발급일: {new Date(cert.createdAt).toLocaleDateString()}</p>
                       <p className="text-indigo-600 font-medium">상태: 정식 인증됨 (Active)</p>
                     </div>
-                    <div className="flex items-center gap-2 pt-2">
-                      <Button
-                        size="sm"
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1"
-                        onClick={async () => {
-                          const element = document.getElementById(`cert-card-${cert.id}`);
-                          if (!element) return;
-                          try {
-                            const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
-                            const image = canvas.toDataURL("image/png");
-                            const a = document.createElement("a");
-                            a.href = image;
-                            a.download = `Certificate_${cert.certNumber || cert.id}.png`;
-                            a.click();
-                            toast.success("고해상도 수료증 이미지(PNG)가 다운로드되었습니다.");
-                          } catch (e) {
-                            console.error(e);
-                            toast.error("이미지 다운로드 중 오류가 발생했습니다.");
-                          }
-                        }}
-                      >
-                        <FileImage className="w-3.5 h-3.5" /> 이미지 저장
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs gap-1"
-                        onClick={() => {
-                          window.print();
-                          toast.success("수료증 인쇄 및 PDF 저장 창이 호출되었습니다.");
-                        }}
-                      >
-                        <Download className="w-3.5 h-3.5" /> PDF 저장
-                      </Button>
+                    <div className="space-y-2 pt-2">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1"
+                          onClick={async () => {
+                            const element = document.getElementById(`cert-card-${cert.id}`);
+                            if (!element) return;
+                            try {
+                              const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+                              const image = canvas.toDataURL("image/png");
+                              const a = document.createElement("a");
+                              a.href = image;
+                              a.download = `Certificate_${cert.certNumber || cert.id}.png`;
+                              a.click();
+                              toast.success("고해상도 수료증 이미지(PNG)가 다운로드되었습니다.");
+                            } catch (e) {
+                              console.error(e);
+                              toast.error("이미지 다운로드 중 오류가 발생했습니다.");
+                            }
+                          }}
+                        >
+                          <FileImage className="w-3.5 h-3.5" /> 이미지 저장
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs gap-1"
+                          onClick={() => {
+                            window.print();
+                            toast.success("수료증 인쇄 및 PDF 저장 창이 호출되었습니다.");
+                          }}
+                        >
+                          <Download className="w-3.5 h-3.5" /> PDF 저장
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 border-slate-200 text-slate-700 hover:bg-slate-50 text-[11px] h-7 gap-1"
+                          onClick={() => {
+                            const shareUrl = `${window.location.origin}/certificate?cert=${cert.certNumber || cert.id}`;
+                            navigator.clipboard.writeText(shareUrl);
+                            toast.success("수료증 고유 링크가 클립보드에 복사되었습니다!");
+                          }}
+                        >
+                          <Link2 className="w-3 h-3 text-indigo-600" /> 링크 복사
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 border-blue-200 text-blue-700 hover:bg-blue-50 text-[11px] h-7 gap-1"
+                          onClick={() => {
+                            const text = `논술 마스터 ${cert.title} 수료 완료! (인증번호: ${cert.certNumber || cert.id})`;
+                            const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`;
+                            window.open(linkedinUrl, "_blank");
+                            toast.success("LinkedIn 공유 창이 열렸습니다.");
+                          }}
+                        >
+                          <ExternalLink className="w-3 h-3 text-blue-600" /> LinkedIn
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 border-pink-200 text-pink-700 hover:bg-pink-50 text-[11px] h-7 gap-1"
+                          onClick={() => {
+                            const shareUrl = window.location.href;
+                            navigator.clipboard.writeText(shareUrl);
+                            toast.success("인스타그램 공유용 링크가 복사되었습니다. 스토리나 피드에 붙여넣으세요!");
+                          }}
+                        >
+                          <Share2 className="w-3 h-3 text-pink-600" /> 인스타그램
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
