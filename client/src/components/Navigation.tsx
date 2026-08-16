@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
+import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -126,6 +127,18 @@ export default function Navigation() {
                 <Link key={item.href} href={item.href}>
                   <Button
                     variant="ghost"
+                    onClick={() => {
+                      const tips: Record<string, string> = {
+                        "커리큘럼": "💡 초등·중고등·고등대입·일반 4대 과정의 맞춤형 커리큘럼을 탐색해보세요!",
+                        "추천 아카이브": "💡 주제별 기출·실전 논술 문제를 모아보고 북마크와 주간 플래너에 연동하세요!",
+                        "대시보드": "💡 주간 AI 첨삭 사용량과 학습 진도율을 한눈에 파악할 수 있는 메인 센터입니다.",
+                        "오프라인 보관함": "💡 네트워크가 불안정할 때도 작성 중인 글을 임시 저장하고 자동 동기화하세요.",
+                        "수료증": "💡 레벨별 정식 수료증을 미리보기하고 고해상도 PNG 또는 PDF로 즉시 다운로드하세요!",
+                      };
+                      if (tips[item.label]) {
+                        toast.info(tips[item.label]);
+                      }
+                    }}
                     className={`flex items-center gap-1 ${
                       location === item.href
                         ? "text-blue-600 bg-blue-50"
