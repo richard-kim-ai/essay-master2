@@ -138,4 +138,10 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     const managerSource = readFileSync(managerPath, "utf8");
     expect(managerSource).toContain("부드러운 강조 배경 효과로 즉시 안내됩니다");
   });
+
+  it("ManusDialog에 DialogTitle이 항상 렌더링되어 접근성 오류를 방지한다", () => {
+    const dialogPath = new URL("../client/src/components/ManusDialog.tsx", import.meta.url);
+    const dialogSource = readFileSync(dialogPath, "utf8");
+    expect(dialogSource).toContain("DialogTitle");
+  });
 });

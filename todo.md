@@ -91,3 +91,6 @@
 - [x] 관리자 커리큘럼 관리 화면(AdminCurriculumManager.tsx)의 운영 안내 문구에서 애니메이션 관련 설명 정제
 - [x] 카드 순서 변경 시 부드럽고 직관적인 하이라이트 효과로 수정
 - [x] TypeScript 타입 체크 및 단위 테스트 검증
+## 2026-08 추가 요청: Dialog 접근성 오류(DialogTitle 누락) 수정
+- [x] `/curriculum` 및 관련 컴포넌트 내 모든 `DialogContent`에 필수 `DialogTitle`(또는 VisuallyHidden) 적용
+- [x] TypeScript 타입 검사 및 Vitest 단위 테스트 실행
