@@ -94,3 +94,6 @@
 ## 2026-08 추가 요청: Dialog 접근성 오류(DialogTitle 누락) 수정
 - [x] `/curriculum` 및 관련 컴포넌트 내 모든 `DialogContent`에 필수 `DialogTitle`(또는 VisuallyHidden) 적용
 - [x] TypeScript 타입 검사 및 Vitest 단위 테스트 실행
+## 2026-08 추가 요청: `/admin/curriculum` Dialog 접근성 오류 수정
+- [x] `AdminCurriculumManager.tsx` 내 모든 `DialogContent`의 `DialogHeader` / `DialogTitle` 일치 여부 점검
+- [x] TypeScript 타입 검사 및 Vitest 단위 테스트 실행

@@ -130,6 +130,7 @@ function DialogContent({
         onEscapeKeyDown={handleEscapeKeyDown}
         {...props}
       >
+        <DialogPrimitive.Title className="sr-only">대화상자</DialogPrimitive.Title>
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close
