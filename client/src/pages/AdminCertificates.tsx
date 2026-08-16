@@ -246,7 +246,23 @@ export default function AdminCertificates() {
         <div><label className="mb-1 block text-sm font-medium">발행 사유 <span className="text-slate-400">(선택)</span></label><Textarea placeholder="예: Level 2 학습 완료 및 관리자 확인" value={issueForm.issueReason} onChange={(event) => setIssueForm({ ...issueForm, issueReason: event.target.value })} /></div>
       </div><DialogFooter><Button variant="outline" onClick={() => setIssueOpen(false)}>취소</Button><Button className="bg-amber-600 text-white hover:bg-amber-700" onClick={submitIssue} disabled={issueMutation.isPending}>{issueMutation.isPending ? "발행 중..." : "발행 확정"}</Button></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={revokeTarget !== null} onOpenChange={(open) => { if (!open) { setRevokeTarget(null); setRevokeReason(""); } }}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>수료증 발행취소</DialogTitle><DialogDescription>발행취소하면 학생용 목록과 공유 링크에서 유효한 증서로 표시되지 않습니다. 사유는 필수입니다.</DialogDescription></DialogHeader><Textarea placeholder="발행취소 사유를 입력하세요" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} /><DialogFooter><Button variant="outline" onClick={() => setRevokeTarget(null)}>돌아가기</Button><Button className="bg-rose-600 text-white hover:bg-rose-700" disabled={revokeMutation.isPending || revokeReason.trim().length < 2} onClick={() => revokeTarget && revokeMutation.mutate({ certificateId: revokeTarget, reason: revokeReason.trim() })}>{revokeMutation.isPending ? "취소 처리 중..." : "발행취소 확정"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={revokeTarget !== null} onOpenChange={(open) => { if (!open) { setRevokeTarget(null); setRevokeReason(""); } }}>
+        <DialogContent className="sm:max-w-md p-6 space-y-4">
+          <DialogHeader>
+            <DialogTitle>수료증 발행취소</DialogTitle>
+            <DialogDescription>발행취소하면 학생용 목록과 공유 링크에서 유효한 증서로 표시되지 않습니다. 사유는 필수입니다.</DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Textarea className="min-h-[100px] w-full" placeholder="발행취소 사유를 입력하세요 (최소 2자 이상)" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} />
+          </div>
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setRevokeTarget(null)}>돌아가기</Button>
+            <Button className="bg-rose-600 text-white hover:bg-rose-700" disabled={revokeMutation.isPending || revokeReason.trim().length < 2} onClick={() => revokeTarget && revokeMutation.mutate({ certificateId: revokeTarget, reason: revokeReason.trim() })}>
+              {revokeMutation.isPending ? "취소 처리 중..." : "발행취소 확정"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>수료증 기록 삭제</DialogTitle><DialogDescription>이미 발행취소된 수료증만 삭제할 수 있습니다. 삭제 후에는 목록과 이력에서 복구할 수 없습니다.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setDeleteTarget(null)}>돌아가기</Button><Button className="bg-slate-900 text-white hover:bg-slate-700" disabled={deleteMutation.isPending} onClick={() => deleteTarget && deleteMutation.mutate({ certificateId: deleteTarget })}>{deleteMutation.isPending ? "삭제 중..." : "삭제 확정"}</Button></DialogFooter></DialogContent></Dialog>
     </div>
