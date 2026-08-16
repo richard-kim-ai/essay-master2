@@ -106,8 +106,8 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     const arcSource = readFileSync(archivePath, "utf8");
     const fbSource = readFileSync(feedbackBoxPath, "utf8");
     expect(arcSource).toContain("추천 논술 아카이브");
-    expect(arcSource).toContain("바로 학습 시작하기");
-    expect(arcSource).toContain("즐겨찾기");
+    expect(arcSource).toContain("주간 학습 플래너");
+    expect(arcSource).toContain("기출/유사 추천");
     expect(fbSource).toContain("이 문제가 도움이 되었나요?");
     expect(fbSource).toContain("문제 오류 신고");
   });
@@ -116,8 +116,8 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
     const source = readFileSync(adminQBankPath, "utf8");
     expect(source).toContain("문항 품질 모니터링");
-    expect(source).toContain("AI 문제 자동 생성기");
-    expect(source).toContain("generateAiQuestions");
+    expect(source).toContain("AI 문제 사전 검토 출제");
+    expect(source).toContain("previewAiQuestions");
   });
 
   it("백엔드가 문제은행 통계 및 AI 난이도 적용 프로시저를 포함한다", () => {

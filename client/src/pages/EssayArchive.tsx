@@ -3,9 +3,10 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { BookOpen, Search, Play, Star, Sparkles, ArrowRight, Bookmark } from "lucide-react";
+import { BookOpen, Search, Play, Star, Sparkles, ArrowRight, Bookmark, Calendar, CheckCircle, Layers } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -17,6 +18,11 @@ export default function EssayArchive() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"default" | "popular" | "correct_rate" | "difficulty_desc">("default");
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
+  const [showPlannerModal, setShowPlannerModal] = useState(false);
+
+  // Similar Questions Modal State
+  const [selectedQuestionForSimilar, setSelectedQuestionForSimilar] = useState<any | null>(null);
+  const [isSimilarModalOpen, setIsSimilarModalOpen] = useState(false);
 
   const { data: questions, isLoading } = trpc.questionBank.list.useQuery({
     courseType: activeCourse,
@@ -25,6 +31,11 @@ export default function EssayArchive() {
 
   const { data: statsData } = trpc.questionBank.stats.useQuery();
   const { data: bookmarksList, refetch: refetchBookmarks } = trpc.questionBank.getBookmarks.useQuery();
+  const { data: similarQuestions } = trpc.questionBank.similarQuestions.useQuery(
+    { questionId: selectedQuestionForSimilar?.id || 0 },
+    { enabled: !!selectedQuestionForSimilar }
+  );
+
   const toggleBookmarkMutation = trpc.questionBank.toggleBookmark.useMutation();
 
   const bookmarkedSet = new Set(bookmarksList || []);
@@ -56,7 +67,6 @@ export default function EssayArchive() {
     return true;
   });
 
-  // Sorting
   const sorted = [...filtered].sort((a, b) => {
     if (sortBy === "popular") return b.totalAttempts - a.totalAttempts;
     if (sortBy === "correct_rate") return b.correctRate - a.correctRate;
@@ -66,6 +76,18 @@ export default function EssayArchive() {
     }
     return 0;
   });
+
+  const bookmarkedQuestions = questionsWithMeta.filter(q => q.isBookmarked);
+
+  // 주간 플래너 요일별 자동 배정
+  const weekDays = [
+    { day: "월요일", slot: bookmarkedQuestions[0] },
+    { day: "화요일", slot: bookmarkedQuestions[1] },
+    { day: "수요일", slot: bookmarkedQuestions[2] },
+    { day: "목요일", slot: bookmarkedQuestions[3] },
+    { day: "금요일", slot: bookmarkedQuestions[4] },
+    { day: "주말 복습", slot: bookmarkedQuestions[5] },
+  ];
 
   const handleStartLearning = (toolType: string) => {
     if (toolType === "quiz") setLocation("/quiz");
@@ -99,22 +121,29 @@ export default function EssayArchive() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-indigo-600 font-semibold text-sm mb-1">
-              <BookOpen className="w-4 h-4" /> 과정별 맞춤 아카이브
+              <BookOpen className="w-4 h-4" /> 과정별 맞춤 아카이브 & 스마트 플래너
             </div>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
-              추천 논술 아카이브 & 즐겨찾기 보관함
+              추천 논술 아카이브 & 주간 학습 플래너
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              학습자 수준별 커리큘럼에 맞춘 실전 논술 주제를 탐색하고 북마크하여 나만의 보관함에서 관리하세요.
+              실전 논술 주제를 탐색하고 북마크한 뒤, 주간 학습 계획표에 자동으로 배치하여 체계적으로 학습하세요.
             </p>
           </div>
-          <div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowPlannerModal(true)}
+              className="gap-2 text-indigo-700 border-indigo-200 bg-indigo-50 font-semibold"
+            >
+              <Calendar className="w-4 h-4" /> 주간 학습 플래너 보기 ({bookmarksList?.length || 0}개 연동)
+            </Button>
             <Button
               variant={showBookmarksOnly ? "default" : "outline"}
               onClick={() => setShowBookmarksOnly(!showBookmarksOnly)}
               className={showBookmarksOnly ? "bg-amber-600 hover:bg-amber-700 text-white gap-2" : "gap-2 text-amber-700 border-amber-200 bg-amber-50"}
             >
-              <Star className="w-4 h-4 fill-current" /> {showBookmarksOnly ? "전체 목록 보기" : `내 즐겨찾기 보관함 (${bookmarksList?.length || 0})`}
+              <Star className="w-4 h-4 fill-current" /> {showBookmarksOnly ? "전체 목록 보기" : `내 즐겨찾기 (${bookmarksList?.length || 0})`}
             </Button>
           </div>
         </div>
@@ -199,7 +228,14 @@ export default function EssayArchive() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {sorted.map(q => (
-              <Card key={q.id} className="border-slate-200 hover:border-indigo-300 transition-all shadow-sm hover:shadow-md flex flex-col justify-between relative group">
+              <Card
+                key={q.id}
+                onClick={() => {
+                  setSelectedQuestionForSimilar(q);
+                  setIsSimilarModalOpen(true);
+                }}
+                className="border-slate-200 hover:border-indigo-300 transition-all shadow-sm hover:shadow-md flex flex-col justify-between relative group cursor-pointer"
+              >
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
@@ -229,17 +265,137 @@ export default function EssayArchive() {
                   <p className="text-xs text-slate-600 line-clamp-3 bg-slate-50 p-3 rounded-xl border border-slate-100 font-mono">
                     {q.contentData}
                   </p>
-                  <Button
-                    onClick={() => handleStartLearning(q.toolType)}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shadow-sm font-semibold text-xs py-2.5"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" /> 바로 학습 시작하기
-                  </Button>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartLearning(q.toolType);
+                      }}
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shadow-sm font-semibold text-xs py-2.5"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" /> 학습 시작
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedQuestionForSimilar(q);
+                        setIsSimilarModalOpen(true);
+                      }}
+                      className="px-3 text-xs text-indigo-700 border-indigo-200 bg-indigo-50 hover:bg-indigo-100"
+                    >
+                      기출/유사 추천
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
           </div>
         )}
+
+        {/* Weekly Study Planner Modal */}
+        <Dialog open={showPlannerModal} onOpenChange={setShowPlannerModal}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-indigo-600">
+                <Calendar className="w-5 h-5" /> 북마크 기반 주간 학습 플래너
+              </DialogTitle>
+              <DialogDescription>
+                즐겨찾기(북마크)에 저장한 논술 주제들이 요일별 학습 계획표에 자동으로 배치되어 체계적인 주간 학습을 도와줍니다.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3 py-4">
+              {weekDays.map((item, idx) => (
+                <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="w-20 font-bold text-sm text-indigo-700">{item.day}</span>
+                    {item.slot ? (
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm">{item.slot.title}</h4>
+                        <span className="text-xs text-slate-500 uppercase font-semibold">{item.slot.courseType} • {item.slot.toolType}</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-400 italic">배정된 북마크 문항이 없습니다. 아카이브에서 별표를 눌러 추가해보세요!</span>
+                    )}
+                  </div>
+                  {item.slot && (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setShowPlannerModal(false);
+                        handleStartLearning(item.slot.toolType);
+                      }}
+                      className="bg-indigo-600 text-white text-xs gap-1 h-8"
+                    >
+                      학습 <ArrowRight className="w-3 h-3" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <DialogFooter>
+              <Button onClick={() => setShowPlannerModal(false)} className="bg-slate-900 text-white">확인</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Similar & Past Exam Recommendation Modal */}
+        <Dialog open={isSimilarModalOpen} onOpenChange={setIsSimilarModalOpen}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-indigo-600">
+                <Layers className="w-5 h-5" /> 기출 및 유사 난이도 추천 문항
+              </DialogTitle>
+              <DialogDescription>
+                선택하신 주제와 동일한 교육 과정이거나 유사한 난이도를 가진 추천 실전 논술 문항입니다.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-3">
+              {selectedQuestionForSimilar && (
+                <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+                  <span className="text-xs font-bold text-indigo-600 block mb-1">현재 선택한 주제</span>
+                  <h4 className="font-bold text-slate-900 text-sm">{selectedQuestionForSimilar.title}</h4>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider">추천 기출 및 유사 문항 리스트</h5>
+                {(!similarQuestions || similarQuestions.length === 0) ? (
+                  <div className="p-6 text-center text-slate-500 text-xs bg-slate-50 rounded-xl">유사한 추천 문항이 없습니다.</div>
+                ) : (
+                  similarQuestions.map((sq: any) => (
+                    <div key={sq.id} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-semibold rounded uppercase">{sq.toolType}</span>
+                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded">{sq.difficulty}</span>
+                        </div>
+                        <h6 className="font-bold text-slate-900 text-xs">{sq.title}</h6>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setIsSimilarModalOpen(false);
+                          handleStartLearning(sq.toolType);
+                        }}
+                        className="bg-indigo-600 text-white text-xs h-7 px-3"
+                      >
+                        학습하기
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button onClick={() => setIsSimilarModalOpen(false)} className="bg-slate-900 text-white">닫기</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

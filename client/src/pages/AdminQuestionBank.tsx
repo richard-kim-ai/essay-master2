@@ -21,11 +21,13 @@ export default function AdminQuestionBank() {
   const [activeTab, setActiveTab] = useState<"list" | "stats" | "quality" | "generator">("list");
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
 
-  // AI Generator Form State
+  // AI Generator Form & Preview State
   const [genCourse, setGenCourse] = useState("elementary");
   const [genTool, setGenTool] = useState("quiz");
   const [genCount, setGenCount] = useState(3);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [previewItems, setPreviewItems] = useState<any[]>([]);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Insight Modal State
   const [selectedQuestionForInsight, setSelectedQuestionForInsight] = useState<any | null>(null);
@@ -38,8 +40,8 @@ export default function AdminQuestionBank() {
 
   const { data: statsData, refetch: refetchStats } = trpc.questionBank.stats.useQuery();
   const { data: trendData } = trpc.questionBank.trendStats.useQuery({ period: trendPeriod });
-  const { data: allFeedbacks, refetch: refetchFeedbacks } = trpc.questionBank.allFeedbacks.useQuery();
-  const { data: aiInsightData, isLoading: isInsightLoading } = trpc.questionBank.aiInsight.useQuery(
+  const { data: allFeedbacks } = trpc.questionBank.allFeedbacks.useQuery();
+  const { data: aiInsightData } = trpc.questionBank.aiInsight.useQuery(
     { questionId: selectedQuestionForInsight?.id || 0 },
     { enabled: !!selectedQuestionForInsight }
   );
@@ -49,7 +51,7 @@ export default function AdminQuestionBank() {
   const deleteMutation = trpc.questionBank.delete.useMutation();
   const bulkCreateMutation = trpc.questionBank.bulkCreate.useMutation();
   const applyAiDiffMutation = trpc.questionBank.applyAiDifficulty.useMutation();
-  const generateAiQuestionsMutation = trpc.questionBank.generateAiQuestions.useMutation();
+  const previewAiQuestionsMutation = trpc.questionBank.previewAiQuestions.useMutation();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -94,21 +96,17 @@ export default function AdminQuestionBank() {
     return 0;
   });
 
-  const handleGenerateAi = async () => {
+  const handlePreviewAi = async () => {
     setIsGenerating(true);
     try {
-      const generatedItems = await generateAiQuestionsMutation.mutateAsync({
+      const items = await previewAiQuestionsMutation.mutateAsync({
         courseType: genCourse,
         toolType: genTool,
         count: genCount,
       });
-
-      if (generatedItems && generatedItems.length > 0) {
-        await bulkCreateMutation.mutateAsync({ items: generatedItems });
-        toast.success(`AI가 성공적으로 생성한 ${generatedItems.length}개의 실전 문항을 문제은행에 추가했습니다.`);
-        setActiveTab("list");
-        refetch();
-        refetchStats();
+      if (items && items.length > 0) {
+        setPreviewItems(items);
+        setIsPreviewOpen(true);
       } else {
         toast.error("생성된 문항이 없습니다.");
       }
@@ -117,6 +115,19 @@ export default function AdminQuestionBank() {
       toast.error("AI 문항 생성 중 오류가 발생했습니다.");
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleApprovePreview = async () => {
+    try {
+      await bulkCreateMutation.mutateAsync({ items: previewItems });
+      toast.success(`${previewItems.length}개의 검토된 문항이 문제은행에 최종 승인 및 반영되었습니다.`);
+      setIsPreviewOpen(false);
+      setActiveTab("list");
+      refetch();
+      refetchStats();
+    } catch (err) {
+      toast.error("문항 일괄 반영 중 오류가 발생했습니다.");
     }
   };
 
@@ -259,13 +270,6 @@ export default function AdminQuestionBank() {
     refetchStats();
   };
 
-  const handleApplyAiDiff = async (id: number, newDiff: "easy" | "medium" | "hard") => {
-    await applyAiDiffMutation.mutateAsync({ id, difficulty: newDiff });
-    toast.success(`AI 분석에 따라 문항 난이도가 [${newDiff}]로 자동 조정되었습니다.`);
-    refetch();
-    refetchStats();
-  };
-
   return (
     <DashboardLayout>
       <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
@@ -273,13 +277,13 @@ export default function AdminQuestionBank() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-indigo-600 font-semibold text-sm mb-1">
-              <Database className="w-4 h-4" /> 문제은행 콘텐츠 & AI 자동 출제 관리 콘솔
+              <Database className="w-4 h-4" /> 문제은행 콘텐츠 & AI 사전 검토 관리 콘솔
             </div>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
-              학습 문제은행 DB 및 문항 품질 모니터링
+              학습 문제은행 DB 및 AI 문항 승인 콘솔
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              AI를 통한 실전 문제 자동 생성, 정답률 분석, 그리고 사용자 피드백 및 오류 신고 내역을 통합 관리합니다.
+              AI가 생성한 실전 문항을 승인 전에 미리 검토하고 직접 수정할 수 있으며, 품질 모니터링을 통합 관리합니다.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -288,7 +292,7 @@ export default function AdminQuestionBank() {
               onClick={() => setActiveTab("generator")}
               className={activeTab === "generator" ? "bg-indigo-600 text-white gap-2" : "gap-2 text-indigo-600 border-indigo-200 bg-indigo-50"}
             >
-              <Sparkles className="w-4 h-4" /> AI 문제 자동 생성기
+              <Sparkles className="w-4 h-4" /> AI 문제 사전 검토 출제
             </Button>
             <Button onClick={handleOpenCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
               <Plus className="h-4 w-4" /> 직접 신규 등록
@@ -317,26 +321,26 @@ export default function AdminQuestionBank() {
             onClick={() => setActiveTab("quality")}
             className={activeTab === "quality" ? "bg-indigo-600 text-white" : "text-slate-600"}
           >
-            문항 품질 모니터링 (피드백/오류 신고)
+            문항 품질 모니터링
           </Button>
           <Button
             variant={activeTab === "generator" ? "default" : "ghost"}
             onClick={() => setActiveTab("generator")}
             className={activeTab === "generator" ? "bg-indigo-600 text-white" : "text-slate-600"}
           >
-            AI 실전 문제 출제
+            AI 실전 문제 출제 (사전 검토)
           </Button>
         </div>
 
-        {/* Tab 1: AI Generator */}
+        {/* Tab 1: AI Generator with Preview Modal */}
         {activeTab === "generator" && (
           <Card className="border-indigo-100 shadow-sm bg-gradient-to-br from-indigo-50/50 to-white">
             <CardHeader>
               <CardTitle className="text-xl font-bold text-indigo-900 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-indigo-600" /> AI 카테고리별 실전 논술 문제 자동 생성기
+                <Sparkles className="w-5 h-5 text-indigo-600" /> AI 실전 논술 문항 사전 검토 및 승인 시스템
               </CardTitle>
               <CardDescription>
-                원하시는 교육 과정과 학습 도구를 선택하면 AI 출제 위원이 최신 시사와 교육 과정을 반영한 실전 문항을 즉시 생성하여 문제은행에 등록합니다.
+                AI가 생성한 문항을 문제은행에 바로 반영하기 전, 미리보기 모달에서 내용과 JSON 구조를 직접 검토하고 수정할 수 있습니다.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -378,7 +382,6 @@ export default function AdminQuestionBank() {
                     <option value={1}>1문항</option>
                     <option value={3}>3문항 (추천)</option>
                     <option value={5}>5문항</option>
-                    <option value={10}>10문항 대량 생성</option>
                   </select>
                 </div>
               </div>
@@ -386,16 +389,89 @@ export default function AdminQuestionBank() {
               <div className="pt-4 flex justify-end">
                 <Button
                   disabled={isGenerating}
-                  onClick={handleGenerateAi}
+                  onClick={handlePreviewAi}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 h-auto text-base font-bold gap-2 shadow-lg shadow-indigo-200"
                 >
                   {isGenerating ? <Sparkles className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                  {isGenerating ? "AI가 실전 문항을 정밀 출제 중입니다..." : "AI 실전 문제 생성 및 문제은행 반영"}
+                  {isGenerating ? "AI가 문항을 출제하고 있습니다..." : "AI 문항 생성 및 사전 검토 시작"}
                 </Button>
               </div>
             </CardContent>
           </Card>
         )}
+
+        {/* AI Preview & Edit Modal */}
+        <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-indigo-600">
+                <Sparkles className="w-5 h-5" /> AI 생성 문항 사전 검토 및 수정
+              </DialogTitle>
+              <DialogDescription>
+                관리자가 생성된 문항의 제목, 난이도, 본문 내용을 최종 검토하고 필요시 수정하여 승인할 수 있습니다.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6 py-4">
+              {previewItems.map((item, idx) => (
+                <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
+                      검토 문항 #{idx + 1}
+                    </span>
+                    <select
+                      value={item.difficulty}
+                      onChange={e => {
+                        const updated = [...previewItems];
+                        updated[idx].difficulty = e.target.value;
+                        setPreviewItems(updated);
+                      }}
+                      className="px-2.5 py-1 bg-white border border-slate-200 rounded text-xs font-semibold"
+                    >
+                      <option value="easy">초급 (easy)</option>
+                      <option value="medium">중급 (medium)</option>
+                      <option value="hard">고급 (hard)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 mb-1 block">문항 제목</label>
+                    <Input
+                      value={item.title}
+                      onChange={e => {
+                        const updated = [...previewItems];
+                        updated[idx].title = e.target.value;
+                        setPreviewItems(updated);
+                      }}
+                      className="text-sm bg-white font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 mb-1 block">본문 데이터 (JSON)</label>
+                    <Textarea
+                      rows={4}
+                      value={item.contentData}
+                      onChange={e => {
+                        const updated = [...previewItems];
+                        updated[idx].contentData = e.target.value;
+                        setPreviewItems(updated);
+                      }}
+                      className="font-mono text-xs bg-white"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>취소</Button>
+              <Button onClick={handleApprovePreview} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+                <CheckCircle className="w-4 h-4" /> 검토 완료 및 문제은행 최종 승인 반영
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Tab 2: Quality Monitoring */}
         {activeTab === "quality" && (
@@ -412,7 +488,7 @@ export default function AdminQuestionBank() {
               <CardContent className="space-y-4">
                 {questionsWithStats.filter(q => q.helpfulCount > 0 || q.reportCount > 0).length === 0 ? (
                   <div className="p-12 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                    아직 수집된 사용자 피드백이나 오류 신고 내역이 없습니다. (학습자들이 문제를 풀고 피드백을 남기면 여기에 표시됩니다)
+                    아직 수집된 사용자 피드백이나 오류 신고 내역이 없습니다.
                   </div>
                 ) : (
                   questionsWithStats.filter(q => q.helpfulCount > 0 || q.reportCount > 0).map(q => (

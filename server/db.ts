@@ -1637,3 +1637,19 @@ export async function generateAiQuestionsForCategory(courseType: string, toolTyp
     return fallbackItems;
   }
 }
+
+export async function getSimilarQuestions(questionId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const [target] = await db.select().from(questionBank).where(eq(questionBank.id, questionId));
+  if (!target) return [];
+
+  // 같은 과정 또는 같은 도구 유형의 다른 문항들 추출 (최대 4개)
+  const all = await db.select().from(questionBank);
+  return all.filter(q => q.id !== questionId && (q.courseType === target.courseType || q.toolType === target.toolType)).slice(0, 4);
+}
+
+// AI 생성 미리보기 임시 저장소 (메모리 캐시 또는 테이블 대체용)
+export async function previewAiQuestionsForCategory(courseType: string, toolType: string, count: number = 3) {
+  return await generateAiQuestionsForCategory(courseType, toolType, count);
+}
