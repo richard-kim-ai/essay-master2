@@ -88,9 +88,9 @@ export default function QuizPage() {
         userAnswer,
         isCorrect,
         feedback: currentQuiz.feedback,
-        economyScore: "85",
-        clarityScore: "90",
-        accuracyScore: "88",
+        economyScore: "0.85",
+        clarityScore: "0.90",
+        accuracyScore: "0.88",
       });
 
       setFeedback({

@@ -130,6 +130,7 @@ function DialogContent({
         onEscapeKeyDown={handleEscapeKeyDown}
         {...props}
       >
+        {/* Ensures screen reader accessibility even when custom title is omitted */}
         <DialogPrimitive.Title className="sr-only">대화상자</DialogPrimitive.Title>
         {children}
         {showCloseButton && (
