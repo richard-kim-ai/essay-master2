@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter, FileText, Database } from "lucide-react";
+import { ShieldCheck, Settings, Users, BookOpen, ArrowRight, KeyRound, Download, Sliders, Eye, Search, Filter, FileText, Database, BarChart2 } from "lucide-react";
 import { WeeklyReportPdfModal } from "@/components/WeeklyReportPdfModal";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -445,20 +445,8 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 space-y-3">
-                  <div className="flex items-center gap-2 text-blue-900 font-semibold text-sm">
-                    <BookOpen className="h-4 w-4 text-blue-600" />
-                    <span>커리큘럼 확장 가이드</span>
-                  </div>
-                  <p className="text-xs text-blue-700 leading-relaxed">
-                    새로운 레슨이나 주제를 추가하려면 서버 측 <code className="bg-white px-1 py-0.5 rounded text-blue-900 font-mono">CURRICULUM_DATA</code> 및 <code className="bg-white px-1 py-0.5 rounded text-blue-900 font-mono">WORKBOOK_CONTENT</code> 구조를 확장하세요.
-                  </p>
-                  <Link href="/curriculum">
-                    <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700 text-xs text-white">
-                      실제 커리큘럼 화면 확인하기
-                    </Button>
-                  </Link>
-                </div>
+                {/* Curriculum Difficulty Distribution & Correct Rate Widget */}
+                <CurriculumStatsWidget />
               </CardContent>
             </Card>
           </div>
@@ -600,6 +588,52 @@ export default function AdminDashboard() {
             </div>
           </Link>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function CurriculumStatsWidget() {
+  const { data: stats, isLoading } = trpc.questionBank.curriculumDifficultyStats.useQuery();
+
+  if (isLoading) {
+    return <div className="p-4 text-center text-xs text-slate-400">커리큘럼 통계 불러오는 중...</div>;
+  }
+
+  const courseNames: Record<string, string> = {
+    elementary: "초등 논술",
+    middle_high: "중고등 논술",
+    high_univ: "고등 / 대입",
+    general_adult: "일반 / 직장인",
+  };
+
+  return (
+    <div className="space-y-4 pt-2">
+      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+        <BarChart2 className="w-3.5 h-3.5 text-indigo-600" /> 과정별 난이도 분포 및 평균 정답률
+      </h4>
+      <div className="space-y-3">
+        {(stats || []).map((item) => (
+          <div key={item.courseType} className="p-3 bg-white border border-slate-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-900">{courseNames[item.courseType] || item.courseType}</span>
+              <span className="font-extrabold text-indigo-600">평균 정답률: {item.avgCorrectRate}%</span>
+            </div>
+            <div className="flex h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div className="bg-emerald-500" style={{ width: `${item.total > 0 ? (item.easy / item.total) * 100 : 33}%` }} title="초급" />
+              <div className="bg-amber-500" style={{ width: `${item.total > 0 ? (item.medium / item.total) * 100 : 33}%` }} title="중급" />
+              <div className="bg-rose-500" style={{ width: `${item.total > 0 ? (item.hard / item.total) * 100 : 34}%` }} title="고급" />
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
+              <span>총 {item.total}문항</span>
+              <div className="flex gap-2">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span>초급 {item.easy}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500"></span>중급 {item.medium}</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500"></span>고급 {item.hard}</span>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

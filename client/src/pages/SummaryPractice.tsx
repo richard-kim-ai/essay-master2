@@ -23,7 +23,10 @@ export default function SummaryPractice() {
   const [earnedBadgeName, setEarnedBadgeName] = useState("");
 
   const awardBadgeMutation = trpc.badges.award.useMutation();
+  const gradeEssayMutation = trpc.questionBank.gradeEssay.useMutation();
   const utils = trpc.useUtils();
+
+  const currentQId = qList && qList.length > 0 ? qList[0].id : 1;
 
   useEffect(() => {
     if (qList && qList.length > 0) {
@@ -43,23 +46,27 @@ export default function SummaryPractice() {
   if (!isAuthenticated) return <div className="text-center py-12 text-slate-600">로그인이 필요합니다.</div>;
   if (isLoading) return <div className="text-center py-12 text-slate-600">문제은행에서 요약 지문을 불러오는 중...</div>;
 
-  const analyzeSummary = () => {
+  const analyzeSummary = async () => {
     if (!summary.trim() || summary.length < 15) {
       toast.error("핵심 내용이 포함된 15자 이상의 요약문을 작성해주세요.");
       return;
     }
 
     setIsAnalyzing(true);
-    setTimeout(() => {
-      const mock = {
-        keywords: ["핵심 요지", "논리적 전개", "구조화"],
-        logicFlow: "제시문의 핵심 주장을 파악하고 간결하게 압축하였습니다.",
-        suggestions: ["두괄식 구조를 더욱 명확히 하면 좋습니다."],
-        score: 88,
-      };
-      setFeedback(mock);
+    try {
+      const res = await gradeEssayMutation.mutateAsync({
+        questionId: currentQId,
+        userAnswer: summary,
+      });
+
+      setFeedback({
+        score: res.overallScore,
+        logicFlow: res.feedback,
+        keywords: res.strengths || ["논리성 우수", "표현력 탁월"],
+        suggestions: res.improvements || ["추가 보완 필요"],
+      });
       setIsAnalyzing(false);
-      toast.success("요약 분석이 완료되었습니다!");
+      toast.success("AI 실시간 채점 및 분석이 완료되었습니다!");
 
       const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 요약 전문가 뱃지`;
       setEarnedBadgeName(bName);
@@ -75,7 +82,10 @@ export default function SummaryPractice() {
           toast.success("요약 연습 완료 뱃지가 발급되었습니다!");
         }
       });
-    }, 1200);
+    } catch (err: any) {
+      setIsAnalyzing(false);
+      toast.error(err.message || "AI 채점 중 오류가 발생했습니다.");
+    }
   };
 
   return (
