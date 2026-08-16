@@ -123,12 +123,13 @@ export default function Home() {
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </Button>
                 </Link>
-                <Link href="/dashboard">
+                <Link href="/quiz">
                   <Button
                     variant="outline"
-                    className="w-full sm:w-auto px-8 py-6 text-lg rounded-lg border-2"
+                    className="w-full sm:w-auto px-8 py-6 text-lg rounded-lg border-2 border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100"
                   >
-                    대시보드 보기
+                    <Sparkles className="w-5 h-5 mr-2 text-indigo-600" />
+                    로그인 전 샘플 퀴즈 체험하기
                   </Button>
                 </Link>
               </div>

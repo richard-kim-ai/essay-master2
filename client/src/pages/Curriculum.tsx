@@ -68,7 +68,9 @@ const CURRICULUM_DATA = {
 
 export default function Curriculum() {
   const { user, isAuthenticated } = useAuth();
-  const [courseType, setCourseType] = React.useState<CourseType>("middle_high");
+  const userCourse = (user?.tag === "초등" ? "elementary" : user?.tag === "고등/대입" ? "high_univ" : user?.tag === "일반/직장인" ? "general_adult" : "middle_high") as CourseType;
+  const [courseType] = React.useState<CourseType>(userCourse);
+
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -77,38 +79,48 @@ export default function Curriculum() {
   });
 
   if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
+    return (
+      <div className="min-h-screen bg-slate-50 py-16 px-4 text-center">
+        <div className="max-w-xl mx-auto space-y-4 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+          <h2 className="text-2xl font-bold text-slate-900">로그인 후 나만의 맞춤 커리큘럼을 확인하세요</h2>
+          <p className="text-sm text-slate-600">회원가입 시 선택하신 과정(초등, 중고등, 고등/대입, 일반/직장인)에 맞춤형 논술 커리큘럼과 문제은행이 연동됩니다.</p>
+          <div className="pt-4 flex justify-center gap-3">
+            <Link href="/"><Button className="bg-indigo-600 text-white">홈으로 이동하기</Button></Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const curriculumList = dynamicCurriculum && dynamicCurriculum.length > 0
     ? dynamicCurriculum
-    : CURRICULUM_DATA[courseType];
+    : CURRICULUM_DATA[courseType] || CURRICULUM_DATA["middle_high"];
   const progressMap = new Map(
     progressData?.map((p) => [p.curriculumId, p]) || []
   );
 
+  const courseNames: Record<CourseType, string> = {
+    elementary: "초등 논술 과정",
+    middle_high: "중고등 논술 과정",
+    high_univ: "고등 / 대입 논술 과정",
+    general_adult: "일반 / 직장인 논술 과정",
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-8">커리큘럼</h1>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+          <div>
+            <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-bold rounded-full uppercase">
+              회원 맞춤 과정
+            </span>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 mt-1">{courseNames[courseType]}</h1>
+            <p className="text-sm text-slate-600 mt-1">회원가입 시 선택하신 과정에 최적화된 단계별 학습 레슨과 실전 논술 훈련을 제공합니다.</p>
+          </div>
+        </div>
 
-        {/* Course Type Tabs */}
-        <Tabs
-          value={courseType}
-          onValueChange={(value) =>
-            setCourseType(value as CourseType)
-          }
-          className="mb-8"
-        >
-          <TabsList className="grid w-full max-w-2xl grid-cols-2 gap-1 sm:grid-cols-4">
-            <TabsTrigger value="elementary">초등</TabsTrigger>
-            <TabsTrigger value="middle_high">중고등</TabsTrigger>
-            <TabsTrigger value="high_univ">고등/대입</TabsTrigger>
-            <TabsTrigger value="general_adult">일반/직장인</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value={courseType} className="mt-8">
+        <div className="mt-6">
             <div className="grid gap-6">
               {curriculumList.map((item) => {
                 const curriculumId = (item as { id?: number }).id ?? item.level;
@@ -199,8 +211,7 @@ export default function Curriculum() {
                 );
               })}
             </div>
-          </TabsContent>
-        </Tabs>
+          </div>
       </div>
     </div>
   );
