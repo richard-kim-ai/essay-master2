@@ -87,8 +87,7 @@ export default function Login() {
               </span>
             </label>
 
-            <div className="flex items-center justify-between text-sm">
-              <Link href="/signup" className="text-blue-600 hover:underline">회원가입</Link>
+            <div className="flex items-center justify-end text-sm">
               <Link href="/forgot-password" className="text-slate-500 hover:underline">비밀번호 찾기</Link>
             </div>
 
@@ -113,13 +112,16 @@ export default function Login() {
             })}
           </div>
           <p className="mt-2 text-center text-xs text-slate-500">소셜 로그인은 관리자 설정이 완료된 제공자만 활성화됩니다.</p>
-          <div className="mt-6 space-y-2 text-center text-sm text-slate-600">
-            <p>
-              아직 계정이 없으신가요? <Link href="/signup" className="font-semibold text-blue-600 hover:underline">학생 회원가입</Link>
-            </p>
-            <p>
-              선생님이신가요? <Link href="/teacher-signup" className="font-semibold text-indigo-600 hover:underline">교사회원 가입</Link>
-            </p>
+          <div className="mt-6 space-y-3">
+            <p className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">아직 계정이 없으신가요?</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Link href="/signup" className="flex items-center justify-center rounded-xl bg-blue-50 border border-blue-200 py-2.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition shadow-sm">
+                🎓 학생 회원가입
+              </Link>
+              <Link href="/teacher-signup" className="flex items-center justify-center rounded-xl bg-indigo-50 border border-indigo-200 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-sm">
+                👩‍🏫 교사 회원가입
+              </Link>
+            </div>
           </div>
 
           <div className="mt-6 border-t border-slate-100 pt-4 text-center text-xs text-slate-400 flex justify-center gap-4">
