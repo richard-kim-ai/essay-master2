@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { BookOpen, Plus, ArrowUp, ArrowDown, Edit3, Trash2, GripVertical, Search, Eye, Sparkles, Copy, Monitor, Smartphone } from "lucide-react";
+import { BookOpen, Plus, ArrowUp, ArrowDown, Edit3, Trash2, GripVertical, Search, Eye, Sparkles, Copy, Monitor, Smartphone, ChevronDown, ChevronUp } from "lucide-react";
 import { Link } from "wouter";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -22,6 +22,12 @@ export default function AdminCurriculumManager() {
   // Preview Modal State
   const [previewCategory, setPreviewCategory] = useState<any | null>(null);
   const [previewDevice, setPreviewDevice] = useState<"pc" | "mobile">("pc");
+
+  // Expanded Accordion State for Cards (default all collapsed or expanded)
+  const [expandedIds, setExpandedIds] = useState<number[]>([]);
+  const toggleExpand = (id: number) => {
+    setExpandedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
 
   // Create / Edit Form State
   const [formOpen, setFormOpen] = useState(false);
@@ -296,28 +302,54 @@ export default function AdminCurriculumManager() {
                           <h3 className="text-base font-bold text-slate-900">{category.title}</h3>
                         </div>
                         <p className="text-sm leading-relaxed text-slate-600">{category.description}</p>
-                        {category.aiSummary && (
-                          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3.5">
-                            <p className="mb-1 text-xs font-semibold text-indigo-700">AI 강의 요약</p>
-                            <p className="text-sm leading-relaxed text-slate-700">{category.aiSummary}</p>
-                          </div>
-                        )}
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          {category.topics.map((topic: string) => (
-                            <span key={topic} className="rounded-md bg-slate-100 px-2.5 py-1 text-xs text-slate-600 font-medium">{topic}</span>
-                          ))}
+
+                        {/* Accordion Toggle Bar */}
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(category.id)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition"
+                          >
+                            <span>{expandedIds.includes(category.id) ? "학습 상세 내용 접기" : "학습 상세 내용(주제·AI 요약) 펼치기"}</span>
+                            {expandedIds.includes(category.id) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          </button>
                         </div>
-                        {category.aiTags?.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {category.aiTags.map((tag: string) => (
-                              <span key={tag} className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">#{tag}</span>
-                            ))}
+
+                        {/* Collapsible Accordion Content */}
+                        {expandedIds.includes(category.id) && (
+                          <div className="space-y-3 pt-2 animate-in fade-in-50 duration-200">
+                            {category.aiSummary && (
+                              <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3.5">
+                                <p className="mb-1 text-xs font-semibold text-indigo-700">AI 강의 요약</p>
+                                <p className="text-sm leading-relaxed text-slate-700">{category.aiSummary}</p>
+                              </div>
+                            )}
+                            <div className="space-y-1">
+                              <p className="text-xs font-semibold text-slate-500">학습 주제 ({category.topics?.length ?? 0}개)</p>
+                              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                {category.topics.map((topic: string) => (
+                                  <span key={topic} className="rounded-md bg-slate-100 px-2.5 py-1 text-xs text-slate-600 font-medium">{topic}</span>
+                                ))}
+                              </div>
+                            </div>
+                            {category.aiTags?.length > 0 && (
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold text-slate-500">자동 태그</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {category.aiTags.map((tag: string) => (
+                                    <span key={tag} className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">#{tag}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {category.samplePdfUrl && (
+                              <div>
+                                <a href={category.samplePdfUrl} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-700 underline-offset-4 hover:underline pt-1">
+                                  샘플 PDF 학습 자료 열기
+                                </a>
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {category.samplePdfUrl && (
-                          <a href={category.samplePdfUrl} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-amber-700 underline-offset-4 hover:underline pt-1">
-                            샘플 PDF 학습 자료 열기
-                          </a>
                         )}
                       </div>
                     </div>
