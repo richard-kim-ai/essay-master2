@@ -793,6 +793,12 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         return await db.previewAiQuestionsForCategory(input.courseType, input.toolType, input.count);
       }),
+    promoteUser: protectedProcedure
+      .input(z.object({ userId: z.number(), targetLevel: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "teacher") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.promoteUserLevel(input.userId, input.targetLevel);
+      }),
     similarQuestions: protectedProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ ctx, input }) => {

@@ -38,6 +38,16 @@ export default function MasterAdminConsole() {
     },
   });
 
+  const promoteUserMutation = trpc.questionBank.promoteUser.useMutation({
+    onSuccess: () => {
+      toast.success("학습자 레벨 승급이 승인되었습니다.");
+      refetch();
+    },
+    onError: (err) => {
+      toast.error(err.message || "승급 처리 중 오류가 발생했습니다.");
+    },
+  });
+
   const filteredUsers = useMemo(() => {
     if (!usersList) return [];
     return usersList.filter((u) => {
@@ -386,16 +396,14 @@ export default function MasterAdminConsole() {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-slate-600 text-xs">
-                        {u.role === 'teacher' ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-semibold text-indigo-600">Level {u.teacherLevel || 1}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-indigo-600">Level {u.teacherLevel || 1}</span>
+                          {u.role === 'teacher' && (
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.teacherStatus === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
                               {u.teacherStatus === 'approved' ? '승인완료' : '승인대기'}
                             </span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400">해당없음</span>
-                        )}
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-slate-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
                       <td className="py-3 px-4 text-right space-x-2">
@@ -407,6 +415,19 @@ export default function MasterAdminConsole() {
                             disabled={approveTeacherMutation.isPending}
                           >
                             교사 승인
+                          </Button>
+                        )}
+                        {u.role === 'user' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-3 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                            onClick={() => {
+                              const nextLvl = (u.teacherLevel || 1) + 1;
+                              promoteUserMutation.mutate({ userId: u.id, targetLevel: nextLvl });
+                            }}
+                          >
+                            Lv.{u.teacherLevel || 1} → Lv.{(u.teacherLevel || 1) + 1} 승급
                           </Button>
                         )}
                         {u.role !== 'admin' ? (

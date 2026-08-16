@@ -1732,3 +1732,10 @@ export async function getCurriculumDifficultyStats() {
     avgCorrectRate: g.attemptsSum > 0 ? Math.round((g.correctSum / g.attemptsSum) * 100) : 78, // 기본 기본값 보정
   }));
 }
+
+export async function promoteUserLevel(userId: number, targetLevel: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(users).set({ teacherLevel: targetLevel }).where(eq(users.id, userId));
+  return { success: true, newLevel: targetLevel };
+}
