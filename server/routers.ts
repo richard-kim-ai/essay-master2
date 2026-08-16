@@ -1050,12 +1050,12 @@ export const appRouter = router({
         return true;
       }),
     approveTeacher: protectedProcedure
-      .input(z.object({ userId: z.number() }))
+      .input(z.object({ userId: z.number(), teacherLevel: z.number().optional() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        await db.updateTeacherStatus(input.userId, "approved");
+        await db.updateTeacherStatus(input.userId, "approved", input.teacherLevel);
         return true;
       }),
   }),

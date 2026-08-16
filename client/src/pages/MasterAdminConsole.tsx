@@ -29,9 +29,14 @@ export default function MasterAdminConsole() {
     },
   });
 
+  const [teacherApprovalModalOpen, setTeacherApprovalModalOpen] = useState(false);
+  const [targetTeacherId, setTargetTeacherId] = useState<number | null>(null);
+  const [selectedTeacherLevel, setSelectedTeacherLevel] = useState<number>(1);
+
   const approveTeacherMutation = trpc.admin.approveTeacher.useMutation({
     onSuccess: () => {
-      toast.success("교사 회원 승인이 완료되었습니다.");
+      toast.success("교사 회원 승인 및 권한 레벨 설정이 완료되었습니다.");
+      setTeacherApprovalModalOpen(false);
       refetch();
     },
     onError: (err) => {
@@ -432,10 +437,14 @@ export default function MasterAdminConsole() {
                           <Button
                             size="sm"
                             className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-3 text-xs"
-                            onClick={() => approveTeacherMutation.mutate({ userId: u.id })}
+                            onClick={() => {
+                              setTargetTeacherId(u.id);
+                              setSelectedTeacherLevel(u.teacherLevel || 1);
+                              setTeacherApprovalModalOpen(true);
+                            }}
                             disabled={approveTeacherMutation.isPending}
                           >
-                            교사 승인
+                            교사 승인 및 레벨 설정
                           </Button>
                         )}
                         {u.role === 'user' && (
@@ -540,6 +549,48 @@ export default function MasterAdminConsole() {
               }}
             >
               일괄 적용 실행
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Teacher Approval & Level Assignment Dialog */}
+      <Dialog open={teacherApprovalModalOpen} onOpenChange={setTeacherApprovalModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-emerald-600" /> 교사 승인 및 권한 레벨 설정
+            </DialogTitle>
+            <DialogDescription>
+              대기 중인 교사회원의 권한 레벨을 지정하고 승인을 확정합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">부여할 교사 권한 레벨</label>
+              <select
+                className="w-full h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
+                value={selectedTeacherLevel}
+                onChange={(e) => setSelectedTeacherLevel(Number(e.target.value))}
+              >
+                <option value={1}>Level 1 · 주니어 첨삭교사 (문장 및 단락 코멘트)</option>
+                <option value={2}>Level 2 · 시니어 첨삭교사 (종합 채점 및 성취도 관리)</option>
+                <option value={3}>Level 3 · 수석 교사 (커리큘럼 조정 및 반 학생 일괄 관리)</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTeacherApprovalModalOpen(false)}>취소</Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+              disabled={approveTeacherMutation.isPending || targetTeacherId === null}
+              onClick={() => {
+                if (targetTeacherId !== null) {
+                  approveTeacherMutation.mutate({ userId: targetTeacherId, teacherLevel: selectedTeacherLevel });
+                }
+              }}
+            >
+              {approveTeacherMutation.isPending ? "승인 처리 중..." : "승인 및 레벨 부여 확정"}
             </Button>
           </DialogFooter>
         </DialogContent>

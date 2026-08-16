@@ -131,11 +131,15 @@ export async function updateUserEmailVerified(userId: number) {
   await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, userId));
 }
 
-export async function updateTeacherStatus(userId: number, teacherStatus: "pending" | "approved" | "rejected") {
+export async function updateTeacherStatus(userId: number, teacherStatus: "pending" | "approved" | "rejected", teacherLevel?: number) {
   const db = await getDb();
   if (!db) return;
 
-  await db.update(users).set({ teacherStatus }).where(eq(users.id, userId));
+  const data: any = { teacherStatus };
+  if (teacherLevel !== undefined) {
+    data.teacherLevel = teacherLevel;
+  }
+  await db.update(users).set(data).where(eq(users.id, userId));
 }
 
 export async function updateUserPassword(userId: number, passwordHash: string) {

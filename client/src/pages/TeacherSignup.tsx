@@ -10,7 +10,7 @@ import { trpc } from "@/lib/trpc";
 
 export default function TeacherSignup() {
   const [, setLocation] = useLocation();
-  const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "", teacherLevel: "1", agreeTerms: false });
+  const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "", agreeTerms: false });
   const signupMutation = trpc.auth.teacherSignup.useMutation({
     onSuccess: () => {
       toast.success("교사회원 가입 신청이 완료되었습니다. 이메일 인증을 진행해주세요.");
@@ -30,7 +30,7 @@ export default function TeacherSignup() {
     if (formData.password.length < 8) return toast.error("비밀번호는 8자 이상이어야 합니다.");
     if (formData.password !== formData.confirmPassword) return toast.error("비밀번호가 일치하지 않습니다.");
     if (!formData.agreeTerms) return toast.error("교사 윤리 규정과 개인정보처리방침에 동의해주세요.");
-    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password, teacherLevel: Number(formData.teacherLevel) });
+    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password, teacherLevel: 1 });
   };
 
   return (
@@ -52,11 +52,10 @@ export default function TeacherSignup() {
             <label className="block text-sm font-medium text-slate-700">이메일<span className="relative mt-2 block"><Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="teacher@school.edu" className="pl-10" disabled={signupMutation.isPending} /></span></label>
             <label className="block text-sm font-medium text-slate-700">비밀번호<span className="relative mt-2 block"><Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="password" name="password" value={formData.password} onChange={handleChange} placeholder="8자 이상" className="pl-10" disabled={signupMutation.isPending} /></span></label>
             <label className="block text-sm font-medium text-slate-700">비밀번호 확인<span className="relative mt-2 block"><Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} placeholder="비밀번호 재입력" className="pl-10" disabled={signupMutation.isPending} /></span></label>
-            <label className="block text-sm font-medium text-slate-700">교사 권한 레벨<select name="teacherLevel" value={formData.teacherLevel} onChange={(e) => setFormData(c => ({ ...c, teacherLevel: e.target.value }))} className="mt-2 w-full rounded-md border border-slate-300 p-2.5 text-sm">
-              <option value="1">Level 1 · 주니어 첨삭교사 (문장 및 단락 코멘트)</option>
-              <option value="2">Level 2 · 시니어 첨삭교사 (종합 채점 및 성취도 관리)</option>
-              <option value="3">Level 3 · 수석 교사 (커리큘럼 조정 및 반 학생 일괄 관리)</option>
-            </select></label>
+            <div className="rounded-lg bg-indigo-50/60 p-3 text-xs text-indigo-900 border border-indigo-100 space-y-1">
+              <p className="font-bold">💡 교사 권한 레벨 안내</p>
+              <p className="text-slate-600">교사회원 가입 신청 후 <strong>관리자 승인 과정</strong>에서 권한 레벨(Level 1~3)이 최종 배정됩니다.</p>
+            </div>
             <label className="flex items-start gap-3 text-sm text-slate-600"><input type="checkbox" name="agreeTerms" checked={formData.agreeTerms} onChange={handleChange} className="mt-1" disabled={signupMutation.isPending} /><span>교사 윤리 규정과 개인정보처리방침에 동의합니다.</span></label>
             <Button type="submit" disabled={signupMutation.isPending} className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700">{signupMutation.isPending ? "가입 중..." : "교사회원 가입 신청"}<ArrowRight className="h-4 w-4" /></Button>
           </form>
