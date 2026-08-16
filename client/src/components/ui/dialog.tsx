@@ -131,7 +131,7 @@ function DialogContent({
         {...props}
       >
         {/* Ensures screen reader accessibility even when custom title is omitted */}
-        <DialogPrimitive.Title className="sr-only">대화상자</DialogPrimitive.Title>
+        <DialogPrimitive.Title className="sr-only">대화상자 안내</DialogPrimitive.Title>
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close
