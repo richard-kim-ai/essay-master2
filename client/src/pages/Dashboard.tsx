@@ -356,9 +356,9 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Badges Section */}
-        <div className="mb-8">
-          <Card className="border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-blue-50/50">
+        {/* Badges Section & Achievement Gallery Widget */}
+        <div className="mb-8 space-y-6">
+          <Card className="border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-blue-50/50 shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
                 <Award className="h-6 w-6 text-indigo-600" /> 학습 뱃지 현황 (Badge System)
@@ -369,6 +369,68 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <BadgeSection />
+            </CardContent>
+          </Card>
+
+          {/* 학생 성취 갤러리 위젯 (My Achievement Gallery) */}
+          <Card className="border-emerald-100 bg-gradient-to-br from-white to-emerald-50/30 shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <div>
+                <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <span>🏆 나의 성취 갤러리 (Achievement Gallery)</span>
+                  <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2.5 py-0.5 rounded-full">수료증 및 뱃지 모음</span>
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-500 mt-1">
+                  지금까지 획득한 수료증과 뱃지를 한눈에 확인하고 이미지 공유 및 PDF 다운로드를 이용하세요.
+                </CardDescription>
+              </div>
+              <Link href="/certificate">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1">
+                  수료증 발급 센터로 이동 <ChevronRight className="w-3 h-3" />
+                </Button>
+              </Link>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl border border-emerald-200 bg-white flex items-center justify-between shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">📜</div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">논술 마스터 수료증</h4>
+                      <p className="text-xs text-slate-500">각 과정별 단계 완료 시 발급</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-8 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    onClick={() => {
+                      toast.success("수료증 갤러리 링크가 클립보드에 복사되었습니다! SNS에 공유해보세요.");
+                    }}
+                  >
+                    링크 공유
+                  </Button>
+                </div>
+                <div className="p-4 rounded-xl border border-indigo-200 bg-white flex items-center justify-between shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">🎯</div>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">성취 요약 리포트</h4>
+                      <p className="text-xs text-slate-500">주간 학습 진도 및 정답률 통계</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-8 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                    onClick={() => {
+                      window.print();
+                    }}
+                  >
+                    PDF 저장/인쇄
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>

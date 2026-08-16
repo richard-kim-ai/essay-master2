@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { ShieldAlert, UserCheck, UserX, Search, ArrowLeft, Users, UserCog, CheckCircle, Shield, BarChart3, TrendingUp, Activity, PieChart } from "lucide-react";
+import { ShieldAlert, UserCheck, UserX, Search, ArrowLeft, Users, UserCog, CheckCircle, Shield, BarChart3, TrendingUp, Activity, PieChart, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function MasterAdminConsole() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -37,6 +38,12 @@ export default function MasterAdminConsole() {
       toast.error(err.message || "교사 승인 중 오류가 발생했습니다.");
     },
   });
+
+  // 전체 사용자 권한 일괄 조정 모달 state
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkTargetRole, setBulkTargetRole] = useState<"user" | "teacher" | "admin">("user");
+  const [bulkTargetLevel, setBulkTargetLevel] = useState<number>(1);
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
 
   const promoteUserMutation = trpc.questionBank.promoteUser.useMutation({
     onSuccess: () => {
@@ -330,6 +337,20 @@ export default function MasterAdminConsole() {
               <CardDescription>검색 및 필터를 통해 특정 사용자의 권한을 변경하거나 교사회원을 승인할 수 있습니다.</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                className="gap-2 border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                onClick={() => {
+                  if (!usersList || usersList.length === 0) {
+                    toast.error("조회된 사용자가 없습니다.");
+                    return;
+                  }
+                  setSelectedUserIds(usersList.map(u => u.id));
+                  setBulkModalOpen(true);
+                }}
+              >
+                <ShieldCheck className="h-4 w-4" /> 전체 권한 빠른 일괄 조정
+              </Button>
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                 <Input
@@ -460,6 +481,69 @@ export default function MasterAdminConsole() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 전체 사용자 권한 빠른 일괄 조정 다이얼로그 */}
+      <Dialog open={bulkModalOpen} onOpenChange={setBulkModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-indigo-600" />
+              전체 사용자 권한 및 레벨 일괄 조정
+            </DialogTitle>
+            <DialogDescription>
+              현재 조회된 사용자 총 {selectedUserIds.length}명의 권한 등급과 학습 레벨을 일괄적으로 설정합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">지정할 권한 (Role)</label>
+              <select
+                className="w-full h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
+                value={bulkTargetRole}
+                onChange={(e) => setBulkTargetRole(e.target.value as any)}
+              >
+                <option value="user">일반 학생 (User)</option>
+                <option value="teacher">첨삭 교사 (Teacher)</option>
+                <option value="admin">관리자 (Admin)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1">부여할 학습/교사 레벨</label>
+              <select
+                className="w-full h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
+                value={bulkTargetLevel}
+                onChange={(e) => setBulkTargetLevel(Number(e.target.value))}
+              >
+                <option value={1}>Level 1 (기초)</option>
+                <option value={2}>Level 2 (중급)</option>
+                <option value={3}>Level 3 (고급)</option>
+                <option value={4}>Level 4 (마스터)</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkModalOpen(false)}>취소</Button>
+            <Button
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              onClick={async () => {
+                let count = 0;
+                for (const uid of selectedUserIds) {
+                  try {
+                    await updateUserRoleMutation.mutateAsync({ userId: uid, newRole: bulkTargetRole });
+                    await promoteUserMutation.mutateAsync({ userId: uid, targetLevel: bulkTargetLevel });
+                    count++;
+                  } catch (e) {}
+                }
+                toast.success(`총 ${count}명의 사용자 권한과 레벨이 일괄 조정되었습니다.`);
+                setBulkModalOpen(false);
+                refetch();
+              }}
+            >
+              일괄 적용 실행
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
