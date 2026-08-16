@@ -1011,7 +1011,7 @@ export async function seedHighUnivAndGeneralAdultCategories() {
   const sampleGroups = [
     {
       courseType: "high_univ" as const,
-      thumbnailUrl: "/manus-storage/high-univ-essay-thumbnail_c85ddb8a.png",
+      thumbnailUrl: null,
       samples: [
         { level: 1, title: "인문·사회 제시문 심층 분석", description: "대입 수시 논술의 핵심인 다면적 제시문 비교 및 독해 능력을 기릅니다.", topics: ["제시문 공통점과 차이점 추출", "비판적 독해와 논지 재구성", "출제자의 숨은 의도 파악"] },
         { level: 2, title: "수리·과학적 사고와 논증", description: "논리적 인과관계와 확률·통계 데이터를 활용한 설득력 있는 논술 글쓰기입니다.", topics: ["도표와 통계 자료 해석", "논리적 오류 검증", "과학적 가설 검증형 논증"] },
@@ -1020,7 +1020,7 @@ export async function seedHighUnivAndGeneralAdultCategories() {
     },
     {
       courseType: "general_adult" as const,
-      thumbnailUrl: "/manus-storage/general-adult-essay-thumbnail_e32c9362.png",
+      thumbnailUrl: null,
       samples: [
         { level: 1, title: "비즈니스 기획서와 보고서 작성법", description: "직장인 필수 역량인 간결하고 명확한 비즈니스 문서 기획 및 논리 전개법입니다.", topics: ["결론 우선 두괄식 구조화", "핵심 데이터 시각화 개요", "상사 설득을 위한 기획서 작성"] },
         { level: 2, title: "논리적 설득 스피치와 논설문", description: "공식적인 석상과 이메일, 제안서에서 상대를 논리적으로 설득하는 글쓰기입니다.", topics: ["타당한 근거와 논거 배치", "반박에 대응하는 방어 논리", "설득력 있는 어휘 선택"] },

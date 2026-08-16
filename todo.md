@@ -97,3 +97,8 @@
 ## 2026-08 추가 요청: `/admin/curriculum` Dialog 접근성 오류 수정
 - [x] `AdminCurriculumManager.tsx` 내 모든 `DialogContent`의 `DialogHeader` / `DialogTitle` 일치 여부 점검
 - [x] TypeScript 타입 검사 및 Vitest 단위 테스트 실행
+## 2026-08 추가 요청: 관리자 커리큘럼 콘솔 썸네일 이미지 제거 및 통일
+- [x] 관리자 커리큘럼 관리 화면(AdminCurriculumManager.tsx) 카드 내 `thumbnailUrl` 렌더링 제거
+- [x] 관리자 추가/수정 모달에서 썸네일 이미지 입력 필드 제거
+- [x] 기본 샘플 데이터 시딩(seedDefaultCurriculumSamples) 시 `thumbnailUrl` 필드 제거하여 텍스트 중심 스타일 통일
+- [x] TypeScript 타입 검사, 단위 테스트 및 관리자 화면 검증 (스크린샷 시각 검증 완료)
