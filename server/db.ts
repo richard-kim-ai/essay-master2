@@ -247,7 +247,7 @@ export async function getDynamicCurriculumByType(courseType: "elementary" | "mid
   const rows = await db
     .select()
     .from(dynamicCurriculum)
-    .where(eq(dynamicCurriculum.courseType, courseType))
+    .where(and(eq(dynamicCurriculum.courseType, courseType), eq(dynamicCurriculum.isActive, 1)))
     .orderBy(dynamicCurriculum.level);
   return rows.map((row) => ({
     ...row,
@@ -892,8 +892,8 @@ export async function adminCreateCurriculumCategory(input: {
   title: string;
   description: string;
   topics: string[];
-  thumbnailUrl?: string;
   aiSummary?: string;
+  isActive?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
@@ -903,8 +903,8 @@ export async function adminCreateCurriculumCategory(input: {
     title: input.title.trim(),
     description: input.description.trim(),
     topicsJson: JSON.stringify(input.topics.map((topic) => topic.trim()).filter(Boolean)),
-    thumbnailUrl: input.thumbnailUrl,
     aiSummary: input.aiSummary,
+    isActive: input.isActive ?? 1,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -918,8 +918,8 @@ export async function adminUpdateCurriculumCategory(input: {
   title: string;
   description: string;
   topics: string[];
-  thumbnailUrl?: string;
   aiSummary?: string;
+  isActive?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
@@ -929,10 +929,20 @@ export async function adminUpdateCurriculumCategory(input: {
     title: input.title.trim(),
     description: input.description.trim(),
     topicsJson: JSON.stringify(input.topics.map((topic) => topic.trim()).filter(Boolean)),
-    thumbnailUrl: input.thumbnailUrl,
     aiSummary: input.aiSummary,
+    isActive: input.isActive ?? 1,
     updatedAt: new Date(),
   }).where(eq(dynamicCurriculum.id, input.id));
+  return true;
+}
+
+export async function adminToggleCurriculumActive(id: number, isActive: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(dynamicCurriculum).set({
+    isActive: isActive ? 1 : 0,
+    updatedAt: new Date(),
+  }).where(eq(dynamicCurriculum.id, id));
   return true;
 }
 

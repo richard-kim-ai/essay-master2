@@ -1,0 +1,1 @@
+ALTER TABLE `dynamic_curriculum` ADD `isActive` int DEFAULT 1 NOT NULL;

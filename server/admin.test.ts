@@ -144,4 +144,13 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     const dialogSource = readFileSync(dialogPath, "utf8");
     expect(dialogSource).toContain("DialogTitle");
   });
+
+  it("관리자 커리큘럼 화면에 필터 탭, 검색, 노출 토글, 미리보기 기능이 포함되어 있다", () => {
+    const managerPath = new URL("../client/src/pages/AdminCurriculumManager.tsx", import.meta.url);
+    const managerSource = readFileSync(managerPath, "utf8");
+    expect(managerSource).toContain("selectedCourseTab");
+    expect(managerSource).toContain("searchQuery");
+    expect(managerSource).toContain("toggleCurriculumActiveAdmin");
+    expect(managerSource).toContain("학생 화면 상세 미리보기");
+  });
 });

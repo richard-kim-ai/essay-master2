@@ -253,6 +253,7 @@ export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
   aiSummary: text("aiSummary"),
   aiTags: text("aiTags"), // JSON string array of auto-generated tags
   samplePdfUrl: varchar("samplePdfUrl", { length: 500 }),
+  isActive: int("isActive").default(1).notNull(), // 1: 활성, 0: 비활성
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

@@ -749,8 +749,8 @@ export const appRouter = router({
         title: z.string().trim().min(2).max(255),
         description: z.string().trim().min(5).max(2000),
         topics: z.array(z.string().trim().min(1).max(255)).max(20),
-        thumbnailUrl: z.string().max(500).refine((value) => value.startsWith("/manus-storage/") || /^https?:\/\//.test(value), "썸네일 URL 형식이 올바르지 않습니다.").optional(),
         aiSummary: z.string().max(500).optional(),
+        isActive: z.number().int().min(0).max(1).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
@@ -766,14 +766,22 @@ export const appRouter = router({
         title: z.string().trim().min(2).max(255),
         description: z.string().trim().min(5).max(2000),
         topics: z.array(z.string().trim().min(1).max(255)).max(20),
-        thumbnailUrl: z.string().max(500).refine((value) => value.startsWith("/manus-storage/") || /^https?:\/\//.test(value), "썸네일 URL 형식이 올바르지 않습니다.").optional(),
         aiSummary: z.string().max(500).optional(),
+        isActive: z.number().int().min(0).max(1).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
         return await db.adminUpdateCurriculumCategory(input);
+      }),
+    toggleCurriculumActiveAdmin: protectedProcedure
+      .input(z.object({ id: z.number(), isActive: z.number().int().min(0).max(1) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminToggleCurriculumActive(input.id, input.isActive);
       }),
     deleteCurriculumCategoryAdmin: protectedProcedure
       .input(z.object({ id: z.number() }))
