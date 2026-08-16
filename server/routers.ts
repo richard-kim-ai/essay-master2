@@ -735,6 +735,13 @@ export const appRouter = router({
         }
         return await db.adminDeleteCertificate(input.certificateId);
       }),
+    resetAllCertificates: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        return await db.adminResetAllCertificates();
+      }),
     getCurriculumCategoriesAdmin: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== "admin") {

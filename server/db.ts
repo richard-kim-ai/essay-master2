@@ -1191,3 +1191,10 @@ export async function linkParentAndStudent(parentId: number, studentEmail: strin
   });
   return { success: true, studentId: student.id };
 }
+
+export async function adminResetAllCertificates() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(certificate);
+  return true;
+}
