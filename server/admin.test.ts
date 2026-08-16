@@ -85,6 +85,22 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("일반/직장인 과정 진도");
   });
 
+  it("문제은행 관리자 콘솔이 정답률 통계와 AI 난이도 최적화 기능을 제공한다", () => {
+    const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
+    const source = readFileSync(adminQBankPath, "utf8");
+    expect(source).toContain("정답률 & AI 통계 보기");
+    expect(source).toContain("AI 난이도 일괄 최적화 적용");
+    expect(source).toContain("AI 추천 난이도");
+    expect(source).toContain("correctRate");
+  });
+
+  it("백엔드가 문제은행 통계 및 AI 난이도 적용 프로시저를 포함한다", () => {
+    const routersSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    expect(routersSource).toContain("questionBank: router({");
+    expect(routersSource).toContain("stats:");
+    expect(routersSource).toContain("applyAiDifficulty:");
+  });
+
   it("프로그레스 바 클릭 시 과정별 세부 모듈 상태를 확인할 수 있다", () => {
     const dashboardPath = new URL("../client/src/pages/Dashboard.tsx", import.meta.url);
     const source = readFileSync(dashboardPath, "utf8");
