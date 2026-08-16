@@ -1316,17 +1316,17 @@ export async function seedQuestionBankIfNeeded() {
 
   for (const c of courseTypes) {
     for (const t of toolTypes) {
-      // 각 과정·도구별로 10개씩 생성하면 4 * 5 * 10 = 200개 완성 (총 50개씩 나누어 채움)
-      for (let i = 1; i <= 12; i++) {
+      // 각 과정별 정확히 50문항 (5개 도구 * 10개 = 과정당 50개, 총 4과정 * 50 = 200문항)
+      for (let i = 1; i <= 10; i++) {
         await db.insert(questionBank).values({
           courseType: c,
           toolType: t,
-          title: `[${c.toUpperCase()}] ${t.toUpperCase()} 심화 문제 #${i}`,
+          title: `[${c.toUpperCase()}] ${t.toUpperCase()} 실전 문항 #${i}`,
           contentData: JSON.stringify({
-            prompt: `${c} 과정 ${t} 학습을 위한 실전 문항 #${i}`,
-            options: t === "quiz" ? ["보기 1: 올바른 문장 구조", "보기 2: 주어와 서술어 불일치", "보기 3: 띄어쓰기 오류", "보기 4: 문맥상 어색한 어휘"] : undefined,
-            answer: t === "quiz" ? "보기 1: 올바른 문장 구조" : "모범 답안 및 해설 내용",
-            explanation: `${c} 학습자의 논리적 사고력과 표현력 향상을 위한 상세 해설 #${i}`,
+            prompt: `${c} 과정 ${t} 학습을 위한 맞춤형 심화 프롬프트 #${i}`,
+            options: t === "quiz" ? ["보기 1: 올바른 논증 구조", "보기 2: 주어와 술어의 호응 오류", "보기 3: 불필요한 수식어 과다", "보기 4: 문맥 단절"] : undefined,
+            answer: t === "quiz" ? "보기 1: 올바른 논증 구조" : "모범 답안 및 핵심 키워드 해설",
+            explanation: `${c} 학습자의 사고력 증진을 위한 해설 #${i}`,
           }),
           difficulty: i % 3 === 0 ? "hard" : i % 2 === 0 ? "medium" : "easy",
           isActive: 1,

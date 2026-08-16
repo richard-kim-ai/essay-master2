@@ -699,6 +699,24 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         return await db.deleteQuestionBankItem(input.id);
       }),
+    bulkCreate: protectedProcedure
+      .input(z.object({
+        items: z.array(z.object({
+          courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+          toolType: z.string(),
+          title: z.string(),
+          contentData: z.string(),
+          difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+          isActive: z.number().optional(),
+        }))
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        for (const item of input.items) {
+          await db.createQuestionBankItem(item);
+        }
+        return { success: true, count: input.items.length };
+      }),
   }),
 
   admin: router({

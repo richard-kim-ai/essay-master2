@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { GripVertical, Check, RotateCcw, Award, Link as LinkIcon } from "lucide-react";
+import { GripVertical, Check, RotateCcw, Award } from "lucide-react";
 import { Link } from "wouter";
+import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 
 export default function ParagraphReordering() {
   const { isAuthenticated } = useAuth();
@@ -16,6 +17,8 @@ export default function ParagraphReordering() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
   const [score, setScore] = useState(0);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [earnedBadgeName, setEarnedBadgeName] = useState("");
 
   const awardBadgeMutation = trpc.badges.award.useMutation();
   const utils = trpc.useUtils();
@@ -28,6 +31,13 @@ export default function ParagraphReordering() {
           setParagraphs([...parsed.paragraphs].sort(() => Math.random() - 0.5));
           setCompleted(false);
           setScore(0);
+        } else {
+          // 기본 폴백 단락 세트
+          setParagraphs([
+            { id: "1", content: "먼저 현대 사회의 주요 쟁점을 파악한다.", correctOrder: 1 },
+            { id: "2", content: "그 다음 양측의 입장을 대조하여 분석한다.", correctOrder: 2 },
+            { id: "3", content: "종합적으로 자신의 견해를 도출한다.", correctOrder: 3 },
+          ].sort(() => Math.random() - 0.5));
         }
       } catch {
         setParagraphs([
@@ -65,10 +75,14 @@ export default function ParagraphReordering() {
     setCompleted(true);
 
     if (finalScore >= 70) {
+      const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 단락 재구성 마스터 뱃지`;
+      setEarnedBadgeName(bName);
+      setShowCelebration(true);
+
       awardBadgeMutation.mutate({
         courseType,
         badgeType: "reordering",
-        badgeName: `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 단락 재구성 마스터 뱃지`,
+        badgeName: bName,
       }, {
         onSuccess: () => {
           utils.badges.getByUser.invalidate();
@@ -82,9 +96,17 @@ export default function ParagraphReordering() {
 
   const handleReset = () => {
     if (qList && qList.length > 0) {
-      const parsed = JSON.parse(qList[0].contentData);
-      if (parsed.paragraphs) {
-        setParagraphs([...parsed.paragraphs].sort(() => Math.random() - 0.5));
+      try {
+        const parsed = JSON.parse(qList[0].contentData);
+        if (parsed.paragraphs) {
+          setParagraphs([...parsed.paragraphs].sort(() => Math.random() - 0.5));
+        }
+      } catch {
+        setParagraphs([
+          { id: "1", content: "먼저 현대 사회의 주요 쟁점을 파악한다.", correctOrder: 1 },
+          { id: "2", content: "그 다음 양측의 입장을 대조하여 분석한다.", correctOrder: 2 },
+          { id: "3", content: "종합적으로 자신의 견해를 도출한다.", correctOrder: 3 },
+        ].sort(() => Math.random() - 0.5));
       }
     }
     setCompleted(false);
@@ -147,6 +169,13 @@ export default function ParagraphReordering() {
             </div>
           </CardContent>
         </Card>
+
+        <BadgeCelebrationModal
+          isOpen={showCelebration}
+          onClose={() => setShowCelebration(false)}
+          badgeName={earnedBadgeName}
+          courseName={courseType === "elementary" ? "초등 논술" : courseType === "middle_high" ? "중고등 논술" : courseType === "high_univ" ? "고등/대입" : "일반/직장인"}
+        />
       </div>
     </div>
   );

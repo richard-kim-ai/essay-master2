@@ -4,6 +4,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { BookOpen, Loader2, AlertCircle, CheckCircle, Award } from "lucide-react";
+import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -17,6 +18,8 @@ export default function QuizPage() {
   const [submitted, setSubmitted] = useState(false);
   const [score, setScore] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [earnedBadgeName, setEarnedBadgeName] = useState("");
 
   const submitMutation = trpc.quiz.submitAnswer.useMutation();
   const awardBadgeMutation = trpc.badges.award.useMutation();
@@ -79,11 +82,14 @@ export default function QuizPage() {
       setSubmitted(false);
     } else {
       setFinished(true);
+      const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} AI 퀴즈 마스터 뱃지`;
+      setEarnedBadgeName(bName);
+      setShowCelebration(true);
       // 퀴즈 완료 시 자동 뱃지 수여
       awardBadgeMutation.mutate({
         courseType,
         badgeType: "quiz",
-        badgeName: `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} AI 퀴즈 마스터 뱃지`,
+        badgeName: bName,
       }, {
         onSuccess: () => {
           utils.badges.getByUser.invalidate();
@@ -119,6 +125,12 @@ export default function QuizPage() {
             <Button variant="outline" onClick={() => { setCurrentIndex(0); setScore(0); setFinished(false); setSubmitted(false); setSelectedAnswer(""); }}>다시 풀기</Button>
           </div>
         </div>
+        <BadgeCelebrationModal
+          isOpen={showCelebration}
+          onClose={() => setShowCelebration(false)}
+          badgeName={earnedBadgeName}
+          courseName={courseType === "elementary" ? "초등 논술" : courseType === "middle_high" ? "중고등 논술" : courseType === "high_univ" ? "고등/대입" : "일반/직장인"}
+        />
       </div>
     );
   }

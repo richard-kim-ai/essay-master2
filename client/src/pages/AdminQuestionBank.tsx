@@ -8,13 +8,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { Database, Plus, Search, Edit2, Trash2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Database, Plus, Search, Edit2, Trash2, Download, Upload, FileSpreadsheet } from "lucide-react";
 import { Link } from "wouter";
 
 export default function AdminQuestionBank() {
   const { user } = useAuth();
   const [courseFilter, setCourseFilter] = useState<string>("all");
   const [toolFilter, setToolFilter] = useState<string>("all");
+  const [difficultyFilter, setDifficultyFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   const { data: questions, isLoading, refetch } = trpc.questionBank.list.useQuery({
@@ -25,6 +26,7 @@ export default function AdminQuestionBank() {
   const createMutation = trpc.questionBank.create.useMutation();
   const updateMutation = trpc.questionBank.update.useMutation();
   const deleteMutation = trpc.questionBank.delete.useMutation();
+  const bulkCreateMutation = trpc.questionBank.bulkCreate.useMutation();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -40,8 +42,91 @@ export default function AdminQuestionBank() {
 
   const filtered = (questions || []).filter(q => {
     if (searchQuery && !q.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (difficultyFilter !== "all" && q.difficulty !== difficultyFilter) return false;
     return true;
   });
+
+  const handleDownloadCSV = () => {
+    if (!questions || questions.length === 0) {
+      toast.error("다운로드할 문항 데이터가 없습니다.");
+      return;
+    }
+    const headers = ["id", "courseType", "toolType", "title", "contentData", "difficulty", "isActive"];
+    const rows = questions.map(q => [
+      q.id,
+      q.courseType,
+      q.toolType,
+      `"${q.title.replace(/"/g, '""')}"`,
+      `"${q.contentData.replace(/"/g, '""').replace(/\n/g, '\\n')}"`,
+      q.difficulty,
+      q.isActive
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `question_bank_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("문제은행 CSV 파일이 성공적으로 다운로드되었습니다.");
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split("\n").filter(l => l.trim().length > 0);
+        if (lines.length < 2) {
+          toast.error("업로드된 파일에 유효한 데이터가 없습니다.");
+          return;
+        }
+
+        const items: any[] = [];
+        // 첫 줄 헤더 제외
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          // 간단한 CSV 파서 (쌍따옴표 고려)
+          const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          if (parts.length >= 6) {
+            const courseType = parts[1]?.replace(/"/g, '').trim() as any || "elementary";
+            const toolType = parts[2]?.replace(/"/g, '').trim() || "quiz";
+            const title = parts[3]?.replace(/"/g, '').trim() || "업로드된 문항";
+            let contentData = parts[4]?.replace(/"/g, '').trim() || "{}";
+            contentData = contentData.replace(/\\n/g, '\n');
+            const difficulty = (parts[5]?.replace(/"/g, '').trim() || "medium") as any;
+
+            items.push({
+              courseType: ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) ? courseType : "elementary",
+              toolType,
+              title,
+              contentData,
+              difficulty: ["easy", "medium", "hard"].includes(difficulty) ? difficulty : "medium",
+              isActive: 1,
+            });
+          }
+        }
+
+        if (items.length === 0) {
+          toast.error("가져올 수 있는 유효한 문항이 없습니다.");
+          return;
+        }
+
+        await bulkCreateMutation.mutateAsync({ items });
+        toast.success(`총 ${items.length}개의 문항이 문제은행에 일괄 등록되었습니다.`);
+        refetch();
+      } catch (err: any) {
+        toast.error("CSV 파일 파싱 중 오류가 발생했습니다: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
 
   const handleOpenCreate = () => {
     setEditingId(null);
@@ -128,19 +213,32 @@ export default function AdminQuestionBank() {
               <Database className="h-8 w-8 text-indigo-600" /> 문제은행 관리 콘솔
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              초등·중고등·고등/대입·일반/직장인 4대 과정별 200개 이상의 학습 문항(퀴즈, 요약, 단락 재구성 등)을 관리하고 랜덤 출제 풀을 조율합니다.
+              초등·중고등·고등/대입·일반/직장인 4대 과정별 문항을 조회, 등록, 수정하며 CSV 대량 업로드 및 다운로드를 관리합니다.
             </p>
           </div>
-          <Button onClick={handleOpenCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shrink-0">
-            <Plus className="h-4 w-4" /> 신규 문제 등록
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="outline" onClick={handleDownloadCSV} className="gap-2 text-slate-700">
+              <Download className="h-4 w-4" /> CSV 다운로드
+            </Button>
+            <label className="cursor-pointer">
+              <Button variant="outline" className="gap-2 text-indigo-600 border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100" asChild>
+                <span>
+                  <Upload className="h-4 w-4" /> CSV 대량 업로드
+                </span>
+              </Button>
+              <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+            </label>
+            <Button onClick={handleOpenCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
+              <Plus className="h-4 w-4" /> 신규 등록
+            </Button>
+          </div>
         </div>
 
         {/* Filters */}
         <Card className="border-slate-200 shadow-sm">
           <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-center justify-between">
             <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
-              <div className="relative flex-1 md:w-64">
+              <div className="relative flex-1 md:w-60">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                 <Input
                   placeholder="문제 제목 검색..."
@@ -172,9 +270,19 @@ export default function AdminQuestionBank() {
                 <option value="topic_wizard">주제 위저드</option>
                 <option value="thesis_checklist">주제문 체크리스트</option>
               </select>
+              <select
+                value={difficultyFilter}
+                onChange={e => setDifficultyFilter(e.target.value)}
+                className="px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-700"
+              >
+                <option value="all">모든 난이도</option>
+                <option value="easy">초급 (easy)</option>
+                <option value="medium">중급 (medium)</option>
+                <option value="hard">고급 (hard)</option>
+              </select>
             </div>
             <div className="text-sm text-slate-500 shrink-0">
-              총 <span className="font-bold text-indigo-600">{filtered.length}</span>개의 문항 검색됨
+              필터 결과: <span className="font-bold text-indigo-600">{filtered.length}</span>문항
             </div>
           </CardContent>
         </Card>
@@ -184,7 +292,7 @@ export default function AdminQuestionBank() {
           {isLoading ? (
             <div className="p-12 text-center text-slate-500">문제은행 데이터를 불러오는 중입니다...</div>
           ) : filtered.length === 0 ? (
-            <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200">등록된 문제가 없습니다.</div>
+            <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200">조건에 일치하는 문항이 없습니다.</div>
           ) : (
             filtered.map((q) => (
               <div key={q.id} className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">

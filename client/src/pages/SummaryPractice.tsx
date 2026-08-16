@@ -7,6 +7,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { BookOpen, Send, RotateCcw, CheckCircle2, Award } from "lucide-react";
 import { Link } from "wouter";
+import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 
 export default function SummaryPractice() {
   const { isAuthenticated } = useAuth();
@@ -18,6 +19,8 @@ export default function SummaryPractice() {
   const [summary, setSummary] = useState("");
   const [feedback, setFeedback] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [earnedBadgeName, setEarnedBadgeName] = useState("");
 
   const awardBadgeMutation = trpc.badges.award.useMutation();
   const utils = trpc.useUtils();
@@ -58,10 +61,14 @@ export default function SummaryPractice() {
       setIsAnalyzing(false);
       toast.success("요약 분석이 완료되었습니다!");
 
+      const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 요약 전문가 뱃지`;
+      setEarnedBadgeName(bName);
+      setShowCelebration(true);
+
       awardBadgeMutation.mutate({
         courseType,
         badgeType: "summary",
-        badgeName: `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 요약 전문가 뱃지`,
+        badgeName: bName,
       }, {
         onSuccess: () => {
           utils.badges.getByUser.invalidate();
@@ -128,6 +135,13 @@ export default function SummaryPractice() {
             </div>
           </CardContent>
         </Card>
+
+        <BadgeCelebrationModal
+          isOpen={showCelebration}
+          onClose={() => setShowCelebration(false)}
+          badgeName={earnedBadgeName}
+          courseName={courseType === "elementary" ? "초등 논술" : courseType === "middle_high" ? "중고등 논술" : courseType === "high_univ" ? "고등/대입" : "일반/직장인"}
+        />
       </div>
     </div>
   );
