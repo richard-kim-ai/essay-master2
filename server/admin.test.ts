@@ -132,4 +132,10 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(compareSource).toContain("renderHighlightedDiff");
     expect(compareSource).toContain("하이라이트 켜짐");
   });
+
+  it("관리자 커리큘럼 운영 안내 문구가 부드러운 강조 표현으로 수정되어 있다", () => {
+    const managerPath = new URL("../client/src/pages/AdminCurriculumManager.tsx", import.meta.url);
+    const managerSource = readFileSync(managerPath, "utf8");
+    expect(managerSource).toContain("부드러운 강조 배경 효과로 즉시 안내됩니다");
+  });
 });

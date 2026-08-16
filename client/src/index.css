@@ -192,3 +192,28 @@
 @media print {
   .curriculum-order-highlight { animation: none; }
 }
+
+@keyframes curriculumHighlightPulse {
+  0% {
+    background-color: rgb(238 242 255);
+    border-color: rgb(129 140 248);
+    transform: scale(1.01);
+    box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.2);
+  }
+  50% {
+    background-color: rgb(224 231 255);
+    border-color: rgb(99 102, 241);
+    transform: scale(1.01);
+    box-shadow: 0 15px 30px -5px rgba(99, 102, 241, 0.3);
+  }
+  100% {
+    background-color: rgb(255 255 255);
+    border-color: rgb(226 232 240);
+    transform: scale(1);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  }
+}
+
+.curriculum-order-highlight {
+  animation: curriculumHighlightPulse 1.2s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
