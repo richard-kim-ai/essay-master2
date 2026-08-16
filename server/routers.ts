@@ -717,6 +717,16 @@ export const appRouter = router({
         }
         return { success: true, count: input.items.length };
       }),
+    stats: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await db.getQuestionBankStats();
+    }),
+    applyAiDifficulty: protectedProcedure
+      .input(z.object({ id: z.number(), difficulty: z.enum(["easy", "medium", "hard"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.updateQuestionBankItem(input.id, { difficulty: input.difficulty });
+      }),
   }),
 
   admin: router({
