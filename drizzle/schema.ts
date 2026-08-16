@@ -24,6 +24,7 @@ export const users = mysqlTable("users", {
   passwordResetTokenExpiresAt: timestamp("passwordResetTokenExpiresAt"),
   role: mysqlEnum("role", ["user", "teacher", "admin"]).default("user").notNull(),
   teacherLevel: int("teacherLevel").default(1), // 1: 주니어 첨삭교사, 2: 시니어 첨삭교사, 3: 수석 교사(커리큘럼/반 관리)
+  teacherStatus: mysqlEnum("teacherStatus", ["pending", "approved", "rejected"]).default("approved").notNull(), // 교사 가입 승인 상태
   teacherId: int("teacherId"), // 학생이 배정된 담당 교사 ID
   adminNotes: text("adminNotes"),
   tag: varchar("tag", { length: 64 }).default("일반").notNull(),

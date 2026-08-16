@@ -680,6 +680,15 @@ export const appRouter = router({
         }
         return await db.updateUsersTag(input.studentIds, input.tag);
       }),
+    updateTeacherStatus: protectedProcedure
+      .input(z.object({ userId: z.number(), teacherStatus: z.enum(["pending", "approved", "rejected"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        }
+        await db.updateTeacherStatus(input.userId, input.teacherStatus);
+        return { success: true } as const;
+      }),
     getAllCertificatesAdmin: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== "admin") {

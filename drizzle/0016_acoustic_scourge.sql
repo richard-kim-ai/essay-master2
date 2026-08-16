@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `teacherStatus` enum('pending','approved','rejected') DEFAULT 'approved' NOT NULL;

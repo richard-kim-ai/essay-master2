@@ -6,12 +6,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock } from "lucide-react";
+import { GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock, ArrowUpDown, AlertCircle, ShieldAlert } from "lucide-react";
 import { Link } from "wouter";
 
 export default function TeacherMyPage() {
   const { user, isAuthenticated } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"recent" | "name" | "joined">("recent");
 
   const { data: adminStats, isLoading } = trpc.admin.getAnalytics.useQuery(undefined, {
     enabled: isAuthenticated && (user?.role === "teacher" || user?.role === "admin"),
@@ -32,6 +33,27 @@ export default function TeacherMyPage() {
     );
   }
 
+  // 승인 대기 상태 검증 (관리자는 항상 통과, 교사는 teacherStatus가 approved여야 함)
+  const isTeacherApproved = user.role === "admin" || (user as any).teacherStatus === "approved" || !(user as any).teacherStatus;
+
+  if (!isTeacherApproved) {
+    return (
+      <div className="mx-auto max-w-xl py-20 px-4 text-center">
+        <Card className="border-amber-200 bg-amber-50/50 p-8 shadow-md">
+          <ShieldAlert className="mx-auto h-16 w-16 text-amber-600 animate-pulse" />
+          <h1 className="mt-4 text-2xl font-bold text-slate-900">교사 계정 승인 대기 중입니다</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            현재 회원가입 신청이 완료되어 관리자의 검토 및 승인을 기다리고 있습니다. 승인이 완료되면 교사 마이페이지 및 학생 지도 기능이 활성화됩니다.
+          </p>
+          <div className="mt-6 flex justify-center gap-4">
+            <Link href="/"><Button variant="outline">홈으로 돌아가기</Button></Link>
+            <Button onClick={() => window.location.reload()} className="bg-amber-600 text-white hover:bg-amber-700">승인 상태 새로고침</Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   const teacherLevelNames: Record<number, string> = {
     1: "주니어 첨삭교사 (문장/단락 코멘트 권한)",
     2: "시니어 첨삭교사 (종합 평가 및 성취도 관리)",
@@ -40,7 +62,18 @@ export default function TeacherMyPage() {
 
   const usersList = Array.isArray(adminStats?.users) ? adminStats.users : ((adminStats?.users as any)?.users || []);
   const students = usersList.filter((u: any) => u.role === "user");
-  const filteredStudents = students.filter((s: any) => (s.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || (s.email || "").toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const filteredStudents = students
+    .filter((s: any) => (s.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || (s.email || "").toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a: any, b: any) => {
+      if (sortBy === "recent") {
+        return new Date(b.lastSignedIn || 0).getTime() - new Date(a.lastSignedIn || 0).getTime();
+      } else if (sortBy === "joined") {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      } else {
+        return (a.name || "").localeCompare(b.name || "");
+      }
+    });
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
@@ -50,6 +83,7 @@ export default function TeacherMyPage() {
             <div className="flex items-center gap-2">
               <Badge className="bg-white/20 text-white hover:bg-white/30">교사 포털</Badge>
               <span className="text-xs text-indigo-200">Level {user.teacherLevel || 1} 권한</span>
+              <Badge className="bg-emerald-500 text-white">승인 완료</Badge>
             </div>
             <h1 className="mt-2 text-3xl font-bold">{user.name || "선생님"} 교사 마이페이지</h1>
             <p className="mt-1 text-sm text-indigo-100">{teacherLevelNames[user.teacherLevel || 1]}</p>
@@ -76,7 +110,7 @@ export default function TeacherMyPage() {
 
         <Tabs defaultValue="students" className="space-y-6">
           <TabsList className="bg-white p-1 shadow-sm">
-            <TabsTrigger value="students" className="gap-2"><Users className="h-4 w-4" /> 지도 학생 목록</TabsTrigger>
+            <TabsTrigger value="students" className="gap-2"><Users className="h-4 w-4" /> 지도 학생 목록 및 정렬</TabsTrigger>
             <TabsTrigger value="guidelines" className="gap-2"><Award className="h-4 w-4" /> 교사 첨삭 가이드</TabsTrigger>
           </TabsList>
 
@@ -86,11 +120,22 @@ export default function TeacherMyPage() {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle>지도 학생 관리 목록</CardTitle>
-                    <CardDescription>담당 학생들의 가입일, 최근 접속일, 학습 진도를 한눈에 파악하고 개별 지도를 관리하세요.</CardDescription>
+                    <CardDescription>담당 학생들의 가입일, 최근 접속일 기준으로 정렬하고 검색하여 개별 지도를 관리하세요.</CardDescription>
                   </div>
-                  <div className="relative w-full sm:w-72">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input placeholder="학생 이름 또는 이메일 검색..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
+                      <ArrowUpDown className="h-3.5 w-3.5 text-slate-500" />
+                      <span>정렬:</span>
+                      <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="bg-transparent font-semibold text-indigo-600 outline-none">
+                        <option value="recent">최근 접속일순</option>
+                        <option value="joined">최근 가입일순</option>
+                        <option value="name">이름순 (가나다)</option>
+                      </select>
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                      <Input placeholder="학생 이름 또는 이메일 검색..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9 text-sm" />
+                    </div>
                   </div>
                 </div>
               </CardHeader>
@@ -107,7 +152,7 @@ export default function TeacherMyPage() {
                           <th className="p-3">학생명</th>
                           <th className="p-3">이메일</th>
                           <th className="p-3">가입일</th>
-                          <th className="p-3">최근 접속</th>
+                          <th className="p-3">최근 접속일</th>
                           <th className="p-3 text-right">관리</th>
                         </tr>
                       </thead>

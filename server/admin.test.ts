@@ -122,5 +122,14 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(signupSource).toContain("teacherLevel");
     expect(mypageSource).toContain("교사 마이페이지");
     expect(mypageSource).toContain("지도 학생 관리 목록");
+    expect(mypageSource).toContain("승인 대기");
+    expect(mypageSource).toContain("최근 접속일순");
+  });
+
+  it("AI 답안 비교 뷰에 변경점 하이라이트 기능이 포함되어 있다", () => {
+    const comparePath = new URL("../client/src/pages/AIFeedbackCompare.tsx", import.meta.url);
+    const compareSource = readFileSync(comparePath, "utf8");
+    expect(compareSource).toContain("renderHighlightedDiff");
+    expect(compareSource).toContain("하이라이트 켜짐");
   });
 });

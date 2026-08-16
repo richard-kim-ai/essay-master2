@@ -125,6 +125,13 @@ export async function updateUserEmailVerified(userId: number) {
   await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, userId));
 }
 
+export async function updateTeacherStatus(userId: number, teacherStatus: "pending" | "approved" | "rejected") {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(users).set({ teacherStatus }).where(eq(users.id, userId));
+}
+
 export async function updateUserPassword(userId: number, passwordHash: string) {
   const db = await getDb();
   if (!db) return;
@@ -605,9 +612,12 @@ export async function createEmailUser(input: {
   verificationTokenExpiresAt?: Date | null;
   role?: "user" | "teacher" | "admin";
   teacherLevel?: number;
+  teacherStatus?: "pending" | "approved" | "rejected";
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  const role = input.role ?? "user";
+  const teacherStatus = role === "teacher" ? (input.teacherStatus ?? "pending") : "approved";
   await db.insert(users).values({
     openId: input.openId,
     name: input.name ?? null,
@@ -617,8 +627,9 @@ export async function createEmailUser(input: {
     emailVerifiedAt: input.emailVerifiedAt ?? null,
     verificationTokenHash: input.verificationTokenHash ?? null,
     verificationTokenExpiresAt: input.verificationTokenExpiresAt ?? null,
-    role: input.role ?? "user",
+    role,
     teacherLevel: input.teacherLevel ?? 1,
+    teacherStatus,
     lastSignedIn: new Date(),
   });
   return getUserByOpenId(input.openId);
@@ -718,6 +729,8 @@ export async function getAllUsersStats() {
       name: u.name,
       email: u.email,
       role: u.role,
+      teacherLevel: u.teacherLevel,
+      teacherStatus: u.teacherStatus,
       loginMethod: u.loginMethod,
       createdAt: u.createdAt,
       lastSignedIn: u.lastSignedIn,
