@@ -347,7 +347,9 @@ export default function Certificate() {
                           onClick={() => {
                             const shareUrl = `${window.location.origin}/certificate?cert=${cert.certNumber || cert.id}`;
                             navigator.clipboard.writeText(shareUrl);
-                            toast.success("수료증 고유 링크가 클립보드에 복사되었습니다!");
+                            toast.success("클립보드에 복사되었습니다", {
+                              description: "소셜 미디어나 메신저에 붙여넣어 수료증을 공유하세요.",
+                            });
                           }}
                         >
                           <Link2 className="w-3 h-3 text-indigo-600" /> 링크 복사
