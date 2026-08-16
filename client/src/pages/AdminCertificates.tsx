@@ -80,7 +80,9 @@ export default function AdminCertificates() {
   });
   const revokeMutation = trpc.admin.revokeCertificateAdmin.useMutation({
     onSuccess: () => {
-      toast.success("수료증 발행을 취소했습니다.");
+      toast.success("성공적으로 수료증 발행이 취소 처리되었습니다.", {
+        description: "학생용 목록과 공유 링크에서 해당 증서가 비활성화되었습니다.",
+      });
       setRevokeTarget(null);
       setRevokeReason("");
       utils.admin.getAllCertificatesAdmin.invalidate();
@@ -250,14 +252,27 @@ export default function AdminCertificates() {
         <DialogContent className="sm:max-w-md p-6 space-y-4">
           <DialogHeader>
             <DialogTitle>수료증 발행취소</DialogTitle>
-            <DialogDescription>발행취소하면 학생용 목록과 공유 링크에서 유효한 증서로 표시되지 않습니다. 사유는 필수입니다.</DialogDescription>
+            <DialogDescription>발행취소하면 학생용 목록과 공유 링크에서 유효한 증서로 표시되지 않습니다. 사유를 선택하거나 직접 입력하세요.</DialogDescription>
           </DialogHeader>
-          <div className="py-2">
-            <Textarea className="min-h-[100px] w-full" placeholder="발행취소 사유를 입력하세요 (최소 2자 이상)" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} />
+          <div className="space-y-3 py-1">
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-xs font-semibold text-slate-500 w-full mb-1">빠른 사유 선택 프리셋</span>
+              {["조건 미달", "중복 발급", "오발급 정정", "학습자 요청", "관리자 직권 취소"].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setRevokeReason(preset)}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition ${revokeReason === preset ? "bg-rose-600 text-white border-rose-600 shadow-xs" : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"}`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+            <Textarea className="min-h-[90px] w-full mt-2" placeholder="발행취소 사유를 직접 입력하거나 위 프리셋을 선택하세요" value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} />
           </div>
           <DialogFooter className="flex items-center justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setRevokeTarget(null)}>돌아가기</Button>
-            <Button className="bg-rose-600 text-white hover:bg-rose-700" disabled={revokeMutation.isPending || revokeReason.trim().length < 2} onClick={() => revokeTarget && revokeMutation.mutate({ certificateId: revokeTarget, reason: revokeReason.trim() })}>
+            <Button className="bg-rose-600 text-white hover:bg-rose-700 shadow-sm" disabled={revokeMutation.isPending || revokeReason.trim().length < 2} onClick={() => revokeTarget && revokeMutation.mutate({ certificateId: revokeTarget, reason: revokeReason.trim() })}>
               {revokeMutation.isPending ? "취소 처리 중..." : "발행취소 확정"}
             </Button>
           </DialogFooter>
