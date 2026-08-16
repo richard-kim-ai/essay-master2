@@ -151,6 +151,8 @@ export const certificate = mysqlTable("certificate", {
   courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
   level: int("level"),
   certificateType: mysqlEnum("certificateType", ["level_certificate", "graduation_certificate"]).notNull(),
+  certNumber: varchar("certNumber", { length: 64 }),
+  title: varchar("title", { length: 255 }),
   shareToken: varchar("shareToken", { length: 64 }).unique(),
   pdfUrl: text("pdfUrl"),
   status: mysqlEnum("status", ["active", "revoked"]).default("active").notNull(),

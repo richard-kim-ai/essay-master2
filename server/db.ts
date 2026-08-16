@@ -379,7 +379,15 @@ export async function issueCertificate(input: {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
 
-  const [result] = await db.insert(certificate).values(input);
+  const courseNameKo = input.courseType === "elementary" ? "초등 논술 과정" : input.courseType === "middle_high" ? "중고등 논술 과정" : input.courseType === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정";
+  const title = `${courseNameKo} Level ${input.level || 1} 수료증`;
+  const certNumber = `CERT-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+  const [result] = await db.insert(certificate).values({
+    ...input,
+    title,
+    certNumber,
+  });
   return result;
 }
 

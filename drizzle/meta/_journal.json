@@ -176,6 +176,13 @@
       "when": 1786890190304,
       "tag": "0024_petite_screwball",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1786891944632,
+      "tag": "0025_simple_lilandra",
+      "breakpoints": true
     }
   ]
 }
