@@ -1,13 +1,3 @@
-import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { trpc } from "@/lib/trpc";
-import { Link, useRoute } from "wouter";
-import { BookOpen, Loader2, CheckCircle, ArrowRight } from "lucide-react";
-import { useState, useEffect } from "react";
-import { toast } from "sonner";
-
 const WORKBOOK_CONTENT = {
   elementary: {
     1: {
@@ -81,216 +71,30 @@ const WORKBOOK_CONTENT = {
       ],
     },
   },
+  high_univ: {
+    1: {
+      title: "Level 1: 대학별 논술 유형 분석",
+      lessons: [
+        {
+          id: 1,
+          title: "인문·사회계열 제시문 비교 분석",
+          content: "공통 주제에 대한 입장 차이를 비교하고 도표와 통계 자료를 해석하는 역량을 배양합니다.",
+          example: "예시: 두 제시문의 개인주의 관점 비교 및 비판적 평가",
+        },
+      ],
+    },
+  },
+  general_adult: {
+    1: {
+      title: "Level 1: 비즈니스 설득 글쓰기",
+      lessons: [
+        {
+          id: 1,
+          title: "보고서 및 기획서 핵심 요약",
+          content: "복잡한 업무 데이터를 간결하고 명확한 구조로 요약하여 의사결정자를 설득하는 글쓰기입니다.",
+          example: "예시: 1페이지 기획서(One-page Proposal) 구조화 실습",
+        },
+      ],
+    },
+  },
 };
-
-export default function Workbook() {
-  const { user, isAuthenticated } = useAuth();
-  const [match, params] = useRoute("/workbook/:courseType/:level");
-  const courseType = (params?.courseType as "elementary" | "middle_high") || "elementary";
-  const level = params?.level ? parseInt(params.level) : 1;
-
-  const [currentLesson, setCurrentLesson] = useState(0);
-  const [completedLessons, setCompletedLessons] = useState<number[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const progressMutation = trpc.progress.upsert.useMutation();
-
-  if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
-  }
-
-  const workbookData = WORKBOOK_CONTENT[courseType]?.[level as keyof typeof WORKBOOK_CONTENT[typeof courseType]] as any;
-  if (!workbookData) {
-    return (
-      <div className="min-h-screen bg-gray-50 py-12 text-center">
-        <p className="text-gray-600">해당 워크북을 찾을 수 없습니다.</p>
-      </div>
-    );
-  }
-
-  const lesson = workbookData.lessons[currentLesson];
-
-  const handleCompleteLesson = async () => {
-    setLoading(true);
-    try {
-      if (!completedLessons.includes(currentLesson)) {
-        setCompletedLessons([...completedLessons, currentLesson]);
-      }
-
-      // 진도 저장
-      const progress = Math.round(
-        ((completedLessons.length + 1) / workbookData.lessons.length) * 100
-      );
-      await progressMutation.mutateAsync({
-        curriculumId: level,
-        score: 100,
-        completed: progress,
-      });
-
-      if (currentLesson < workbookData.lessons.length - 1) {
-        setCurrentLesson(currentLesson + 1);
-        toast.success("다음 레슨으로 이동합니다.");
-      } else {
-        toast.success("모든 레슨을 완료했습니다!");
-      }
-    } catch (error) {
-      console.error("Error completing lesson:", error);
-      toast.error("진도 저장 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <Link href="/curriculum">
-            <span className="text-indigo-600 hover:text-indigo-700 cursor-pointer">
-              ← 커리큘럼으로 돌아가기
-            </span>
-          </Link>
-        </div>
-
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">{workbookData.title}</h1>
-        <p className="text-gray-600 mb-8">
-          진도: {completedLessons.length + 1} / {workbookData.lessons.length}
-        </p>
-
-        <div className="grid lg:grid-cols-4 gap-8">
-          {/* Lesson List */}
-          <div className="lg:col-span-1">
-            <Card>
-              <CardHeader>
-                <CardTitle>레슨 목록</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {workbookData.lessons.map((l: any, idx: number) => (
-                  <button
-                    key={l.id}
-                    onClick={() => setCurrentLesson(idx)}
-                    className={`w-full text-left p-3 rounded-lg border transition-colors flex items-center gap-2 ${
-                      currentLesson === idx
-                        ? "bg-indigo-50 border-indigo-300"
-                        : "bg-white border-gray-200 hover:bg-gray-50"
-                    }`}
-                  >
-                    {completedLessons.includes(idx) && (
-                      <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    )}
-                    <span className="text-sm font-medium truncate">
-                      {idx + 1}. {l.title}
-                    </span>
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Lesson Content */}
-          <div className="lg:col-span-3 space-y-6">
-            {lesson && (
-              <>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{lesson.title}</CardTitle>
-                    <CardDescription>
-                      레슨 {currentLesson + 1} / {workbookData.lessons.length}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    {/* Content */}
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                        설명
-                      </h3>
-                      <p className="text-gray-700 leading-relaxed">
-                        {lesson.content}
-                      </p>
-                    </div>
-
-                    {/* Example */}
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                        예시
-                      </h3>
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                        <p className="text-gray-700">{lesson.example}</p>
-                      </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-gray-700">
-                          학습 진도
-                        </span>
-                        <span className="text-sm text-gray-600">
-                          {Math.round(
-                            ((completedLessons.length + 1) /
-                              workbookData.lessons.length) *
-                              100
-                          )}
-                          %
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-indigo-600 h-2 rounded-full transition-all"
-                          style={{
-                            width: `${
-                              ((completedLessons.length + 1) /
-                                workbookData.lessons.length) *
-                              100
-                            }%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex gap-3 pt-4">
-                      <Button
-                        onClick={() =>
-                          setCurrentLesson(Math.max(0, currentLesson - 1))
-                        }
-                        disabled={currentLesson === 0}
-                        variant="outline"
-                        className="flex-1"
-                      >
-                        이전
-                      </Button>
-                      <Button
-                        onClick={handleCompleteLesson}
-                        disabled={loading || completedLessons.includes(currentLesson)}
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-700"
-                      >
-                        {loading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            저장 중...
-                          </>
-                        ) : completedLessons.includes(currentLesson) ? (
-                          <>
-                            <CheckCircle className="w-4 h-4 mr-2" />
-                            완료됨
-                          </>
-                        ) : (
-                          <>
-                            완료하기
-                            <ArrowRight className="w-4 h-4 ml-2" />
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
