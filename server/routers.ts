@@ -772,6 +772,18 @@ export const appRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       return await db.getAllQuestionFeedbacks();
     }),
+    updateFeedback: protectedProcedure
+      .input(z.object({ feedbackId: z.number(), adminReply: z.string().optional(), status: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.updateQuestionFeedbackAdmin(input.feedbackId, { adminReply: input.adminReply, status: input.status });
+      }),
+    deleteFeedback: protectedProcedure
+      .input(z.object({ feedbackId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.deleteQuestionFeedback(input.feedbackId);
+      }),
     gradeEssay: protectedProcedure
       .input(z.object({ questionId: z.number(), userAnswer: z.string() }))
       .mutation(async ({ ctx, input }) => {

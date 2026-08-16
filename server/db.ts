@@ -1739,3 +1739,22 @@ export async function promoteUserLevel(userId: number, targetLevel: number) {
   await db.update(users).set({ teacherLevel: targetLevel }).where(eq(users.id, userId));
   return { success: true, newLevel: targetLevel };
 }
+
+export async function updateQuestionFeedbackAdmin(feedbackId: number, data: { adminReply?: string; status?: string }) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.update(questionFeedbacks)
+    .set({
+      ...(data.adminReply !== undefined ? { adminReply: data.adminReply } : {}),
+      ...(data.status !== undefined ? { status: data.status } : {}),
+    })
+    .where(eq(questionFeedbacks.id, feedbackId));
+  return { success: true };
+}
+
+export async function deleteQuestionFeedback(feedbackId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.delete(questionFeedbacks).where(eq(questionFeedbacks.id, feedbackId));
+  return { success: true };
+}

@@ -37,6 +37,7 @@ export default function AdminQuestionBank() {
     courseType: courseFilter === "all" ? undefined : courseFilter,
     toolType: toolFilter === "all" ? undefined : toolFilter,
   });
+  const utils = trpc.useUtils();
 
   const { data: statsData, refetch: refetchStats } = trpc.questionBank.stats.useQuery();
   const { data: trendData } = trpc.questionBank.trendStats.useQuery({ period: trendPeriod });
@@ -52,6 +53,11 @@ export default function AdminQuestionBank() {
   const bulkCreateMutation = trpc.questionBank.bulkCreate.useMutation();
   const applyAiDiffMutation = trpc.questionBank.applyAiDifficulty.useMutation();
   const previewAiQuestionsMutation = trpc.questionBank.previewAiQuestions.useMutation();
+  const updateFeedbackMutation = trpc.questionBank.updateFeedback.useMutation();
+  const deleteFeedbackMutation = trpc.questionBank.deleteFeedback.useMutation();
+
+  const [editingFeedbackId, setEditingFeedbackId] = useState<number | null>(null);
+  const [adminReplyText, setAdminReplyText] = useState("");
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -482,42 +488,124 @@ export default function AdminQuestionBank() {
                   <ShieldAlert className="w-5 h-5 text-rose-600" /> 문항별 사용자 피드백 및 오류 신고 모니터링
                 </CardTitle>
                 <CardDescription>
-                  학습자들이 각 문제 하단에서 제출한 도움 여부 평가와 오류 신고 내용을 확인하고 신속하게 정정할 수 있습니다.
+                  학습자들이 제출한 피드백과 오류 신고를 확인하고, 관리자 정정 답변 등록 및 문제은행 직접 수정을 통해 즉시 정정할 수 있습니다.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {questionsWithStats.filter(q => q.helpfulCount > 0 || q.reportCount > 0).length === 0 ? (
+                {!allFeedbacks || allFeedbacks.length === 0 ? (
                   <div className="p-12 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                     아직 수집된 사용자 피드백이나 오류 신고 내역이 없습니다.
                   </div>
                 ) : (
-                  questionsWithStats.filter(q => q.helpfulCount > 0 || q.reportCount > 0).map(q => (
-                    <div key={q.id} className="p-4 bg-white border border-slate-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full uppercase">
-                            {q.toolType}
-                          </span>
-                          <span className="text-xs text-slate-500">문항 ID: #{q.id}</span>
-                        </div>
-                        <h4 className="font-bold text-slate-900 text-base">{q.title}</h4>
-                        <div className="flex items-center gap-4 mt-2 text-xs">
-                          <span className="text-emerald-700 font-semibold">도움됨: {q.helpfulCount}명</span>
-                          <span className={q.reportCount > 0 ? "text-rose-600 font-bold" : "text-slate-400"}>
-                            오류 신고: {q.reportCount}건
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        {q.feedbacks.filter(f => f.reportType && f.reportType !== "none").map((fb, idx) => (
-                          <div key={idx} className="p-3 bg-rose-50 border border-rose-100 rounded-lg text-xs text-rose-900">
-                            <span className="font-bold uppercase">[{fb.reportType}]</span> {fb.comment || "상세 내용 없음"}
+                  allFeedbacks.map((fb: any) => {
+                    const matchedQ = questions?.find(item => item.id === fb.questionId);
+                    return (
+                      <div key={fb.id} className="p-4 bg-white border border-slate-200 rounded-xl space-y-3">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full uppercase">
+                              문항 ID #{fb.questionId}
+                            </span>
+                            <span className={`px-2 py-0.5 text-xs font-bold rounded ${fb.isHelpful === 1 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                              {fb.isHelpful === 1 ? "도움됨" : "아쉬움 / 오류"}
+                            </span>
+                            {fb.reportType && fb.reportType !== "none" && (
+                              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-xs font-bold rounded">
+                                신고유형: {fb.reportType}
+                              </span>
+                            )}
+                            <span className="text-xs text-slate-400">{new Date(fb.createdAt).toLocaleString()}</span>
                           </div>
-                        ))}
+                          <div className="flex items-center gap-2">
+                            {matchedQ && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                onClick={() => handleOpenEdit(matchedQ)}
+                              >
+                                <Edit2 className="w-3.5 h-3.5 mr-1" /> 문제은행 직접 수정
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs border-rose-200 text-rose-600 hover:bg-rose-50"
+                              onClick={async () => {
+                                if (confirm("이 피드백 내역을 삭제하시겠습니까?")) {
+                                  await deleteFeedbackMutation.mutateAsync({ feedbackId: fb.id });
+                                  toast.success("피드백이 삭제되었습니다.");
+                                  utils.questionBank.invalidate();
+                                }
+                              }}
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-1" /> 삭제
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{matchedQ ? matchedQ.title : `알 수 없는 문항 (ID: ${fb.questionId})`}</p>
+                          <p className="text-xs text-slate-600 mt-1 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                            <strong>학습자 의견:</strong> {fb.comment || "내용 없음"}
+                          </p>
+                        </div>
+
+                        {/* Admin Reply & Status */}
+                        <div className="pt-2 border-t border-slate-100 flex flex-col md:flex-row gap-2 items-center">
+                          {editingFeedbackId === fb.id ? (
+                            <div className="flex-1 w-full space-y-2">
+                              <Input
+                                placeholder="관리자 정정 답변 입력..."
+                                value={adminReplyText}
+                                onChange={e => setAdminReplyText(e.target.value)}
+                                className="text-xs"
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  className="bg-indigo-600 text-white h-7 text-xs"
+                                  onClick={async () => {
+                                    await updateFeedbackMutation.mutateAsync({ feedbackId: fb.id, adminReply: adminReplyText, status: "resolved" });
+                                    toast.success("관리자 정정 답변이 저장되었습니다.");
+                                    setEditingFeedbackId(null);
+                                    utils.questionBank.invalidate();
+                                  }}
+                                >
+                                  저장
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs"
+                                  onClick={() => setEditingFeedbackId(null)}
+                                >
+                                  취소
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between w-full">
+                              <p className="text-xs text-slate-600">
+                                <strong className="text-indigo-700">관리자 답변/정정:</strong> {fb.adminReply || "아직 답변이 등록되지 않았습니다."}
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs text-indigo-600 hover:bg-indigo-50"
+                                onClick={() => {
+                                  setEditingFeedbackId(fb.id);
+                                  setAdminReplyText(fb.adminReply || "");
+                                }}
+                              >
+                                답변 및 정정 편집
+                              </Button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </CardContent>
             </Card>

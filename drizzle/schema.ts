@@ -320,6 +320,8 @@ export const questionFeedbacks = mysqlTable("question_feedbacks", {
   isHelpful: int("isHelpful").notNull(), // 1: 도움됨, 0: 도움 안됨
   reportType: varchar("reportType", { length: 50 }), // 'none', 'typo', 'wrong_answer', 'unclear', 'other'
   comment: text("comment"),
+  adminReply: text("adminReply"), // 관리자 정정 및 답변 내용
+  status: varchar("status", { length: 30 }).default("pending").notNull(), // 'pending', 'resolved', 'dismissed'
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
