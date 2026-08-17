@@ -436,6 +436,8 @@ export const appRouter = router({
     markNotificationRead: protectedProcedure
       .input(z.object({ notificationId: z.number() }))
       .mutation(({ ctx, input }) => db.markNotificationAsRead(input.notificationId, ctx.user.id)),
+
+    awardReviewKing: protectedProcedure.mutation(({ ctx }) => db.awardReviewKingBadge(ctx.user.id)),
   }),
 
   // ========== Progress Routes ==========

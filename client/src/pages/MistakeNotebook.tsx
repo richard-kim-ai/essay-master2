@@ -22,6 +22,12 @@ export default function MistakeNotebook() {
     },
   });
 
+  const awardBadgeMutation = trpc.curriculum.awardReviewKing.useMutation({
+    onSuccess: (data) => {
+      toast.success(`🎉 축하합니다! '${data.badgeName}' 뱃지를 획득하셨습니다!`);
+    },
+  });
+
   // Quiz Mode State
   const [isQuizMode, setIsQuizMode] = useState(false);
   const [quizIndex, setQuizIndex] = useState(0);
@@ -132,7 +138,8 @@ export default function MistakeNotebook() {
                       setQuizAnswer("");
                       setShowAnswer(false);
                     } else {
-                      toast.success("모든 오답 퀴즈를 완료했습니다!");
+                      toast.success("모든 오답 퀴즈를 완벽하게 완료했습니다!");
+                      awardBadgeMutation.mutate();
                       setIsQuizMode(false);
                     }
                   }}

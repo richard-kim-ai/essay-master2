@@ -1731,6 +1731,29 @@ export async function markNotificationAsRead(notificationId: number, userId: num
   return { success: true };
 }
 
+export async function awardReviewKingBadge(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+
+  // 이미 뱃지가 있는지 확인
+  const existing = await db.select().from(userBadges).where(
+    and(
+      eq(userBadges.userId, userId),
+      eq(userBadges.badgeType, "review_king")
+    )
+  );
+
+  if (existing.length === 0) {
+    await db.insert(userBadges).values({
+      userId,
+      courseType: "general",
+      badgeType: "review_king",
+      badgeName: "🏆 복습 왕",
+    });
+  }
+  return { success: true, badgeName: "🏆 복습 왕" };
+}
+
 export async function getWorkbookStatsByUser(userId: number) {
   const db = await getDb();
   if (!db) return { totalSolved: 0, correctCount: 0, accuracyRate: 0, mistakesCount: 0, categoryBreakdown: [] };
