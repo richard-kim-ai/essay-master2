@@ -43,8 +43,119 @@ async function sendUserVerificationEmail(
   });
 }
 
+const signupConsentSchema = z.object({
+  policyKey: z.string().min(1).max(80),
+  policyVersion: z.string().min(1).max(32),
+  accepted: z.boolean(),
+});
+
+function consentTypeForPolicy(policyKey: string): "required_service" | "optional_ai_learning" | "teacher_ai_style" | "guardian_authorization" {
+  if (policyKey === "ai_learning_consent") return "optional_ai_learning";
+  if (policyKey === "teacher_ai_code") return "teacher_ai_style";
+  return "required_service";
+}
+
+async function validateSignupConsents(
+  role: "student" | "parent" | "teacher",
+  consents: Array<z.infer<typeof signupConsentSchema>>,
+) {
+  const documents = await db.getActivePolicyDocuments(role);
+  const consentMap = new Map(consents.map((consent) => [consent.policyKey, consent]));
+  for (const document of documents.filter((document) => document.isRequired === 1)) {
+    const consent = consentMap.get(document.policyKey);
+    if (!consent?.accepted || consent.policyVersion !== document.version) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `필수 동의 문서(${document.title})를 확인하고 동의해주세요.` });
+    }
+  }
+  return documents
+    .filter((document) => {
+      const consent = consentMap.get(document.policyKey);
+      return Boolean(consent?.accepted && consent.policyVersion === document.version);
+    })
+    .map((document) => ({
+      policyKey: document.policyKey,
+      policyVersion: document.version,
+      consentType: consentTypeForPolicy(document.policyKey),
+      accepted: true,
+    }));
+}
+
 export const appRouter = router({
   system: systemRouter,
+  policy: router({
+    forSignup: publicProcedure
+      .input(z.object({ accountType: z.enum(["student", "parent", "teacher"]) }))
+      .query(async ({ input }) => db.getActivePolicyDocuments(input.accountType)),
+    myConsents: protectedProcedure.query(async ({ ctx }) => db.getUserPolicyConsents(ctx.user.id)),
+    requestDataAction: protectedProcedure
+      .input(z.object({ requestType: z.enum(["access", "correction", "withdraw_ai_learning", "delete_learning_data"]), requestNote: z.string().max(2000).optional() }))
+      .mutation(async ({ ctx, input }) => db.createDataProcessingRequest(ctx.user.id, input.requestType, input.requestNote)),
+  }),
+  teacherAi: router({
+    myProfile: protectedProcedure.query(async ({ ctx }) => db.getTeacherAiProfile(ctx.user.id)),
+    saveMyProfile: protectedProcedure
+      .input(z.object({
+        displayName: z.string().min(2).max(100),
+        tone: z.enum(["encouraging", "balanced", "direct"]),
+        feedbackFocus: z.string().min(2).max(160),
+        styleInstruction: z.string().max(4000).optional(),
+        forbiddenPhrases: z.array(z.string().max(120)).max(30).optional(),
+        rubricWeights: z.record(z.string(), z.number().min(0).max(100)).optional(),
+        isEnabled: z.boolean(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.upsertTeacherAiProfile({ teacherId: ctx.user.id, ...input });
+      }),
+    myStyleExamples: protectedProcedure.query(async ({ ctx }) => db.listTeacherAiStyleExamples(ctx.user.id)),
+    createStyleExample: protectedProcedure
+      .input(z.object({ sourceFeedbackId: z.number().optional(), purpose: z.enum(["style_reference", "quality_evaluation", "training_candidate"]), sourceText: z.string().min(20).max(12000), approvedFeedback: z.string().min(20).max(12000), tags: z.string().max(255).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createTeacherAiStyleExample({ teacherId: ctx.user.id, ...input });
+      }),
+    updateStyleExampleStatus: protectedProcedure
+      .input(z.object({ exampleId: z.number(), status: z.enum(["draft", "teacher_approved", "admin_approved", "rejected", "withdrawn"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.updateTeacherAiStyleExampleStatus(input.exampleId, input.status);
+      }),
+  }),
+  aiGovernance: router({
+    overview: adminProcedure.query(async () => {
+      const [profiles, styleExamples, userStats, policies, consentAudit, dataRequests] = await Promise.all([
+        db.getTeacherAiProfiles(),
+        db.listTeacherAiStyleExamples(),
+        db.getAllUsersStats(),
+        db.getActivePolicyDocuments(),
+        db.getPolicyConsentAudit(),
+        db.getDataProcessingRequests(),
+      ]);
+      return {
+        profiles,
+        styleExamples,
+        policies,
+        consentAudit,
+        dataRequests,
+        teachers: userStats.users.filter((user) => user.role === "teacher" && user.teacherStatus === "approved"),
+      };
+    }),
+    saveProfile: adminProcedure
+      .input(z.object({
+        teacherId: z.number(),
+        displayName: z.string().min(2).max(100),
+        tone: z.enum(["encouraging", "balanced", "direct"]),
+        feedbackFocus: z.string().min(2).max(160),
+        styleInstruction: z.string().max(4000).optional(),
+        forbiddenPhrases: z.array(z.string().max(120)).max(30).optional(),
+        rubricWeights: z.record(z.string(), z.number().min(0).max(100)).optional(),
+        isEnabled: z.boolean(),
+      }))
+      .mutation(async ({ input }) => db.upsertTeacherAiProfile(input)),
+    updateStyleExampleStatus: adminProcedure
+      .input(z.object({ exampleId: z.number(), status: z.enum(["draft", "teacher_approved", "admin_approved", "rejected", "withdrawn"]) }))
+      .mutation(async ({ input }) => db.updateTeacherAiStyleExampleStatus(input.exampleId, input.status)),
+  }),
   auth: router({
     me: publicProcedure.query(({ ctx }) => {
       if (!ctx.user) return null;
@@ -63,9 +174,12 @@ export const appRouter = router({
           name: z.string().trim().min(2).max(80),
           email: z.string().trim().email().transform((value) => value.toLowerCase()),
           password: z.string().min(8).max(128),
+          accountType: z.enum(["student", "parent"]).default("student"),
+          consents: z.array(signupConsentSchema).min(1),
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        const approvedConsents = await validateSignupConsents(input.accountType, input.consents);
         const existing = await db.getUserByEmail(input.email);
         const token = createVerificationToken();
         const tokenHash = hashVerificationToken(token);
@@ -77,6 +191,7 @@ export const appRouter = router({
           }
 
           await db.updateVerificationToken(existing.id, tokenHash, expiresAt);
+          await db.recordUserPolicyConsents(existing.id, approvedConsents);
           await sendUserVerificationEmail(ctx.req, existing, token);
           return { requiresVerification: true } as const;
         }
@@ -89,9 +204,11 @@ export const appRouter = router({
           passwordHash: hashPassword(input.password),
           verificationTokenHash: tokenHash,
           verificationTokenExpiresAt: expiresAt,
+          tag: input.accountType === "parent" ? "학부모" : "학생",
         });
 
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "회원가입에 실패했습니다." });
+        await db.recordUserPolicyConsents(user.id, approvedConsents);
         await sendUserVerificationEmail(ctx.req, user, token);
         return { requiresVerification: true } as const;
       }),
@@ -103,9 +220,11 @@ export const appRouter = router({
           email: z.string().trim().email().transform((value) => value.toLowerCase()),
           password: z.string().min(8).max(128),
           teacherLevel: z.number().int().min(1).max(3).default(1),
+          consents: z.array(signupConsentSchema).min(1),
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        const approvedConsents = await validateSignupConsents("teacher", input.consents);
         const existing = await db.getUserByEmail(input.email);
         const token = createVerificationToken();
         const tokenHash = hashVerificationToken(token);
@@ -116,6 +235,7 @@ export const appRouter = router({
             throw new TRPCError({ code: "CONFLICT", message: "이미 가입된 이메일입니다." });
           }
           await db.updateVerificationToken(existing.id, tokenHash, expiresAt);
+          await db.recordUserPolicyConsents(existing.id, approvedConsents);
           await sendUserVerificationEmail(ctx.req, existing, token);
           return { requiresVerification: true } as const;
         }
@@ -130,9 +250,11 @@ export const appRouter = router({
           verificationTokenExpiresAt: expiresAt,
           role: "teacher",
           teacherLevel: input.teacherLevel,
+          tag: "첨삭교사",
         });
 
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "교사회원 가입에 실패했습니다." });
+        await db.recordUserPolicyConsents(user.id, approvedConsents);
         await sendUserVerificationEmail(ctx.req, user, token);
         return { requiresVerification: true } as const;
       }),
@@ -195,12 +317,15 @@ export const appRouter = router({
     loginWithEmail: publicProcedure
       .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
+        if (input.email === "admin@sample.com") {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "관리자 샘플 계정은 제공되지 않습니다." });
+        }
         let user = await db.getUserByEmail(input.email);
         
         // 만약 샘플 계정으로 로그인 시도 시 DB에 없으면 자동 생성 후 로그인 처리
         if (!user && input.email.endsWith("@sample.com")) {
-          const sampleRole = input.email.startsWith("teacher") ? "teacher" : input.email.startsWith("admin") ? "admin" : "user";
-          const sampleName = sampleRole === "admin" ? "총괄 관리자(샘플)" : sampleRole === "teacher" ? "김선생(샘플교사)" : "이학생(샘플학생)";
+          const sampleRole = input.email.startsWith("teacher") ? "teacher" : "user";
+          const sampleName = sampleRole === "teacher" ? "김선생(샘플교사)" : "이학생(샘플학생)";
           user = await db.createEmailUser({
             openId: `sample_${nanoid(20)}`,
             name: sampleName,

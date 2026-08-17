@@ -218,6 +218,13 @@
       "when": 1786994455418,
       "tag": "0030_square_valkyrie",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1786996731323,
+      "tag": "0031_red_gabe_jones",
+      "breakpoints": true
     }
   ]
 }

@@ -85,6 +85,54 @@ export const siteSettings = mysqlTable("site_settings", {
 export type SiteSetting = typeof siteSettings.$inferSelect;
 export type InsertSiteSetting = typeof siteSettings.$inferInsert;
 
+// 회원 동의의 버전·목적·철회 이력을 보존하는 정책 문서 및 동의 원장
+export const policyDocuments = mysqlTable("policy_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  policyKey: varchar("policyKey", { length: 80 }).notNull(), // terms_of_service, privacy_policy, ai_learning_consent, teacher_ai_code
+  title: varchar("title", { length: 160 }).notNull(),
+  version: varchar("version", { length: 32 }).notNull(),
+  content: text("content").notNull(),
+  requiredForRoles: varchar("requiredForRoles", { length: 80 }).notNull(), // student,parent,teacher
+  isRequired: int("isRequired").default(0).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  effectiveAt: timestamp("effectiveAt").defaultNow().notNull(),
+  retiredAt: timestamp("retiredAt"),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const userPolicyConsents = mysqlTable("user_policy_consents", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  policyKey: varchar("policyKey", { length: 80 }).notNull(),
+  policyVersion: varchar("policyVersion", { length: 32 }).notNull(),
+  consentType: mysqlEnum("consentType", ["required_service", "optional_ai_learning", "teacher_ai_style", "guardian_authorization"]).notNull(),
+  status: mysqlEnum("status", ["accepted", "withdrawn"]).default("accepted").notNull(),
+  acceptedAt: timestamp("acceptedAt").defaultNow().notNull(),
+  withdrawnAt: timestamp("withdrawnAt"),
+  evidence: varchar("evidence", { length: 120 }).default("signup_confirmation").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const dataProcessingRequests = mysqlTable("data_processing_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  requestType: mysqlEnum("requestType", ["access", "correction", "withdraw_ai_learning", "delete_learning_data"]).notNull(),
+  status: mysqlEnum("status", ["received", "in_review", "completed", "rejected"]).default("received").notNull(),
+  requestNote: text("requestNote"),
+  handlingNote: text("handlingNote"),
+  handledBy: int("handledBy"),
+  handledAt: timestamp("handledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PolicyDocument = typeof policyDocuments.$inferSelect;
+export type UserPolicyConsent = typeof userPolicyConsents.$inferSelect;
+export type DataProcessingRequest = typeof dataProcessingRequests.$inferSelect;
+
 export const pushSubscription = mysqlTable("push_subscription", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
@@ -202,6 +250,68 @@ export const teacherFeedback = mysqlTable("teacher_feedback", {
 
 export type TeacherFeedback = typeof teacherFeedback.$inferSelect;
 export type InsertTeacherFeedback = typeof teacherFeedback.$inferInsert;
+
+// 교사별 AI 보조 봇: 스타일 설정, 승인 사례, AI 초안과 교사 수정 이력을 분리 보관
+export const teacherAiProfiles = mysqlTable("teacher_ai_profiles", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull().unique(),
+  displayName: varchar("displayName", { length: 100 }).notNull(),
+  tone: mysqlEnum("tone", ["encouraging", "balanced", "direct"]).default("balanced").notNull(),
+  feedbackFocus: varchar("feedbackFocus", { length: 160 }).default("논리·근거·표현의 균형").notNull(),
+  styleInstruction: text("styleInstruction"),
+  forbiddenPhrases: text("forbiddenPhrases"), // JSON array
+  rubricWeights: text("rubricWeights"), // JSON object
+  isEnabled: int("isEnabled").default(0).notNull(),
+  currentVersion: int("currentVersion").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const teacherAiStyleExamples = mysqlTable("teacher_ai_style_examples", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull(),
+  sourceFeedbackId: int("sourceFeedbackId"),
+  purpose: mysqlEnum("purpose", ["style_reference", "quality_evaluation", "training_candidate"]).default("style_reference").notNull(),
+  pseudonymizedPrompt: text("pseudonymizedPrompt").notNull(),
+  approvedFeedback: text("approvedFeedback").notNull(),
+  tags: varchar("tags", { length: 255 }),
+  approvalStatus: mysqlEnum("approvalStatus", ["draft", "teacher_approved", "admin_approved", "rejected", "withdrawn"]).default("draft").notNull(),
+  approvedAt: timestamp("approvedAt"),
+  expiresAt: timestamp("expiresAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const teacherAiDrafts = mysqlTable("teacher_ai_drafts", {
+  id: int("id").autoincrement().primaryKey(),
+  essayId: int("essayId").notNull(),
+  teacherId: int("teacherId").notNull(),
+  profileVersion: int("profileVersion").notNull(),
+  modelId: varchar("modelId", { length: 120 }).notNull(),
+  evaluationJson: text("evaluationJson"),
+  draftComment: text("draftComment").notNull(),
+  status: mysqlEnum("status", ["generated", "edited", "approved", "discarded"]).default("generated").notNull(),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const teacherAiDraftRevisions = mysqlTable("teacher_ai_draft_revisions", {
+  id: int("id").autoincrement().primaryKey(),
+  draftId: int("draftId").notNull(),
+  revisionNumber: int("revisionNumber").notNull(),
+  editorId: int("editorId").notNull(),
+  revisedComment: text("revisedComment").notNull(),
+  changeSummary: text("changeSummary"),
+  learningApproval: mysqlEnum("learningApproval", ["pending", "approved", "rejected", "withdrawn"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TeacherAiProfile = typeof teacherAiProfiles.$inferSelect;
+export type TeacherAiStyleExample = typeof teacherAiStyleExamples.$inferSelect;
+export type TeacherAiDraft = typeof teacherAiDrafts.$inferSelect;
+export type TeacherAiDraftRevision = typeof teacherAiDraftRevisions.$inferSelect;
 
 // 첨삭 코멘트 테이블 (문장별 코멘트)
 export const feedbackComment = mysqlTable("feedback_comment", {

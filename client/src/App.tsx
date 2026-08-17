@@ -38,6 +38,7 @@ import AdminCertificates from "@/pages/AdminCertificates";
 import AdminCurriculumManager from "@/pages/AdminCurriculumManager";
 import AdminQuestionBank from "@/pages/AdminQuestionBank";
 import AdminTermsManager from "@/pages/AdminTermsManager";
+import AdminAIGovernance from "@/pages/AdminAIGovernance";
 import MasterAdminConsole from "@/pages/MasterAdminConsole";
 import ParentPortal from "@/pages/ParentPortal";
 import Layout from "./components/Layout";
@@ -98,6 +99,13 @@ function Router() {
         {(params) => (
           <Layout>
             <AdminTermsManager />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/ai-governance"}>
+        {(params) => (
+          <Layout>
+            <AdminAIGovernance />
           </Layout>
         )}
       </Route>

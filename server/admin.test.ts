@@ -277,4 +277,42 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(workbookSource).toContain("근거 인용:");
     expect(workbookSource).toContain("다음 답안에서 우선 보완할 점");
   });
+
+  it("교사별 AI 보조 봇의 프로필·승인 사례·초안 수정 이력과 가명처리 모델을 보관한다", () => {
+    const schemaSource = readFileSync(new URL("../drizzle/schema.ts", import.meta.url), "utf8");
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const apiDesignSource = readFileSync(new URL("../docs/teacher-ai-draft-api.md", import.meta.url), "utf8");
+    expect(schemaSource).toContain("teacher_ai_profiles");
+    expect(schemaSource).toContain("teacher_ai_style_examples");
+    expect(schemaSource).toContain("teacher_ai_drafts");
+    expect(schemaSource).toContain("teacher_ai_draft_revisions");
+    expect(dbSource).toContain("pseudonymizeLearningText");
+    expect(dbSource).toContain("approvalStatus");
+    expect(apiDesignSource).toContain("teacherAi.generateDraft");
+    expect(apiDesignSource).toContain("교사 승인 전 학생에게 공개되지 않는다");
+  });
+
+  it("학생·학부모·첨삭교사 가입에 정책 전문 확인형 동의와 동의 원장을 요구한다", () => {
+    const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const signupSource = readFileSync(new URL("../client/src/pages/Signup.tsx", import.meta.url), "utf8");
+    const teacherSignupSource = readFileSync(new URL("../client/src/pages/TeacherSignup.tsx", import.meta.url), "utf8");
+    const policySource = readFileSync(new URL("../client/src/components/PolicyConsentChecklist.tsx", import.meta.url), "utf8");
+    expect(routerSource).toContain("validateSignupConsents");
+    expect(routerSource).toContain("recordUserPolicyConsents");
+    expect(routerSource).toContain("accountType: z.enum([\"student\", \"parent\"])");
+    expect(signupSource).toContain("학부모 회원");
+    expect(teacherSignupSource).toContain("PolicyConsentChecklist");
+    expect(policySource).toContain("내용을 확인했습니다");
+    expect(policySource).toContain("AI 품질 개선 동의는 선택 사항");
+  });
+
+  it("인증 화면에서 마누스 계정 시작과 관리자 샘플 진입을 제공하지 않는다", () => {
+    const loginSource = readFileSync(new URL("../client/src/pages/Login.tsx", import.meta.url), "utf8");
+    const signupSource = readFileSync(new URL("../client/src/pages/Signup.tsx", import.meta.url), "utf8");
+    const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    expect(loginSource).not.toContain("Manus 계정으로");
+    expect(signupSource).not.toContain("Manus 계정으로");
+    expect(loginSource).not.toContain("관리자 샘플");
+    expect(routerSource).toContain("관리자 샘플 계정은 제공되지 않습니다.");
+  });
 });

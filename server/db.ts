@@ -29,12 +29,20 @@ import {
   workbookMistakes,
   workbookTeacherFeedback,
   appNotifications,
+  policyDocuments,
+  userPolicyConsents,
+  dataProcessingRequests,
+  teacherAiProfiles,
+  teacherAiStyleExamples,
+  teacherAiDrafts,
+  teacherAiDraftRevisions,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
 import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
+import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -681,6 +689,7 @@ export async function createEmailUser(input: {
   role?: "user" | "teacher" | "admin";
   teacherLevel?: number;
   teacherStatus?: "pending" | "approved" | "rejected";
+  tag?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
@@ -698,6 +707,7 @@ export async function createEmailUser(input: {
     role,
     teacherLevel: input.teacherLevel ?? 1,
     teacherStatus,
+    tag: input.tag ?? "일반",
     lastSignedIn: new Date(),
   });
   return getUserByOpenId(input.openId);
@@ -1061,9 +1071,9 @@ export async function adminDeleteCurriculumCategory(id: number) {
 
 export async function getSiteSetting(settingKey: string) {
   const db = await getDb();
-  if (!db) return null;
+  if (!db) return defaultPolicyContent(settingKey);
   const [row] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, settingKey));
-  return row?.content ?? "";
+  return row?.content ?? defaultPolicyContent(settingKey);
 }
 
 export async function saveSiteSetting(settingKey: string, content: string, adminId: number) {
@@ -1085,7 +1095,192 @@ export async function saveSiteSetting(settingKey: string, content: string, admin
       updatedAt: new Date(),
     });
   }
+
+  const policyTemplate = DEFAULT_POLICY_DOCUMENTS.find((document) => document.policyKey === settingKey);
+  if (policyTemplate && content.trim()) {
+    const now = new Date();
+    const version = `${now.toISOString().slice(0, 10)}-r${now.getTime().toString().slice(-6)}`;
+    await db.update(policyDocuments).set({ isActive: 0, retiredAt: now, updatedAt: now }).where(and(eq(policyDocuments.policyKey, settingKey), eq(policyDocuments.isActive, 1)));
+    await db.insert(policyDocuments).values({
+      policyKey: policyTemplate.policyKey,
+      title: policyTemplate.title,
+      version,
+      content,
+      requiredForRoles: policyTemplate.requiredForRoles.join(","),
+      isRequired: policyTemplate.isRequired ? 1 : 0,
+      isActive: 1,
+      effectiveAt: now,
+      updatedBy: adminId,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
   return true;
+}
+
+export async function ensureDefaultPolicyDocuments() {
+  const db = await getDb();
+  if (!db) return [];
+  for (const document of DEFAULT_POLICY_DOCUMENTS) {
+    const [existing] = await db.select().from(policyDocuments).where(and(eq(policyDocuments.policyKey, document.policyKey), eq(policyDocuments.version, document.version)));
+    if (!existing) {
+      await db.insert(policyDocuments).values({
+        policyKey: document.policyKey,
+        title: document.title,
+        version: document.version,
+        content: document.content,
+        requiredForRoles: document.requiredForRoles.join(","),
+        isRequired: document.isRequired ? 1 : 0,
+        isActive: 1,
+        effectiveAt: new Date(),
+      });
+    }
+  }
+  return db.select().from(policyDocuments).where(eq(policyDocuments.isActive, 1));
+}
+
+export async function getActivePolicyDocuments(role?: AccountConsentRole) {
+  const documents = await ensureDefaultPolicyDocuments();
+  return role ? documents.filter((document) => document.requiredForRoles.split(",").includes(role)) : documents;
+}
+
+export type SignupConsentInput = {
+  policyKey: string;
+  policyVersion: string;
+  consentType: "required_service" | "optional_ai_learning" | "teacher_ai_style" | "guardian_authorization";
+  accepted: boolean;
+};
+
+export async function recordUserPolicyConsents(userId: number, consents: SignupConsentInput[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const accepted = consents.filter((consent) => consent.accepted);
+  if (accepted.length === 0) return;
+  await db.insert(userPolicyConsents).values(accepted.map((consent) => ({
+    userId,
+    policyKey: consent.policyKey,
+    policyVersion: consent.policyVersion,
+    consentType: consent.consentType,
+    status: "accepted" as const,
+    acceptedAt: new Date(),
+    evidence: "signup_confirmation",
+  })));
+}
+
+export async function getUserPolicyConsents(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(userPolicyConsents).where(eq(userPolicyConsents.userId, userId)).orderBy(desc(userPolicyConsents.acceptedAt));
+}
+
+export async function getPolicyConsentAudit(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(userPolicyConsents).orderBy(desc(userPolicyConsents.updatedAt)).limit(limit);
+}
+
+export async function getDataProcessingRequests(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(dataProcessingRequests).orderBy(desc(dataProcessingRequests.updatedAt)).limit(limit);
+}
+
+export async function createDataProcessingRequest(userId: number, requestType: "access" | "correction" | "withdraw_ai_learning" | "delete_learning_data", requestNote?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(dataProcessingRequests).values({ userId, requestType, requestNote: requestNote ?? null });
+  const [request] = await db.select().from(dataProcessingRequests).where(eq(dataProcessingRequests.userId, userId)).orderBy(desc(dataProcessingRequests.id));
+  return request;
+}
+
+export function pseudonymizeLearningText(text: string) {
+  return text
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[이메일]")
+    .replace(/(?:\+82[- ]?)?0?1[0-9][- .]?\d{3,4}[- .]?\d{4}/g, "[전화번호]")
+    .replace(/\b\d{6}[- ]?\d{7}\b/g, "[식별번호]")
+    .replace(/\b\d{2,4}[-.]\d{1,2}[-.]\d{1,2}\b/g, "[날짜]");
+}
+
+export async function getTeacherAiProfiles() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(teacherAiProfiles).orderBy(desc(teacherAiProfiles.updatedAt));
+}
+
+export async function getTeacherAiProfile(teacherId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [profile] = await db.select().from(teacherAiProfiles).where(eq(teacherAiProfiles.teacherId, teacherId));
+  return profile;
+}
+
+export async function upsertTeacherAiProfile(input: {
+  teacherId: number;
+  displayName: string;
+  tone: "encouraging" | "balanced" | "direct";
+  feedbackFocus: string;
+  styleInstruction?: string;
+  forbiddenPhrases?: string[];
+  rubricWeights?: Record<string, number>;
+  isEnabled: boolean;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(teacherAiProfiles).where(eq(teacherAiProfiles.teacherId, input.teacherId));
+  const values = {
+    displayName: input.displayName,
+    tone: input.tone,
+    feedbackFocus: input.feedbackFocus,
+    styleInstruction: input.styleInstruction ?? null,
+    forbiddenPhrases: JSON.stringify(input.forbiddenPhrases ?? []),
+    rubricWeights: JSON.stringify(input.rubricWeights ?? { logic: 30, evidence: 30, expression: 20, structure: 20 }),
+    isEnabled: input.isEnabled ? 1 : 0,
+  };
+  if (existing) {
+    await db.update(teacherAiProfiles).set({ ...values, currentVersion: existing.currentVersion + 1, updatedAt: new Date() }).where(eq(teacherAiProfiles.id, existing.id));
+  } else {
+    await db.insert(teacherAiProfiles).values({ teacherId: input.teacherId, ...values, currentVersion: 1 });
+  }
+  return getTeacherAiProfile(input.teacherId);
+}
+
+export async function listTeacherAiStyleExamples(teacherId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return teacherId
+    ? db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.teacherId, teacherId)).orderBy(desc(teacherAiStyleExamples.updatedAt))
+    : db.select().from(teacherAiStyleExamples).orderBy(desc(teacherAiStyleExamples.updatedAt));
+}
+
+export async function createTeacherAiStyleExample(input: {
+  teacherId: number;
+  sourceFeedbackId?: number;
+  purpose: "style_reference" | "quality_evaluation" | "training_candidate";
+  sourceText: string;
+  approvedFeedback: string;
+  tags?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(teacherAiStyleExamples).values({
+    teacherId: input.teacherId,
+    sourceFeedbackId: input.sourceFeedbackId ?? null,
+    purpose: input.purpose,
+    pseudonymizedPrompt: pseudonymizeLearningText(input.sourceText),
+    approvedFeedback: pseudonymizeLearningText(input.approvedFeedback),
+    tags: input.tags ?? null,
+    approvalStatus: "draft",
+  });
+  const [example] = await db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.teacherId, input.teacherId)).orderBy(desc(teacherAiStyleExamples.id));
+  return example;
+}
+
+export async function updateTeacherAiStyleExampleStatus(exampleId: number, status: "draft" | "teacher_approved" | "admin_approved" | "rejected" | "withdrawn") {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(teacherAiStyleExamples).set({ approvalStatus: status, approvedAt: status.includes("approved") ? new Date() : null, updatedAt: new Date() }).where(eq(teacherAiStyleExamples.id, exampleId));
+  const [example] = await db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.id, exampleId));
+  return example;
 }
 
 export async function getAdminOperationsDashboardStats() {

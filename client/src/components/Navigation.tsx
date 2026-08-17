@@ -375,6 +375,12 @@ export default function Navigation() {
                               <span>관리자 운영 콘솔 (대시보드)</span>
                             </DropdownMenuItem>
                           </Link>
+                          <Link href="/admin/ai-governance">
+                            <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-700">
+                              <Zap className="w-4 h-4 mr-2" />
+                              <span>교사 AI 보조 봇 운영</span>
+                            </DropdownMenuItem>
+                          </Link>
                         </>
                       )}
                       <DropdownMenuSeparator />
@@ -499,6 +505,12 @@ export default function Navigation() {
                             <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 bg-indigo-50 hover:bg-indigo-100 font-semibold">
                               <Settings className="w-4 h-4 text-indigo-600" />
                               <span>관리자 운영 콘솔 (대시보드)</span>
+                            </button>
+                          </Link>
+                          <Link href="/admin/ai-governance">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-indigo-50 font-semibold">
+                              <Zap className="w-4 h-4 text-indigo-600" />
+                              <span>교사 AI 보조 봇 운영</span>
                             </button>
                           </Link>
                         </div>
