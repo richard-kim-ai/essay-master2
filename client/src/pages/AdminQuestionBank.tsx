@@ -29,6 +29,12 @@ export default function AdminQuestionBank() {
   const [previewItems, setPreviewItems] = useState<any[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
+  const [isUpsert, setIsUpsert] = useState(true);
+  const [uploadProgress, setUploadProgress] = useState<{ active: boolean; percent: number; text: string }>({ active: false, percent: 0, text: "" });
+  const [deleteCourseTarget, setDeleteCourseTarget] = useState<string>("elementary");
+  const [isDeleteCourseOpen, setIsDeleteCourseOpen] = useState(false);
+  const deleteByCourseMutation = trpc.questionBank.deleteByCourse.useMutation();
+
   // Insight Modal State
   const [selectedQuestionForInsight, setSelectedQuestionForInsight] = useState<any | null>(null);
   const [isInsightModalOpen, setIsInsightModalOpen] = useState(false);
@@ -172,7 +178,8 @@ export default function AdminQuestionBank() {
     reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
-        // Robust CSV row parser supporting quoted fields with commas and newlines
+        setUploadProgress({ active: true, percent: 10, text: "CSV 파일 분석 중..." });
+
         const parseCSVRows = (str: string) => {
           const rows: string[][] = [];
           let row: string[] = [];
@@ -213,6 +220,7 @@ export default function AdminQuestionBank() {
         const parsedRows = parseCSVRows(text);
         if (parsedRows.length < 2) {
           toast.error("CSV 파일에 유효한 데이터가 없습니다.");
+          setUploadProgress({ active: false, percent: 0, text: "" });
           return;
         }
 
@@ -229,6 +237,7 @@ export default function AdminQuestionBank() {
           const r = parsedRows[i];
           if (r.length < 5) continue;
 
+          const idVal = idIdx >= 0 ? Number(r[idIdx]) : undefined;
           const courseTypeVal = courseIdx >= 0 ? r[courseIdx] : r[1];
           const toolTypeVal = toolIdx >= 0 ? r[toolIdx] : r[2];
           const titleVal = titleIdx >= 0 ? r[titleIdx] : r[3];
@@ -241,20 +250,33 @@ export default function AdminQuestionBank() {
           const contentData = contentVal?.replace(/^"|"$/g, "").replace(/\\\\n/g, "\n") || '{"prompt":"샘플"}';
           const difficulty = (["easy", "medium", "hard"].includes(diffVal) ? diffVal : "medium") as any;
 
-          items.push({ courseType, toolType, title, contentData, difficulty, isActive: 1 });
+          items.push({ id: idVal && !isNaN(idVal) ? idVal : undefined, courseType, toolType, title, contentData, difficulty, isActive: 1 });
         }
 
         if (items.length > 0) {
-          await bulkCreateMutation.mutateAsync({ items });
-          toast.success(`${items.length}개 문항이 성공적으로 업로드 및 DB에 반영되었습니다.`);
+          setUploadProgress({ active: true, percent: 30, text: `총 ${items.length}개 문항 반영 중...` });
+          const chunkSize = 50;
+          for (let i = 0; i < items.length; i += chunkSize) {
+            const chunk = items.slice(i, i + chunkSize);
+            await bulkCreateMutation.mutateAsync({ items: chunk, upsert: isUpsert });
+            const p = Math.min(95, Math.floor(((i + chunk.length) / items.length) * 65) + 30);
+            setUploadProgress({ active: true, percent: p, text: `${i + chunk.length} / ${items.length} 처리 완료...` });
+          }
+
+          setUploadProgress({ active: true, percent: 100, text: "업로드 완료!" });
+          setTimeout(() => setUploadProgress({ active: false, percent: 0, text: "" }), 1500);
+
+          toast.success(`${items.length}개 문항이 성공적으로 업로드 및 반영되었습니다.`);
           refetch();
           refetchStats();
         } else {
-          toast.error("CSV 파싱에 실패했습니다. 올바른 컬럼 구조인지 확인해주세요.");
+          toast.error("CSV 파싱에 실패했습니다.");
+          setUploadProgress({ active: false, percent: 0, text: "" });
         }
       } catch (err) {
         console.error(err);
         toast.error("CSV 파일 처리 중 오류가 발생했습니다.");
+        setUploadProgress({ active: false, percent: 0, text: "" });
       }
     };
     reader.readAsText(file);
@@ -795,7 +817,19 @@ export default function AdminQuestionBank() {
                     <option value="most_attempted">최다 응시순</option>
                   </select>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-3 items-center">
+                  <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200">
+                    <input
+                      type="checkbox"
+                      id="upsert-chk"
+                      checked={isUpsert}
+                      onChange={e => setIsUpsert(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                    />
+                    <label htmlFor="upsert-chk" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                      동일 ID 덮어쓰기(Upsert)
+                    </label>
+                  </div>
                   <Button variant="outline" onClick={handleDownloadCSV} className="gap-2 text-xs">
                     <Download className="w-3.5 h-3.5" /> CSV 다운
                   </Button>
@@ -805,9 +839,34 @@ export default function AdminQuestionBank() {
                     </Button>
                     <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
                   </label>
+                  <Button
+                    variant="destructive"
+                    onClick={() => setIsDeleteCourseOpen(true)}
+                    className="gap-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> 과정별 일괄 삭제
+                  </Button>
                 </div>
               </CardContent>
             </Card>
+
+            {/* Upload Progress Bar Banner */}
+            {uploadProgress.active && (
+              <Card className="border-indigo-200 bg-indigo-50/50 shadow-sm">
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex justify-between text-xs font-bold text-indigo-900">
+                    <span>{uploadProgress.text}</span>
+                    <span>{uploadProgress.percent}%</span>
+                  </div>
+                  <div className="w-full bg-indigo-100 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                      style={{ width: `${uploadProgress.percent}%` }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <div className="grid gap-4">
               {isLoading ? (

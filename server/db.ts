@@ -1364,6 +1364,45 @@ export async function deleteQuestionBankItem(id: number) {
   return true;
 }
 
+export async function deleteQuestionBankByCourse(courseType: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(questionBank).where(eq(questionBank.courseType, courseType as any));
+  return true;
+}
+
+export async function upsertQuestionBankItem(data: {
+  id?: number;
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
+  toolType: string;
+  title: string;
+  contentData: string;
+  difficulty?: "easy" | "medium" | "hard";
+  isActive?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  if (data.id) {
+    const [existing] = await db.select().from(questionBank).where(eq(questionBank.id, data.id));
+    if (existing) {
+      await db.update(questionBank).set({
+        courseType: data.courseType,
+        toolType: data.toolType,
+        title: data.title,
+        contentData: data.contentData,
+        difficulty: data.difficulty || "medium",
+        isActive: data.isActive ?? 1,
+        updatedAt: new Date(),
+      }).where(eq(questionBank.id, data.id));
+      const [updated] = await db.select().from(questionBank).where(eq(questionBank.id, data.id));
+      return updated;
+    }
+  }
+
+  return await createQuestionBankItem(data);
+}
+
 // 초기 50개 * 4과정 = 200개 이상 시드 데이터 자동 주입 함수 (최초 1회 또는 필요시 실행)
 export async function seedQuestionBankIfNeeded() {
   const list = await getQuestionBankList();

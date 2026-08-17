@@ -825,20 +825,34 @@ export const appRouter = router({
     bulkCreate: protectedProcedure
       .input(z.object({
         items: z.array(z.object({
+          id: z.number().optional(),
           courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
           toolType: z.string(),
           title: z.string(),
           contentData: z.string(),
           difficulty: z.enum(["easy", "medium", "hard"]).optional(),
           isActive: z.number().optional(),
-        }))
+        })),
+        upsert: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         for (const item of input.items) {
-          await db.createQuestionBankItem(item);
+          if (input.upsert && item.id) {
+            await db.upsertQuestionBankItem(item);
+          } else {
+            await db.createQuestionBankItem(item);
+          }
         }
         return { success: true, count: input.items.length };
+      }),
+
+    deleteByCourse: protectedProcedure
+      .input(z.object({ courseType: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        await db.deleteQuestionBankByCourse(input.courseType);
+        return { success: true };
       }),
     stats: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
