@@ -375,3 +375,29 @@ export const curriculumWorkbookAnswers = mysqlTable("curriculum_workbook_answers
 
 export type CurriculumWorkbookAnswer = typeof curriculumWorkbookAnswers.$inferSelect;
 export type InsertCurriculumWorkbookAnswer = typeof curriculumWorkbookAnswers.$inferInsert;
+
+// 워크북 기출 오답 자동 축적 테이블 (오답 노트 연동)
+export const workbookMistakes = mysqlTable("workbook_mistakes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionId: int("questionId").notNull(),
+  userAnswer: text("userAnswer").notNull(),
+  aiFeedback: text("aiFeedback"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type WorkbookMistake = typeof workbookMistakes.$inferSelect;
+export type InsertWorkbookMistake = typeof workbookMistakes.$inferInsert;
+
+// 교사 서술형 워크북 첨삭 피드백 테이블
+export const workbookTeacherFeedback = mysqlTable("workbook_teacher_feedback", {
+  id: int("id").autoincrement().primaryKey(),
+  answerId: int("answerId").notNull(),
+  teacherId: int("teacherId").notNull(),
+  comment: text("comment").notNull(),
+  gradeScore: int("gradeScore").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type WorkbookTeacherFeedback = typeof workbookTeacherFeedback.$inferSelect;
+export type InsertWorkbookTeacherFeedback = typeof workbookTeacherFeedback.$inferInsert;

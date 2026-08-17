@@ -405,6 +405,25 @@ export const appRouter = router({
         })
       )
       .mutation(({ ctx, input }) => db.submitCurriculumWorkbookAnswer(ctx.user.id, input.questionId, input.userAnswer)),
+
+    getMistakes: protectedProcedure.query(({ ctx }) => db.getWorkbookMistakesByUser(ctx.user.id)),
+
+    addTeacherFeedback: protectedProcedure
+      .input(
+        z.object({
+          answerId: z.number(),
+          comment: z.string(),
+          gradeScore: z.number(),
+        })
+      )
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "user" && ctx.user.teacherStatus !== "approved") {
+          throw new Error("교사 권한이 필요합니다.");
+        }
+        return db.addWorkbookTeacherFeedback(input.answerId, ctx.user.id, input.comment, input.gradeScore);
+      }),
+
+    getStats: protectedProcedure.query(({ ctx }) => db.getWorkbookStatsByUser(ctx.user.id)),
   }),
 
   // ========== Progress Routes ==========
