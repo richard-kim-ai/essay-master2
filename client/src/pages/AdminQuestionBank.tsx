@@ -23,6 +23,7 @@ export default function AdminQuestionBank() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"list" | "stats" | "quality" | "generator" | "trash" | "logs">("list");
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
+  const [backupCourse, setBackupCourse] = useState<"all" | QuestionBankCourse>("all");
 
   // AI Generator Form & Preview State
   const [genCourse, setGenCourse] = useState<QuestionBankCourse>("elementary");
@@ -52,6 +53,10 @@ export default function AdminQuestionBank() {
     courseType: courseFilter === "all" ? undefined : courseFilter,
     toolType: toolFilter === "all" ? undefined : toolFilter,
   });
+  const backupQueryInput = useMemo(() => ({
+    courseType: backupCourse === "all" ? undefined : backupCourse,
+  }), [backupCourse]);
+  const { data: backupQuestions, isFetching: isBackupQuestionsLoading } = trpc.questionBank.list.useQuery(backupQueryInput);
   const utils = trpc.useUtils();
 
   const { data: statsData, refetch: refetchStats } = trpc.questionBank.stats.useQuery();
@@ -177,13 +182,13 @@ export default function AdminQuestionBank() {
     }
   };
 
-  const handleDownloadCSV = () => {
-    if (!questions || questions.length === 0) {
+  const downloadQuestionsCsv = (items: any[] | undefined, scope: string, scopeLabel: string) => {
+    if (!items || items.length === 0) {
       toast.error("다운로드할 문항 데이터가 없습니다.");
       return;
     }
     const headers = ["id", "courseType", "toolType", "title", "contentData", "difficulty", "isActive"];
-    const rows = questions.map(q => [
+    const rows = items.map(q => [
       q.id,
       q.courseType,
       q.toolType,
@@ -197,14 +202,30 @@ export default function AdminQuestionBank() {
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
     const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    const scope = courseFilter === "all" ? "all_courses" : courseFilter;
     link.setAttribute("href", downloadUrl);
     link.setAttribute("download", `question_bank_${scope}_backup_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(downloadUrl);
-    toast.success(`${courseFilter === "all" ? "전체" : "선택 과정"} 문항 ${questions.length}개를 CSV로 백업했습니다.`);
+    toast.success(`${scopeLabel} 문항 ${items.length}개를 CSV로 백업했습니다.`);
+  };
+
+  const handleDownloadCSV = () => {
+    const scope = courseFilter === "all" ? "current_filtered" : courseFilter;
+    downloadQuestionsCsv(questions, scope, "현재 목록 필터");
+  };
+
+  const handleDownloadCourseBackup = () => {
+    const labels: Record<"all" | QuestionBankCourse, string> = {
+      all: "전체 과정",
+      elementary: "초등 논술",
+      middle_high: "중고등 논술",
+      high_univ: "고등/대입 논술",
+      general_adult: "일반/직장인 논술",
+    };
+    const scope = backupCourse === "all" ? "all_courses" : backupCourse;
+    downloadQuestionsCsv(backupQuestions, scope, labels[backupCourse]);
   };
 
   const downloadUploadFailureCsv = () => {
@@ -1272,8 +1293,25 @@ export default function AdminQuestionBank() {
                       동일 ID 덮어쓰기(Upsert)
                     </label>
                   </div>
-                  <Button variant="outline" onClick={handleDownloadCSV} className="gap-2 text-xs">
-                    <Download className="w-3.5 h-3.5" /> CSV 다운
+                  <div className="flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50/50 p-1">
+                    <select
+                      aria-label="과정별 CSV 백업 대상 선택"
+                      value={backupCourse}
+                      onChange={(event) => setBackupCourse(event.target.value as "all" | QuestionBankCourse)}
+                      className="h-8 max-w-32 rounded border-0 bg-transparent px-2 text-xs font-semibold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                    >
+                      <option value="all">전체 과정</option>
+                      <option value="elementary">초등</option>
+                      <option value="middle_high">중고등</option>
+                      <option value="high_univ">고등/대입</option>
+                      <option value="general_adult">일반/직장인</option>
+                    </select>
+                    <Button variant="outline" size="sm" onClick={handleDownloadCourseBackup} disabled={isBackupQuestionsLoading || !backupQuestions?.length} className="h-8 gap-1 border-emerald-300 bg-white text-xs text-emerald-800 hover:bg-emerald-100">
+                      <Download className="w-3.5 h-3.5" /> 과정별 백업
+                    </Button>
+                  </div>
+                  <Button variant="outline" onClick={handleDownloadCSV} className="gap-2 text-xs" title="현재 과정·학습도구 필터 결과를 백업합니다.">
+                    <Download className="w-3.5 h-3.5" /> 현재 필터 CSV
                   </Button>
                   <label className="cursor-pointer">
                     <Button variant="outline" className="gap-2 text-xs pointer-events-none">

@@ -2,11 +2,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
-import { BookOpen, AlertCircle, CheckCircle2, Sparkles, Trash2, ArrowRight, RefreshCcw, HelpCircle } from "lucide-react";
+import { BookOpen, AlertCircle, CheckCircle2, Sparkles, Trash2, ArrowRight, RefreshCcw, HelpCircle, Link2, Share2, Trophy } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
+
+type QuizSessionResult = {
+  reviewed: number;
+  total: number;
+  completedAt: string;
+};
 
 export default function MistakeNotebook() {
   const [, setLocation] = useLocation();
@@ -33,6 +39,16 @@ export default function MistakeNotebook() {
   const [quizIndex, setQuizIndex] = useState(0);
   const [quizAnswer, setQuizAnswer] = useState("");
   const [showAnswer, setShowAnswer] = useState(false);
+  const [quizResult, setQuizResult] = useState<QuizSessionResult | null>(null);
+  const [isSharingResult, setIsSharingResult] = useState(false);
+  const [sharedQuizResult] = useState<QuizSessionResult | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reviewed = Number(params.get("reviewed"));
+    const total = Number(params.get("total"));
+    const completedAt = params.get("completedAt");
+    if (!Number.isInteger(reviewed) || reviewed < 1 || !Number.isInteger(total) || total < reviewed || !completedAt || Number.isNaN(Date.parse(completedAt))) return null;
+    return { reviewed, total, completedAt };
+  });
 
   const startQuizMode = () => {
     if (mistakes.length === 0) {
@@ -44,9 +60,82 @@ export default function MistakeNotebook() {
     setQuizIndex(0);
     setQuizAnswer("");
     setShowAnswer(false);
+    setQuizResult(null);
   };
 
   const currentMistake = mistakes[quizIndex];
+  const displayedQuizResult = quizResult || sharedQuizResult;
+
+  const getQuizResultShareUrl = (result: QuizSessionResult) => {
+    const url = new URL(`${window.location.origin}/mistake-notebook`);
+    url.searchParams.set("reviewed", String(result.reviewed));
+    url.searchParams.set("total", String(result.total));
+    url.searchParams.set("completedAt", result.completedAt);
+    return url.toString();
+  };
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return copied;
+    }
+  };
+
+  const handleCopyQuizResultLink = async () => {
+    if (!quizResult) return;
+    const copied = await copyText(getQuizResultShareUrl(quizResult));
+    if (copied) toast.success("복습 결과 링크가 클립보드에 복사되었습니다.", { description: "친구나 선생님에게 붙여넣어 공유해 보세요." });
+    else toast.error("링크를 복사하지 못했습니다. 브라우저 권한을 확인해주세요.");
+  };
+
+  const handleShareQuizResult = async () => {
+    if (!quizResult) return;
+    setIsSharingResult(true);
+    const shareUrl = getQuizResultShareUrl(quizResult);
+    const shareTitle = "논술 마스터 오답 노트 퀴즈 결과";
+    const shareDescription = `오답 노트 퀴즈 ${quizResult.total}문항을 모두 복습했어요. 함께 다음 복습 계획을 세워보세요.`;
+    try {
+      if ((window as any).Kakao?.Share?.sendDefault) {
+        (window as any).Kakao.Share.sendDefault({
+          objectType: "feed",
+          content: {
+            title: shareTitle,
+            description: shareDescription,
+            imageUrl: "https://images.unsplash.com/photo-1455390582262-044cdead277a?w=800&auto=format&fit=crop&q=60",
+            link: { mobileWebUrl: shareUrl, webUrl: shareUrl },
+          },
+          buttons: [{ title: "복습 결과 확인", link: { mobileWebUrl: shareUrl, webUrl: shareUrl } }],
+        });
+        toast.success("카카오톡 공유 창을 열었습니다.");
+        return;
+      }
+      if (navigator.share) {
+        await navigator.share({ title: shareTitle, text: shareDescription, url: shareUrl });
+        toast.success("공유 메뉴를 열었습니다. 카카오톡을 선택해 전송하세요.");
+        return;
+      }
+      const copied = await copyText(shareUrl);
+      if (copied) toast.success("카카오톡에 붙여넣을 복습 결과 링크를 복사했습니다.");
+      else toast.error("공유 링크를 준비하지 못했습니다.");
+    } catch (error) {
+      if ((error as DOMException)?.name !== "AbortError") {
+        console.error(error);
+        toast.error("결과 공유 중 오류가 발생했습니다.");
+      }
+    } finally {
+      setIsSharingResult(false);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -80,6 +169,27 @@ export default function MistakeNotebook() {
             </Button>
           </div>
         </div>
+
+        {displayedQuizResult && !isQuizMode && (
+          <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-sm overflow-hidden">
+            <CardContent className="p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 rounded-full bg-emerald-100 p-2.5 text-emerald-700"><Trophy className="w-5 h-5" /></div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">오답 노트 퀴즈 결과</p>
+                  <h2 className="mt-1 text-lg font-extrabold text-slate-900">{displayedQuizResult.reviewed}개 문항 복습을 완료했습니다.</h2>
+                  <p className="mt-1 text-sm text-slate-600">총 {displayedQuizResult.total}개 문항 · 완료 {new Date(displayedQuizResult.completedAt).toLocaleDateString("ko-KR")}</p>
+                </div>
+              </div>
+              {quizResult && (
+                <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+                  <Button variant="outline" onClick={handleCopyQuizResultLink} className="border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100 gap-1.5"><Link2 className="w-4 h-4" /> 링크 복사</Button>
+                  <Button onClick={handleShareQuizResult} disabled={isSharingResult} className="bg-yellow-400 text-slate-900 hover:bg-yellow-300 gap-1.5">{isSharingResult ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" /> : <Share2 className="w-4 h-4" />} 카카오톡 공유</Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* 퀴즈 모드 진행 창 */}
         {isQuizMode && currentMistake && (
@@ -140,6 +250,7 @@ export default function MistakeNotebook() {
                     } else {
                       toast.success("모든 오답 퀴즈를 완벽하게 완료했습니다!");
                       awardBadgeMutation.mutate();
+                      setQuizResult({ reviewed: mistakes.length, total: mistakes.length, completedAt: new Date().toISOString() });
                       setIsQuizMode(false);
                     }
                   }}

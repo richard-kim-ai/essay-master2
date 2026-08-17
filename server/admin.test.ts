@@ -246,4 +246,22 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(pageSource).toContain("현재 필터 CSV 내보내기");
     expect(pageSource).toContain("setLogQuickDateRange");
   });
+
+  it("문제은행에서 현재 목록과 독립적으로 과정별 CSV 백업을 제공한다", () => {
+    const pageSource = readFileSync(new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url), "utf8");
+    expect(pageSource).toContain("backupCourse");
+    expect(pageSource).toContain("backupQuestions");
+    expect(pageSource).toContain("handleDownloadCourseBackup");
+    expect(pageSource).toContain("과정별 백업");
+    expect(pageSource).toContain("현재 필터 CSV");
+  });
+
+  it("오답 노트 퀴즈 완료 결과를 링크와 카카오톡·모바일 공유로 제공한다", () => {
+    const pageSource = readFileSync(new URL("../client/src/pages/MistakeNotebook.tsx", import.meta.url), "utf8");
+    expect(pageSource).toContain("getQuizResultShareUrl");
+    expect(pageSource).toContain("handleCopyQuizResultLink");
+    expect(pageSource).toContain("Kakao?.Share?.sendDefault");
+    expect(pageSource).toContain("navigator.share");
+    expect(pageSource).toContain("카카오톡 공유");
+  });
 });
