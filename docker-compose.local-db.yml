@@ -1,0 +1,25 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: essay-master-local-mysql
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: essay_master_root
+      MYSQL_DATABASE: essay_master
+      MYSQL_USER: essay_master
+      MYSQL_PASSWORD: essay_master
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uessay_master -pessay_master --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - essay-master-local-mysql-data:/var/lib/mysql
+
+volumes:
+  essay-master-local-mysql-data:

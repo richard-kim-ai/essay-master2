@@ -29,6 +29,8 @@ import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+const memoryProgress: (typeof progress.$inferSelect)[] = [];
+let memoryProgressId = 1;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -284,7 +286,7 @@ export async function getDynamicCurriculumByType(courseType: "elementary" | "mid
 
 export async function getProgressByUser(userId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return memoryProgress.filter((item) => item.userId === userId);
 
   return await db
     .select()
@@ -300,7 +302,37 @@ export async function upsertProgress(input: {
   completedAt?: Date | null;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database is not available");
+  if (!db) {
+    const now = new Date();
+    const existingIndex = memoryProgress.findIndex(
+      (item) =>
+        item.userId === input.userId && item.curriculumId === input.curriculumId
+    );
+
+    if (existingIndex >= 0) {
+      memoryProgress[existingIndex] = {
+        ...memoryProgress[existingIndex],
+        completed: input.completed ?? 0,
+        score: input.score ?? 0,
+        completedAt: input.completedAt ?? null,
+        updatedAt: now,
+      };
+      return memoryProgress[existingIndex];
+    }
+
+    const row = {
+      id: memoryProgressId++,
+      userId: input.userId,
+      curriculumId: input.curriculumId,
+      completed: input.completed ?? 0,
+      score: input.score ?? 0,
+      completedAt: input.completedAt ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    memoryProgress.push(row);
+    return row;
+  }
 
   const [result] = await db
     .insert(progress)

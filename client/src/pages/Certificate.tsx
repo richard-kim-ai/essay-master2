@@ -318,7 +318,7 @@ export default function Certificate() {
                                 scale: 2,
                                 useCORS: true,
                                 backgroundColor: "#ffffff",
-                                onclone: (clonedDoc) => {
+                                onclone: (clonedDoc: Document) => {
                                   // Tailwind 4 oklch 및 그라데이션 색상 파싱 오류 방지를 위해 스타일 정리
                                   const clonedEl = clonedDoc.getElementById(`cert-card-${cert.id}`);
                                   if (clonedEl) {
@@ -515,7 +515,7 @@ export default function Certificate() {
                       scale: 2,
                       useCORS: true,
                       backgroundColor: "#ffffff",
-                      onclone: (clonedDoc) => {
+                      onclone: (clonedDoc: Document) => {
                         const clonedEl = clonedDoc.getElementById("preview-certificate-box");
                         if (clonedEl) {
                           clonedEl.style.background = "#ffffff";
