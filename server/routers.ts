@@ -437,6 +437,10 @@ export const appRouter = router({
       .input(z.object({ notificationId: z.number() }))
       .mutation(({ ctx, input }) => db.markNotificationAsRead(input.notificationId, ctx.user.id)),
 
+    markAllNotificationsRead: protectedProcedure.mutation(({ ctx }) => db.markAllNotificationsAsRead(ctx.user.id)),
+
+    getUserBadges: protectedProcedure.query(({ ctx }) => db.getUserBadgesByUser(ctx.user.id)),
+
     awardReviewKing: protectedProcedure.mutation(({ ctx }) => db.awardReviewKingBadge(ctx.user.id)),
   }),
 

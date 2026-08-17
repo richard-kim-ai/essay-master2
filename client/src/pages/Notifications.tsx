@@ -21,6 +21,13 @@ export default function Notifications() {
     },
   });
 
+  const markAllReadMutation = trpc.curriculum.markAllNotificationsRead.useMutation({
+    onSuccess: () => {
+      utils.curriculum.getNotifications.invalidate();
+      toast.success("모든 알림이 읽음 처리되었습니다.");
+    },
+  });
+
   const filteredNotifications = notifications.filter((n: any) => {
     if (filterType === "unread") return n.isRead === 0;
     if (filterType !== "all") return n.category === filterType;
@@ -50,41 +57,51 @@ export default function Notifications() {
           </Button>
         </div>
 
-        {/* Filter Buttons */}
-        <div className="flex flex-wrap gap-2 items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-          <Filter className="w-4 h-4 text-slate-500 mr-1" />
-          <span className="text-xs font-semibold text-slate-700 mr-2">필터:</span>
+        {/* Filter Buttons & Mark All Read */}
+        <div className="flex flex-wrap gap-2 items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex flex-wrap gap-2 items-center">
+            <Filter className="w-4 h-4 text-slate-500 mr-1" />
+            <span className="text-xs font-semibold text-slate-700 mr-2">필터:</span>
+            <Button
+              size="sm"
+              variant={filterType === "all" ? "default" : "outline"}
+              onClick={() => setFilterType("all")}
+              className={filterType === "all" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
+            >
+              전체 ({notifications.length})
+            </Button>
+            <Button
+              size="sm"
+              variant={filterType === "unread" ? "default" : "outline"}
+              onClick={() => setFilterType("unread")}
+              className={filterType === "unread" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
+            >
+              읽지 않음 ({notifications.filter((n: any) => n.isRead === 0).length})
+            </Button>
+            <Button
+              size="sm"
+              variant={filterType === "teacher_feedback" ? "default" : "outline"}
+              onClick={() => setFilterType("teacher_feedback")}
+              className={filterType === "teacher_feedback" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
+            >
+              교사 첨삭
+            </Button>
+            <Button
+              size="sm"
+              variant={filterType === "assignment" ? "default" : "outline"}
+              onClick={() => setFilterType("assignment")}
+              className={filterType === "assignment" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
+            >
+              과제 마감
+            </Button>
+          </div>
           <Button
             size="sm"
-            variant={filterType === "all" ? "default" : "outline"}
-            onClick={() => setFilterType("all")}
-            className={filterType === "all" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
+            variant="outline"
+            onClick={() => markAllReadMutation.mutate()}
+            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-semibold"
           >
-            전체 ({notifications.length})
-          </Button>
-          <Button
-            size="sm"
-            variant={filterType === "unread" ? "default" : "outline"}
-            onClick={() => setFilterType("unread")}
-            className={filterType === "unread" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
-          >
-            읽지 않음 ({notifications.filter((n: any) => n.isRead === 0).length})
-          </Button>
-          <Button
-            size="sm"
-            variant={filterType === "teacher_feedback" ? "default" : "outline"}
-            onClick={() => setFilterType("teacher_feedback")}
-            className={filterType === "teacher_feedback" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
-          >
-            교사 첨삭
-          </Button>
-          <Button
-            size="sm"
-            variant={filterType === "assignment" ? "default" : "outline"}
-            onClick={() => setFilterType("assignment")}
-            className={filterType === "assignment" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
-          >
-            과제 마감
+            모두 읽음으로 표시
           </Button>
         </div>
 

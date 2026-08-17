@@ -16,6 +16,7 @@ export default function MyPageHub() {
   const { data: progressList } = trpc.progress.getByUser.useQuery();
   const { data: offlineEssays = [] } = trpc.essaySubmission.getByUser.useQuery();
   const { data: certificates = [] } = trpc.certificate.getUserCertificates.useQuery();
+  const { data: badges = [] } = trpc.curriculum.getUserBadges.useQuery();
 
   // Weekly Goal State (stored in localStorage per user)
   const goalKey = `essay_weekly_goal_${user?.id || 1}`;
@@ -261,6 +262,30 @@ export default function MyPageHub() {
               </Button>
             </CardContent>
           </Card>
+        </div>
+
+        {/* 성취 갤러리 위젯 (획득 뱃지 목록) */}
+        <div className="space-y-4 pt-4">
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Trophy className="w-5 h-5 text-amber-500" /> 나의 성취 갤러리 ({badges.length}개 뱃지 획득)
+          </h2>
+          {badges.length === 0 ? (
+            <Card className="p-8 text-center bg-white border-slate-200 text-slate-500">
+              <p className="text-sm">아직 획득한 뱃지가 없습니다. 워크북 오답 복습 퀴즈를 완료하거나 학습 도구를 이용해보세요!</p>
+            </Card>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+              {badges.map((b: any) => (
+                <Card key={b.id} className="border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 shadow-sm p-5 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white font-extrabold text-xl flex items-center justify-center mx-auto shadow-md">
+                    🏆
+                  </div>
+                  <h3 className="font-bold text-slate-900 text-base">{b.badgeName}</h3>
+                  <p className="text-xs text-slate-500">획득일: {new Date(b.earnedAt).toLocaleDateString()}</p>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </DashboardLayout>

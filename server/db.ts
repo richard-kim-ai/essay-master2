@@ -1731,6 +1731,19 @@ export async function markNotificationAsRead(notificationId: number, userId: num
   return { success: true };
 }
 
+export async function markAllNotificationsAsRead(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.update(appNotifications).set({ isRead: 1 }).where(eq(appNotifications.userId, userId));
+  return { success: true };
+}
+
+export async function getUserBadgesByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
+}
+
 export async function awardReviewKingBadge(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
