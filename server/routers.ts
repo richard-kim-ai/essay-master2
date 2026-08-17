@@ -240,6 +240,19 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+
+    updateProfile: protectedProcedure
+      .input(z.object({
+        name: z.string().trim().min(1).max(50).optional(),
+        avatarUrl: z.string().url().or(z.string().min(1)).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await db.updateUserProfile(ctx.user.id, {
+          name: input.name,
+          avatarUrl: input.avatarUrl,
+        });
+        return { success: true } as const;
+      }),
   }),
 
   social: router({

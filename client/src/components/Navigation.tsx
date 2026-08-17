@@ -26,7 +26,10 @@ import {
   ChevronDown,
   Settings,
   GraduationCap,
+  Edit3,
+  Check,
 } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 
 interface NavItem {
   label: string;
@@ -54,10 +57,25 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export default function Navigation() {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, refresh } = useAuth() as any;
   const [location] = useLocation();
   const [openMobileSubmenu, setOpenMobileSubmenu] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState(user?.name || "");
+  const [editAvatar, setEditAvatar] = useState(user?.avatarUrl || "");
+
+  const updateProfileMutation = trpc.auth.updateProfile.useMutation({
+    onSuccess: () => {
+      toast.success("프로필이 성공적으로 수정되었습니다.");
+      setIsEditingProfile(false);
+      if (typeof refresh === "function") refresh();
+    },
+    onError: (err) => {
+      toast.error(err.message || "프로필 수정 중 오류가 발생했습니다.");
+    }
+  });
 
   const handleMobileSubmenuToggle = (label: string) => {
     setOpenMobileSubmenu(openMobileSubmenu === label ? null : label);
@@ -194,12 +212,64 @@ export default function Navigation() {
                         <span className="text-sm">{user?.name || "사용자"}</span>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem disabled>
-                        <span className="text-xs text-gray-500">
-                          {user?.email}
-                        </span>
-                      </DropdownMenuItem>
+                    <DropdownMenuContent align="end" className="w-64 p-3 transition-all duration-200 animate-in fade-in-80 zoom-in-95">
+                      <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                        <div>
+                          <p className="text-xs font-bold text-gray-900">{user?.name || "사용자"}</p>
+                          <p className="text-[11px] text-gray-500 truncate max-w-[160px]">{user?.email}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs text-blue-600 hover:bg-blue-50"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setEditName(user?.name || "");
+                            setEditAvatar(user?.avatarUrl || "");
+                            setIsEditingProfile(!isEditingProfile);
+                          }}
+                        >
+                          <Edit3 className="w-3.5 h-3.5 mr-1" />
+                          {isEditingProfile ? "닫기" : "프로필 편집"}
+                        </Button>
+                      </div>
+
+                      {isEditingProfile && (
+                        <div className="py-3 border-b border-gray-100 space-y-2.5">
+                          <div>
+                            <label className="text-[11px] font-bold text-gray-700 block mb-1">닉네임 변경</label>
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              className="w-full h-8 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              placeholder="닉네임 입력"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-gray-700 block mb-1">프로필 이미지 URL</label>
+                            <input
+                              type="text"
+                              value={editAvatar}
+                              onChange={(e) => setEditAvatar(e.target.value)}
+                              className="w-full h-8 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              placeholder="https:// 이미지 주소"
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            className="w-full h-7 bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1 font-semibold"
+                            onClick={() => {
+                              updateProfileMutation.mutate({
+                                name: editName,
+                                avatarUrl: editAvatar || undefined,
+                              });
+                            }}
+                          >
+                            <Check className="w-3.5 h-3.5" /> 저장하기
+                          </Button>
+                        </div>
+                      )}
                       <DropdownMenuSeparator />
                       <Link href="/dashboard">
                         <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">

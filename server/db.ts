@@ -163,6 +163,16 @@ export async function updateUserSocialProfile(userId: number, profile: { name?: 
   }
 }
 
+export async function updateUserProfile(userId: number, input: { name?: string; avatarUrl?: string }) {
+  const db = await getDb();
+  if (!db) return false;
+  const setObj: Record<string, any> = { updatedAt: new Date() };
+  if (input.name !== undefined) setObj.name = input.name;
+  if (input.avatarUrl !== undefined) setObj.avatarUrl = input.avatarUrl;
+  await db.update(users).set(setObj).where(eq(users.id, userId));
+  return true;
+}
+
 export async function listSocialProviderConfigs() {
   const db = await getDb();
   if (!db) return [];
