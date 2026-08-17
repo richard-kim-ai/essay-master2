@@ -195,4 +195,23 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(managerSource).toContain("toggleCurriculumActiveAdmin");
     expect(managerSource).toContain("학생 화면 상세 미리보기");
   });
+
+  it("문제은행 휴지통이 보관 기간 설정과 복구·영구 삭제 흐름을 제공한다", () => {
+    const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
+    const source = readFileSync(adminQBankPath, "utf8");
+    expect(source).toContain("자동 보관 기간");
+    expect(source).toContain("handleSaveRetentionDays");
+    expect(source).toContain("restoreFromTrash");
+    expect(source).toContain("permanentlyDeleteTrashItem");
+  });
+
+  it("문제은행 업로드 실패 CSV와 작업 이력 로그를 제공한다", () => {
+    const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
+    const routersSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const source = readFileSync(adminQBankPath, "utf8");
+    expect(source).toContain("실패 문항 CSV 다운로드");
+    expect(source).toContain("문항 작업 이력 로그");
+    expect(routersSource).toContain("maintenanceSettings:");
+    expect(routersSource).toContain("operationLogs:");
+  });
 });

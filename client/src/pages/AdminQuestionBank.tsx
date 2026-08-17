@@ -359,7 +359,8 @@ export default function AdminQuestionBank() {
           refetch();
           refetchStats();
         } else {
-          toast.error("CSV 파싱에 실패했습니다.");
+          setUploadReport({ open: true, total: invalidRows, created: 0, updated: 0, failed: invalidRows, failures: uploadFailures });
+          toast.error("CSV에서 반영 가능한 문항을 찾지 못했습니다. 실패 리포트를 확인하세요.");
           setUploadProgress({ active: false, percent: 0, text: "" });
         }
       } catch (err) {
