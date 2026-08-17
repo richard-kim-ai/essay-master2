@@ -77,13 +77,19 @@ export default function Navigation() {
     }
   });
 
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+
   const uploadAvatarMutation = trpc.auth.uploadAvatarBase64.useMutation({
     onSuccess: (data) => {
       toast.success("프로필 이미지가 업로드 및 변경되었습니다.");
       setEditAvatar(data.url);
+      setAvatarPreview(null);
+      setIsUploadingAvatar(false);
       if (typeof refresh === "function") refresh();
     },
     onError: (err) => {
+      setIsUploadingAvatar(false);
       toast.error(err.message || "이미지 업로드 중 오류가 발생했습니다.");
     }
   });
@@ -260,12 +266,19 @@ export default function Navigation() {
                           <div>
                             <div className="flex items-center justify-between mb-1">
                               <label className="text-[11px] font-bold text-gray-700">프로필 이미지</label>
-                              <label className="text-[10px] text-blue-600 cursor-pointer hover:underline">
-                                기기에서 업로드
+                              <label className="text-[10px] text-blue-600 cursor-pointer hover:underline flex items-center gap-1">
+                                {isUploadingAvatar ? (
+                                  <span className="flex items-center gap-1 text-slate-500">
+                                    <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span> 업로드 중...
+                                  </span>
+                                ) : (
+                                  "기기에서 사진 선택"
+                                )}
                                 <input
                                   type="file"
                                   accept="image/*"
                                   className="hidden"
+                                  disabled={isUploadingAvatar}
                                   onChange={(e) => {
                                     const file = e.target.files?.[0];
                                     if (!file) return;
@@ -273,6 +286,8 @@ export default function Navigation() {
                                     reader.onload = (event) => {
                                       const base64 = event.target?.result as string;
                                       if (base64) {
+                                        setAvatarPreview(base64);
+                                        setIsUploadingAvatar(true);
                                         uploadAvatarMutation.mutate({ imageBase64: base64, fileName: file.name });
                                       }
                                     };
@@ -281,6 +296,18 @@ export default function Navigation() {
                                 />
                               </label>
                             </div>
+                            {(avatarPreview || editAvatar) && (
+                              <div className="flex items-center gap-3 mb-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                                <img
+                                  src={avatarPreview || editAvatar}
+                                  alt="Preview"
+                                  className="w-10 h-10 rounded-full object-cover border border-slate-300 shrink-0"
+                                />
+                                <div className="text-[10px] text-slate-500 truncate">
+                                  {avatarPreview ? "업로드 대기 중인 미리보기" : "현재 프로필 이미지"}
+                                </div>
+                              </div>
+                            )}
                             <input
                               type="text"
                               value={editAvatar}
