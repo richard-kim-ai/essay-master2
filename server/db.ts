@@ -1283,6 +1283,155 @@ export async function updateTeacherAiStyleExampleStatus(exampleId: number, statu
   return example;
 }
 
+type TeacherAiDraftEvaluation = {
+  overallScore: number;
+  logicScore: number;
+  structureScore: number;
+  expressionScore: number;
+  strengths: string[];
+  improvements: string[];
+  answerQuotes: string[];
+  safetyFlags: string[];
+};
+
+export async function getTeacherAiDraftById(draftId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [draft] = await db.select().from(teacherAiDrafts).where(eq(teacherAiDrafts.id, draftId));
+  return draft;
+}
+
+export async function getTeacherAiDraftsByEssay(essayId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(teacherAiDrafts).where(eq(teacherAiDrafts.essayId, essayId)).orderBy(desc(teacherAiDrafts.updatedAt));
+}
+
+function parseTeacherAiEvaluation(content: string): { draftComment: string; evaluation: TeacherAiDraftEvaluation } {
+  const parsed = JSON.parse(extractFirstJsonObject(content)) as { draftComment: string; evaluation: TeacherAiDraftEvaluation };
+  if (!parsed.draftComment || !parsed.evaluation) throw new Error("AI 첨삭 초안 형식이 올바르지 않습니다.");
+  return parsed;
+}
+
+export async function generateTeacherAiDraft(essayId: number, teacherId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [essay, profile, availableModels, examples] = await Promise.all([
+    getEssaySubmissionById(essayId),
+    getTeacherAiProfile(teacherId),
+    listLLMModels(),
+    listTeacherAiStyleExamples(teacherId),
+  ]);
+  if (!essay) throw new Error("논술 제출물을 찾을 수 없습니다.");
+  if (!profile?.isEnabled) throw new Error("교사별 AI 보조 봇이 활성화되어 있지 않습니다.");
+
+  const approvedExamples = examples.filter((example) => example.approvalStatus === "admin_approved").slice(0, 3);
+  const model = availableModels.data.find((candidate) => candidate.id === "gpt-5")?.id ?? availableModels.data.find((candidate) => candidate.id === "gpt-5-mini")?.id;
+  if (!model) throw new Error("사용 가능한 AI 모델을 찾지 못했습니다.");
+  const forbiddenPhrases = (() => { try { return JSON.parse(profile.forbiddenPhrases || "[]") as string[]; } catch { return []; } })();
+  const styleReferences = approvedExamples.map((example, index) => `사례 ${index + 1}\n[가명 처리된 답안]\n${example.pseudonymizedPrompt}\n[교사 최종 첨삭]\n${example.approvedFeedback}`).join("\n\n");
+
+  const response = await invokeLLM({
+    model,
+    reasoning: model === "gpt-5" ? { effort: "low" } : undefined,
+    messages: [
+      { role: "system", content: "당신은 교사가 검토할 논술 첨삭 초안을 만드는 보조 AI입니다. 학생에게 직접 말하는 확정 첨삭처럼 표현하지 마세요. 답안에 실제로 존재하는 문장만 인용하고, 확인할 수 없는 사실·성적·입시 결과를 만들지 마세요. 학생 식별 정보의 추정·반복을 금지합니다." },
+      { role: "user", content: `[교사 AI 보조 봇 프로필]\n이름: ${profile.displayName}\n어조: ${profile.tone}\n우선 평가 영역: ${profile.feedbackFocus}\n스타일 지침: ${profile.styleInstruction || "없음"}\n금지 표현: ${forbiddenPhrases.join(", ") || "없음"}\n\n[가명 처리·관리자 승인 사례]\n${styleReferences || "등록된 사례 없음"}\n\n[학생 제출물]\n제목: ${essay.title}\n답안:\n${essay.content}\n\n[작성 규칙]\n1. 논리·구조·표현 점수는 0~100 정수로, 실제 답안 인용이 없으면 높게 주지 않습니다.\n2. answerQuotes는 답안에 문자 그대로 포함된 2~60자 인용만 0~3개 반환합니다.\n3. strengths와 improvements는 각각 1~3개이며 구체적인 행동 지침이어야 합니다.\n4. draftComment는 교사가 수정할 수 있는 한국어 첨삭 초안입니다.\n5. safetyFlags에는 개인정보 가능성·근거 부족·주제 이탈 등 검토 필요한 항목만 넣습니다.` },
+    ],
+    responseFormat: {
+      type: "json_schema",
+      json_schema: {
+        name: "teacher_ai_draft",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            draftComment: { type: "string" },
+            evaluation: {
+              type: "object",
+              properties: {
+                overallScore: { type: "integer", minimum: 0, maximum: 100 },
+                logicScore: { type: "integer", minimum: 0, maximum: 100 },
+                structureScore: { type: "integer", minimum: 0, maximum: 100 },
+                expressionScore: { type: "integer", minimum: 0, maximum: 100 },
+                strengths: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
+                improvements: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
+                answerQuotes: { type: "array", minItems: 0, maxItems: 3, items: { type: "string" } },
+                safetyFlags: { type: "array", minItems: 0, maxItems: 4, items: { type: "string" } },
+              },
+              required: ["overallScore", "logicScore", "structureScore", "expressionScore", "strengths", "improvements", "answerQuotes", "safetyFlags"],
+              additionalProperties: false,
+            },
+          },
+          required: ["draftComment", "evaluation"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+  const content = response.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) throw new Error("AI 첨삭 초안 응답이 비어 있습니다.");
+  const { draftComment, evaluation } = parseTeacherAiEvaluation(content);
+  const invalidQuote = evaluation.answerQuotes.some((quote) => quote && !essay.content.includes(quote));
+  if (invalidQuote) throw new Error("AI 첨삭 초안의 근거 인용을 검증하지 못했습니다.");
+  await db.insert(teacherAiDrafts).values({
+    essayId,
+    teacherId,
+    profileVersion: profile.currentVersion,
+    modelId: model,
+    evaluationJson: JSON.stringify(evaluation),
+    draftComment,
+    status: "generated",
+    generatedAt: new Date(),
+  });
+  const [draft] = await db.select().from(teacherAiDrafts).where(and(eq(teacherAiDrafts.essayId, essayId), eq(teacherAiDrafts.teacherId, teacherId))).orderBy(desc(teacherAiDrafts.id));
+  return draft;
+}
+
+export async function saveTeacherAiDraftRevision(input: { draftId: number; editorId: number; revisedComment: string; changeSummary?: string; learningApproval?: "pending" | "approved" | "rejected" | "withdrawn" }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const revisions = await db.select().from(teacherAiDraftRevisions).where(eq(teacherAiDraftRevisions.draftId, input.draftId));
+  await db.insert(teacherAiDraftRevisions).values({
+    draftId: input.draftId,
+    revisionNumber: revisions.length + 1,
+    editorId: input.editorId,
+    revisedComment: input.revisedComment,
+    changeSummary: input.changeSummary ?? null,
+    learningApproval: input.learningApproval ?? "pending",
+  });
+  await db.update(teacherAiDrafts).set({ status: "edited", updatedAt: new Date() }).where(eq(teacherAiDrafts.id, input.draftId));
+  const [revision] = await db.select().from(teacherAiDraftRevisions).where(eq(teacherAiDraftRevisions.draftId, input.draftId)).orderBy(desc(teacherAiDraftRevisions.id));
+  return revision;
+}
+
+export async function getTeacherAiDraftRevisions(draftId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(teacherAiDraftRevisions).where(eq(teacherAiDraftRevisions.draftId, draftId)).orderBy(desc(teacherAiDraftRevisions.revisionNumber));
+}
+
+export async function approveTeacherAiDraft(input: { draftId: number; teacherId: number; revisionId?: number; finalComment: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const draft = await getTeacherAiDraftById(input.draftId);
+  if (!draft || draft.teacherId !== input.teacherId) throw new Error("승인할 AI 첨삭 초안을 찾을 수 없습니다.");
+  const evaluation = draft.evaluationJson ? JSON.parse(draft.evaluationJson) as TeacherAiDraftEvaluation : null;
+  const existingFeedback = await getTeacherFeedbackByEssay(draft.essayId);
+  const feedbackValues = {
+    overallComment: input.finalComment,
+    overallScore: evaluation?.overallScore,
+    logicScore: evaluation?.logicScore,
+    structureScore: evaluation?.structureScore,
+    expressionScore: evaluation?.expressionScore,
+  };
+  if (existingFeedback) await updateTeacherFeedback(existingFeedback.id, feedbackValues);
+  else await createTeacherFeedback({ essayId: draft.essayId, teacherId: input.teacherId, ...feedbackValues });
+  await db.update(teacherAiDrafts).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() }).where(eq(teacherAiDrafts.id, input.draftId));
+  await updateEssaySubmission(draft.essayId, { status: "reviewed" });
+  return getTeacherFeedbackByEssay(draft.essayId);
+}
+
 export async function getAdminOperationsDashboardStats() {
   const db = await getDb();
   if (!db) return null;

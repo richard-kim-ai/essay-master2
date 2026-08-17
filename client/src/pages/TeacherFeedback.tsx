@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
-import { BookOpen, Loader2, MessageSquare, Send } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, MessageSquare, Send, Sparkles } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
@@ -25,6 +25,9 @@ export default function TeacherFeedback() {
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState("");
   const [selectedText, setSelectedText] = useState("");
+  const [selectedDraft, setSelectedDraft] = useState<any>(null);
+  const [draftChangeSummary, setDraftChangeSummary] = useState("");
+  const isTeacherReviewer = user?.role === "teacher" || user?.role === "admin";
 
   const getEssayQuery = trpc.essaySubmission.getById.useQuery(essayId || 0, {
     enabled: !!essayId,
@@ -38,6 +41,11 @@ export default function TeacherFeedback() {
   const createFeedbackMutation = trpc.teacherFeedback.create.useMutation();
   const updateFeedbackMutation = trpc.teacherFeedback.update.useMutation();
   const addCommentMutation = trpc.teacherFeedback.addComment.useMutation();
+  const aiDraftsQuery = trpc.teacherAi.draftsForEssay.useQuery({ essayId: essayId || 0 }, { enabled: Boolean(essayId && isTeacherReviewer) });
+  const draftRevisionsQuery = trpc.teacherAi.revisionsForDraft.useQuery({ draftId: selectedDraft?.id || 0 }, { enabled: Boolean(selectedDraft?.id && isTeacherReviewer) });
+  const generateDraftMutation = trpc.teacherAi.generateDraft.useMutation();
+  const saveDraftRevisionMutation = trpc.teacherAi.saveDraftRevision.useMutation();
+  const approveDraftMutation = trpc.teacherAi.approveDraft.useMutation();
 
   useEffect(() => {
     if (getEssayQuery.data) {
@@ -62,6 +70,12 @@ export default function TeacherFeedback() {
       setComments(getCommentsQuery.data);
     }
   }, [getCommentsQuery.data]);
+
+  useEffect(() => {
+    if (aiDraftsQuery.data?.length) {
+      setSelectedDraft((current: any) => current ?? aiDraftsQuery.data[0]);
+    }
+  }, [aiDraftsQuery.data]);
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
@@ -136,6 +150,56 @@ export default function TeacherFeedback() {
     }
   };
 
+  const applyDraftToForm = (draft: any) => {
+    setSelectedDraft(draft);
+    try {
+      const evaluation = draft.evaluationJson ? JSON.parse(draft.evaluationJson) : null;
+      if (evaluation) {
+        setOverallScore(evaluation.overallScore ?? overallScore);
+        setLogicScore(evaluation.logicScore ?? logicScore);
+        setStructureScore(evaluation.structureScore ?? structureScore);
+        setExpressionScore(evaluation.expressionScore ?? expressionScore);
+      }
+    } catch { /* 구조화 점수 없이 초안 본문만 활용 */ }
+    setOverallComment(draft.draftComment || "");
+  };
+
+  const handleGenerateAiDraft = async () => {
+    if (!essayId) return;
+    try {
+      const draft = await generateDraftMutation.mutateAsync({ essayId });
+      applyDraftToForm(draft);
+      aiDraftsQuery.refetch();
+      toast.success("AI 초안을 만들었습니다. 교사가 검토·수정하기 전에는 학생에게 공개되지 않습니다.");
+    } catch (error: any) {
+      toast.error(error?.message || "AI 초안 생성에 실패했습니다. 관리자에서 교사 AI 보조 봇 프로필을 먼저 활성화해주세요.");
+    }
+  };
+
+  const handleSaveDraftRevision = async () => {
+    if (!selectedDraft) return toast.error("수정할 AI 초안을 먼저 선택해주세요.");
+    try {
+      await saveDraftRevisionMutation.mutateAsync({ draftId: selectedDraft.id, revisedComment: overallComment, changeSummary: draftChangeSummary || "교사 검토 및 수정" });
+      aiDraftsQuery.refetch();
+      draftRevisionsQuery.refetch();
+      toast.success("교사 수정 이력을 저장했습니다. 아직 학생에게 발송되지 않았습니다.");
+    } catch (error: any) { toast.error(error?.message || "수정 이력 저장에 실패했습니다."); }
+  };
+
+  const handleApproveAndSend = async () => {
+    if (!selectedDraft) return toast.error("최종 발송할 AI 초안을 먼저 선택해주세요.");
+    try {
+      await approveDraftMutation.mutateAsync({ draftId: selectedDraft.id, finalComment: overallComment });
+      await getFeedbackQuery.refetch();
+      await aiDraftsQuery.refetch();
+      toast.success("교사가 승인한 최종 첨삭을 학생에게 발송했습니다.");
+    } catch (error: any) { toast.error(error?.message || "최종 발송에 실패했습니다."); }
+  };
+
+  const renderSentenceDiff = (draftText: string, finalText: string) => finalText.split(/(?<=[.!?。])\s+|\n+/).filter(Boolean).map((sentence, index) => (
+    <span key={`${sentence}-${index}`} className={draftText.includes(sentence) ? "" : "rounded bg-amber-100 px-1 text-amber-950"}>{sentence}{" "}</span>
+  ));
+
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       {/* Main Content */}
@@ -158,6 +222,27 @@ export default function TeacherFeedback() {
                 </div>
               </CardContent>
             </Card>
+
+            {isTeacherReviewer && <Card className="border-indigo-100 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Bot className="h-5 w-5 text-indigo-600" />교사 승인형 AI 첨삭 초안</CardTitle>
+                <CardDescription>교사 프로필과 관리자 승인 사례를 참고한 보조 초안입니다. AI가 학생에게 직접 발송하지 않으며, 교사 수정·승인 후에만 공개됩니다.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button type="button" onClick={handleGenerateAiDraft} disabled={generateDraftMutation.isPending} className="gap-2 bg-indigo-600 hover:bg-indigo-700"><Sparkles className="h-4 w-4" />{generateDraftMutation.isPending ? "AI 초안 생성 중…" : "AI 첨삭 초안 생성"}</Button>
+                  {aiDraftsQuery.data?.length ? <select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={selectedDraft?.id ?? ""} onChange={(event) => { const draft = aiDraftsQuery.data?.find((item) => String(item.id) === event.target.value); if (draft) applyDraftToForm(draft); }}>{aiDraftsQuery.data.map((draft) => <option key={draft.id} value={draft.id}>초안 #{draft.id} · {draft.status} · {new Date(draft.createdAt).toLocaleString("ko-KR")}</option>)}</select> : null}
+                </div>
+                {selectedDraft ? <>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4"><p className="mb-2 text-sm font-bold text-indigo-950">AI 초안 · 학생에게 미공개</p><p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">{selectedDraft.draftComment}</p></div>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4"><p className="mb-2 text-sm font-bold text-emerald-950">교사 최종본 · 수정 비교</p><p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">{overallComment ? renderSentenceDiff(selectedDraft.draftComment, overallComment) : "오른쪽 평가란에서 교사 최종 첨삭을 작성하세요."}</p><p className="mt-3 border-t border-emerald-100 pt-3 text-xs text-emerald-800">노란색 강조: AI 초안에서 교사가 새로 쓰거나 바꾼 문장 · 변경 상태: {overallComment === selectedDraft.draftComment ? "AI 초안과 동일" : "교사 수정됨"}</p></div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 p-3"><label className="text-xs font-semibold text-slate-700">수정 요약 <span className="font-normal text-slate-400">학습 후보 검토에만 사용</span></label><Input value={draftChangeSummary} onChange={(event) => setDraftChangeSummary(event.target.value)} placeholder="예: 근거 인용을 보강하고 표현을 완화함" className="mt-2" /><div className="mt-3 flex flex-col gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={handleSaveDraftRevision} disabled={saveDraftRevisionMutation.isPending}>수정 이력 저장</Button><Button type="button" className="gap-2 bg-emerald-600 hover:bg-emerald-700" onClick={handleApproveAndSend} disabled={approveDraftMutation.isPending}><CheckCircle2 className="h-4 w-4" />{approveDraftMutation.isPending ? "최종 발송 중…" : "교사 승인 후 학생에게 발송"}</Button></div></div>
+                  {draftRevisionsQuery.data?.length ? <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-bold text-slate-700">저장된 교사 수정 이력</p><div className="mt-2 space-y-2">{draftRevisionsQuery.data.slice(0, 3).map((revision) => <div key={revision.id} className="rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-600"><p>{revision.changeSummary || "수정 요약 없음"}</p><p className="mt-1 text-slate-400">v{revision.revisionNumber} · {new Date(revision.createdAt).toLocaleString("ko-KR")} · 학습 후보 {revision.learningApproval}</p></div>)}</div></div> : null}
+                </> : <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">교사별 AI 보조 봇을 활성화한 뒤 초안을 생성하면, 이곳에서 AI 초안과 교사 최종본을 비교할 수 있습니다.</div>}
+              </CardContent>
+            </Card>}
 
             {/* Comments */}
             <Card>

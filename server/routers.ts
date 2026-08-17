@@ -80,6 +80,16 @@ async function validateSignupConsents(
     }));
 }
 
+async function assertTeacherEssayAccess(user: { id: number; role: string; teacherStatus?: string | null }, essayId: number) {
+  const essay = await db.getEssaySubmissionById(essayId);
+  if (!essay) throw new TRPCError({ code: "NOT_FOUND", message: "논술 제출물을 찾을 수 없습니다." });
+  if (user.role === "admin") return essay;
+  if (user.role !== "teacher" || user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+  const student = await db.getUserById(essay.userId);
+  if (!student || student.teacherId !== user.id) throw new TRPCError({ code: "FORBIDDEN", message: "배정된 학생의 제출물만 처리할 수 있습니다." });
+  return essay;
+}
+
 export const appRouter = router({
   system: systemRouter,
   policy: router({
@@ -119,6 +129,48 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         return db.updateTeacherAiStyleExampleStatus(input.exampleId, input.status);
+      }),
+    draftsForEssay: protectedProcedure
+      .input(z.object({ essayId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await assertTeacherEssayAccess(ctx.user, input.essayId);
+        return db.getTeacherAiDraftsByEssay(input.essayId);
+      }),
+    revisionsForDraft: protectedProcedure
+      .input(z.object({ draftId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const draft = await db.getTeacherAiDraftById(input.draftId);
+        if (!draft) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertTeacherEssayAccess(ctx.user, draft.essayId);
+        return db.getTeacherAiDraftRevisions(input.draftId);
+      }),
+    generateDraft: protectedProcedure
+      .input(z.object({ essayId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await assertTeacherEssayAccess(ctx.user, input.essayId);
+        const profileTeacherId = ctx.user.role === "admin" ? ctx.user.id : ctx.user.id;
+        return db.generateTeacherAiDraft(input.essayId, profileTeacherId);
+      }),
+    saveDraftRevision: protectedProcedure
+      .input(z.object({ draftId: z.number(), revisedComment: z.string().trim().min(20).max(12000), changeSummary: z.string().trim().max(1000).optional(), learningApproval: z.enum(["pending", "approved", "rejected", "withdrawn"]).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const draft = await db.getTeacherAiDraftById(input.draftId);
+        if (!draft) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertTeacherEssayAccess(ctx.user, draft.essayId);
+        if (ctx.user.role !== "admin" && draft.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "작성 교사만 수정 이력을 저장할 수 있습니다." });
+        return db.saveTeacherAiDraftRevision({ draftId: input.draftId, editorId: ctx.user.id, revisedComment: input.revisedComment, changeSummary: input.changeSummary, learningApproval: input.learningApproval });
+      }),
+    approveDraft: protectedProcedure
+      .input(z.object({ draftId: z.number(), finalComment: z.string().trim().min(20).max(12000) }))
+      .mutation(async ({ ctx, input }) => {
+        const draft = await db.getTeacherAiDraftById(input.draftId);
+        if (!draft) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertTeacherEssayAccess(ctx.user, draft.essayId);
+        if (ctx.user.role !== "admin" && draft.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "작성 교사만 최종 발송할 수 있습니다." });
+        const result = await db.approveTeacherAiDraft({ draftId: input.draftId, teacherId: draft.teacherId, finalComment: input.finalComment });
+        const essay = await db.getEssaySubmissionById(draft.essayId);
+        if (essay) void sendPushToUser(essay.userId, { title: "교사 승인 첨삭이 도착했어요", body: `${essay.title}의 최종 첨삭을 확인해보세요.`, url: `/teacher-feedback/${essay.id}`, tag: `teacher-ai-approved-${draft.id}` });
+        return result;
       }),
   }),
   aiGovernance: router({

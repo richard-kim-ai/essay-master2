@@ -292,6 +292,24 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(apiDesignSource).toContain("교사 승인 전 학생에게 공개되지 않는다");
   });
 
+  it("교사만 배정 학생의 AI 초안을 생성·수정·승인 발송하고 학생에게는 최종본만 공개한다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const teacherPageSource = readFileSync(new URL("../client/src/pages/TeacherFeedback.tsx", import.meta.url), "utf8");
+    expect(dbSource).toContain("generateTeacherAiDraft");
+    expect(dbSource).toContain("saveTeacherAiDraftRevision");
+    expect(dbSource).toContain("approveTeacherAiDraft");
+    expect(dbSource).toContain("AI 첨삭 초안의 근거 인용을 검증하지 못했습니다.");
+    expect(routerSource).toContain("assertTeacherEssayAccess");
+    expect(routerSource).toContain("generateDraft:");
+    expect(routerSource).toContain("approveDraft:");
+    expect(routerSource).toContain("teacher-ai-approved-");
+    expect(teacherPageSource).toContain("AI 첨삭 초안 생성");
+    expect(teacherPageSource).toContain("교사 승인 후 학생에게 발송");
+    expect(teacherPageSource).toContain("저장된 교사 수정 이력");
+    expect(teacherPageSource).toContain("노란색 강조");
+  });
+
   it("학생·학부모·첨삭교사 가입에 정책 전문 확인형 동의와 동의 원장을 요구한다", () => {
     const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
     const signupSource = readFileSync(new URL("../client/src/pages/Signup.tsx", import.meta.url), "utf8");
