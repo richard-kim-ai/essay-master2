@@ -818,7 +818,7 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.deleteQuestionBankItem(input.id);
+        return await db.deleteQuestionBankItem(input.id, ctx.user.id);
       }),
     bulkCreate: protectedProcedure
       .input(z.object({
@@ -859,7 +859,26 @@ export const appRouter = router({
       .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(1000) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.deleteQuestionBankItems(input.ids);
+        return await db.deleteQuestionBankItems(input.ids, ctx.user.id);
+      }),
+
+    listTrash: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await db.getQuestionBankTrash();
+    }),
+
+    restoreFromTrash: protectedProcedure
+      .input(z.object({ trashId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.restoreQuestionBankTrashItem(input.trashId);
+      }),
+
+    permanentlyDeleteTrashItem: protectedProcedure
+      .input(z.object({ trashId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.permanentlyDeleteQuestionBankTrashItem(input.trashId);
       }),
 
     deleteByCourse: protectedProcedure

@@ -315,6 +315,23 @@ export const questionBank = mysqlTable("question_bank", {
 export type QuestionBank = typeof questionBank.$inferSelect;
 export type InsertQuestionBank = typeof questionBank.$inferInsert;
 
+// 문제은행 휴지통: 관리자 삭제 문항을 임시 보관하여 안전하게 복구
+export const questionBankTrash = mysqlTable("question_bank_trash", {
+  id: int("id").autoincrement().primaryKey(),
+  originalQuestionId: int("originalQuestionId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  toolType: varchar("toolType", { length: 64 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  contentData: text("contentData").notNull(),
+  difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("medium").notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  deletedByUserId: int("deletedByUserId").notNull(),
+  deletedAt: timestamp("deletedAt").defaultNow().notNull(),
+});
+
+export type QuestionBankTrash = typeof questionBankTrash.$inferSelect;
+export type InsertQuestionBankTrash = typeof questionBankTrash.$inferInsert;
+
 // 문제 피드백 및 오류 신고 테이블
 export const questionFeedbacks = mysqlTable("question_feedbacks", {
   id: int("id").autoincrement().primaryKey(),

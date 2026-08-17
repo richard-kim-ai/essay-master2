@@ -19,6 +19,7 @@ import {
   parentStudentLinks,
   userBadges,
   questionBank,
+  questionBankTrash,
   questionFeedbacks,
   questionBookmarks,
   curriculumWorkbookQuestions,
@@ -1359,11 +1360,23 @@ export async function updateQuestionBankItem(id: number, data: Partial<{
   return row;
 }
 
-export async function deleteQuestionBankItem(id: number) {
+export async function deleteQuestionBankItem(id: number, deletedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  const [item] = await db.select().from(questionBank).where(eq(questionBank.id, id));
+  if (!item) return { deletedCount: 0 };
+  await db.insert(questionBankTrash).values({
+    originalQuestionId: item.id,
+    courseType: item.courseType,
+    toolType: item.toolType,
+    title: item.title,
+    contentData: item.contentData,
+    difficulty: item.difficulty,
+    isActive: item.isActive,
+    deletedByUserId,
+  });
   await db.delete(questionBank).where(eq(questionBank.id, id));
-  return true;
+  return { deletedCount: 1 };
 }
 
 export async function deleteQuestionBankByCourse(courseType: string) {
@@ -1373,13 +1386,57 @@ export async function deleteQuestionBankByCourse(courseType: string) {
   return true;
 }
 
-export async function deleteQuestionBankItems(ids: number[]) {
+export async function deleteQuestionBankItems(ids: number[], deletedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const uniqueIds = Array.from(new Set(ids)).filter((id) => Number.isInteger(id) && id > 0);
   if (uniqueIds.length === 0) return { deletedCount: 0 };
+  const items = await db.select().from(questionBank).where(inArray(questionBank.id, uniqueIds));
+  if (items.length === 0) return { deletedCount: 0 };
+  await db.insert(questionBankTrash).values(items.map((item) => ({
+    originalQuestionId: item.id,
+    courseType: item.courseType,
+    toolType: item.toolType,
+    title: item.title,
+    contentData: item.contentData,
+    difficulty: item.difficulty,
+    isActive: item.isActive,
+    deletedByUserId,
+  })));
   await db.delete(questionBank).where(inArray(questionBank.id, uniqueIds));
-  return { deletedCount: uniqueIds.length };
+  return { deletedCount: items.length };
+}
+
+export async function getQuestionBankTrash() {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(questionBankTrash).orderBy(desc(questionBankTrash.deletedAt));
+}
+
+export async function restoreQuestionBankTrashItem(trashId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [item] = await db.select().from(questionBankTrash).where(eq(questionBankTrash.id, trashId));
+  if (!item) throw new Error("휴지통에서 복구할 문항을 찾을 수 없습니다.");
+  const [existing] = await db.select().from(questionBank).where(eq(questionBank.id, item.originalQuestionId));
+  const restored = await createQuestionBankItem({
+    ...(existing ? {} : { id: item.originalQuestionId }),
+    courseType: item.courseType,
+    toolType: item.toolType,
+    title: item.title,
+    contentData: item.contentData,
+    difficulty: item.difficulty,
+    isActive: item.isActive,
+  });
+  await db.delete(questionBankTrash).where(eq(questionBankTrash.id, trashId));
+  return restored;
+}
+
+export async function permanentlyDeleteQuestionBankTrashItem(trashId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(questionBankTrash).where(eq(questionBankTrash.id, trashId));
+  return { success: true };
 }
 
 export async function upsertQuestionBankItem(data: {

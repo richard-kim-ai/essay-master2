@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert } from "lucide-react";
+import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert, ArchiveRestore, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
 
 export default function AdminQuestionBank() {
@@ -18,7 +18,7 @@ export default function AdminQuestionBank() {
   const [difficultyFilter, setDifficultyFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"default" | "lowest_correct" | "highest_wrong" | "most_attempted">("default");
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"list" | "stats" | "quality" | "generator">("list");
+  const [activeTab, setActiveTab] = useState<"list" | "stats" | "quality" | "generator" | "trash">("list");
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
 
   // AI Generator Form & Preview State
@@ -48,6 +48,7 @@ export default function AdminQuestionBank() {
   const { data: statsData, refetch: refetchStats } = trpc.questionBank.stats.useQuery();
   const { data: trendData } = trpc.questionBank.trendStats.useQuery({ period: trendPeriod });
   const { data: allFeedbacks } = trpc.questionBank.allFeedbacks.useQuery();
+  const { data: trashItems, isLoading: isTrashLoading, refetch: refetchTrash } = trpc.questionBank.listTrash.useQuery(undefined, { enabled: activeTab === "trash" });
   const { data: aiInsightData } = trpc.questionBank.aiInsight.useQuery(
     { questionId: selectedQuestionForInsight?.id || 0 },
     { enabled: !!selectedQuestionForInsight }
@@ -57,6 +58,8 @@ export default function AdminQuestionBank() {
   const updateMutation = trpc.questionBank.update.useMutation();
   const deleteMutation = trpc.questionBank.delete.useMutation();
   const deleteManyMutation = trpc.questionBank.deleteMany.useMutation();
+  const restoreFromTrashMutation = trpc.questionBank.restoreFromTrash.useMutation();
+  const permanentlyDeleteTrashMutation = trpc.questionBank.permanentlyDeleteTrashItem.useMutation();
   const bulkCreateMutation = trpc.questionBank.bulkCreate.useMutation();
   const applyAiDiffMutation = trpc.questionBank.applyAiDifficulty.useMutation();
   const previewAiQuestionsMutation = trpc.questionBank.previewAiQuestions.useMutation();
@@ -195,11 +198,17 @@ export default function AdminQuestionBank() {
             const c = str[i];
             const next = str[i + 1];
             if (c === '"') {
-              if (inQuotes && next === '"') {
+              // CSV 필드 첫 글자의 따옴표만 감싸기 문자로 처리합니다.
+              // contentData의 JSON 속성 따옴표는 원본 그대로 보존해야 JSON.parse가 가능합니다.
+              if (!inQuotes && cur.length === 0) {
+                inQuotes = true;
+              } else if (inQuotes && next === '"') {
                 cur += '"';
                 i++;
+              } else if (inQuotes && (next === ',' || next === '\r' || next === '\n' || next === undefined)) {
+                inQuotes = false;
               } else {
-                inQuotes = !inQuotes;
+                cur += c;
               }
             } else if (c === ',' && !inQuotes) {
               row.push(cur.trim());
@@ -237,18 +246,30 @@ export default function AdminQuestionBank() {
         const titleIdx = header.findIndex(h => h === "title");
         const contentIdx = header.findIndex(h => h === "contentData");
         const diffIdx = header.findIndex(h => h === "difficulty");
+        const trailingColumnCount = diffIdx >= 0 ? header.length - diffIdx : 0;
+
+        if ([courseIdx, toolIdx, titleIdx, contentIdx, diffIdx].some((index) => index < 0)) {
+          throw new Error("CSV 헤더에 courseType, toolType, title, contentData, difficulty 열이 모두 필요합니다.");
+        }
 
         const items: any[] = [];
+        let invalidRows = 0;
         for (let i = 1; i < parsedRows.length; i++) {
           const r = parsedRows[i];
-          if (r.length < 5) continue;
+          if (r.length < 5) {
+            invalidRows += 1;
+            continue;
+          }
 
           const idVal = idIdx >= 0 ? Number(r[idIdx]) : undefined;
           const courseTypeVal = courseIdx >= 0 ? r[courseIdx] : r[1];
           const toolTypeVal = toolIdx >= 0 ? r[toolIdx] : r[2];
           const titleVal = titleIdx >= 0 ? r[titleIdx] : r[3];
-          const contentVal = contentIdx >= 0 ? r[contentIdx] : r[4];
-          const diffVal = diffIdx >= 0 ? r[diffIdx] : r[5];
+          // 일부 CSV는 contentData(JSON)를 따옴표로 감싸지 않습니다. 이 경우 쉼표 때문에
+          // JSON이 여러 열로 분리되므로 마지막 difficulty·isActive·날짜 열을 기준으로 안전하게 재조합합니다.
+          const resolvedDifficultyIndex = r.length - trailingColumnCount;
+          const contentVal = r.slice(contentIdx, resolvedDifficultyIndex).join(",");
+          const diffVal = r[resolvedDifficultyIndex];
 
           const courseType = (["elementary", "middle_high", "high_univ", "general_adult"].includes(courseTypeVal) ? courseTypeVal : "middle_high") as any;
           const toolType = toolTypeVal || "quiz";
@@ -256,15 +277,23 @@ export default function AdminQuestionBank() {
           const contentData = contentVal?.replace(/^"|"$/g, "").replace(/\\\\n/g, "\n") || '{"prompt":"샘플"}';
           const difficulty = (["easy", "medium", "hard"].includes(diffVal) ? diffVal : "medium") as any;
 
+          try {
+            JSON.parse(contentData);
+          } catch {
+            invalidRows += 1;
+            continue;
+          }
+
           items.push({ id: idVal && !isNaN(idVal) ? idVal : undefined, courseType, toolType, title, contentData, difficulty, isActive: 1 });
         }
 
         if (items.length > 0) {
           setUploadProgress({ active: true, percent: 30, text: `총 ${items.length}개 문항 반영 중...` });
-          const chunkSize = 50;
+          // tRPC 요청 크기 제한을 피하기 위해 대용량 JSON 문항은 5개씩 안전하게 전송합니다.
+          const chunkSize = 5;
           let created = 0;
           let updated = 0;
-          let failed = Math.max(0, parsedRows.length - 1 - items.length);
+          let failed = invalidRows;
           for (let i = 0; i < items.length; i += chunkSize) {
             const chunk = items.slice(i, i + chunkSize);
             const result = await bulkCreateMutation.mutateAsync({ items: chunk, upsert: isUpsert });
@@ -278,7 +307,7 @@ export default function AdminQuestionBank() {
           setUploadProgress({ active: true, percent: 100, text: "업로드 완료!" });
           setTimeout(() => setUploadProgress({ active: false, percent: 0, text: "" }), 1500);
 
-          setUploadReport({ open: true, total: items.length, created, updated, failed });
+          setUploadReport({ open: true, total: items.length + invalidRows, created, updated, failed });
           toast.success(`${created + updated}개 문항이 반영되었습니다.`);
           refetch();
           refetchStats();
@@ -288,8 +317,10 @@ export default function AdminQuestionBank() {
         }
       } catch (err) {
         console.error(err);
-        toast.error("CSV 파일 처리 중 오류가 발생했습니다.");
+        toast.error(err instanceof Error ? `CSV 업로드 실패: ${err.message}` : "CSV 파일 처리 중 오류가 발생했습니다.");
         setUploadProgress({ active: false, percent: 0, text: "" });
+      } finally {
+        e.target.value = "";
       }
     };
     reader.readAsText(file);
@@ -358,9 +389,10 @@ export default function AdminQuestionBank() {
   const handleDelete = async (id: number) => {
     if (!confirm("정말 이 문항을 삭제하시겠습니까?")) return;
     await deleteMutation.mutateAsync({ id });
-    toast.success("문항이 삭제되었습니다.");
+    toast.success("문항을 휴지통으로 이동했습니다.");
     refetch();
     refetchStats();
+    refetchTrash();
   };
 
   const toggleQuestionSelection = (id: number) => {
@@ -383,9 +415,35 @@ export default function AdminQuestionBank() {
       setIsBulkDeleteOpen(false);
       refetch();
       refetchStats();
+      refetchTrash();
     } catch (err) {
       console.error(err);
       toast.error("선택 문항 삭제 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleRestoreFromTrash = async (trashId: number) => {
+    try {
+      await restoreFromTrashMutation.mutateAsync({ trashId });
+      toast.success("문항을 문제은행으로 복구했습니다.");
+      refetch();
+      refetchStats();
+      refetchTrash();
+    } catch (err) {
+      console.error(err);
+      toast.error("문항 복구 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handlePermanentlyDeleteTrash = async (trashId: number) => {
+    if (!confirm("이 문항을 휴지통에서 영구 삭제하시겠습니까? 복구할 수 없습니다.")) return;
+    try {
+      await permanentlyDeleteTrashMutation.mutateAsync({ trashId });
+      toast.success("휴지통 문항을 영구 삭제했습니다.");
+      refetchTrash();
+    } catch (err) {
+      console.error(err);
+      toast.error("휴지통 문항 영구 삭제 중 오류가 발생했습니다.");
     }
   };
 
@@ -449,7 +507,54 @@ export default function AdminQuestionBank() {
           >
             AI 실전 문제 출제 (사전 검토)
           </Button>
+          <Button
+            variant={activeTab === "trash" ? "default" : "ghost"}
+            onClick={() => setActiveTab("trash")}
+            className={activeTab === "trash" ? "bg-indigo-600 text-white" : "text-slate-600"}
+          >
+            <ArchiveRestore className="w-4 h-4 mr-1.5" /> 휴지통{trashItems?.length ? ` (${trashItems.length})` : ""}
+          </Button>
         </div>
+
+        {/* Tab 5: Question Bank Trash */}
+        {activeTab === "trash" && (
+          <div className="space-y-5">
+            <Card className="border-amber-200 bg-amber-50/60 shadow-sm">
+              <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+                <div>
+                  <h2 className="font-bold text-amber-950 flex items-center gap-2"><ArchiveRestore className="w-5 h-5" /> 문제은행 휴지통</h2>
+                  <p className="text-sm text-amber-800 mt-1">삭제된 문항은 이곳에 임시 보관됩니다. 복구하면 원래 문제은행으로 되돌아가며, 영구 삭제한 문항은 복원할 수 없습니다.</p>
+                </div>
+                <Button variant="outline" onClick={() => refetchTrash()} className="shrink-0 bg-white text-amber-900 border-amber-300">새로고침</Button>
+              </CardContent>
+            </Card>
+            <div className="grid gap-4">
+              {isTrashLoading ? (
+                <div className="p-12 text-center text-slate-500">휴지통을 불러오는 중입니다...</div>
+              ) : !trashItems?.length ? (
+                <Card className="border-dashed border-slate-300"><CardContent className="p-12 text-center text-slate-500">휴지통이 비어 있습니다.</CardContent></Card>
+              ) : trashItems.map((item) => (
+                <Card key={item.id} className="border-slate-200 shadow-sm">
+                  <CardContent className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full">{item.courseType}</span>
+                        <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-full uppercase">{item.toolType}</span>
+                        <span className="text-xs text-slate-500">삭제일 {new Date(item.deletedAt).toLocaleString("ko-KR")}</span>
+                      </div>
+                      <h3 className="font-bold text-slate-900 truncate">{item.title}</h3>
+                      <p className="text-xs text-slate-500 mt-1">원본 문항 ID: {item.originalQuestionId} · 삭제 관리자 ID: {item.deletedByUserId}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <Button size="sm" onClick={() => handleRestoreFromTrash(item.id)} disabled={restoreFromTrashMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"><RotateCcw className="w-3.5 h-3.5" /> 복구</Button>
+                      <Button size="sm" variant="outline" onClick={() => handlePermanentlyDeleteTrash(item.id)} disabled={permanentlyDeleteTrashMutation.isPending} className="text-rose-700 border-rose-200 hover:bg-rose-50 gap-1.5"><Trash2 className="w-3.5 h-3.5" /> 영구 삭제</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Tab 1: AI Generator with Preview Modal */}
         {activeTab === "generator" && (
