@@ -38,8 +38,6 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "커리큘럼", href: "/curriculum", icon: BookOpen },
   { label: "추천 아카이브", href: "/essay-archive", icon: GraduationCap },
-  { label: "대시보드", href: "/dashboard", icon: BarChart3 },
-  { label: "오프라인 보관함", href: "/offline-essays", icon: FileText },
   {
     label: "학습 도구",
     href: "#",
@@ -53,7 +51,6 @@ const NAV_ITEMS: NavItem[] = [
       { label: "주제문 체크리스트", href: "/thesis-checklist", icon: FileText },
     ],
   },
-  { label: "수료증", href: "/certificate", icon: Award },
 ];
 
 export default function Navigation() {
@@ -204,6 +201,24 @@ export default function Navigation() {
                         </span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
+                      <Link href="/dashboard">
+                        <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">
+                          <BarChart3 className="w-4 h-4 mr-2 text-blue-600" />
+                          <span>학습 대시보드</span>
+                        </DropdownMenuItem>
+                      </Link>
+                      <Link href="/offline-essays">
+                        <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">
+                          <FileText className="w-4 h-4 mr-2 text-indigo-600" />
+                          <span>오프라인 보관함</span>
+                        </DropdownMenuItem>
+                      </Link>
+                      <Link href="/certificate">
+                        <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">
+                          <Award className="w-4 h-4 mr-2 text-purple-600" />
+                          <span>수료증 신청 및 미리보기</span>
+                        </DropdownMenuItem>
+                      </Link>
                       {(user?.role === "teacher" || user?.role === "admin") && (
                         <>
                           <DropdownMenuSeparator />
@@ -252,6 +267,29 @@ export default function Navigation() {
                         <p className="text-xs text-gray-600 mt-1">
                           {user?.email}
                         </p>
+                      </div>
+
+                      {/* Mobile MyPage / Account Submenu Section */}
+                      <div className="border-b border-gray-200 pb-3 mb-2">
+                        <p className="px-4 text-xs font-bold text-blue-600 uppercase mb-2">마이페이지 & 개인 기록</p>
+                        <Link href="/dashboard">
+                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
+                            <BarChart3 className="w-4 h-4 text-blue-600" />
+                            <span>학습 대시보드</span>
+                          </button>
+                        </Link>
+                        <Link href="/offline-essays">
+                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
+                            <FileText className="w-4 h-4 text-indigo-600" />
+                            <span>오프라인 보관함</span>
+                          </button>
+                        </Link>
+                        <Link href="/certificate">
+                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
+                            <Award className="w-4 h-4 text-purple-600" />
+                            <span>수료증 신청 및 미리보기</span>
+                          </button>
+                        </Link>
                       </div>
 
                       {/* Mobile Navigation Items */}
