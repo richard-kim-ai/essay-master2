@@ -401,3 +401,17 @@ export const workbookTeacherFeedback = mysqlTable("workbook_teacher_feedback", {
 
 export type WorkbookTeacherFeedback = typeof workbookTeacherFeedback.$inferSelect;
 export type InsertWorkbookTeacherFeedback = typeof workbookTeacherFeedback.$inferInsert;
+
+// 인앱 알림 센터 테이블 (교사 첨삭, 과제 마감, 공지 등)
+export const appNotifications = mysqlTable("app_notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message").notNull(),
+  category: varchar("category", { length: 50 }).default("teacher_feedback").notNull(), // 'teacher_feedback', 'assignment', 'system'
+  isRead: int("isRead").default(0).notNull(), // 0: 안 읽음, 1: 읽음
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AppNotification = typeof appNotifications.$inferSelect;
+export type InsertAppNotification = typeof appNotifications.$inferInsert;

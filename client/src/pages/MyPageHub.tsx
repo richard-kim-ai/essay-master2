@@ -235,6 +235,32 @@ export default function MyPageHub() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Card 5: Notifications Center */}
+          <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 rounded-t-xl">
+              <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" /> 알림 센터
+              </CardTitle>
+              <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">실시간 소식</span>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <p className="text-xs text-slate-500">교사 첨삭 및 공지</p>
+                <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                  인앱 알림 모아보기
+                </p>
+              </div>
+              <p className="text-xs text-slate-600">담당 교사의 첨삭 완료 내역과 주요 학습 소식을 한곳에서 확인하세요.</p>
+              <Button
+                variant="outline"
+                className="w-full text-indigo-600 border-indigo-200 hover:bg-indigo-50 font-semibold"
+                onClick={() => setLocation("/notifications")}
+              >
+                알림 센터 열기 <ArrowRight className="w-4 h-4 ml-1" />
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </DashboardLayout>

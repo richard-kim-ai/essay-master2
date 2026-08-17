@@ -25,6 +25,7 @@ import {
   curriculumWorkbookAnswers,
   workbookMistakes,
   workbookTeacherFeedback,
+  appNotifications,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -1703,6 +1704,30 @@ export async function addWorkbookTeacherFeedback(answerId: number, teacherId: nu
     .set({ score: gradeScore, aiFeedback: `[교사 직접 첨삭 완료] ${comment}` })
     .where(eq(curriculumWorkbookAnswers.id, answerId));
 
+  // 학생에게 인앱 알림 전송
+  const [ans] = await db.select().from(curriculumWorkbookAnswers).where(eq(curriculumWorkbookAnswers.id, answerId));
+  if (ans) {
+    await db.insert(appNotifications).values({
+      userId: ans.userId,
+      title: "선생님 서술형 첨삭 완료",
+      message: `제출하신 워크북 답안에 담당 교사 첨삭이 등록되었습니다. (점수: ${gradeScore}점)`,
+      category: "teacher_feedback",
+    });
+  }
+
+  return { success: true };
+}
+
+export async function getNotificationsByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(appNotifications).where(eq(appNotifications.userId, userId)).orderBy(desc(appNotifications.createdAt));
+}
+
+export async function markNotificationAsRead(notificationId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.update(appNotifications).set({ isRead: 1 }).where(and(eq(appNotifications.id, notificationId), eq(appNotifications.userId, userId)));
   return { success: true };
 }
 

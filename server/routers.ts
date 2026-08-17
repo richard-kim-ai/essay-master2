@@ -430,6 +430,12 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => db.removeWorkbookMistake(input.mistakeId, ctx.user.id)),
 
     getRecommendedQuestions: protectedProcedure.query(({ ctx }) => db.getRecommendedQuestionsForUser(ctx.user.id)),
+
+    getNotifications: protectedProcedure.query(({ ctx }) => db.getNotificationsByUser(ctx.user.id)),
+
+    markNotificationRead: protectedProcedure
+      .input(z.object({ notificationId: z.number() }))
+      .mutation(({ ctx, input }) => db.markNotificationAsRead(input.notificationId, ctx.user.id)),
   }),
 
   // ========== Progress Routes ==========

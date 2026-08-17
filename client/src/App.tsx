@@ -19,6 +19,7 @@ import QuizPage from "./pages/QuizPage";
 import ParagraphReordering from "./pages/ParagraphReordering";
 import SummaryPractice from "./pages/SummaryPractice";
 import MistakeNotebook from "./pages/MistakeNotebook";
+import Notifications from "./pages/Notifications";
 import TopicWizard from "./pages/TopicWizard";
 import ThesisChecklist from "@/pages/ThesisChecklist";
 import OfflineEssays from "@/pages/OfflineEssays";
@@ -189,6 +190,13 @@ function Router() {
         {(params) => (
           <Layout>
             <OfflineEssays />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/notifications"}>
+        {(params) => (
+          <Layout>
+            <Notifications />
           </Layout>
         )}
       </Route>
