@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
-import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert, ArchiveRestore, RotateCcw } from "lucide-react";
+import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert, ArchiveRestore, RotateCcw, CalendarClock, History, FileWarning } from "lucide-react";
 import { Link } from "wouter";
 
 export default function AdminQuestionBank() {
@@ -18,7 +18,7 @@ export default function AdminQuestionBank() {
   const [difficultyFilter, setDifficultyFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"default" | "lowest_correct" | "highest_wrong" | "most_attempted">("default");
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"list" | "stats" | "quality" | "generator" | "trash">("list");
+  const [activeTab, setActiveTab] = useState<"list" | "stats" | "quality" | "generator" | "trash" | "logs">("list");
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
 
   // AI Generator Form & Preview State
@@ -31,9 +31,10 @@ export default function AdminQuestionBank() {
 
   const [isUpsert, setIsUpsert] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<{ active: boolean; percent: number; text: string }>({ active: false, percent: 0, text: "" });
-  const [uploadReport, setUploadReport] = useState<{ open: boolean; total: number; created: number; updated: number; failed: number }>({ open: false, total: 0, created: 0, updated: 0, failed: 0 });
+  const [uploadReport, setUploadReport] = useState<{ open: boolean; total: number; created: number; updated: number; failed: number; failures: Array<{ row?: number; id?: number; title?: string; courseType?: string; toolType?: string; reason: string }> }>({ open: false, total: 0, created: 0, updated: 0, failed: 0, failures: [] });
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([]);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [retentionDaysInput, setRetentionDaysInput] = useState("30");
 
   // Insight Modal State
   const [selectedQuestionForInsight, setSelectedQuestionForInsight] = useState<any | null>(null);
@@ -49,6 +50,8 @@ export default function AdminQuestionBank() {
   const { data: trendData } = trpc.questionBank.trendStats.useQuery({ period: trendPeriod });
   const { data: allFeedbacks } = trpc.questionBank.allFeedbacks.useQuery();
   const { data: trashItems, isLoading: isTrashLoading, refetch: refetchTrash } = trpc.questionBank.listTrash.useQuery(undefined, { enabled: activeTab === "trash" });
+  const { data: maintenanceSettings, refetch: refetchMaintenanceSettings } = trpc.questionBank.maintenanceSettings.useQuery();
+  const { data: operationLogs, isLoading: isOperationLogsLoading, refetch: refetchOperationLogs } = trpc.questionBank.operationLogs.useQuery(undefined, { enabled: activeTab === "logs" });
   const { data: aiInsightData } = trpc.questionBank.aiInsight.useQuery(
     { questionId: selectedQuestionForInsight?.id || 0 },
     { enabled: !!selectedQuestionForInsight }
@@ -60,6 +63,7 @@ export default function AdminQuestionBank() {
   const deleteManyMutation = trpc.questionBank.deleteMany.useMutation();
   const restoreFromTrashMutation = trpc.questionBank.restoreFromTrash.useMutation();
   const permanentlyDeleteTrashMutation = trpc.questionBank.permanentlyDeleteTrashItem.useMutation();
+  const updateMaintenanceSettingsMutation = trpc.questionBank.updateMaintenanceSettings.useMutation();
   const bulkCreateMutation = trpc.questionBank.bulkCreate.useMutation();
   const applyAiDiffMutation = trpc.questionBank.applyAiDifficulty.useMutation();
   const previewAiQuestionsMutation = trpc.questionBank.previewAiQuestions.useMutation();
@@ -76,6 +80,10 @@ export default function AdminQuestionBank() {
   const [formTitle, setFormTitle] = useState("");
   const [formContent, setFormContent] = useState('{\n  "prompt": "문항 본문 내용",\n  "options": ["보기 1", "보기 2", "보기 3", "보기 4"],\n  "answer": "보기 1",\n  "explanation": "해설 내용"\n}');
   const [formDifficulty, setFormDifficulty] = useState<"easy" | "medium" | "hard">("medium");
+
+  useEffect(() => {
+    if (maintenanceSettings?.retentionDays) setRetentionDaysInput(String(maintenanceSettings.retentionDays));
+  }, [maintenanceSettings?.retentionDays]);
 
   if (user?.role !== "admin") {
     return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-700">관리자 전용 페이지입니다. 접근 권한이 없습니다.</div>;
@@ -179,6 +187,41 @@ export default function AdminQuestionBank() {
     toast.success(`${courseFilter === "all" ? "전체" : "선택 과정"} 문항 ${questions.length}개를 CSV로 백업했습니다.`);
   };
 
+  const downloadUploadFailureCsv = () => {
+    if (uploadReport.failures.length === 0) {
+      toast.error("다운로드할 업로드 실패 문항이 없습니다.");
+      return;
+    }
+    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const headers = ["row", "id", "courseType", "toolType", "title", "reason"];
+    const rows = uploadReport.failures.map((failure) => [failure.row ?? "", failure.id ?? "", failure.courseType ?? "", failure.toolType ?? "", failure.title ?? "", failure.reason]);
+    const blob = new Blob(["\uFEFF" + [headers.join(","), ...rows.map((row) => row.map(escapeCsv).join(","))].join("\n")], { type: "text/csv;charset=utf-8" });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = `question_bank_upload_failures_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+  };
+
+  const handleSaveRetentionDays = async () => {
+    const retentionDays = Number(retentionDaysInput);
+    if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
+      toast.error("보관 기간은 1일부터 365일 사이의 정수로 설정하세요.");
+      return;
+    }
+    try {
+      await updateMaintenanceSettingsMutation.mutateAsync({ retentionDays });
+      toast.success(`${retentionDays}일 보관 정책을 저장했습니다. 다음 자동 정리부터 반영됩니다.`);
+      refetchMaintenanceSettings();
+    } catch (error) {
+      console.error(error);
+      toast.error("보관 기간 저장 중 오류가 발생했습니다.");
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -254,10 +297,12 @@ export default function AdminQuestionBank() {
 
         const items: any[] = [];
         let invalidRows = 0;
+        const uploadFailures: Array<{ row?: number; id?: number; title?: string; courseType?: string; toolType?: string; reason: string }> = [];
         for (let i = 1; i < parsedRows.length; i++) {
           const r = parsedRows[i];
           if (r.length < 5) {
             invalidRows += 1;
+            uploadFailures.push({ row: i + 1, reason: "필수 열이 부족하거나 비어 있는 행입니다." });
             continue;
           }
 
@@ -281,6 +326,7 @@ export default function AdminQuestionBank() {
             JSON.parse(contentData);
           } catch {
             invalidRows += 1;
+            uploadFailures.push({ row: i + 1, id: idVal && !isNaN(idVal) ? idVal : undefined, title, courseType, toolType, reason: "contentData 필드가 유효한 JSON 형식이 아닙니다." });
             continue;
           }
 
@@ -300,6 +346,7 @@ export default function AdminQuestionBank() {
             created += result.created;
             updated += result.updated;
             failed += result.failed;
+            uploadFailures.push(...result.failures);
             const p = Math.min(95, Math.floor(((i + chunk.length) / items.length) * 65) + 30);
             setUploadProgress({ active: true, percent: p, text: `${i + chunk.length} / ${items.length} 처리 완료...` });
           }
@@ -307,7 +354,7 @@ export default function AdminQuestionBank() {
           setUploadProgress({ active: true, percent: 100, text: "업로드 완료!" });
           setTimeout(() => setUploadProgress({ active: false, percent: 0, text: "" }), 1500);
 
-          setUploadReport({ open: true, total: items.length + invalidRows, created, updated, failed });
+          setUploadReport({ open: true, total: items.length + invalidRows, created, updated, failed, failures: uploadFailures });
           toast.success(`${created + updated}개 문항이 반영되었습니다.`);
           refetch();
           refetchStats();
@@ -514,6 +561,13 @@ export default function AdminQuestionBank() {
           >
             <ArchiveRestore className="w-4 h-4 mr-1.5" /> 휴지통{trashItems?.length ? ` (${trashItems.length})` : ""}
           </Button>
+          <Button
+            variant={activeTab === "logs" ? "default" : "ghost"}
+            onClick={() => setActiveTab("logs")}
+            className={activeTab === "logs" ? "bg-indigo-600 text-white" : "text-slate-600"}
+          >
+            <History className="w-4 h-4 mr-1.5" /> 작업 이력 로그
+          </Button>
         </div>
 
         {/* Tab 5: Question Bank Trash */}
@@ -526,6 +580,21 @@ export default function AdminQuestionBank() {
                   <p className="text-sm text-amber-800 mt-1">삭제된 문항은 이곳에 임시 보관됩니다. 복구하면 원래 문제은행으로 되돌아가며, 영구 삭제한 문항은 복원할 수 없습니다.</p>
                 </div>
                 <Button variant="outline" onClick={() => refetchTrash()} className="shrink-0 bg-white text-amber-900 border-amber-300">새로고침</Button>
+              </CardContent>
+            </Card>
+            <Card className="border-sky-200 bg-sky-50/60 shadow-sm">
+              <CardContent className="p-5 grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+                <div>
+                  <h3 className="font-bold text-sky-950 flex items-center gap-2"><CalendarClock className="w-5 h-5" /> 자동 보관 기간</h3>
+                  <p className="text-sm text-sky-800 mt-1">매일 자동 정리 작업이 보관 기간을 지난 휴지통 문항을 영구 삭제합니다. 현재 기본값은 30일입니다.</p>
+                  <p className="text-xs text-sky-700 mt-2">자동 정리 상태: {maintenanceSettings?.scheduleCronTaskUid ? "예약됨" : "예약 등록 중"}</p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+                  <label className="text-xs font-semibold text-sky-900">보관 일수
+                    <Input type="number" min="1" max="365" value={retentionDaysInput} onChange={(event) => setRetentionDaysInput(event.target.value)} className="mt-1 w-28 bg-white" />
+                  </label>
+                  <Button onClick={handleSaveRetentionDays} disabled={updateMaintenanceSettingsMutation.isPending} className="bg-sky-700 hover:bg-sky-800 text-white">{updateMaintenanceSettingsMutation.isPending ? "저장 중" : "저장"}</Button>
+                </div>
               </CardContent>
             </Card>
             <div className="grid gap-4">
@@ -553,6 +622,44 @@ export default function AdminQuestionBank() {
                 </Card>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Tab 6: Question Bank Operation Logs */}
+        {activeTab === "logs" && (
+          <div className="space-y-5">
+            <Card className="border-indigo-100 shadow-sm">
+              <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h2 className="font-bold text-slate-950 flex items-center gap-2"><History className="w-5 h-5 text-indigo-600" /> 문항 작업 이력 로그</h2>
+                  <p className="text-sm text-slate-600 mt-1">관리자가 문항을 삭제·복구·영구 삭제한 시점과 자동 휴지통 정리 결과를 확인합니다.</p>
+                </div>
+                <Button variant="outline" onClick={() => refetchOperationLogs()} className="shrink-0">새로고침</Button>
+              </CardContent>
+            </Card>
+            <Card className="overflow-hidden border-slate-200">
+              <CardContent className="p-0">
+                {isOperationLogsLoading ? (
+                  <div className="p-12 text-center text-slate-500">작업 이력을 불러오는 중입니다...</div>
+                ) : !operationLogs?.length ? (
+                  <div className="p-12 text-center text-slate-500">기록된 문항 작업 이력이 없습니다.</div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {operationLogs.map((log) => {
+                      const labels: Record<string, string> = { moved_to_trash: "휴지통 이동", restored: "문항 복구", permanently_deleted: "영구 삭제", auto_purged: "자동 정리" };
+                      return <div key={log.id} className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">{labels[log.actionType] || log.actionType}</span><span className="text-xs text-slate-500">{new Date(log.createdAt).toLocaleString("ko-KR")}</span></div>
+                          <p className="mt-1 font-semibold text-slate-900 truncate">{log.questionTitle || "문항 제목 정보 없음"}</p>
+                          <p className="mt-1 text-xs text-slate-500">문항 ID: {log.questionId ?? "-"} · 과정: {log.courseType || "-"} · 처리자: {log.actorName}</p>
+                        </div>
+                        <p className="max-w-md text-xs text-slate-600 md:text-right">{log.details || "-"}</p>
+                      </div>;
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
 
@@ -1174,7 +1281,8 @@ export default function AdminQuestionBank() {
             <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
               총 {uploadReport.total}개 유효 문항을 분석했습니다. “동일 ID 덮어쓰기”가 선택된 경우 기존 ID는 최신 콘텐츠로 갱신됩니다.
             </p>
-            <DialogFooter>
+            <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              {uploadReport.failures.length > 0 && <Button variant="outline" onClick={downloadUploadFailureCsv} className="w-full sm:w-auto gap-2"><FileWarning className="w-4 h-4 text-rose-600" /> 실패 문항 CSV 다운로드</Button>}
               <Button onClick={() => setUploadReport((report) => ({ ...report, open: false }))} className="bg-indigo-600 hover:bg-indigo-700 text-white">확인</Button>
             </DialogFooter>
           </DialogContent>
@@ -1188,7 +1296,7 @@ export default function AdminQuestionBank() {
                 <Trash2 className="w-5 h-5" /> 선택 문항 삭제 확인
               </DialogTitle>
               <DialogDescription>
-                선택한 {selectedQuestionIds.length}개 문항을 문제은행에서 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.
+                선택한 {selectedQuestionIds.length}개 문항을 문제은행에서 삭제하고 휴지통에 임시 보관합니다. 휴지통에서 복구하거나 영구 삭제할 수 있습니다.
               </DialogDescription>
             </DialogHeader>
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">

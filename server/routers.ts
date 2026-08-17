@@ -818,7 +818,7 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.deleteQuestionBankItem(input.id, ctx.user.id);
+        return await db.deleteQuestionBankItem(input.id, ctx.user.id, ctx.user.name || "관리자");
       }),
     bulkCreate: protectedProcedure
       .input(z.object({
@@ -838,6 +838,7 @@ export const appRouter = router({
         let created = 0;
         let updated = 0;
         let failed = 0;
+        const failures: Array<{ id?: number; title: string; courseType: string; toolType: string; reason: string }> = [];
         for (const item of input.items) {
           try {
             if (input.upsert) {
@@ -848,18 +849,25 @@ export const appRouter = router({
               await db.createQuestionBankItem(item);
               created += 1;
             }
-          } catch {
+          } catch (error) {
             failed += 1;
+            failures.push({
+              id: item.id,
+              title: item.title,
+              courseType: item.courseType,
+              toolType: item.toolType,
+              reason: error instanceof Error ? error.message : "서버 반영 중 알 수 없는 오류가 발생했습니다.",
+            });
           }
         }
-        return { success: failed === 0, count: input.items.length, created, updated, failed };
+        return { success: failed === 0, count: input.items.length, created, updated, failed, failures };
       }),
 
     deleteMany: protectedProcedure
       .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(1000) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.deleteQuestionBankItems(input.ids, ctx.user.id);
+        return await db.deleteQuestionBankItems(input.ids, ctx.user.id, ctx.user.name || "관리자");
       }),
 
     listTrash: protectedProcedure.query(async ({ ctx }) => {
@@ -871,22 +879,41 @@ export const appRouter = router({
       .input(z.object({ trashId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.restoreQuestionBankTrashItem(input.trashId);
+        return await db.restoreQuestionBankTrashItem(input.trashId, ctx.user.id, ctx.user.name || "관리자");
       }),
 
     permanentlyDeleteTrashItem: protectedProcedure
       .input(z.object({ trashId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.permanentlyDeleteQuestionBankTrashItem(input.trashId);
+        return await db.permanentlyDeleteQuestionBankTrashItem(input.trashId, ctx.user.id, ctx.user.name || "관리자");
+      }),
+
+    maintenanceSettings: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await db.getQuestionBankMaintenanceSettings();
+    }),
+
+    updateMaintenanceSettings: protectedProcedure
+      .input(z.object({ retentionDays: z.number().int().min(1).max(365) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.updateQuestionBankMaintenanceSettings(input.retentionDays, ctx.user.id);
+      }),
+
+    operationLogs: protectedProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(500).default(200) }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.getQuestionBankOperationLogs(input?.limit ?? 200);
       }),
 
     deleteByCourse: protectedProcedure
       .input(z.object({ courseType: z.string() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        await db.deleteQuestionBankByCourse(input.courseType);
-        return { success: true };
+        const courseQuestions = await db.getQuestionBankList(input.courseType);
+        return await db.deleteQuestionBankItems(courseQuestions.map((question) => question.id), ctx.user.id, ctx.user.name || "관리자");
       }),
     stats: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });

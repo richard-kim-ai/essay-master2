@@ -204,6 +204,13 @@
       "when": 1786990552298,
       "tag": "0028_rich_joshua_kane",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1786991444790,
+      "tag": "0029_first_glorian",
+      "breakpoints": true
     }
   ]
 }

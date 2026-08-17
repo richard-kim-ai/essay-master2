@@ -20,6 +20,8 @@ import {
   userBadges,
   questionBank,
   questionBankTrash,
+  questionBankMaintenanceSettings,
+  questionBankOperationLogs,
   questionFeedbacks,
   questionBookmarks,
   curriculumWorkbookQuestions,
@@ -30,7 +32,7 @@ import {
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
-import { eq, and, desc, gte, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
 
@@ -1360,12 +1362,36 @@ export async function updateQuestionBankItem(id: number, data: Partial<{
   return row;
 }
 
-export async function deleteQuestionBankItem(id: number, deletedByUserId: number) {
+async function addQuestionBankOperationLog(input: {
+  actionType: "moved_to_trash" | "restored" | "permanently_deleted" | "auto_purged";
+  questionId?: number | null;
+  trashId?: number | null;
+  courseType?: string | null;
+  questionTitle?: string | null;
+  actorUserId?: number | null;
+  actorName: string;
+  details?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(questionBankOperationLogs).values({
+    actionType: input.actionType,
+    questionId: input.questionId ?? null,
+    trashId: input.trashId ?? null,
+    courseType: input.courseType ?? null,
+    questionTitle: input.questionTitle ?? null,
+    actorUserId: input.actorUserId ?? null,
+    actorName: input.actorName,
+    details: input.details ?? null,
+  });
+}
+
+export async function deleteQuestionBankItem(id: number, deletedByUserId: number, actorName: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [item] = await db.select().from(questionBank).where(eq(questionBank.id, id));
   if (!item) return { deletedCount: 0 };
-  await db.insert(questionBankTrash).values({
+  const [inserted] = await db.insert(questionBankTrash).values({
     originalQuestionId: item.id,
     courseType: item.courseType,
     toolType: item.toolType,
@@ -1376,6 +1402,16 @@ export async function deleteQuestionBankItem(id: number, deletedByUserId: number
     deletedByUserId,
   });
   await db.delete(questionBank).where(eq(questionBank.id, id));
+  await addQuestionBankOperationLog({
+    actionType: "moved_to_trash",
+    questionId: item.id,
+    trashId: Number(inserted.insertId),
+    courseType: item.courseType,
+    questionTitle: item.title,
+    actorUserId: deletedByUserId,
+    actorName,
+    details: "관리자 선택 삭제",
+  });
   return { deletedCount: 1 };
 }
 
@@ -1386,24 +1422,16 @@ export async function deleteQuestionBankByCourse(courseType: string) {
   return true;
 }
 
-export async function deleteQuestionBankItems(ids: number[], deletedByUserId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
+export async function deleteQuestionBankItems(ids: number[], deletedByUserId: number, actorName: string) {
   const uniqueIds = Array.from(new Set(ids)).filter((id) => Number.isInteger(id) && id > 0);
   if (uniqueIds.length === 0) return { deletedCount: 0 };
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
   const items = await db.select().from(questionBank).where(inArray(questionBank.id, uniqueIds));
   if (items.length === 0) return { deletedCount: 0 };
-  await db.insert(questionBankTrash).values(items.map((item) => ({
-    originalQuestionId: item.id,
-    courseType: item.courseType,
-    toolType: item.toolType,
-    title: item.title,
-    contentData: item.contentData,
-    difficulty: item.difficulty,
-    isActive: item.isActive,
-    deletedByUserId,
-  })));
-  await db.delete(questionBank).where(inArray(questionBank.id, uniqueIds));
+  for (const item of items) {
+    await deleteQuestionBankItem(item.id, deletedByUserId, actorName);
+  }
   return { deletedCount: items.length };
 }
 
@@ -1413,7 +1441,7 @@ export async function getQuestionBankTrash() {
   return await db.select().from(questionBankTrash).orderBy(desc(questionBankTrash.deletedAt));
 }
 
-export async function restoreQuestionBankTrashItem(trashId: number) {
+export async function restoreQuestionBankTrashItem(trashId: number, actorUserId: number, actorName: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [item] = await db.select().from(questionBankTrash).where(eq(questionBankTrash.id, trashId));
@@ -1429,14 +1457,93 @@ export async function restoreQuestionBankTrashItem(trashId: number) {
     isActive: item.isActive,
   });
   await db.delete(questionBankTrash).where(eq(questionBankTrash.id, trashId));
+  await addQuestionBankOperationLog({
+    actionType: "restored",
+    questionId: restored?.id ?? item.originalQuestionId,
+    trashId,
+    courseType: item.courseType,
+    questionTitle: item.title,
+    actorUserId,
+    actorName,
+    details: "휴지통에서 문제은행으로 복구",
+  });
   return restored;
 }
 
-export async function permanentlyDeleteQuestionBankTrashItem(trashId: number) {
+export async function permanentlyDeleteQuestionBankTrashItem(trashId: number, actorUserId: number, actorName: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  const [item] = await db.select().from(questionBankTrash).where(eq(questionBankTrash.id, trashId));
+  if (!item) return { success: true };
   await db.delete(questionBankTrash).where(eq(questionBankTrash.id, trashId));
+  await addQuestionBankOperationLog({
+    actionType: "permanently_deleted",
+    questionId: item.originalQuestionId,
+    trashId: item.id,
+    courseType: item.courseType,
+    questionTitle: item.title,
+    actorUserId,
+    actorName,
+    details: "관리자 휴지통 영구 삭제",
+  });
   return { success: true };
+}
+
+export async function getQuestionBankMaintenanceSettings() {
+  const db = await getDb();
+  if (!db) return { id: 0, retentionDays: 30, scheduleCronTaskUid: null, updatedByUserId: null, updatedAt: new Date() };
+  const [settings] = await db.select().from(questionBankMaintenanceSettings).orderBy(desc(questionBankMaintenanceSettings.id)).limit(1);
+  return settings ?? { id: 0, retentionDays: 30, scheduleCronTaskUid: null, updatedByUserId: null, updatedAt: new Date() };
+}
+
+export async function updateQuestionBankMaintenanceSettings(retentionDays: number, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [settings] = await db.select().from(questionBankMaintenanceSettings).orderBy(desc(questionBankMaintenanceSettings.id)).limit(1);
+  if (settings) {
+    await db.update(questionBankMaintenanceSettings).set({ retentionDays, updatedByUserId, updatedAt: new Date() }).where(eq(questionBankMaintenanceSettings.id, settings.id));
+  } else {
+    await db.insert(questionBankMaintenanceSettings).values({ retentionDays, updatedByUserId });
+  }
+  return await getQuestionBankMaintenanceSettings();
+}
+
+export async function setQuestionBankMaintenanceScheduleTask(taskUid: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [settings] = await db.select().from(questionBankMaintenanceSettings).orderBy(desc(questionBankMaintenanceSettings.id)).limit(1);
+  if (settings) {
+    await db.update(questionBankMaintenanceSettings).set({ scheduleCronTaskUid: taskUid, updatedAt: new Date() }).where(eq(questionBankMaintenanceSettings.id, settings.id));
+  } else {
+    await db.insert(questionBankMaintenanceSettings).values({ retentionDays: 30, scheduleCronTaskUid: taskUid });
+  }
+}
+
+export async function getQuestionBankOperationLogs(limit: number = 200) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(questionBankOperationLogs).orderBy(desc(questionBankOperationLogs.createdAt)).limit(limit);
+}
+
+export async function purgeExpiredQuestionBankTrash() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const settings = await getQuestionBankMaintenanceSettings();
+  const threshold = new Date(Date.now() - settings.retentionDays * 24 * 60 * 60 * 1000);
+  const expiredItems = await db.select().from(questionBankTrash).where(lt(questionBankTrash.deletedAt, threshold));
+  for (const item of expiredItems) {
+    await db.delete(questionBankTrash).where(eq(questionBankTrash.id, item.id));
+    await addQuestionBankOperationLog({
+      actionType: "auto_purged",
+      questionId: item.originalQuestionId,
+      trashId: item.id,
+      courseType: item.courseType,
+      questionTitle: item.title,
+      actorName: "자동 휴지통 정리",
+      details: `${settings.retentionDays}일 보관 기간 경과로 자동 영구 삭제`,
+    });
+  }
+  return { purgedCount: expiredItems.length, retentionDays: settings.retentionDays };
 }
 
 export async function upsertQuestionBankItem(data: {

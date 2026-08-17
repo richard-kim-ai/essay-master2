@@ -332,6 +332,35 @@ export const questionBankTrash = mysqlTable("question_bank_trash", {
 export type QuestionBankTrash = typeof questionBankTrash.$inferSelect;
 export type InsertQuestionBankTrash = typeof questionBankTrash.$inferInsert;
 
+// 문제은행 휴지통 보관 기간 및 자동 정리 스케줄 설정
+export const questionBankMaintenanceSettings = mysqlTable("question_bank_maintenance_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  retentionDays: int("retentionDays").default(30).notNull(),
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }),
+  updatedByUserId: int("updatedByUserId"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type QuestionBankMaintenanceSettings = typeof questionBankMaintenanceSettings.$inferSelect;
+export type InsertQuestionBankMaintenanceSettings = typeof questionBankMaintenanceSettings.$inferInsert;
+
+// 문제은행 문항 삭제·복구·자동 정리 감사 로그
+export const questionBankOperationLogs = mysqlTable("question_bank_operation_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  actionType: varchar("actionType", { length: 32 }).notNull(), // moved_to_trash, restored, permanently_deleted, auto_purged
+  questionId: int("questionId"),
+  trashId: int("trashId"),
+  courseType: varchar("courseType", { length: 64 }),
+  questionTitle: varchar("questionTitle", { length: 255 }),
+  actorUserId: int("actorUserId"),
+  actorName: varchar("actorName", { length: 255 }).notNull(),
+  details: text("details"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type QuestionBankOperationLog = typeof questionBankOperationLogs.$inferSelect;
+export type InsertQuestionBankOperationLog = typeof questionBankOperationLogs.$inferInsert;
+
 // 문제 피드백 및 오류 신고 테이블
 export const questionFeedbacks = mysqlTable("question_feedbacks", {
   id: int("id").autoincrement().primaryKey(),
