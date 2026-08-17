@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,9 @@ import { toast } from "sonner";
 import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert, ArchiveRestore, RotateCcw, CalendarClock, History, FileWarning } from "lucide-react";
 import { Link } from "wouter";
 
+type QuestionBankCourse = "elementary" | "middle_high" | "high_univ" | "general_adult";
+type QuestionBankTool = "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist";
+
 export default function AdminQuestionBank() {
   const { user } = useAuth();
   const [courseFilter, setCourseFilter] = useState<string>("all");
@@ -22,8 +25,8 @@ export default function AdminQuestionBank() {
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
 
   // AI Generator Form & Preview State
-  const [genCourse, setGenCourse] = useState("elementary");
-  const [genTool, setGenTool] = useState("quiz");
+  const [genCourse, setGenCourse] = useState<QuestionBankCourse>("elementary");
+  const [genTool, setGenTool] = useState<QuestionBankTool>("quiz");
   const [genCount, setGenCount] = useState(3);
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewItems, setPreviewItems] = useState<any[]>([]);
@@ -33,8 +36,13 @@ export default function AdminQuestionBank() {
   const [uploadProgress, setUploadProgress] = useState<{ active: boolean; percent: number; text: string }>({ active: false, percent: 0, text: "" });
   const [uploadReport, setUploadReport] = useState<{ open: boolean; total: number; created: number; updated: number; failed: number; failures: Array<{ row?: number; id?: number; title?: string; courseType?: string; toolType?: string; reason: string }> }>({ open: false, total: 0, created: 0, updated: 0, failed: 0, failures: [] });
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([]);
+  const [selectedTrashIds, setSelectedTrashIds] = useState<number[]>([]);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [retentionDaysInput, setRetentionDaysInput] = useState("30");
+  const [logActionType, setLogActionType] = useState<"all" | "moved_to_trash" | "restored" | "permanently_deleted" | "auto_purged">("all");
+  const [logActorName, setLogActorName] = useState("all");
+  const [logStartDate, setLogStartDate] = useState<Date | undefined>();
+  const [logEndDate, setLogEndDate] = useState<Date | undefined>();
 
   // Insight Modal State
   const [selectedQuestionForInsight, setSelectedQuestionForInsight] = useState<any | null>(null);
@@ -51,7 +59,15 @@ export default function AdminQuestionBank() {
   const { data: allFeedbacks } = trpc.questionBank.allFeedbacks.useQuery();
   const { data: trashItems, isLoading: isTrashLoading, refetch: refetchTrash } = trpc.questionBank.listTrash.useQuery(undefined, { enabled: activeTab === "trash" });
   const { data: maintenanceSettings, refetch: refetchMaintenanceSettings } = trpc.questionBank.maintenanceSettings.useQuery();
-  const { data: operationLogs, isLoading: isOperationLogsLoading, refetch: refetchOperationLogs } = trpc.questionBank.operationLogs.useQuery(undefined, { enabled: activeTab === "logs" });
+  const operationLogQueryInput = useMemo(() => ({
+    limit: 500,
+    actionType: logActionType === "all" ? undefined : logActionType,
+    actorName: logActorName === "all" ? undefined : logActorName,
+    startDate: logStartDate,
+    endDate: logEndDate,
+  }), [logActionType, logActorName, logStartDate, logEndDate]);
+  const { data: operationLogs, isLoading: isOperationLogsLoading, refetch: refetchOperationLogs } = trpc.questionBank.operationLogs.useQuery(operationLogQueryInput, { enabled: activeTab === "logs" });
+  const { data: operationLogActorSource } = trpc.questionBank.operationLogs.useQuery({ limit: 500 }, { enabled: activeTab === "logs" });
   const { data: aiInsightData } = trpc.questionBank.aiInsight.useQuery(
     { questionId: selectedQuestionForInsight?.id || 0 },
     { enabled: !!selectedQuestionForInsight }
@@ -63,6 +79,8 @@ export default function AdminQuestionBank() {
   const deleteManyMutation = trpc.questionBank.deleteMany.useMutation();
   const restoreFromTrashMutation = trpc.questionBank.restoreFromTrash.useMutation();
   const permanentlyDeleteTrashMutation = trpc.questionBank.permanentlyDeleteTrashItem.useMutation();
+  const restoreManyFromTrashMutation = trpc.questionBank.restoreManyFromTrash.useMutation();
+  const permanentlyDeleteTrashItemsMutation = trpc.questionBank.permanentlyDeleteTrashItems.useMutation();
   const updateMaintenanceSettingsMutation = trpc.questionBank.updateMaintenanceSettings.useMutation();
   const bulkCreateMutation = trpc.questionBank.bulkCreate.useMutation();
   const applyAiDiffMutation = trpc.questionBank.applyAiDifficulty.useMutation();
@@ -121,6 +139,7 @@ export default function AdminQuestionBank() {
   });
 
   const allVisibleSelected = sortedFiltered.length > 0 && sortedFiltered.every((question) => selectedQuestionIds.includes(question.id));
+  const allTrashSelected = (trashItems?.length ?? 0) > 0 && (trashItems ?? []).every((item) => selectedTrashIds.includes(item.id));
 
   const handlePreviewAi = async () => {
     setIsGenerating(true);
@@ -138,7 +157,8 @@ export default function AdminQuestionBank() {
       }
     } catch (err) {
       console.error(err);
-      toast.error("AI 문항 생성 중 오류가 발생했습니다.");
+      const message = err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
+      toast.error(`AI 문항 생성에 실패했습니다. ${message}`);
     } finally {
       setIsGenerating(false);
     }
@@ -495,6 +515,113 @@ export default function AdminQuestionBank() {
     }
   };
 
+  const toggleTrashSelection = (trashId: number) => {
+    setSelectedTrashIds((current) => current.includes(trashId) ? current.filter((id) => id !== trashId) : [...current, trashId]);
+  };
+
+  const toggleAllTrashSelection = () => {
+    const visibleIds = (trashItems || []).map((item) => item.id);
+    setSelectedTrashIds((current) => allTrashSelected ? current.filter((id) => !visibleIds.includes(id)) : Array.from(new Set([...current, ...visibleIds])));
+  };
+
+  const handleBulkRestoreFromTrash = async () => {
+    if (selectedTrashIds.length === 0) {
+      toast.error("복구할 휴지통 문항을 먼저 선택해주세요.");
+      return;
+    }
+    try {
+      const result = await restoreManyFromTrashMutation.mutateAsync({ trashIds: selectedTrashIds });
+      if (result.failures.length > 0) toast.warning(`${result.restoredCount}개 문항을 복구했고, ${result.failures.length}개는 처리하지 못했습니다.`);
+      else toast.success(`${result.restoredCount}개 문항을 문제은행으로 복구했습니다.`);
+      setSelectedTrashIds([]);
+      refetch();
+      refetchStats();
+      refetchTrash();
+      refetchOperationLogs();
+    } catch (error) {
+      console.error(error);
+      toast.error("선택 문항 복구 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleBulkPermanentlyDeleteTrash = async () => {
+    if (selectedTrashIds.length === 0) {
+      toast.error("영구 삭제할 휴지통 문항을 먼저 선택해주세요.");
+      return;
+    }
+    if (!confirm(`선택한 ${selectedTrashIds.length}개 문항을 영구 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
+    try {
+      const result = await permanentlyDeleteTrashItemsMutation.mutateAsync({ trashIds: selectedTrashIds });
+      if (result.failures.length > 0) toast.warning(`${result.deletedCount}개 문항을 영구 삭제했고, ${result.failures.length}개는 처리하지 못했습니다.`);
+      else toast.success(`${result.deletedCount}개 문항을 영구 삭제했습니다.`);
+      setSelectedTrashIds([]);
+      refetchTrash();
+      refetchOperationLogs();
+    } catch (error) {
+      console.error(error);
+      toast.error("선택 문항 영구 삭제 중 오류가 발생했습니다.");
+    }
+  };
+
+  const getTrashExpiry = (deletedAt: Date | string) => {
+    const retentionDays = maintenanceSettings?.retentionDays ?? 30;
+    const expiryAt = new Date(new Date(deletedAt).getTime() + retentionDays * 24 * 60 * 60 * 1000);
+    const daysRemaining = Math.ceil((expiryAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+    return { expiryAt, daysRemaining, isUrgent: daysRemaining <= 3 };
+  };
+
+  const availableLogActors = Array.from(new Set((operationLogActorSource || []).map((log) => log.actorName).filter(Boolean))).sort();
+
+  const setLogQuickDateRange = (days: number | null) => {
+    if (days === null) {
+      setLogStartDate(undefined);
+      setLogEndDate(undefined);
+      return;
+    }
+    const now = new Date();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const start = new Date(end);
+    start.setDate(start.getDate() - days);
+    setLogStartDate(start);
+    setLogEndDate(end);
+  };
+
+  const resetOperationLogFilters = () => {
+    setLogActionType("all");
+    setLogActorName("all");
+    setLogQuickDateRange(null);
+  };
+
+  const handleDownloadOperationLogsCsv = () => {
+    if (!operationLogs || operationLogs.length === 0) {
+      toast.error("현재 필터 조건에 해당하는 작업 이력이 없습니다.");
+      return;
+    }
+    const labels: Record<string, string> = { moved_to_trash: "휴지통 이동", restored: "문항 복구", permanently_deleted: "영구 삭제", auto_purged: "자동 정리" };
+    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const headers = ["createdAt", "actionType", "actorName", "courseType", "questionId", "trashId", "questionTitle", "details"];
+    const rows = operationLogs.map((log) => [
+      new Date(log.createdAt).toLocaleString("ko-KR"),
+      labels[log.actionType] || log.actionType,
+      log.actorName,
+      log.courseType || "",
+      log.questionId ?? "",
+      log.trashId ?? "",
+      log.questionTitle || "",
+      log.details || "",
+    ]);
+    const blob = new Blob(["\uFEFF" + [headers.join(","), ...rows.map((row) => row.map(escapeCsv).join(","))].join("\n")], { type: "text/csv;charset=utf-8" });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = `question_bank_operation_logs_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+    toast.success(`${operationLogs.length}건의 작업 이력을 CSV로 내려받았습니다.`);
+  };
+
   return (
     <DashboardLayout>
       <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
@@ -598,22 +725,44 @@ export default function AdminQuestionBank() {
                 </div>
               </CardContent>
             </Card>
+            {trashItems && trashItems.length > 0 && (
+              <Card className="border-slate-200 shadow-sm">
+                <CardContent className="p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={allTrashSelected} onChange={toggleAllTrashSelection} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                    현재 휴지통 전체 선택 ({trashItems.length})
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button size="sm" onClick={handleBulkRestoreFromTrash} disabled={selectedTrashIds.length === 0 || restoreManyFromTrashMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5" /> 선택 복구{selectedTrashIds.length ? ` (${selectedTrashIds.length})` : ""}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={handleBulkPermanentlyDeleteTrash} disabled={selectedTrashIds.length === 0 || permanentlyDeleteTrashItemsMutation.isPending} className="text-rose-700 border-rose-200 hover:bg-rose-50 gap-1.5">
+                      <Trash2 className="w-3.5 h-3.5" /> 선택 영구 삭제{selectedTrashIds.length ? ` (${selectedTrashIds.length})` : ""}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             <div className="grid gap-4">
               {isTrashLoading ? (
                 <div className="p-12 text-center text-slate-500">휴지통을 불러오는 중입니다...</div>
               ) : !trashItems?.length ? (
                 <Card className="border-dashed border-slate-300"><CardContent className="p-12 text-center text-slate-500">휴지통이 비어 있습니다.</CardContent></Card>
-              ) : trashItems.map((item) => (
-                <Card key={item.id} className="border-slate-200 shadow-sm">
+              ) : trashItems.map((item) => {
+                const expiry = getTrashExpiry(item.deletedAt);
+                return (
+                <Card key={item.id} className={expiry.isUrgent ? "border-rose-300 bg-rose-50/40 shadow-sm" : "border-slate-200 shadow-sm"}>
                   <CardContent className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <input type="checkbox" aria-label={`${item.title} 선택`} checked={selectedTrashIds.includes(item.id)} onChange={() => toggleTrashSelection(item.id)} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
                         <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full">{item.courseType}</span>
                         <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-full uppercase">{item.toolType}</span>
                         <span className="text-xs text-slate-500">삭제일 {new Date(item.deletedAt).toLocaleString("ko-KR")}</span>
+                        {expiry.isUrgent && <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-700"><AlertTriangle className="w-3.5 h-3.5" /> {expiry.daysRemaining <= 0 ? "자동 영구 삭제 대상" : `${expiry.daysRemaining}일 내 영구 삭제`}</span>}
                       </div>
                       <h3 className="font-bold text-slate-900 truncate">{item.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">원본 문항 ID: {item.originalQuestionId} · 삭제 관리자 ID: {item.deletedByUserId}</p>
+                      <p className={`text-xs mt-1 ${expiry.isUrgent ? "text-rose-700 font-medium" : "text-slate-500"}`}>원본 문항 ID: {item.originalQuestionId} · 삭제 관리자 ID: {item.deletedByUserId} · 자동 정리 예정 {expiry.expiryAt.toLocaleDateString("ko-KR")}</p>
                     </div>
                     <div className="flex flex-wrap gap-2 shrink-0">
                       <Button size="sm" onClick={() => handleRestoreFromTrash(item.id)} disabled={restoreFromTrashMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"><RotateCcw className="w-3.5 h-3.5" /> 복구</Button>
@@ -621,7 +770,7 @@ export default function AdminQuestionBank() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              )})}
             </div>
           </div>
         )}
@@ -636,6 +785,47 @@ export default function AdminQuestionBank() {
                   <p className="text-sm text-slate-600 mt-1">관리자가 문항을 삭제·복구·영구 삭제한 시점과 자동 휴지통 정리 결과를 확인합니다.</p>
                 </div>
                 <Button variant="outline" onClick={() => refetchOperationLogs()} className="shrink-0">새로고침</Button>
+              </CardContent>
+            </Card>
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="p-5 space-y-4">
+                <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+                  <label className="grid gap-1 text-xs font-semibold text-slate-700 min-w-40">작업 유형
+                    <select value={logActionType} onChange={(event) => setLogActionType(event.target.value as typeof logActionType)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-normal text-slate-700">
+                      <option value="all">전체 작업</option>
+                      <option value="moved_to_trash">휴지통 이동</option>
+                      <option value="restored">문항 복구</option>
+                      <option value="permanently_deleted">영구 삭제</option>
+                      <option value="auto_purged">자동 정리</option>
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-700 min-w-40">처리자
+                    <select value={logActorName} onChange={(event) => setLogActorName(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-normal text-slate-700">
+                      <option value="all">전체 처리자</option>
+                      {availableLogActors.map((actor) => <option key={actor} value={actor}>{actor}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-700">시작일
+                    <Input type="date" value={logStartDate ? logStartDate.toISOString().slice(0, 10) : ""} onChange={(event) => setLogStartDate(event.target.value ? new Date(`${event.target.value}T00:00:00`) : undefined)} className="h-10 bg-white" />
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold text-slate-700">종료일
+                    <Input type="date" value={logEndDate ? new Date(logEndDate.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : ""} onChange={(event) => {
+                      if (!event.target.value) return setLogEndDate(undefined);
+                      const selected = new Date(`${event.target.value}T00:00:00`);
+                      selected.setDate(selected.getDate() + 1);
+                      setLogEndDate(selected);
+                    }} className="h-10 bg-white" />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setLogQuickDateRange(7)}>최근 7일</Button>
+                    <Button size="sm" variant="outline" onClick={() => setLogQuickDateRange(30)}>최근 30일</Button>
+                    <Button size="sm" variant="ghost" onClick={resetOperationLogFilters}>필터 초기화</Button>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                  <p className="text-sm text-slate-600">현재 조건의 작업 이력 <strong className="text-slate-900">{operationLogs?.length ?? 0}건</strong></p>
+                  <Button size="sm" variant="outline" onClick={handleDownloadOperationLogsCsv} disabled={!operationLogs?.length} className="gap-1.5 bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50"><Download className="w-3.5 h-3.5" /> 현재 필터 CSV 내보내기</Button>
+                </div>
               </CardContent>
             </Card>
             <Card className="overflow-hidden border-slate-200">
@@ -681,7 +871,7 @@ export default function AdminQuestionBank() {
                   <label className="text-xs font-bold text-slate-700 mb-2 block">교육 과정 선택</label>
                   <select
                     value={genCourse}
-                    onChange={e => setGenCourse(e.target.value)}
+                    onChange={e => setGenCourse(e.target.value as QuestionBankCourse)}
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
                   >
                     <option value="elementary">초등 논술 과정</option>
@@ -694,7 +884,7 @@ export default function AdminQuestionBank() {
                   <label className="text-xs font-bold text-slate-700 mb-2 block">학습 도구 선택</label>
                   <select
                     value={genTool}
-                    onChange={e => setGenTool(e.target.value)}
+                    onChange={e => setGenTool(e.target.value as QuestionBankTool)}
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
                   >
                     <option value="quiz">AI 문장 퀴즈 (quiz)</option>

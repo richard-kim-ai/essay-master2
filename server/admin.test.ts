@@ -214,4 +214,36 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(routersSource).toContain("maintenanceSettings:");
     expect(routersSource).toContain("operationLogs:");
   });
+
+  it("AI 문항 사전 검토가 구조화 JSON 응답 계약과 오류 전달을 사용한다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
+    const pageSource = readFileSync(adminQBankPath, "utf8");
+    expect(dbSource).toContain("question_bank_preview");
+    expect(dbSource).toContain("responseFormat: {");
+    expect(dbSource).toContain("AI 문항 생성에 실패했습니다:");
+    expect(pageSource).toContain("AI 문항 생성에 실패했습니다.");
+  });
+
+  it("휴지통에서 다중 선택 복구·영구 삭제와 만료 임박 경고를 제공한다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const routersSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const pageSource = readFileSync(new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url), "utf8");
+    expect(dbSource).toContain("restoreQuestionBankTrashItems");
+    expect(dbSource).toContain("permanentlyDeleteQuestionBankTrashItems");
+    expect(routersSource).toContain("restoreManyFromTrash:");
+    expect(routersSource).toContain("permanentlyDeleteTrashItems:");
+    expect(pageSource).toContain("현재 휴지통 전체 선택");
+    expect(pageSource).toContain("자동 영구 삭제 대상");
+  });
+
+  it("작업 이력에 기간·처리자·작업 유형 필터와 현재 필터 CSV 내보내기가 있다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const pageSource = readFileSync(new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url), "utf8");
+    expect(dbSource).toContain("filters.actionType");
+    expect(dbSource).toContain("filters.actorName");
+    expect(dbSource).toContain("filters.startDate");
+    expect(pageSource).toContain("현재 필터 CSV 내보내기");
+    expect(pageSource).toContain("setLogQuickDateRange");
+  });
 });

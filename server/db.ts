@@ -1489,6 +1489,46 @@ export async function permanentlyDeleteQuestionBankTrashItem(trashId: number, ac
   return { success: true };
 }
 
+export async function restoreQuestionBankTrashItems(trashIds: number[], actorUserId: number, actorName: string) {
+  const uniqueIds = Array.from(new Set(trashIds)).filter((id) => Number.isInteger(id) && id > 0);
+  let restoredCount = 0;
+  const failures: Array<{ trashId: number; reason: string }> = [];
+
+  for (const trashId of uniqueIds) {
+    try {
+      await restoreQuestionBankTrashItem(trashId, actorUserId, actorName);
+      restoredCount += 1;
+    } catch (error) {
+      failures.push({
+        trashId,
+        reason: error instanceof Error ? error.message : "문항 복구 중 알 수 없는 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  return { requestedCount: uniqueIds.length, restoredCount, failures };
+}
+
+export async function permanentlyDeleteQuestionBankTrashItems(trashIds: number[], actorUserId: number, actorName: string) {
+  const uniqueIds = Array.from(new Set(trashIds)).filter((id) => Number.isInteger(id) && id > 0);
+  let deletedCount = 0;
+  const failures: Array<{ trashId: number; reason: string }> = [];
+
+  for (const trashId of uniqueIds) {
+    try {
+      await permanentlyDeleteQuestionBankTrashItem(trashId, actorUserId, actorName);
+      deletedCount += 1;
+    } catch (error) {
+      failures.push({
+        trashId,
+        reason: error instanceof Error ? error.message : "문항 영구 삭제 중 알 수 없는 오류가 발생했습니다.",
+      });
+    }
+  }
+
+  return { requestedCount: uniqueIds.length, deletedCount, failures };
+}
+
 export async function getQuestionBankMaintenanceSettings() {
   const db = await getDb();
   if (!db) return { id: 0, retentionDays: 30, scheduleCronTaskUid: null, updatedByUserId: null, updatedAt: new Date() };
@@ -1519,10 +1559,25 @@ export async function setQuestionBankMaintenanceScheduleTask(taskUid: string) {
   }
 }
 
-export async function getQuestionBankOperationLogs(limit: number = 200) {
+export async function getQuestionBankOperationLogs(filters: {
+  limit?: number;
+  actionType?: "moved_to_trash" | "restored" | "permanently_deleted" | "auto_purged";
+  actorName?: string;
+  startDate?: Date;
+  endDate?: Date;
+} = {}) {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(questionBankOperationLogs).orderBy(desc(questionBankOperationLogs.createdAt)).limit(limit);
+  const conditions = [];
+  if (filters.actionType) conditions.push(eq(questionBankOperationLogs.actionType, filters.actionType));
+  if (filters.actorName) conditions.push(eq(questionBankOperationLogs.actorName, filters.actorName));
+  if (filters.startDate) conditions.push(gte(questionBankOperationLogs.createdAt, filters.startDate));
+  if (filters.endDate) conditions.push(lt(questionBankOperationLogs.createdAt, filters.endDate));
+
+  const query = db.select().from(questionBankOperationLogs);
+  return conditions.length > 0
+    ? await query.where(and(...conditions)).orderBy(desc(questionBankOperationLogs.createdAt)).limit(filters.limit ?? 200)
+    : await query.orderBy(desc(questionBankOperationLogs.createdAt)).limit(filters.limit ?? 200);
 }
 
 export async function purgeExpiredQuestionBankTrash() {
@@ -2147,54 +2202,204 @@ export async function getAllQuestionFeedbacks() {
   return await db.select().from(questionFeedbacks);
 }
 
-export async function generateAiQuestionsForCategory(courseType: string, toolType: string, count: number = 3) {
-  const promptText = `당신은 대한민국 최고 수준의 논술 교육 전문가이자 문항 출제 위원입니다.
-다음 조건에 맞추어 '${courseType}' 과정의 '${toolType}' 학습 도구를 위한 실전 논술 문항 ${count}개를 JSON 배열 형식으로 생성해 주세요.
-반드시 아래의 JSON 구조로만 응답하세요:
-[
-  {
-    "title": "문항 제목",
-    "difficulty": "medium",
-    "contentData": "{\"prompt\":\"본문내용\",\"options\":[\"보기1\",\"보기2\"],\"answer\":\"보기1\",\"explanation\":\"해설\"}"
-  }
-]
-다른 부가 설명 없이 순수 JSON 배열만 출력해 주세요.`;
+export async function generateAiQuestionsForCategory(
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult",
+  toolType: "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist",
+  count: number = 3,
+) {
+  const validateContentData = (contentData: unknown, index: number) => {
+    const content = contentData as Record<string, unknown>;
+    if (!content || typeof content !== "object" || typeof content.prompt !== "string" || content.prompt.trim().length < 10) {
+      throw new Error(`${index + 1}번 AI 문항의 본문(prompt)이 유효하지 않습니다.`);
+    }
+    if (toolType === "quiz") {
+      if (!Array.isArray(content.options) || content.options.length !== 4 || typeof content.answer !== "string" || !content.options.includes(content.answer) || typeof content.explanation !== "string") {
+        throw new Error(`${index + 1}번 퀴즈 문항에는 4개의 보기, 정답, 해설이 모두 필요합니다.`);
+      }
+    }
+    if (toolType === "reordering") {
+      const order = Array.isArray(content.correctOrder) ? content.correctOrder : [];
+      if (!Array.isArray(content.paragraphs) || content.paragraphs.length !== 4 || order.length !== 4 || [...order].sort().join(",") !== "0,1,2,3" || typeof content.explanation !== "string") {
+        throw new Error(`${index + 1}번 단락 재구성 문항에는 4개 단락, 올바른 순서, 해설이 필요합니다.`);
+      }
+    }
+    if (toolType === "summary") {
+      if (!Array.isArray(content.keyPoints) || content.keyPoints.length < 3 || typeof content.modelAnswer !== "string" || typeof content.explanation !== "string") {
+        throw new Error(`${index + 1}번 요약 연습 문항에는 핵심 포인트 3개, 모범 답안, 해설이 필요합니다.`);
+      }
+    }
+    if (toolType === "topic_wizard") {
+      const sampleOutput = content.sampleOutput as Record<string, unknown> | undefined;
+      if (!Array.isArray(content.guidelines) || content.guidelines.length < 3 || !sampleOutput || typeof sampleOutput.title !== "string" || typeof sampleOutput.stance !== "string" || typeof sampleOutput.mainArgument !== "string") {
+        throw new Error(`${index + 1}번 주제 위저드 문항에는 가이드 3개와 예시 출력이 필요합니다.`);
+      }
+    }
+    if (toolType === "thesis_checklist") {
+      if (!Array.isArray(content.checklistItems) || content.checklistItems.length < 3 || typeof content.passingStandard !== "string") {
+        throw new Error(`${index + 1}번 주제문 체크리스트에는 점검 항목 3개와 통과 기준이 필요합니다.`);
+      }
+    }
+    return content;
+  };
+
+  const courseLabel: Record<typeof courseType, string> = {
+    elementary: "초등 논술",
+    middle_high: "중고등 논술",
+    high_univ: "고등/대입 논술",
+    general_adult: "일반/직장인 논술",
+  };
+  const toolRequirement: Record<typeof toolType, string> = {
+    quiz: "contentData에 prompt, 4개의 options, options 중 하나와 정확히 일치하는 answer, explanation을 포함하세요.",
+    reordering: "contentData에 prompt, 논리 순서가 섞인 4개의 paragraphs, 0부터 3까지 중복 없이 사용하는 correctOrder, explanation을 포함하세요.",
+    summary: "contentData에 원문이 포함된 prompt, 3개의 keyPoints, modelAnswer, explanation을 포함하세요.",
+    topic_wizard: "contentData에 prompt, 3개의 guidelines, title·stance·mainArgument를 갖는 sampleOutput을 포함하세요.",
+    thesis_checklist: "contentData에 prompt, 3개의 checklistItems, passingStandard를 포함하세요.",
+  };
+
+  const contentDataSchema = (() => {
+    if (toolType === "quiz") {
+      return {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          options: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
+          answer: { type: "string" },
+          explanation: { type: "string" },
+        },
+        required: ["prompt", "options", "answer", "explanation"],
+        additionalProperties: false,
+      };
+    }
+    if (toolType === "reordering") {
+      return {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          paragraphs: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
+          correctOrder: { type: "array", minItems: 4, maxItems: 4, items: { type: "integer", minimum: 0, maximum: 3 } },
+          explanation: { type: "string" },
+        },
+        required: ["prompt", "paragraphs", "correctOrder", "explanation"],
+        additionalProperties: false,
+      };
+    }
+    if (toolType === "summary") {
+      return {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          keyPoints: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+          modelAnswer: { type: "string" },
+          explanation: { type: "string" },
+        },
+        required: ["prompt", "keyPoints", "modelAnswer", "explanation"],
+        additionalProperties: false,
+      };
+    }
+    if (toolType === "topic_wizard") {
+      return {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          guidelines: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+          sampleOutput: {
+            type: "object",
+            properties: { title: { type: "string" }, stance: { type: "string" }, mainArgument: { type: "string" } },
+            required: ["title", "stance", "mainArgument"],
+            additionalProperties: false,
+          },
+        },
+        required: ["prompt", "guidelines", "sampleOutput"],
+        additionalProperties: false,
+      };
+    }
+    return {
+      type: "object",
+      properties: {
+        prompt: { type: "string" },
+        checklistItems: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+        passingStandard: { type: "string" },
+      },
+      required: ["prompt", "checklistItems", "passingStandard"],
+      additionalProperties: false,
+    };
+  })();
 
   try {
-    const res: any = await invokeLLM({
-      messages: [{ role: "user", content: promptText }],
-      responseFormat: { type: "json_object" }
+    const response = await invokeLLM({
+      messages: [
+        {
+          role: "system",
+          content: "당신은 한국어 논술 교육 콘텐츠 출제 위원입니다. 학습자의 연령과 과정 목적에 맞는 사실적이고 중립적인 실전 문항을 출제합니다. 반드시 요청한 JSON 스키마만 충족하고, 설명 문장이나 마크다운은 절대 덧붙이지 마세요.",
+        },
+        {
+          role: "user",
+          content: `${courseLabel[courseType]} 과정의 ${toolType} 학습 도구에 맞는 실전 논술 문항 ${count}개를 생성하세요. 각 문항은 서로 다른 주제와 논증 관점을 가져야 합니다. 난이도는 easy, medium, hard 중 하나이며, 학습 도구별 필수 구조는 다음과 같습니다. ${toolRequirement[toolType]}`,
+        },
+      ],
+      responseFormat: {
+        type: "json_schema",
+        json_schema: {
+          name: "question_bank_preview",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              items: {
+                type: "array",
+                minItems: count,
+                maxItems: count,
+                items: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string" },
+                    difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+                    contentData: contentDataSchema,
+                  },
+                  required: ["title", "difficulty", "contentData"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["items"],
+            additionalProperties: false,
+          },
+        },
+      },
     });
-    const contentStr = res?.choices?.[0]?.message?.content || "[]";
-    let parsed = JSON.parse(contentStr);
-    const items = Array.isArray(parsed) ? parsed : (parsed.items || parsed.questions || []);
-    return items.map((item: any) => ({
-      courseType,
-      toolType,
-      title: item.title || `[AI 생성] ${courseType} 실전 논술`,
-      contentData: typeof item.contentData === "string" ? item.contentData : JSON.stringify(item.contentData || { prompt: "AI 생성 본문" }),
-      difficulty: ["easy", "medium", "hard"].includes(item.difficulty) ? item.difficulty : "medium",
-      isActive: 1,
-    }));
-  } catch (e) {
-    // Fallback static real items if LLM fails
-    const fallbackItems = [];
-    for (let i = 1; i <= count; i++) {
-      fallbackItems.push({
+
+    const content = response?.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || content.trim().length === 0) {
+      throw new Error("AI 응답 본문이 비어 있습니다.");
+    }
+
+    const parsed = JSON.parse(content) as { items?: unknown };
+    if (!Array.isArray(parsed.items) || parsed.items.length !== count) {
+      throw new Error(`AI가 요청한 ${count}개 문항 대신 유효하지 않은 응답을 반환했습니다.`);
+    }
+
+    return parsed.items.map((item, index) => {
+      const candidate = item as { title?: unknown; difficulty?: unknown; contentData?: unknown };
+      if (typeof candidate.title !== "string" || candidate.title.trim().length < 2) {
+        throw new Error(`${index + 1}번 AI 문항의 제목이 유효하지 않습니다.`);
+      }
+      if (!["easy", "medium", "hard"].includes(String(candidate.difficulty))) {
+        throw new Error(`${index + 1}번 AI 문항의 난이도 값이 유효하지 않습니다.`);
+      }
+      const contentData = typeof candidate.contentData === "string" ? JSON.parse(candidate.contentData) : candidate.contentData;
+      const validatedContentData = validateContentData(contentData, index);
+      return {
         courseType,
         toolType,
-        title: `[AI 생성 실전] ${courseType} ${toolType} 문항 #${i}`,
-        contentData: JSON.stringify({
-          prompt: `AI가 심층 설계한 ${courseType} 과정 ${toolType} 실전 학습 문항입니다. 논리적 사고력을 검증하세요.`,
-          options: toolType === "quiz" ? ["논리적 타당성이 검증된 주장", "감정적 호소에 치우친 오류", "모순되는 전제와 결론", "무관한 사실 나열"] : undefined,
-          answer: toolType === "quiz" ? "논리적 타당성이 검증된 주장" : "모범 답안",
-          explanation: "AI 심층 출제 위원이 제공하는 상세 논증 해설입니다."
-        }),
-        difficulty: i % 2 === 0 ? "hard" : "medium",
+        title: candidate.title.trim(),
+        contentData: JSON.stringify(validatedContentData),
+        difficulty: candidate.difficulty as "easy" | "medium" | "hard",
         isActive: 1,
-      });
-    }
-    return fallbackItems;
+      };
+    });
+  } catch (error) {
+    console.error("[QuestionBank] AI question preview generation failed", { courseType, toolType, count, error });
+    throw new Error(error instanceof Error ? `AI 문항 생성에 실패했습니다: ${error.message}` : "AI 문항 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
   }
 }
 
@@ -2210,7 +2415,11 @@ export async function getSimilarQuestions(questionId: number) {
 }
 
 // AI 생성 미리보기 임시 저장소 (메모리 캐시 또는 테이블 대체용)
-export async function previewAiQuestionsForCategory(courseType: string, toolType: string, count: number = 3) {
+export async function previewAiQuestionsForCategory(
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult",
+  toolType: "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist",
+  count: number = 3,
+) {
   return await generateAiQuestionsForCategory(courseType, toolType, count);
 }
 

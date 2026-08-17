@@ -889,6 +889,20 @@ export const appRouter = router({
         return await db.permanentlyDeleteQuestionBankTrashItem(input.trashId, ctx.user.id, ctx.user.name || "관리자");
       }),
 
+    restoreManyFromTrash: protectedProcedure
+      .input(z.object({ trashIds: z.array(z.number().int().positive()).min(1).max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.restoreQuestionBankTrashItems(input.trashIds, ctx.user.id, ctx.user.name || "관리자");
+      }),
+
+    permanentlyDeleteTrashItems: protectedProcedure
+      .input(z.object({ trashIds: z.array(z.number().int().positive()).min(1).max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.permanentlyDeleteQuestionBankTrashItems(input.trashIds, ctx.user.id, ctx.user.name || "관리자");
+      }),
+
     maintenanceSettings: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       return await db.getQuestionBankMaintenanceSettings();
@@ -902,10 +916,16 @@ export const appRouter = router({
       }),
 
     operationLogs: protectedProcedure
-      .input(z.object({ limit: z.number().int().min(1).max(500).default(200) }).optional())
+      .input(z.object({
+        limit: z.number().int().min(1).max(500).default(200),
+        actionType: z.enum(["moved_to_trash", "restored", "permanently_deleted", "auto_purged"]).optional(),
+        actorName: z.string().trim().min(1).max(100).optional(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+      }).optional())
       .query(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.getQuestionBankOperationLogs(input?.limit ?? 200);
+        return await db.getQuestionBankOperationLogs(input);
       }),
 
     deleteByCourse: protectedProcedure
@@ -992,13 +1012,21 @@ export const appRouter = router({
       return await db.getCurriculumDifficultyStats();
     }),
     generateAiQuestions: protectedProcedure
-      .input(z.object({ courseType: z.string(), toolType: z.string(), count: z.number().default(3) }))
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        toolType: z.enum(["quiz", "reordering", "summary", "topic_wizard", "thesis_checklist"]),
+        count: z.number().int().min(1).max(5).default(3),
+      }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         return await db.generateAiQuestionsForCategory(input.courseType, input.toolType, input.count);
       }),
     previewAiQuestions: protectedProcedure
-      .input(z.object({ courseType: z.string(), toolType: z.string(), count: z.number().default(3) }))
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        toolType: z.enum(["quiz", "reordering", "summary", "topic_wizard", "thesis_checklist"]),
+        count: z.number().int().min(1).max(5).default(3),
+      }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         return await db.previewAiQuestionsForCategory(input.courseType, input.toolType, input.count);
