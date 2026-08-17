@@ -19,6 +19,7 @@ import {
   sendVerificationEmail,
   verifyPassword,
 } from "./email";
+import { getCourseTag } from "@shared/course";
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
@@ -227,11 +228,15 @@ export const appRouter = router({
           email: z.string().trim().email().transform((value) => value.toLowerCase()),
           password: z.string().min(8).max(128),
           accountType: z.enum(["student", "parent"]).default("student"),
+          courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
           consents: z.array(signupConsentSchema).min(1),
         }),
       )
       .mutation(async ({ ctx, input }) => {
         const approvedConsents = await validateSignupConsents(input.accountType, input.consents);
+        if (input.accountType === "student" && !input.courseType) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "학생 회원은 학습 과정을 선택해야 합니다." });
+        }
         const existing = await db.getUserByEmail(input.email);
         const token = createVerificationToken();
         const tokenHash = hashVerificationToken(token);
@@ -256,7 +261,7 @@ export const appRouter = router({
           passwordHash: hashPassword(input.password),
           verificationTokenHash: tokenHash,
           verificationTokenExpiresAt: expiresAt,
-          tag: input.accountType === "parent" ? "학부모" : "학생",
+          tag: input.accountType === "parent" ? "학부모" : getCourseTag(input.courseType!),
         });
 
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "회원가입에 실패했습니다." });

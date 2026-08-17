@@ -6,8 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { BookOpen, Lock } from "lucide-react";
-
-type CourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
+import { getCourseTypeFromUserTag, type CourseType } from "@shared/course";
 
 const CURRICULUM_DATA = {
   elementary: [
@@ -68,7 +67,7 @@ const CURRICULUM_DATA = {
 
 export default function Curriculum() {
   const { user, isAuthenticated } = useAuth();
-  const userCourse = (user?.tag === "초등" ? "elementary" : user?.tag === "고등/대입" ? "high_univ" : user?.tag === "일반/직장인" ? "general_adult" : "middle_high") as CourseType;
+  const userCourse = getCourseTypeFromUserTag(user?.tag);
   const [courseType] = React.useState<CourseType>(userCourse);
 
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
@@ -204,4 +203,3 @@ export default function Curriculum() {
     </div>
   );
 }
-
