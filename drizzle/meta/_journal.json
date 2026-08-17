@@ -211,6 +211,13 @@
       "when": 1786991444790,
       "tag": "0029_first_glorian",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1786994455418,
+      "tag": "0030_square_valkyrie",
+      "breakpoints": true
     }
   ]
 }

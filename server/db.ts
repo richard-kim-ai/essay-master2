@@ -34,7 +34,7 @@ import {
 } from "../drizzle/schema";
 import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
 import { ENV } from "./_core/env";
-import { invokeLLM } from "./_core/llm";
+import { invokeLLM, listLLMModels } from "./_core/llm";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -1909,6 +1909,324 @@ export async function getCurriculumWorkbookQuestions(courseType: string, level: 
   );
 }
 
+type SubjectiveEvaluation = {
+  status: "evaluated" | "insufficient";
+  verdict: "excellent" | "adequate" | "needs_revision" | "off_topic" | "insufficient";
+  score: number;
+  isOnTopic: boolean;
+  hasClearClaim: boolean;
+  validReasonCount: number;
+  reasonQuotes: string[];
+  hasComparativeAnalysis: boolean;
+  characterCount: number;
+  criteria: Array<{
+    key: "topicRelevance" | "claim" | "evidence" | "analysis" | "expression";
+    label: string;
+    score: number;
+    maxScore: 20;
+    quote: string;
+    explanation: string;
+  }>;
+  summary: string;
+  priorityImprovements: string[];
+  missingRequirements: string[];
+};
+
+const SUBJECTIVE_CRITERIA: Array<{ key: SubjectiveEvaluation["criteria"][number]["key"]; label: string }> = [
+  { key: "topicRelevance", label: "주제 적합성" },
+  { key: "claim", label: "주장·입장" },
+  { key: "evidence", label: "근거의 타당성" },
+  { key: "analysis", label: "비교·분석" },
+  { key: "expression", label: "표현·구성" },
+];
+
+function normalizeEvaluationQuote(answer: string, quote: unknown) {
+  const candidate = typeof quote === "string" ? quote.trim() : "";
+  return candidate && answer.includes(candidate) ? candidate : "답안에서 확인되지 않음";
+}
+
+function extractFirstJsonObject(content: string) {
+  const start = content.indexOf("{");
+  if (start < 0) throw new Error("AI 평가 응답에 JSON 객체가 없습니다.");
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < content.length; index += 1) {
+    const char = content[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return content.slice(start, index + 1);
+    }
+  }
+  throw new Error("AI 평가 응답의 JSON 객체가 닫히지 않았습니다.");
+}
+
+function createInsufficientSubjectiveEvaluation(userAnswer: string): SubjectiveEvaluation {
+  const characterCount = userAnswer.replace(/\s/g, "").length;
+  const hasKoreanSyllable = /[가-힣]/.test(userAnswer);
+  const isLikelyNonsense = !hasKoreanSyllable || /^[ㄱ-ㅎㅏ-ㅣ0-9\s.,!?~…·\-]+$/.test(userAnswer);
+  const reason = isLikelyNonsense
+    ? "의미 있는 문장·주장·근거를 확인할 수 없는 입력입니다."
+    : "답안 분량이 부족하여 주제 적합성과 논증 구조를 신뢰성 있게 평가할 수 없습니다.";
+  return {
+    status: "insufficient",
+    verdict: "insufficient",
+    score: 0,
+    isOnTopic: false,
+    hasClearClaim: false,
+    validReasonCount: 0,
+    reasonQuotes: [],
+    hasComparativeAnalysis: false,
+    characterCount,
+    criteria: SUBJECTIVE_CRITERIA.map(({ key, label }) => ({
+      key,
+      label,
+      score: 0,
+      maxScore: 20,
+      quote: "답안에서 확인되지 않음",
+      explanation: reason,
+    })),
+    summary: reason,
+    priorityImprovements: ["제시된 주제에 대한 자신의 입장을 한 문장으로 분명히 쓰세요.", "각 근거를 구체적 사례·원인·결과와 연결해 두 가지 이상 제시하세요.", "두 관점의 차이 또는 반론을 비교한 뒤 자신의 결론을 제시하세요."],
+    missingRequirements: ["의미 있는 문장으로 답안을 작성", "명확한 주장", "두 가지 이상의 근거", "비교 또는 분석"],
+  };
+}
+
+export async function evaluateSubjectiveWorkbookAnswer(
+  question: Pick<typeof curriculumWorkbookQuestions.$inferSelect, "courseType" | "level" | "title" | "prompt" | "correctAnswer" | "explanation">,
+  userAnswer: string,
+): Promise<SubjectiveEvaluation> {
+  const normalizedAnswer = userAnswer.trim();
+  const characterCount = normalizedAnswer.replace(/\s/g, "").length;
+  if (characterCount < 80 || /^[ㄱ-ㅎㅏ-ㅣ0-9\s.,!?~…·\-]+$/.test(normalizedAnswer)) {
+    return createInsufficientSubjectiveEvaluation(normalizedAnswer);
+  }
+
+  const { data: models } = await listLLMModels();
+  const preferredModels = ["gpt-5", "claude-sonnet-4-6", "gemini-3.1-pro-preview"];
+  const model = preferredModels.find((id) => models.some((item) => item.id === id));
+  const criteriaSchema = {
+    type: "object",
+    properties: {
+      topicRelevance: { type: "integer", minimum: 0, maximum: 20 },
+      claim: { type: "integer", minimum: 0, maximum: 20 },
+      evidence: { type: "integer", minimum: 0, maximum: 20 },
+      analysis: { type: "integer", minimum: 0, maximum: 20 },
+      expression: { type: "integer", minimum: 0, maximum: 20 },
+    },
+    required: ["topicRelevance", "claim", "evidence", "analysis", "expression"],
+    additionalProperties: false,
+  };
+  const quotesSchema = {
+    type: "object",
+    properties: {
+      topicRelevance: { type: "string" },
+      claim: { type: "string" },
+      evidence: { type: "string" },
+      analysis: { type: "string" },
+      expression: { type: "string" },
+    },
+    required: ["topicRelevance", "claim", "evidence", "analysis", "expression"],
+    additionalProperties: false,
+  };
+  const explanationsSchema = {
+    type: "object",
+    properties: {
+      topicRelevance: { type: "string" },
+      claim: { type: "string" },
+      evidence: { type: "string" },
+      analysis: { type: "string" },
+      expression: { type: "string" },
+    },
+    required: ["topicRelevance", "claim", "evidence", "analysis", "expression"],
+    additionalProperties: false,
+  };
+
+  const response = await invokeLLM({
+    model,
+    maxTokens: model === "gpt-5" ? undefined : 2400,
+    reasoning: model === "gpt-5" ? { effort: "low" } : undefined,
+    messages: [
+      {
+        role: "system",
+        content: "당신은 한국 논술 교육의 엄정한 평가자입니다. 답안의 길이만으로 점수를 주거나, 일반적인 칭찬·비판을 절대 하지 마세요. 제시된 주제와 답안에 실제로 드러난 내용을 기준으로만 평가합니다. 각 quote는 반드시 학습자 답안에 문자 그대로 포함된 2~40자 인용문이어야 하며, 확인할 수 없으면 빈 문자열을 반환하세요. reasonQuotes에는 서로 다른 근거를 보여주는 실제 답안 인용문만 넣고, validReasonCount는 그 인용문 수보다 크게 쓰지 마세요. 답안이 주제와 무관하거나 의미 없는 반복이면 isOnTopic=false 및 낮은 점수를 부여하세요.",
+      },
+      {
+        role: "user",
+        content: `[문항 정보]\n과정: ${question.courseType} Level ${question.level}\n제목: ${question.title}\n문항: ${question.prompt}\n채점 핵심: ${question.correctAnswer}\n문항 해설: ${question.explanation}\n\n[학습자 답안]\n${normalizedAnswer}\n\n[필수 평가 규칙]\n1. 주제 적합성 20점: 문항의 핵심 과제에 직접 답했는지 평가합니다.\n2. 주장·입장 20점: 명확하고 일관된 입장을 제시했는지 평가합니다.\n3. 근거의 타당성 20점: 서로 구분되는 근거가 2개 이상이며 주장과 연결되는지 평가합니다.\n4. 비교·분석 20점: 두 관점·원인·결과·반론 중 적어도 하나를 실제로 분석했는지 평가합니다.\n5. 표현·구성 20점: 문장 의미, 연결, 구조가 읽히는지 평가합니다.\n\n점수는 각 기준의 관찰 가능한 답안 내용으로만 매기고, 빠진 요소에는 점수를 주지 마세요. priorityImprovements에는 이 답안에서 가장 먼저 고쳐야 할 행동 지침 3개를 구체적으로 작성하세요.`,
+      },
+    ],
+    responseFormat: {
+      type: "json_schema",
+      json_schema: {
+        name: "subjective_workbook_evaluation",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            isOnTopic: { type: "boolean" },
+            hasClearClaim: { type: "boolean" },
+            validReasonCount: { type: "integer", minimum: 0, maximum: 10 },
+            reasonQuotes: { type: "array", minItems: 0, maxItems: 3, items: { type: "string" } },
+            hasComparativeAnalysis: { type: "boolean" },
+            criteria: criteriaSchema,
+            quotes: quotesSchema,
+            explanations: explanationsSchema,
+            summary: { type: "string" },
+            priorityImprovements: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+            missingRequirements: { type: "array", items: { type: "string" } },
+          },
+          required: ["isOnTopic", "hasClearClaim", "validReasonCount", "reasonQuotes", "hasComparativeAnalysis", "criteria", "quotes", "explanations", "summary", "priorityImprovements", "missingRequirements"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const rawContent = response.choices?.[0]?.message?.content;
+  if (typeof rawContent !== "string" || rawContent.trim().length === 0) throw new Error("AI 평가 응답이 비어 있습니다.");
+  const jsonContent = extractFirstJsonObject(rawContent);
+  let parsed = JSON.parse(jsonContent) as {
+    isOnTopic: boolean;
+    hasClearClaim: boolean;
+    validReasonCount: number;
+    reasonQuotes: string[];
+    hasComparativeAnalysis: boolean;
+    criteria: Record<SubjectiveEvaluation["criteria"][number]["key"], number>;
+    quotes: Record<SubjectiveEvaluation["criteria"][number]["key"], string>;
+    explanations: Record<SubjectiveEvaluation["criteria"][number]["key"], string>;
+    summary: string;
+    priorityImprovements: string[];
+    missingRequirements: string[];
+  };
+
+  // 일부 모델은 JSON Schema를 지켜도 의미상 동등한 한글 키의 점수 객체를 반환한다.
+  // 이 경우에도 실제 답안 인용·점수만 추출해 같은 검증 경로로 통과시킨다.
+  if (!parsed.criteria && (parsed as any).scores) {
+    const scores = (parsed as any).scores as Record<string, { score?: number; quote?: string; comment?: string; reasonQuotes?: string[]; validReasonCount?: number }>;
+    const scoreKeyMap: Record<SubjectiveEvaluation["criteria"][number]["key"], string> = {
+      topicRelevance: "주제적합성",
+      claim: "주장·입장",
+      evidence: "근거의타당성",
+      analysis: "비교·분석",
+      expression: "표현·구성",
+    };
+    const asScore = (key: SubjectiveEvaluation["criteria"][number]["key"]) => scores[scoreKeyMap[key]] || {};
+    const evidenceScore = asScore("evidence");
+    parsed = {
+      ...(parsed as any),
+      isOnTopic: Boolean((parsed as any).isOnTopic),
+      hasClearClaim: Number(asScore("claim").score || 0) > 0,
+      validReasonCount: Number(evidenceScore.validReasonCount || 0),
+      reasonQuotes: Array.isArray(evidenceScore.reasonQuotes) ? evidenceScore.reasonQuotes : [],
+      hasComparativeAnalysis: Number(asScore("analysis").score || 0) > 0,
+      criteria: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, Number(asScore(key).score || 0)])) as Record<SubjectiveEvaluation["criteria"][number]["key"], number>,
+      quotes: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, asScore(key).quote || ""])) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
+      explanations: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, asScore(key).comment || "평가 근거를 생성하지 못했습니다."])) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
+      summary: String((parsed as any).topicComment || "답안의 주제 적합성과 논증 구조를 평가했습니다."),
+      priorityImprovements: Array.isArray((parsed as any).priorityImprovements) ? (parsed as any).priorityImprovements : [],
+      missingRequirements: [],
+    };
+  }
+
+  if (!parsed.criteria && Array.isArray((parsed as any).rubric)) {
+    const rubric = (parsed as any).rubric as Array<{ criterion?: string; score?: number; quote?: string; comment?: string; reasonQuotes?: string[]; validReasonCount?: number }>;
+    const rubricKeyMap: Record<SubjectiveEvaluation["criteria"][number]["key"], string> = {
+      topicRelevance: "주제 적합성",
+      claim: "주장·입장",
+      evidence: "근거의 타당성",
+      analysis: "비교·분석",
+      expression: "표현·구성",
+    };
+    const findRubric = (key: SubjectiveEvaluation["criteria"][number]["key"]) => rubric.find((item) => item.criterion?.replace(/\s/g, "") === rubricKeyMap[key].replace(/\s/g, "")) || {};
+    const evidenceRubric = findRubric("evidence");
+    parsed = {
+      ...(parsed as any),
+      isOnTopic: Boolean((parsed as any).isOnTopic),
+      hasClearClaim: Number(findRubric("claim").score || 0) > 0,
+      validReasonCount: Number(evidenceRubric.validReasonCount || 0),
+      reasonQuotes: Array.isArray(evidenceRubric.reasonQuotes) ? evidenceRubric.reasonQuotes : [],
+      hasComparativeAnalysis: Number(findRubric("analysis").score || 0) > 0,
+      criteria: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, Number(findRubric(key).score || 0)])) as Record<SubjectiveEvaluation["criteria"][number]["key"], number>,
+      quotes: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, findRubric(key).quote || ""])) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
+      explanations: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, findRubric(key).comment || "평가 근거를 생성하지 못했습니다."])) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
+      summary: String((parsed as any).overallComment || "답안의 주제 적합성과 논증 구조를 평가했습니다."),
+      priorityImprovements: Array.isArray((parsed as any).priorityImprovements) ? (parsed as any).priorityImprovements : [],
+      missingRequirements: [],
+    };
+  }
+
+  if (!parsed.criteria || !parsed.quotes || !parsed.explanations || !Array.isArray(parsed.reasonQuotes)) {
+    throw new Error("AI 평가 응답 형식이 유효하지 않습니다. 다시 제출해주세요.");
+  }
+
+  const reasonQuotes = Array.isArray(parsed.reasonQuotes)
+    ? parsed.reasonQuotes.map((quote) => normalizeEvaluationQuote(normalizedAnswer, quote)).filter((quote) => quote !== "답안에서 확인되지 않음")
+    : [];
+  const criteria = SUBJECTIVE_CRITERIA.map(({ key, label }) => {
+    const quote = normalizeEvaluationQuote(normalizedAnswer, key === "evidence" && !parsed.quotes[key] ? reasonQuotes[0] : parsed.quotes[key]);
+    const hasVerifiedQuote = quote !== "답안에서 확인되지 않음";
+    const rawScore = Math.min(20, Math.max(0, Number(parsed.criteria[key]) || 0));
+    return {
+      key,
+      label,
+      score: hasVerifiedQuote ? rawScore : 0,
+      maxScore: 20 as const,
+      quote,
+      explanation: hasVerifiedQuote
+        ? (typeof parsed.explanations[key] === "string" ? parsed.explanations[key] : "평가 근거를 생성하지 못했습니다.")
+        : "답안에서 확인 가능한 인용 근거가 없어 이 기준의 점수를 반영하지 않았습니다.",
+    };
+  });
+  const score = criteria.reduce((total, criterion) => total + criterion.score, 0);
+  const hasVerifiedTopicEvidence = criteria.find((criterion) => criterion.key === "topicRelevance")?.quote !== "답안에서 확인되지 않음";
+  const hasVerifiedClaimEvidence = criteria.find((criterion) => criterion.key === "claim")?.quote !== "답안에서 확인되지 않음";
+  const hasVerifiedAnalysisEvidence = criteria.find((criterion) => criterion.key === "analysis")?.quote !== "답안에서 확인되지 않음";
+  const isOnTopic = Boolean(parsed.isOnTopic) && hasVerifiedTopicEvidence;
+  const hasClearClaim = Boolean(parsed.hasClearClaim) && hasVerifiedClaimEvidence;
+  const validReasonCount = Math.max(0, Math.min(10, Number(parsed.validReasonCount) || 0, reasonQuotes.length));
+  const hasComparativeAnalysis = Boolean(parsed.hasComparativeAnalysis) && hasVerifiedAnalysisEvidence;
+  const verdict: SubjectiveEvaluation["verdict"] = !isOnTopic
+    ? "off_topic"
+    : !hasClearClaim || validReasonCount < 2
+      ? "needs_revision"
+      : score >= 85
+        ? "excellent"
+        : score >= 60
+          ? "adequate"
+          : "needs_revision";
+
+  return {
+    status: "evaluated",
+    verdict,
+    score,
+    isOnTopic,
+    hasClearClaim,
+    validReasonCount,
+    reasonQuotes,
+    hasComparativeAnalysis,
+    characterCount,
+    criteria,
+    summary: typeof parsed.summary === "string" ? parsed.summary : "평가 요약을 생성하지 못했습니다.",
+    priorityImprovements: Array.isArray(parsed.priorityImprovements) ? parsed.priorityImprovements.slice(0, 3) : [],
+    missingRequirements: Array.isArray(parsed.missingRequirements) ? parsed.missingRequirements : [],
+  };
+}
+
+function formatSubjectiveEvaluationFeedback(evaluation: SubjectiveEvaluation) {
+  const criterionLines = evaluation.criteria.map((criterion) => `${criterion.label} ${criterion.score}/${criterion.maxScore}: ${criterion.explanation}`).join("\n");
+  const priorities = evaluation.priorityImprovements.map((item, index) => `${index + 1}. ${item}`).join("\n");
+  return `[AI 근거 기반 서술형 평가]\n판정: ${evaluation.verdict} · ${evaluation.score}/100점\n${criterionLines}\n\n총평: ${evaluation.summary}\n\n우선 개선:\n${priorities}`;
+}
+
 export async function submitCurriculumWorkbookAnswer(userId: number, questionId: number, userAnswer: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
@@ -1919,16 +2237,17 @@ export async function submitCurriculumWorkbookAnswer(userId: number, questionId:
   let isCorrect = 0;
   let score = 0;
   let aiFeedback = "";
+  let evaluation: SubjectiveEvaluation | null = null;
 
   if (q.questionType === "objective") {
     isCorrect = userAnswer.trim() === q.correctAnswer.trim() ? 1 : 0;
     score = isCorrect ? 100 : 0;
     aiFeedback = isCorrect ? "정답입니다! 완벽하게 이해하셨습니다." : `오답입니다. 정답은 '${q.correctAnswer}'입니다. 해설: ${q.explanation}`;
   } else {
-    // 서술형인 경우 AI 채점 시뮬레이션
-    isCorrect = userAnswer.length >= 10 ? 1 : 0;
-    score = userAnswer.length >= 20 ? 95 : userAnswer.length >= 10 ? 80 : 50;
-    aiFeedback = `[AI 기출문제 채점 결과] ${score >= 80 ? "논리적 구조와 표현력이 우수합니다." : "조금 더 구체적인 근거와 논증을 보완해보세요."} 해설: ${q.explanation}`;
+    evaluation = await evaluateSubjectiveWorkbookAnswer(q, userAnswer);
+    score = evaluation.score;
+    isCorrect = evaluation.status === "evaluated" && evaluation.isOnTopic && evaluation.hasClearClaim && evaluation.validReasonCount >= 2 && score >= 60 ? 1 : 0;
+    aiFeedback = formatSubjectiveEvaluationFeedback(evaluation);
   }
 
   const [insertedAnswer] = await db.insert(curriculumWorkbookAnswers).values({
@@ -1938,6 +2257,7 @@ export async function submitCurriculumWorkbookAnswer(userId: number, questionId:
     isCorrect,
     aiFeedback,
     score,
+    evaluationJson: evaluation ? JSON.stringify(evaluation) : null,
   });
 
   // 오답인 경우 workbook_mistakes 테이블에 자동 축적 (오답 노트 연동)
@@ -1950,7 +2270,7 @@ export async function submitCurriculumWorkbookAnswer(userId: number, questionId:
     });
   }
 
-  return { isCorrect, score, aiFeedback };
+  return { isCorrect, score, aiFeedback, evaluation };
 }
 
 export async function getWorkbookMistakesByUser(userId: number) {

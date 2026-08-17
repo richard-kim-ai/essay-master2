@@ -264,4 +264,17 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(pageSource).toContain("navigator.share");
     expect(pageSource).toContain("카카오톡 공유");
   });
+
+  it("서술형 워크북 답안을 길이 기반으로 채점하지 않고 주제·근거 기반 AI 루브릭으로 평가한다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const workbookSource = readFileSync(new URL("../client/src/pages/Workbook.tsx", import.meta.url), "utf8");
+    expect(dbSource).toContain("evaluateSubjectiveWorkbookAnswer");
+    expect(dbSource).toContain("topicRelevance");
+    expect(dbSource).toContain("reasonQuotes");
+    expect(dbSource).toContain("답안에서 확인 가능한 인용 근거가 없어");
+    expect(dbSource).not.toContain("score = userAnswer.length >= 20 ? 95");
+    expect(workbookSource).toContain("AI 근거 기반 서술형 평가");
+    expect(workbookSource).toContain("근거 인용:");
+    expect(workbookSource).toContain("다음 답안에서 우선 보완할 점");
+  });
 });

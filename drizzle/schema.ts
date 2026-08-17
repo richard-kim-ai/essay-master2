@@ -416,6 +416,7 @@ export const curriculumWorkbookAnswers = mysqlTable("curriculum_workbook_answers
   isCorrect: int("isCorrect").default(0).notNull(), // 1 for correct, 0 for incorrect or pending AI grade
   aiFeedback: text("aiFeedback"),
   score: int("score").default(0), // 0-100 score
+  evaluationJson: text("evaluationJson"), // 서술형 AI 평가의 주제 적합성·논증·근거·분석·표현 기준별 결과
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
