@@ -856,7 +856,7 @@ export default function AdminQuestionBank() {
                     <option value="most_attempted">최다 응시순</option>
                   </select>
                 </div>
-                <div className="flex flex-wrap gap-3 items-center">
+                <div className="w-full md:w-auto flex flex-wrap gap-2 items-center md:justify-end">
                   <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200">
                     <input
                       type="checkbox"
@@ -888,11 +888,16 @@ export default function AdminQuestionBank() {
                   </Button>
                   <Button
                     variant="destructive"
-                    onClick={() => setIsBulkDeleteOpen(true)}
-                    disabled={selectedQuestionIds.length === 0}
-                    className="gap-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
+                    onClick={() => {
+                      if (selectedQuestionIds.length === 0) {
+                        toast.error("삭제할 문항을 먼저 선택해주세요.");
+                        return;
+                      }
+                      setIsBulkDeleteOpen(true);
+                    }}
+                    className="gap-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
                   >
-                    <Trash2 className="w-3.5 h-3.5" /> 선택 삭제 ({selectedQuestionIds.length})
+                    <Trash2 className="w-3.5 h-3.5" /> 선택 삭제{selectedQuestionIds.length ? ` (${selectedQuestionIds.length})` : ""}
                   </Button>
                 </div>
               </CardContent>
@@ -1084,15 +1089,15 @@ export default function AdminQuestionBank() {
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
               현재 과정 콤보박스와 검색·학습도구 필터로 문항을 좁힌 뒤 “현재 목록 전체 선택” 또는 각 문항의 체크박스를 이용해 삭제 대상을 지정하세요.
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsBulkDeleteOpen(false)}>취소</Button>
+            <DialogFooter className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="outline" onClick={() => setIsBulkDeleteOpen(false)} className="w-full sm:w-auto">취소</Button>
               <Button
                 variant="destructive"
                 disabled={deleteManyMutation.isPending || selectedQuestionIds.length === 0}
                 onClick={handleBulkDelete}
-                className="bg-rose-600 hover:bg-rose-700 text-white"
+                className="w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white"
               >
-                {deleteManyMutation.isPending ? "삭제 중..." : `${selectedQuestionIds.length}개 영구 삭제`}
+                {deleteManyMutation.isPending ? "삭제 중..." : `${selectedQuestionIds.length}개 삭제 확인`}
               </Button>
             </DialogFooter>
           </DialogContent>
