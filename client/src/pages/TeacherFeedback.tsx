@@ -87,7 +87,7 @@ export default function TeacherFeedback() {
           logicScore,
           expressionScore,
         });
-        toast.success("첨삭이 업데이트되었습니다.");
+        toast.success("선생님 첨삭이 완료되었습니다! 학생에게 알림과 토스트 메시지가 전송되었습니다.");
       } else {
         const result = await createFeedbackMutation.mutateAsync({
           essayId: essayId || 0,
@@ -98,7 +98,7 @@ export default function TeacherFeedback() {
           expressionScore,
         });
         setFeedback(result);
-        toast.success("첨삭이 저장되었습니다.");
+        toast.success("선생님 첨삭이 저장되었습니다! 학생에게 실시간 첨삭 완료 알림이 전달되었습니다.");
       }
       getFeedbackQuery.refetch();
     } catch (error) {

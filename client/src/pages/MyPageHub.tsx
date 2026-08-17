@@ -209,6 +209,32 @@ export default function MyPageHub() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Card 4: Mistake Notebook & Clinic */}
+          <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 rounded-t-xl">
+              <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-rose-600" /> 오답 노트 & 복습 클리닉
+              </CardTitle>
+              <span className="text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-1 rounded-full">취약점 분석</span>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4">
+              <div>
+                <p className="text-xs text-slate-500">워크북 오답 문항</p>
+                <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                  자동 축적 및 복습
+                </p>
+              </div>
+              <p className="text-xs text-slate-600">틀린 기출문제를 다시 풀고, AI가 추천하는 취약 영역 맞춤 문제를 풀어보세요.</p>
+              <Button
+                variant="outline"
+                className="w-full text-rose-600 border-rose-200 hover:bg-rose-50 font-semibold"
+                onClick={() => setLocation("/mistake-notebook")}
+              >
+                오답 노트 열기 <ArrowRight className="w-4 h-4 ml-1" />
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </DashboardLayout>

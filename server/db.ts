@@ -1731,6 +1731,27 @@ export async function getWorkbookStatsByUser(userId: number) {
   };
 }
 
+export async function removeWorkbookMistake(mistakeId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.delete(workbookMistakes).where(and(eq(workbookMistakes.id, mistakeId), eq(workbookMistakes.userId, userId)));
+  return { success: true };
+}
+
+export async function getRecommendedQuestionsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  await seedCurriculumWorkbookQuestions();
+  // 사용자의 오답 노트를 기반으로 취약 영역 문항 추천
+  const mistakes = await db.select().from(workbookMistakes).where(eq(workbookMistakes.userId, userId));
+  const mistakeQIds = mistakes.map(m => m.questionId);
+
+  const allQuestions = await db.select().from(curriculumWorkbookQuestions);
+  // 오답에 속했던 문제들이나 난이도가 높은 문제들을 추천
+  const recommended = allQuestions.filter(q => mistakeQIds.includes(q.id) || q.level === 2).slice(0, 5);
+  return recommended.length > 0 ? recommended : allQuestions.slice(0, 5);
+}
+
 export async function getQuestionBankAiInsight(questionId: number) {
   const db = await getDb();
   if (!db) return { summary: "분석 데이터를 불러올 수 없습니다.", commonMistakes: [], recommendation: "기본 학습을 유지하세요." };

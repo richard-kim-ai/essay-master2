@@ -424,6 +424,12 @@ export const appRouter = router({
       }),
 
     getStats: protectedProcedure.query(({ ctx }) => db.getWorkbookStatsByUser(ctx.user.id)),
+
+    removeMistake: protectedProcedure
+      .input(z.object({ mistakeId: z.number() }))
+      .mutation(({ ctx, input }) => db.removeWorkbookMistake(input.mistakeId, ctx.user.id)),
+
+    getRecommendedQuestions: protectedProcedure.query(({ ctx }) => db.getRecommendedQuestionsForUser(ctx.user.id)),
   }),
 
   // ========== Progress Routes ==========
