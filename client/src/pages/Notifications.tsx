@@ -49,12 +49,32 @@ export default function Notifications() {
               선생님 서술형 첨삭 완료 내역과 과제 마감, 공지사항을 필터링하여 모아보세요.
             </p>
           </div>
-          <Button
-            onClick={() => setLocation("/mypage")}
-            className="bg-white text-indigo-900 hover:bg-indigo-50 font-bold"
-          >
-            마이페이지 허브
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={async () => {
+                if (!("Notification" in window)) {
+                  toast.error("이 브라우저는 푸시 알림을 지원하지 않습니다.");
+                  return;
+                }
+                const permission = await Notification.requestPermission();
+                if (permission === "granted") {
+                  toast.success("🔔 브라우저 푸시 알림 권한이 허용되었습니다!");
+                  new Notification("논술 마스터", { body: "실시간 첨삭 및 과제 알림을 수신합니다." });
+                } else {
+                  toast.error("알림 권한이 거부되었습니다. 브라우저 설정에서 변경해주세요.");
+                }
+              }}
+              className="bg-white/20 hover:bg-white/30 text-white font-bold border border-white/30"
+            >
+              🔔 푸시 알림 설정
+            </Button>
+            <Button
+              onClick={() => setLocation("/mypage")}
+              className="bg-white text-indigo-900 hover:bg-indigo-50 font-bold"
+            >
+              마이페이지 허브
+            </Button>
+          </div>
         </div>
 
         {/* Filter Buttons & Mark All Read */}

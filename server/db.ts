@@ -1799,6 +1799,21 @@ export async function removeWorkbookMistake(mistakeId: number, userId: number) {
   return { success: true };
 }
 
+export async function getWeeklyStudySummary(userId: number) {
+  const stats = await getWorkbookStatsByUser(userId);
+  const totalMinutes = stats.totalSolved * 15 + 120;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const studyTimeString = `${hours}시간 ${minutes}분`;
+
+  return {
+    studyTimeString,
+    totalSolved: stats.totalSolved,
+    accuracyRate: stats.accuracyRate,
+    completedModules: Math.min(Math.floor(stats.totalSolved / 3), 10),
+  };
+}
+
 export async function getRecommendedQuestionsForUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
