@@ -77,6 +77,17 @@ export default function Navigation() {
     }
   });
 
+  const uploadAvatarMutation = trpc.auth.uploadAvatarBase64.useMutation({
+    onSuccess: (data) => {
+      toast.success("프로필 이미지가 업로드 및 변경되었습니다.");
+      setEditAvatar(data.url);
+      if (typeof refresh === "function") refresh();
+    },
+    onError: (err) => {
+      toast.error(err.message || "이미지 업로드 중 오류가 발생했습니다.");
+    }
+  });
+
   const handleMobileSubmenuToggle = (label: string) => {
     setOpenMobileSubmenu(openMobileSubmenu === label ? null : label);
   };
@@ -247,13 +258,35 @@ export default function Navigation() {
                             />
                           </div>
                           <div>
-                            <label className="text-[11px] font-bold text-gray-700 block mb-1">프로필 이미지 URL</label>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-[11px] font-bold text-gray-700">프로필 이미지</label>
+                              <label className="text-[10px] text-blue-600 cursor-pointer hover:underline">
+                                기기에서 업로드
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    const reader = new FileReader();
+                                    reader.onload = (event) => {
+                                      const base64 = event.target?.result as string;
+                                      if (base64) {
+                                        uploadAvatarMutation.mutate({ imageBase64: base64, fileName: file.name });
+                                      }
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }}
+                                />
+                              </label>
+                            </div>
                             <input
                               type="text"
                               value={editAvatar}
                               onChange={(e) => setEditAvatar(e.target.value)}
                               className="w-full h-8 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              placeholder="https:// 이미지 주소"
+                              placeholder="https:// 이미지 주소 또는 기기 업로드"
                             />
                           </div>
                           <Button
@@ -271,6 +304,12 @@ export default function Navigation() {
                         </div>
                       )}
                       <DropdownMenuSeparator />
+                      <Link href="/mypage">
+                        <DropdownMenuItem className="cursor-pointer font-bold text-indigo-700 bg-indigo-50/50 mb-1">
+                          <User className="w-4 h-4 mr-2 text-indigo-600" />
+                          <span>마이페이지 허브 (통합 홈)</span>
+                        </DropdownMenuItem>
+                      </Link>
                       <Link href="/dashboard">
                         <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">
                           <BarChart3 className="w-4 h-4 mr-2 text-blue-600" />

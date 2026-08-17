@@ -1,5 +1,6 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { storagePut } from "./storage";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
@@ -252,6 +253,28 @@ export const appRouter = router({
           avatarUrl: input.avatarUrl,
         });
         return { success: true } as const;
+      }),
+
+    uploadAvatarBase64: protectedProcedure
+      .input(z.object({
+        imageBase64: z.string().min(1),
+        fileName: z.string().default("avatar.png"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const matches = input.imageBase64.match(/^data:(.+?);base64,(.+)$/);
+        let buffer: Buffer;
+        let contentType = "image/png";
+        if (matches) {
+          contentType = matches[1];
+          buffer = Buffer.from(matches[2], "base64");
+        } else {
+          buffer = Buffer.from(input.imageBase64, "base64");
+        }
+        const ext = contentType.includes("jpeg") || contentType.includes("jpg") ? "jpg" : "png";
+        const key = `avatars/user_${ctx.user.id}_${Date.now()}.${ext}`;
+        const { url } = await storagePut(key, buffer, contentType);
+        await db.updateUserProfile(ctx.user.id, { avatarUrl: url });
+        return { success: true, url } as const;
       }),
   }),
 

@@ -26,6 +26,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import TeacherSignup from "./pages/TeacherSignup";
 import TeacherMyPage from "./pages/TeacherMyPage";
+import MyPageHub from "./pages/MyPageHub";
 import VerifyEmail from "./pages/VerifyEmail";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -132,6 +133,13 @@ function Router() {
         {(params) => (
           <Layout>
             <EssayArchive />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/mypage"}>
+        {(params) => (
+          <Layout>
+            <MyPageHub />
           </Layout>
         )}
       </Route>
