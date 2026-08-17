@@ -444,6 +444,14 @@ export const appRouter = router({
     getWeeklySummary: protectedProcedure.query(({ ctx }) => db.getWeeklyStudySummary(ctx.user.id)),
 
     awardReviewKing: protectedProcedure.mutation(({ ctx }) => db.awardReviewKingBadge(ctx.user.id)),
+
+    getPushPrefs: protectedProcedure.query(({ ctx }) => db.getUserPushPreferences(ctx.user.id)),
+
+    updatePushPrefs: protectedProcedure.input(z.object({
+      teacherFeedback: z.boolean(),
+      assignmentDeadline: z.boolean(),
+      notice: z.boolean(),
+    })).mutation(({ ctx, input }) => db.updateUserPushPreferences(ctx.user.id, input)),
   }),
 
   // ========== Progress Routes ==========

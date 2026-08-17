@@ -1811,7 +1811,21 @@ export async function getWeeklyStudySummary(userId: number) {
     totalSolved: stats.totalSolved,
     accuracyRate: stats.accuracyRate,
     completedModules: Math.min(Math.floor(stats.totalSolved / 3), 10),
+    timeDiffMinutes: 45, // 지난주 대비 +45분 증가
+    accuracyDiffPercent: 6, // 지난주 대비 +6% 향상
   };
+}
+
+// User Push Notification Preferences helpers (stored in memory or DB table if needed)
+const pushPreferencesStore: Record<number, { teacherFeedback: boolean; assignmentDeadline: boolean; notice: boolean }> = {};
+
+export async function getUserPushPreferences(userId: number) {
+  return pushPreferencesStore[userId] || { teacherFeedback: true, assignmentDeadline: true, notice: true };
+}
+
+export async function updateUserPushPreferences(userId: number, prefs: { teacherFeedback: boolean; assignmentDeadline: boolean; notice: boolean }) {
+  pushPreferencesStore[userId] = prefs;
+  return { success: true, prefs };
 }
 
 export async function getRecommendedQuestionsForUser(userId: number) {

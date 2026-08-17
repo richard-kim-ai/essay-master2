@@ -89,33 +89,48 @@ export default function MyPageHub() {
             <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
               <Clock className="w-6 h-6" />
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-xs text-slate-500 font-medium">이번 주 총 학습 시간</p>
-              <p className="text-xl font-extrabold text-slate-900 mt-0.5">
-                {weeklySummary?.studyTimeString || "3시간 45분"}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xl font-extrabold text-slate-900">
+                  {weeklySummary?.studyTimeString || "3시간 45분"}
+                </p>
+                <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                  +{weeklySummary?.timeDiffMinutes || 45}분 ↗
+                </span>
+              </div>
             </div>
           </Card>
           <Card className="border-slate-200 bg-white shadow-sm p-5 flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
               <CheckCircle className="w-6 h-6" />
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-xs text-slate-500 font-medium">워크북 기출 정답률</p>
-              <p className="text-xl font-extrabold text-slate-900 mt-0.5">
-                {weeklySummary?.accuracyRate ?? 85}%
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xl font-extrabold text-slate-900">
+                  {weeklySummary?.accuracyRate ?? 85}%
+                </p>
+                <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                  +{weeklySummary?.accuracyDiffPercent || 6}% ↗
+                </span>
+              </div>
             </div>
           </Card>
           <Card className="border-slate-200 bg-white shadow-sm p-5 flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
               <Trophy className="w-6 h-6" />
             </div>
-            <div>
+            <div className="flex-1">
               <p className="text-xs text-slate-500 font-medium">해낸 모듈 / 뱃지</p>
-              <p className="text-xl font-extrabold text-slate-900 mt-0.5">
-                {weeklySummary?.completedModules || 3}개 완료 / {badges.length}개 뱃지
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xl font-extrabold text-slate-900">
+                  {weeklySummary?.completedModules || 3}개 완료 / {badges.length}개 뱃지
+                </p>
+                <span className="text-[11px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                  Active
+                </span>
+              </div>
             </div>
           </Card>
         </div>

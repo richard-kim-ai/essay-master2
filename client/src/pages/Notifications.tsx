@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Bell, CheckCircle2, MessageSquare, Filter } from "lucide-react";
 import { useLocation } from "wouter";
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export default function Notifications() {
@@ -27,6 +27,29 @@ export default function Notifications() {
       toast.success("모든 알림이 읽음 처리되었습니다.");
     },
   });
+
+  const [isPrefsOpen, setIsPrefsOpen] = useState(false);
+  const { data: pushPrefs, refetch: refetchPrefs } = trpc.curriculum.getPushPrefs.useQuery();
+  const updatePrefsMutation = trpc.curriculum.updatePushPrefs.useMutation({
+    onSuccess: () => {
+      toast.success("알림 수신 설정이 저장되었습니다.");
+      setIsPrefsOpen(false);
+      refetchPrefs();
+    },
+  });
+
+  const [prefsForm, setPrefsForm] = useState({
+    teacherFeedback: true,
+    assignmentDeadline: true,
+    notice: true,
+  });
+
+  // sync when pushPrefs loads
+  React.useEffect(() => {
+    if (pushPrefs) {
+      setPrefsForm(pushPrefs);
+    }
+  }, [pushPrefs]);
 
   const filteredNotifications = notifications.filter((n: any) => {
     if (filterType === "unread") return n.isRead === 0;
@@ -51,20 +74,8 @@ export default function Notifications() {
           </div>
           <div className="flex items-center gap-3">
             <Button
-              onClick={async () => {
-                if (!("Notification" in window)) {
-                  toast.error("이 브라우저는 푸시 알림을 지원하지 않습니다.");
-                  return;
-                }
-                const permission = await Notification.requestPermission();
-                if (permission === "granted") {
-                  toast.success("🔔 브라우저 푸시 알림 권한이 허용되었습니다!");
-                  new Notification("논술 마스터", { body: "실시간 첨삭 및 과제 알림을 수신합니다." });
-                } else {
-                  toast.error("알림 권한이 거부되었습니다. 브라우저 설정에서 변경해주세요.");
-                }
-              }}
-              className="bg-white/20 hover:bg-white/30 text-white font-bold border border-white/30"
+              onClick={() => setIsPrefsOpen(true)}
+              className="bg-white/20 hover:bg-white/30 text-white font-bold border border-white/30 gap-2"
             >
               🔔 푸시 알림 설정
             </Button>
@@ -190,6 +201,71 @@ export default function Notifications() {
           )}
         </div>
       </div>
+
+      {/* Push Notification Preferences Modal */}
+      {isPrefsOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                🔔 알림 유형별 푸시 설정
+              </h3>
+              <Button size="sm" variant="ghost" onClick={() => setIsPrefsOpen(false)}>✕</Button>
+            </div>
+            <p className="text-xs text-slate-500">
+              수신하고 싶은 알림 유형을 선택하세요. 브라우저 푸시 권한이 허용된 경우 실시간으로 알림이 전송됩니다.
+            </p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">교사 서술형 첨삭 완료</p>
+                  <p className="text-xs text-slate-500">선생님이 답안 첨삭 및 피드백을 등록했을 때</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={prefsForm.teacherFeedback}
+                  onChange={(e) => setPrefsForm({ ...prefsForm, teacherFeedback: e.target.checked })}
+                  className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
+                />
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">과제 마감 임박 알림</p>
+                  <p className="text-xs text-slate-500">제출 기한이 다가오는 논술 과제가 있을 때</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={prefsForm.assignmentDeadline}
+                  onChange={(e) => setPrefsForm({ ...prefsForm, assignmentDeadline: e.target.checked })}
+                  className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
+                />
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">학습 공지 및 시스템 소식</p>
+                  <p className="text-xs text-slate-500">새로운 커리큘럼이나 플랫폼 공지사항</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={prefsForm.notice}
+                  onChange={(e) => setPrefsForm({ ...prefsForm, notice: e.target.checked })}
+                  className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button size="sm" variant="outline" onClick={() => setIsPrefsOpen(false)}>취소</Button>
+              <Button
+                size="sm"
+                onClick={() => updatePrefsMutation.mutate(prefsForm)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5"
+              >
+                저장하기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
