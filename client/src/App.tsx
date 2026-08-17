@@ -146,6 +146,13 @@ function Router() {
       <Route path={"/dashboard"}>
         {(params) => (
           <Layout>
+            <MyPageHub />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/dashboard-detail"}>
+        {(params) => (
+          <Layout>
             <Dashboard />
           </Layout>
         )}

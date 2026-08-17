@@ -27,11 +27,12 @@ import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
-import { BookOpen, GraduationCap, Award } from "lucide-react";
+import { BarChart3, FileText, Award } from "lucide-react";
 
 const menuItems = [
-  { icon: BookOpen, label: "커리큘럼", path: "/curriculum" },
-  { icon: GraduationCap, label: "추천 아카이브", path: "/essay-archive" },
+  { icon: BarChart3, label: "학습 대시보드", path: "/dashboard" },
+  { icon: FileText, label: "오프라인 보관함", path: "/offline-essays" },
+  { icon: Award, label: "수료증", path: "/certificate" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

@@ -62,7 +62,7 @@ export default function MyPageHub() {
                 <span className="text-xs text-indigo-200">{user?.tag || "일반 과정"}</span>
               </div>
               <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight mt-1">
-                {user?.name || "사용자"}님의 마이페이지 통합 허브
+                {user?.name || "사용자"}님의 마이페이지
               </h1>
               <p className="text-xs md:text-sm text-indigo-200 mt-0.5">
                 {user?.email} · 주간 학습 목표 및 핵심 학습 공간을 한눈에 관리하세요.
@@ -70,7 +70,7 @@ export default function MyPageHub() {
             </div>
           </div>
           <Button
-            onClick={() => setLocation("/dashboard")}
+            onClick={() => setLocation("/dashboard-detail")}
             className="bg-white text-indigo-900 hover:bg-indigo-50 font-bold gap-2 shadow-md"
           >
             상세 대시보드로 이동 <ArrowRight className="w-4 h-4" />
@@ -151,7 +151,7 @@ export default function MyPageHub() {
               <Button
                 variant="outline"
                 className="w-full text-blue-600 border-blue-200 hover:bg-blue-50 font-semibold"
-                onClick={() => setLocation("/dashboard")}
+                onClick={() => setLocation("/dashboard-detail")}
               >
                 대시보드 바로가기 <ArrowRight className="w-4 h-4 ml-1" />
               </Button>
