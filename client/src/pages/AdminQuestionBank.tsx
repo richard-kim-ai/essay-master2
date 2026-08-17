@@ -172,33 +172,85 @@ export default function AdminQuestionBank() {
     reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
-        const lines = text.split("\n").filter(Boolean);
-        if (lines.length < 2) {
+        // Robust CSV row parser supporting quoted fields with commas and newlines
+        const parseCSVRows = (str: string) => {
+          const rows: string[][] = [];
+          let row: string[] = [];
+          let cur = '';
+          let inQuotes = false;
+          for (let i = 0; i < str.length; i++) {
+            const c = str[i];
+            const next = str[i + 1];
+            if (c === '"') {
+              if (inQuotes && next === '"') {
+                cur += '"';
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (c === ',' && !inQuotes) {
+              row.push(cur.trim());
+              cur = '';
+            } else if ((c === '\r' || c === '\n') && !inQuotes) {
+              if (c === '\r' && next === '\n') { i++; }
+              row.push(cur.trim());
+              if (row.length > 1 || row[0] !== '') {
+                rows.push(row);
+              }
+              row = [];
+              cur = '';
+            } else {
+              cur += c;
+            }
+          }
+          if (cur !== '' || row.length > 0) {
+            row.push(cur.trim());
+            rows.push(row);
+          }
+          return rows;
+        };
+
+        const parsedRows = parseCSVRows(text);
+        if (parsedRows.length < 2) {
           toast.error("CSV 파일에 유효한 데이터가 없습니다.");
           return;
         }
 
-        const items: any[] = [];
-        for (let i = 1; i < lines.length; i++) {
-          const row = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || lines[i].split(",");
-          if (row.length >= 6) {
-            const courseType = (row[1]?.replace(/"/g, "").trim() || "middle_high") as any;
-            const toolType = row[2]?.replace(/"/g, "").trim() || "quiz";
-            const title = row[3]?.replace(/"/g, "").trim() || `업로드 문항 #${i}`;
-            const contentData = row[4]?.replace(/^"|"$/g, "").replace(/\\n/g, "\n") || '{"prompt":"샘플"}';
-            const difficulty = (row[5]?.replace(/"/g, "").trim() || "medium") as any;
+        const header = parsedRows[0].map(h => h.replace(/^[\uFEFF]/, "").trim());
+        const idIdx = header.findIndex(h => h === "id");
+        const courseIdx = header.findIndex(h => h === "courseType");
+        const toolIdx = header.findIndex(h => h === "toolType");
+        const titleIdx = header.findIndex(h => h === "title");
+        const contentIdx = header.findIndex(h => h === "contentData");
+        const diffIdx = header.findIndex(h => h === "difficulty");
 
-            items.push({ courseType, toolType, title, contentData, difficulty, isActive: 1 });
-          }
+        const items: any[] = [];
+        for (let i = 1; i < parsedRows.length; i++) {
+          const r = parsedRows[i];
+          if (r.length < 5) continue;
+
+          const courseTypeVal = courseIdx >= 0 ? r[courseIdx] : r[1];
+          const toolTypeVal = toolIdx >= 0 ? r[toolIdx] : r[2];
+          const titleVal = titleIdx >= 0 ? r[titleIdx] : r[3];
+          const contentVal = contentIdx >= 0 ? r[contentIdx] : r[4];
+          const diffVal = diffIdx >= 0 ? r[diffIdx] : r[5];
+
+          const courseType = (["elementary", "middle_high", "high_univ", "general_adult"].includes(courseTypeVal) ? courseTypeVal : "middle_high") as any;
+          const toolType = toolTypeVal || "quiz";
+          const title = titleVal?.replace(/^"|"$/g, "") || `업로드 문항 #${i}`;
+          const contentData = contentVal?.replace(/^"|"$/g, "").replace(/\\\\n/g, "\n") || '{"prompt":"샘플"}';
+          const difficulty = (["easy", "medium", "hard"].includes(diffVal) ? diffVal : "medium") as any;
+
+          items.push({ courseType, toolType, title, contentData, difficulty, isActive: 1 });
         }
 
         if (items.length > 0) {
           await bulkCreateMutation.mutateAsync({ items });
-          toast.success(`${items.length}개 문항이 성공적으로 업로드되었습니다.`);
+          toast.success(`${items.length}개 문항이 성공적으로 업로드 및 DB에 반영되었습니다.`);
           refetch();
           refetchStats();
         } else {
-          toast.error("CSV 파싱에 실패했습니다.");
+          toast.error("CSV 파싱에 실패했습니다. 올바른 컬럼 구조인지 확인해주세요.");
         }
       } catch (err) {
         console.error(err);
