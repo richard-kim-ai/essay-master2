@@ -29,7 +29,7 @@ import {
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
-import { eq, and, desc, gte } from "drizzle-orm";
+import { eq, and, desc, gte, inArray } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
 
@@ -1318,6 +1318,7 @@ export async function getRandomQuestions(courseType: string, toolType: string, l
 }
 
 export async function createQuestionBankItem(data: {
+  id?: number;
   courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
   toolType: string;
   title: string;
@@ -1328,6 +1329,7 @@ export async function createQuestionBankItem(data: {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [inserted] = await db.insert(questionBank).values({
+    ...(data.id ? { id: data.id } : {}),
     courseType: data.courseType,
     toolType: data.toolType,
     title: data.title,
@@ -1371,6 +1373,15 @@ export async function deleteQuestionBankByCourse(courseType: string) {
   return true;
 }
 
+export async function deleteQuestionBankItems(ids: number[]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const uniqueIds = Array.from(new Set(ids)).filter((id) => Number.isInteger(id) && id > 0);
+  if (uniqueIds.length === 0) return { deletedCount: 0 };
+  await db.delete(questionBank).where(inArray(questionBank.id, uniqueIds));
+  return { deletedCount: uniqueIds.length };
+}
+
 export async function upsertQuestionBankItem(data: {
   id?: number;
   courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
@@ -1396,19 +1407,21 @@ export async function upsertQuestionBankItem(data: {
         updatedAt: new Date(),
       }).where(eq(questionBank.id, data.id));
       const [updated] = await db.select().from(questionBank).where(eq(questionBank.id, data.id));
-      return updated;
+      return { row: updated, action: "updated" as const };
     }
   }
 
-  return await createQuestionBankItem(data);
+  const created = await createQuestionBankItem(data);
+  return { row: created, action: "created" as const };
 }
 
 // 초기 50개 * 4과정 = 200개 이상 시드 데이터 자동 주입 함수 (최초 1회 또는 필요시 실행)
 export async function seedQuestionBankIfNeeded() {
   const list = await getQuestionBankList();
-  // 자리 표시자 문항(예: "실전 문항 #")이 남아있거나 총 200개 미만이면 실제 실전 문항으로 리프레시
+  // 비어 있는 최초 상태에서만 초기 시드를 주입합니다. 관리자가 일부·전체 문항을 삭제한 뒤
+  // 자동 시드가 다시 생성되어 삭제가 무효화되는 문제를 방지합니다.
   const hasPlaceholders = list.some(q => q.title.includes("실전 문항 #") || q.contentData.includes("맞춤형 심화 프롬프트"));
-  if (list.length >= 200 && !hasPlaceholders) return;
+  if (list.length > 0 && !hasPlaceholders) return;
 
   const db = await getDb();
   if (!db) return;

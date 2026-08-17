@@ -779,13 +779,11 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ courseType: z.string().optional(), toolType: z.string().optional() }))
       .query(async ({ input }) => {
-        await db.seedQuestionBankIfNeeded();
         return await db.getQuestionBankList(input.courseType, input.toolType);
       }),
     random: protectedProcedure
       .input(z.object({ courseType: z.string(), toolType: z.string(), limit: z.number().default(10) }))
       .query(async ({ input }) => {
-        await db.seedQuestionBankIfNeeded();
         return await db.getRandomQuestions(input.courseType, input.toolType, input.limit);
       }),
     create: protectedProcedure
@@ -837,14 +835,31 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        let created = 0;
+        let updated = 0;
+        let failed = 0;
         for (const item of input.items) {
-          if (input.upsert && item.id) {
-            await db.upsertQuestionBankItem(item);
-          } else {
-            await db.createQuestionBankItem(item);
+          try {
+            if (input.upsert) {
+              const result = await db.upsertQuestionBankItem(item);
+              if (result.action === "updated") updated += 1;
+              else created += 1;
+            } else {
+              await db.createQuestionBankItem(item);
+              created += 1;
+            }
+          } catch {
+            failed += 1;
           }
         }
-        return { success: true, count: input.items.length };
+        return { success: failed === 0, count: input.items.length, created, updated, failed };
+      }),
+
+    deleteMany: protectedProcedure
+      .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.deleteQuestionBankItems(input.ids);
       }),
 
     deleteByCourse: protectedProcedure

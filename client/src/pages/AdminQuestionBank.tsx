@@ -31,9 +31,9 @@ export default function AdminQuestionBank() {
 
   const [isUpsert, setIsUpsert] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<{ active: boolean; percent: number; text: string }>({ active: false, percent: 0, text: "" });
-  const [deleteCourseTarget, setDeleteCourseTarget] = useState<string>("elementary");
-  const [isDeleteCourseOpen, setIsDeleteCourseOpen] = useState(false);
-  const deleteByCourseMutation = trpc.questionBank.deleteByCourse.useMutation();
+  const [uploadReport, setUploadReport] = useState<{ open: boolean; total: number; created: number; updated: number; failed: number }>({ open: false, total: 0, created: 0, updated: 0, failed: 0 });
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<number[]>([]);
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
 
   // Insight Modal State
   const [selectedQuestionForInsight, setSelectedQuestionForInsight] = useState<any | null>(null);
@@ -56,6 +56,7 @@ export default function AdminQuestionBank() {
   const createMutation = trpc.questionBank.create.useMutation();
   const updateMutation = trpc.questionBank.update.useMutation();
   const deleteMutation = trpc.questionBank.delete.useMutation();
+  const deleteManyMutation = trpc.questionBank.deleteMany.useMutation();
   const bulkCreateMutation = trpc.questionBank.bulkCreate.useMutation();
   const applyAiDiffMutation = trpc.questionBank.applyAiDifficulty.useMutation();
   const previewAiQuestionsMutation = trpc.questionBank.previewAiQuestions.useMutation();
@@ -108,6 +109,8 @@ export default function AdminQuestionBank() {
     return 0;
   });
 
+  const allVisibleSelected = sortedFiltered.length > 0 && sortedFiltered.every((question) => selectedQuestionIds.includes(question.id));
+
   const handlePreviewAi = async () => {
     setIsGenerating(true);
     try {
@@ -159,15 +162,18 @@ export default function AdminQuestionBank() {
       q.isActive
     ]);
 
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `question_bank_export_${new Date().toISOString().split('T')[0]}.csv`);
+    const scope = courseFilter === "all" ? "all_courses" : courseFilter;
+    link.setAttribute("href", downloadUrl);
+    link.setAttribute("download", `question_bank_${scope}_backup_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success("문제은행 CSV 파일이 성공적으로 다운로드되었습니다.");
+    URL.revokeObjectURL(downloadUrl);
+    toast.success(`${courseFilter === "all" ? "전체" : "선택 과정"} 문항 ${questions.length}개를 CSV로 백업했습니다.`);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -256,9 +262,15 @@ export default function AdminQuestionBank() {
         if (items.length > 0) {
           setUploadProgress({ active: true, percent: 30, text: `총 ${items.length}개 문항 반영 중...` });
           const chunkSize = 50;
+          let created = 0;
+          let updated = 0;
+          let failed = Math.max(0, parsedRows.length - 1 - items.length);
           for (let i = 0; i < items.length; i += chunkSize) {
             const chunk = items.slice(i, i + chunkSize);
-            await bulkCreateMutation.mutateAsync({ items: chunk, upsert: isUpsert });
+            const result = await bulkCreateMutation.mutateAsync({ items: chunk, upsert: isUpsert });
+            created += result.created;
+            updated += result.updated;
+            failed += result.failed;
             const p = Math.min(95, Math.floor(((i + chunk.length) / items.length) * 65) + 30);
             setUploadProgress({ active: true, percent: p, text: `${i + chunk.length} / ${items.length} 처리 완료...` });
           }
@@ -266,7 +278,8 @@ export default function AdminQuestionBank() {
           setUploadProgress({ active: true, percent: 100, text: "업로드 완료!" });
           setTimeout(() => setUploadProgress({ active: false, percent: 0, text: "" }), 1500);
 
-          toast.success(`${items.length}개 문항이 성공적으로 업로드 및 반영되었습니다.`);
+          setUploadReport({ open: true, total: items.length, created, updated, failed });
+          toast.success(`${created + updated}개 문항이 반영되었습니다.`);
           refetch();
           refetchStats();
         } else {
@@ -348,6 +361,32 @@ export default function AdminQuestionBank() {
     toast.success("문항이 삭제되었습니다.");
     refetch();
     refetchStats();
+  };
+
+  const toggleQuestionSelection = (id: number) => {
+    setSelectedQuestionIds((current) => current.includes(id) ? current.filter((questionId) => questionId !== id) : [...current, id]);
+  };
+
+  const toggleAllVisibleSelection = () => {
+    const visibleIds = sortedFiltered.map((question) => question.id);
+    setSelectedQuestionIds((current) => {
+      if (allVisibleSelected) return current.filter((id) => !visibleIds.includes(id));
+      return Array.from(new Set([...current, ...visibleIds]));
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      const result = await deleteManyMutation.mutateAsync({ ids: selectedQuestionIds });
+      toast.success(`${result.deletedCount}개 문항을 삭제했습니다.`);
+      setSelectedQuestionIds([]);
+      setIsBulkDeleteOpen(false);
+      refetch();
+      refetchStats();
+    } catch (err) {
+      console.error(err);
+      toast.error("선택 문항 삭제 중 오류가 발생했습니다.");
+    }
   };
 
   return (
@@ -785,7 +824,7 @@ export default function AdminQuestionBank() {
                   </div>
                   <select
                     value={courseFilter}
-                    onChange={e => setCourseFilter(e.target.value)}
+                    onChange={e => { setCourseFilter(e.target.value); setSelectedQuestionIds([]); }}
                     className="px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-700"
                   >
                     <option value="all">모든 과정</option>
@@ -796,7 +835,7 @@ export default function AdminQuestionBank() {
                   </select>
                   <select
                     value={toolFilter}
-                    onChange={e => setToolFilter(e.target.value)}
+                    onChange={e => { setToolFilter(e.target.value); setSelectedQuestionIds([]); }}
                     className="px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-700"
                   >
                     <option value="all">모든 학습 도구</option>
@@ -840,11 +879,20 @@ export default function AdminQuestionBank() {
                     <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
                   </label>
                   <Button
-                    variant="destructive"
-                    onClick={() => setIsDeleteCourseOpen(true)}
-                    className="gap-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white"
+                    variant="outline"
+                    onClick={toggleAllVisibleSelection}
+                    disabled={sortedFiltered.length === 0}
+                    className="gap-1.5 text-xs text-slate-700"
                   >
-                    <Trash2 className="w-3.5 h-3.5" /> 과정별 일괄 삭제
+                    {allVisibleSelected ? "현재 목록 선택 해제" : `현재 목록 전체 선택${sortedFiltered.length ? ` (${sortedFiltered.length})` : ""}`}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => setIsBulkDeleteOpen(true)}
+                    disabled={selectedQuestionIds.length === 0}
+                    className="gap-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> 선택 삭제 ({selectedQuestionIds.length})
                   </Button>
                 </div>
               </CardContent>
@@ -875,8 +923,16 @@ export default function AdminQuestionBank() {
                 <div className="p-12 text-center text-slate-500 bg-white rounded-xl border border-slate-200">조건에 일치하는 문항이 없습니다.</div>
               ) : (
                 sortedFiltered.map((q) => (
-                  <div key={q.id} className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <div className="space-y-1 flex-1">
+                  <div key={q.id} className={`p-5 bg-white rounded-xl border shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-colors ${selectedQuestionIds.includes(q.id) ? "border-indigo-300 ring-2 ring-indigo-100" : "border-slate-200"}`}>
+                    <div className="flex gap-3 flex-1 min-w-0">
+                      <input
+                        type="checkbox"
+                        aria-label={`${q.title} 선택`}
+                        checked={selectedQuestionIds.includes(q.id)}
+                        onChange={() => toggleQuestionSelection(q.id)}
+                        className="mt-1 h-4 w-4 shrink-0 cursor-pointer rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                    <div className="space-y-1 flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
                           {q.courseType}
@@ -891,6 +947,7 @@ export default function AdminQuestionBank() {
                       </div>
                       <h3 className="text-lg font-bold text-slate-900">{q.title}</h3>
                       <p className="text-xs text-slate-400 font-mono truncate max-w-xl">{q.contentData}</p>
+                    </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <Button size="sm" variant="outline" onClick={() => handleOpenEdit(q)} className="gap-1.5 text-slate-700 text-xs">
@@ -977,6 +1034,66 @@ export default function AdminQuestionBank() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsDialogOpen(false)}>취소</Button>
               <Button onClick={handleSave} className="bg-indigo-600 hover:bg-indigo-700 text-white">저장하기</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* CSV Upload Result Report */}
+        <Dialog open={uploadReport.open} onOpenChange={(open) => setUploadReport((report) => ({ ...report, open }))}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-indigo-700">
+                <CheckCircle className="w-5 h-5" /> CSV 업로드 결과 리포트
+              </DialogTitle>
+              <DialogDescription>업로드 작업의 처리 결과를 확인하세요.</DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-3 gap-3 py-4">
+              <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 text-center">
+                <p className="text-2xl font-bold text-emerald-700">{uploadReport.created}</p>
+                <p className="text-xs font-semibold text-emerald-800 mt-1">신규 등록</p>
+              </div>
+              <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-3 text-center">
+                <p className="text-2xl font-bold text-indigo-700">{uploadReport.updated}</p>
+                <p className="text-xs font-semibold text-indigo-800 mt-1">덮어쓰기</p>
+              </div>
+              <div className="rounded-xl bg-rose-50 border border-rose-100 p-3 text-center">
+                <p className="text-2xl font-bold text-rose-700">{uploadReport.failed}</p>
+                <p className="text-xs font-semibold text-rose-800 mt-1">실패·제외</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
+              총 {uploadReport.total}개 유효 문항을 분석했습니다. “동일 ID 덮어쓰기”가 선택된 경우 기존 ID는 최신 콘텐츠로 갱신됩니다.
+            </p>
+            <DialogFooter>
+              <Button onClick={() => setUploadReport((report) => ({ ...report, open: false }))} className="bg-indigo-600 hover:bg-indigo-700 text-white">확인</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Selected Question Bulk Delete Confirmation */}
+        <Dialog open={isBulkDeleteOpen} onOpenChange={setIsBulkDeleteOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-rose-700">
+                <Trash2 className="w-5 h-5" /> 선택 문항 삭제 확인
+              </DialogTitle>
+              <DialogDescription>
+                선택한 {selectedQuestionIds.length}개 문항을 문제은행에서 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+              현재 과정 콤보박스와 검색·학습도구 필터로 문항을 좁힌 뒤 “현재 목록 전체 선택” 또는 각 문항의 체크박스를 이용해 삭제 대상을 지정하세요.
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsBulkDeleteOpen(false)}>취소</Button>
+              <Button
+                variant="destructive"
+                disabled={deleteManyMutation.isPending || selectedQuestionIds.length === 0}
+                onClick={handleBulkDelete}
+                className="bg-rose-600 hover:bg-rose-700 text-white"
+              >
+                {deleteManyMutation.isPending ? "삭제 중..." : `${selectedQuestionIds.length}개 영구 삭제`}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
