@@ -386,6 +386,25 @@ export const appRouter = router({
     getById: protectedProcedure
       .input(z.number())
       .query(({ input }) => db.getCurriculumById(input)),
+
+    getWorkbookQuestions: protectedProcedure
+      .input(
+        z.object({
+          courseType: z.string(),
+          level: z.number(),
+          lessonIndex: z.number(),
+        })
+      )
+      .query(({ input }) => db.getCurriculumWorkbookQuestions(input.courseType, input.level, input.lessonIndex)),
+
+    submitWorkbookAnswer: protectedProcedure
+      .input(
+        z.object({
+          questionId: z.number(),
+          userAnswer: z.string(),
+        })
+      )
+      .mutation(({ ctx, input }) => db.submitCurriculumWorkbookAnswer(ctx.user.id, input.questionId, input.userAnswer)),
   }),
 
   // ========== Progress Routes ==========

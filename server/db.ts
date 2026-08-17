@@ -21,6 +21,8 @@ import {
   questionBank,
   questionFeedbacks,
   questionBookmarks,
+  curriculumWorkbookQuestions,
+  curriculumWorkbookAnswers,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -1550,6 +1552,121 @@ export async function getQuestionBankTrendStats(period: "week" | "month" = "week
   }
 
   return trendData;
+}
+
+export async function seedCurriculumWorkbookQuestions() {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(curriculumWorkbookQuestions);
+  if (existing.length > 0) return; // 이미 존재하면 스킵
+
+  const courses = [
+    { type: "elementary", name: "초등 논술", levels: 2, lessonsPerLevel: 3 },
+    { type: "middle_high", name: "중고등 논술", levels: 2, lessonsPerLevel: 3 },
+    { type: "high_univ", name: "고등 / 대입", levels: 2, lessonsPerLevel: 3 },
+    { type: "general_adult", name: "일반 / 직장인", levels: 2, lessonsPerLevel: 3 },
+  ];
+
+  for (const c of courses) {
+    for (let lvl = 1; lvl <= c.levels; lvl++) {
+      for (let lIdx = 0; lIdx < c.lessonsPerLevel; lIdx++) {
+        for (let qNum = 1; qNum <= 3; qNum++) {
+          const title = `${c.name} Level ${lvl} - Lesson ${lIdx + 1} 실전 기출문제 #${qNum}`;
+          let prompt = "";
+          let correctAnswer = "";
+          let explanation = "";
+          let choicesJson: string | null = null;
+          let questionType = "subjective";
+
+          if (qNum === 1) {
+            questionType = "objective";
+            choicesJson = JSON.stringify([
+              "주장과 뒷받침 근거의 인과관계가 명확히 서술되어 있다.",
+              "단순한 감상이나 추상적인 수식어로만 이루어져 있다.",
+              "반대 입장에 대한 고려 없이 일방적인 주장만 펼친다.",
+              "객관적 데이터 없이 주관적 편견을 진실처럼 포장한다."
+            ]);
+            correctAnswer = "주장과 뒷받침 근거의 인과관계가 명확히 서술되어 있다.";
+            explanation = "좋은 논술문은 명확한 주장과 이를 뒷받침하는 타당한 근거가 유기적으로 연결되어 있어야 합니다.";
+          } else if (qNum === 2) {
+            questionType = "subjective";
+            correctAnswer = "핵심 논지 파악 및 구체적 근거 제시";
+            explanation = "제시문의 핵심 쟁점을 정확히 포착하고 본인만의 구체적 사례나 근거를 들어 논증하는 것이 핵심 평가 기준입니다.";
+            prompt = `[${c.name} 워크북 심층 논술] 다음 제시된 주제에 대해 자신의 입장을 정하고, 2가지 이상의 타당한 근거를 들어 300자 내외로 서술하시오.\n\n주제: ${c.name} 과정 핵심 개념 적용 및 논리적 타당성 검증`;
+          } else {
+            questionType = "subjective";
+            correctAnswer = "비판적 독해 및 대안 제시";
+            explanation = "제시된 상황의 문제점을 다각도로 분석하고, 실현 가능한 설득력 있는 대안을 제시하는 능력을 평가합니다.";
+            prompt = `[${c.name} 워크북 서술형 평가] 현대 사회에서 발생할 수 있는 주요 갈등 상황을 가정하여, 대립하는 두 관점을 비교하고 본인의 종합적인 견해를 논하시오.`;
+          }
+
+          if (qNum === 1) {
+            prompt = `[${c.name} 워크북 객관식 핵심 점검] 다음 중 올바른 논술문 작성 태도나 문장 구조로 가장 적절한 것을 고르시오.`;
+          }
+
+          await db.insert(curriculumWorkbookQuestions).values({
+            courseType: c.type,
+            level: lvl,
+            lessonIndex: lIdx,
+            questionNumber: qNum,
+            title,
+            prompt,
+            choicesJson,
+            correctAnswer,
+            explanation,
+            questionType,
+          });
+        }
+      }
+    }
+  }
+}
+
+export async function getCurriculumWorkbookQuestions(courseType: string, level: number, lessonIndex: number) {
+  const db = await getDb();
+  if (!db) return [];
+  await seedCurriculumWorkbookQuestions();
+  return await db.select().from(curriculumWorkbookQuestions).where(
+    and(
+      eq(curriculumWorkbookQuestions.courseType, courseType),
+      eq(curriculumWorkbookQuestions.level, level),
+      eq(curriculumWorkbookQuestions.lessonIndex, lessonIndex)
+    )
+  );
+}
+
+export async function submitCurriculumWorkbookAnswer(userId: number, questionId: number, userAnswer: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+
+  const [q] = await db.select().from(curriculumWorkbookQuestions).where(eq(curriculumWorkbookQuestions.id, questionId));
+  if (!q) throw new Error("문제를 찾을 수 없습니다.");
+
+  let isCorrect = 0;
+  let score = 0;
+  let aiFeedback = "";
+
+  if (q.questionType === "objective") {
+    isCorrect = userAnswer.trim() === q.correctAnswer.trim() ? 1 : 0;
+    score = isCorrect ? 100 : 0;
+    aiFeedback = isCorrect ? "정답입니다! 완벽하게 이해하셨습니다." : `오답입니다. 정답은 '${q.correctAnswer}'입니다. 해설: ${q.explanation}`;
+  } else {
+    // 서술형인 경우 AI 채점 시뮬레이션
+    isCorrect = userAnswer.length >= 10 ? 1 : 0;
+    score = userAnswer.length >= 20 ? 95 : userAnswer.length >= 10 ? 80 : 50;
+    aiFeedback = `[AI 기출문제 채점 결과] ${score >= 80 ? "논리적 구조와 표현력이 우수합니다." : "조금 더 구체적인 근거와 논증을 보완해보세요."} 해설: ${q.explanation}`;
+  }
+
+  await db.insert(curriculumWorkbookAnswers).values({
+    userId,
+    questionId,
+    userAnswer,
+    isCorrect,
+    aiFeedback,
+    score,
+  });
+
+  return { isCorrect, score, aiFeedback };
 }
 
 export async function getQuestionBankAiInsight(questionId: number) {

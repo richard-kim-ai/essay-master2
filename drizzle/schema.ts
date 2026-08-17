@@ -341,3 +341,37 @@ export const questionBookmarks = mysqlTable("question_bookmarks", {
 
 export type QuestionBookmark = typeof questionBookmarks.$inferSelect;
 export type InsertQuestionBookmark = typeof questionBookmarks.$inferInsert;
+
+// 커리큘럼 워크북 레슨별 고정 기출문제 테이블
+export const curriculumWorkbookQuestions = mysqlTable("curriculum_workbook_questions", {
+  id: int("id").autoincrement().primaryKey(),
+  courseType: varchar("courseType", { length: 50 }).notNull(), // elementary, middle_high, high_univ, general_adult
+  level: int("level").notNull(),
+  lessonIndex: int("lessonIndex").notNull(), // 0, 1, 2...
+  questionNumber: int("questionNumber").notNull(), // 1, 2, 3
+  title: varchar("title", { length: 255 }).notNull(),
+  prompt: text("prompt").notNull(),
+  choicesJson: text("choicesJson"), // JSON string array for choices if objective
+  correctAnswer: varchar("correctAnswer", { length: 255 }).notNull(),
+  explanation: text("explanation").notNull(),
+  questionType: varchar("questionType", { length: 50 }).default("subjective").notNull(), // subjective, objective
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CurriculumWorkbookQuestion = typeof curriculumWorkbookQuestions.$inferSelect;
+export type InsertCurriculumWorkbookQuestion = typeof curriculumWorkbookQuestions.$inferInsert;
+
+// 학생별 커리큘럼 워크북 문제 풀이 및 답안 제출 기록 테이블
+export const curriculumWorkbookAnswers = mysqlTable("curriculum_workbook_answers", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionId: int("questionId").notNull(),
+  userAnswer: text("userAnswer").notNull(),
+  isCorrect: int("isCorrect").default(0).notNull(), // 1 for correct, 0 for incorrect or pending AI grade
+  aiFeedback: text("aiFeedback"),
+  score: int("score").default(0), // 0-100 score
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type CurriculumWorkbookAnswer = typeof curriculumWorkbookAnswers.$inferSelect;
+export type InsertCurriculumWorkbookAnswer = typeof curriculumWorkbookAnswers.$inferInsert;
