@@ -286,7 +286,7 @@ export default function Navigation() {
                       <Link href="/certificate">
                         <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">
                           <Award className="w-4 h-4 mr-2 text-purple-600" />
-                          <span>수료증 신청 및 미리보기</span>
+                          <span>수료증</span>
                         </DropdownMenuItem>
                       </Link>
                       {(user?.role === "teacher" || user?.role === "admin") && (
@@ -357,7 +357,7 @@ export default function Navigation() {
                         <Link href="/certificate">
                           <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
                             <Award className="w-4 h-4 text-purple-600" />
-                            <span>수료증 신청 및 미리보기</span>
+                            <span>수료증</span>
                           </button>
                         </Link>
                       </div>

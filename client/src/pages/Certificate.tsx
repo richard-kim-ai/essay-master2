@@ -98,7 +98,7 @@ export default function Certificate() {
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto space-y-12">
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900">수료증 센터</h1>
+          <h1 className="text-3xl font-extrabold text-slate-900">수료증</h1>
           <p className="text-sm text-slate-600 mt-1">단계별 과정을 수료하고 수료증을 미리보기 및 발급받으세요. (레벨당 1회 발급)</p>
         </div>
 
@@ -106,7 +106,7 @@ export default function Certificate() {
         <div>
           <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
             <Award className="w-5 h-5 text-blue-600" />
-            <span>새 수료증 신청 및 미리보기</span>
+            <span>수료증 신청 및 미리보기</span>
           </h2>
 
           <div className="grid md:grid-cols-2 gap-6">
