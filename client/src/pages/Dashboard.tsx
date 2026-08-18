@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight } from "lucide-react";
+import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight, Sparkles, Loader2 } from "lucide-react";
 import { useState } from "react";
 import {
   LineChart,
@@ -138,6 +138,20 @@ export default function Dashboard() {
   });
   const { data: weeklyUsageData } = trpc.aiAutoFeedback.getWeeklyUsage.useQuery(undefined, {
     enabled: isAuthenticated,
+  });
+  const [difficultyGuide, setDifficultyGuide] = useState<{
+    headline: string;
+    summary: string;
+    recommendedDifficulty: "easy" | "medium" | "hard";
+    focus: string;
+    nextAction: string;
+    basis: string;
+    presetMode: "standard" | "advanced";
+    source: "ai" | "fallback";
+  } | null>(null);
+  const difficultyGuideMutation = trpc.questionBank.difficultyLearningGuide.useMutation({
+    onSuccess: (guide) => setDifficultyGuide(guide),
+    onError: (error) => toast.error(error.message || "AI 추천 학습 가이드를 준비하지 못했습니다."),
   });
 
   // 비로그인 방문자도 샘플 대시보드를 탐색할 수 있도록 가상 사용자 지정
@@ -282,6 +296,28 @@ export default function Dashboard() {
             </Card>
           ))}
         </div>
+
+        {!isSampleMode && (
+          <Card className="mb-8 overflow-hidden border-violet-200 bg-gradient-to-br from-violet-50 via-white to-indigo-50 shadow-sm">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-900"><Sparkles className="h-5 w-5 text-violet-600" /> AI 추천 학습 가이드</CardTitle>
+                <CardDescription className="mt-1">현재 운영 난이도, 과정별 문항 분포·정답률, 나의 서버 검증 수행 기록을 바탕으로 다음 학습을 안내합니다.</CardDescription>
+              </div>
+              <Button onClick={() => difficultyGuideMutation.mutate()} disabled={difficultyGuideMutation.isPending} className="bg-violet-700 text-white hover:bg-violet-800">
+                {difficultyGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />분석 중</> : <><Sparkles className="mr-2 h-4 w-4" />맞춤 가이드 만들기</>}
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {difficultyGuide ? (
+                <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+                  <div className="rounded-xl border border-violet-100 bg-white/90 p-5"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">{difficultyGuide.headline}</p><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${difficultyGuide.recommendedDifficulty === "easy" ? "bg-emerald-100 text-emerald-800" : difficultyGuide.recommendedDifficulty === "medium" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}>{difficultyGuide.recommendedDifficulty === "easy" ? "초급 추천" : difficultyGuide.recommendedDifficulty === "medium" ? "중급 추천" : "고급 추천"}</span><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-800">{difficultyGuide.presetMode === "advanced" ? "심화 운영" : "표준 운영"}</span></div><p className="mt-3 text-sm leading-6 text-slate-700">{difficultyGuide.summary}</p><p className="mt-3 text-xs leading-5 text-slate-500">판단 근거: {difficultyGuide.basis}</p></div>
+                  <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-4"><p className="text-xs font-bold text-indigo-800">이번 학습 초점</p><p className="mt-2 text-sm leading-6 text-slate-800">{difficultyGuide.focus}</p></div><div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4"><p className="text-xs font-bold text-emerald-800">바로 할 일</p><p className="mt-2 text-sm leading-6 text-slate-800">{difficultyGuide.nextAction}</p></div></div>
+                </div>
+              ) : <div className="rounded-xl border border-dashed border-violet-200 bg-white/60 p-5 text-sm leading-6 text-slate-600">가이드를 만들면 현재 프리셋과 실제 학습 기록을 반영해 적절한 다음 문항 난이도와 구체적인 연습 순서를 제안합니다.</div>}
+            </CardContent>
+          </Card>
+        )}
 
         <Dialog open={Boolean(selectedCourse)} onOpenChange={(open) => { if (!open) setSelectedCourse(null); }}>
           <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">

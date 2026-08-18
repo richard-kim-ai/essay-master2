@@ -1127,10 +1127,8 @@ export const appRouter = router({
         }
 
         // AI 피드백 생성
-        const feedback = await evaluateEssay(
-          input.essayContent,
-          input.courseType
-        );
+        const difficultyPreset = await db.getDifficultyOperationPreset();
+        const feedback = await evaluateEssay(input.essayContent, input.courseType, difficultyPreset.mode);
 
         // 사용량 기록
         await db.logAIUsage(ctx.user.id, "essay_feedback", 3000);
@@ -1196,6 +1194,11 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => {
         if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 단락 재구성 결과를 저장할 수 있습니다." });
         return db.verifyAndRecordReorderingAttempt(ctx.user.id, input.questionId, input.orderedParagraphIds, getCourseTypeFromUserTag(ctx.user.tag));
+      }),
+    difficultyLearningGuide: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 맞춤 학습 가이드를 받을 수 있습니다." });
+        return db.generateDifficultyLearningGuide(ctx.user.id, getCourseTypeFromUserTag(ctx.user.tag));
       }),
     recordMistake: protectedProcedure
       .input(z.object({
@@ -1771,6 +1774,17 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
         return await db.getAdminOperationsDashboardStats();
+      }),
+    getDifficultyOperationPreset: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.getDifficultyOperationPreset();
+      }),
+    saveDifficultyOperationPreset: protectedProcedure
+      .input(z.object({ mode: z.enum(["standard", "advanced"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.saveDifficultyOperationPreset(input.mode, ctx.user.id);
       }),
     getSiteSettingAdmin: publicProcedure
       .input(z.object({ settingKey: z.string() }))

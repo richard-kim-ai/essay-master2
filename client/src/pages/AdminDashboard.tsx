@@ -24,8 +24,8 @@ export default function AdminDashboard() {
   const { data: analytics, isLoading: analyticsLoading } = trpc.admin.getAnalytics.useQuery(undefined, {
     enabled: isAdmin,
   });
-
-  const [difficultyMode, setDifficultyMode] = useState<"standard" | "advanced">("standard");
+  const { data: difficultyPreset } = trpc.admin.getDifficultyOperationPreset.useQuery(undefined, { enabled: isAdmin });
+  const difficultyMode = difficultyPreset?.mode ?? "standard";
   const [pendingDifficulty, setPendingDifficulty] = useState<"standard" | "advanced" | null>(null);
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
 
@@ -50,6 +50,14 @@ export default function AdminDashboard() {
     onError: (err) => {
       toast.error(err.message || "태그 일괄 변경 중 오류가 발생했습니다.");
     }
+  });
+  const saveDifficultyPresetMutation = trpc.admin.saveDifficultyOperationPreset.useMutation({
+    onSuccess: (preset) => {
+      utils.admin.getDifficultyOperationPreset.invalidate();
+      utils.questionBank.curriculumDifficultyStats.invalidate();
+      toast.success(`${preset.mode === "standard" ? "표준" : "심화"} 프리셋이 저장되어 이후 출제와 AI 첨삭에 적용됩니다.`);
+    },
+    onError: (error) => toast.error(error.message || "난이도 프리셋을 저장하지 못했습니다."),
   });
 
   const handleToggleSelectAll = () => {
@@ -142,8 +150,7 @@ export default function AdminDashboard() {
 
   const confirmDifficultyChange = () => {
     if (pendingDifficulty) {
-      setDifficultyMode(pendingDifficulty);
-      toast.success(`커리큘럼 난이도가 '${pendingDifficulty === 'standard' ? '표준 (Standard)' : '심화 (Advanced)'}'(으)로 성공적으로 변경되었습니다.`);
+      saveDifficultyPresetMutation.mutate({ mode: pendingDifficulty });
     }
     setConfirmModalOpen(false);
     setPendingDifficulty(null);
@@ -428,7 +435,7 @@ export default function AdminDashboard() {
                     <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold uppercase">{difficultyMode}</span>
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    초등 및 중고등 과정의 AI 자동 첨삭 기준 및 워크북 레벨 난이도를 일괄 조절합니다.
+                    {difficultyMode === "standard" ? "표준: 초급 40% · 중급 40% · 고급 20% 출제와 기본 논증 중심 AI 첨삭을 적용합니다." : "심화: 초급 15% · 중급 35% · 고급 50% 출제와 근거·반론·판단 기준 중심의 엄격한 AI 첨삭을 적용합니다."}
                   </p>
                   <div className="grid grid-cols-2 gap-2 pt-2">
                     <Button
@@ -471,8 +478,8 @@ export default function AdminDashboard() {
             <Button variant="outline" onClick={() => setConfirmModalOpen(false)}>
               취소
             </Button>
-            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={confirmDifficultyChange}>
-              변경 적용하기
+            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" disabled={saveDifficultyPresetMutation.isPending} onClick={confirmDifficultyChange}>
+              {saveDifficultyPresetMutation.isPending ? "저장 중..." : "변경 적용하기"}
             </Button>
           </DialogFooter>
         </DialogContent>
