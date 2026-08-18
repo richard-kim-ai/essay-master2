@@ -693,6 +693,30 @@ export const appRouter = router({
       }
       return db.getManagedStudentsForTeacher(ctx.user.id);
     }),
+    classDashboard: protectedProcedure
+      .input(z.object({ attendanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.getTeacherClassDashboard(ctx.user.id, input.attendanceDate);
+      }),
+    recordAttendance: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive(), studentId: z.number().int().positive(), attendanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), status: z.enum(["present", "late", "absent", "excused"]), note: z.string().trim().max(500).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try { return await db.recordClassAttendance(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "출결 기록 권한이 없습니다." }); }
+      }),
+    publishClassAnnouncement: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive(), title: z.string().trim().min(2).max(255), content: z.string().trim().min(2).max(5000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try { return await db.publishClassAnnouncement(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "공지 발송 권한이 없습니다." }); }
+      }),
+    createClassAssignment: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive(), title: z.string().trim().min(2).max(255), instructions: z.string().trim().min(2).max(5000), dueAt: z.date().nullable().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try { return await db.createClassAssignment(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제 배정 권한이 없습니다." }); }
+      }),
     updateStudentProgress: protectedProcedure
       .input(z.object({ studentId: z.number(), curriculumId: z.number(), score: z.number().min(0).max(100), completed: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
@@ -1392,7 +1416,7 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        await db.updateTeacherStatus(input.userId, input.teacherStatus);
+        await db.updateTeacherStatus(input.userId, input.teacherStatus, undefined, ctx.user.id);
         return { success: true } as const;
       }),
     getAllCertificatesAdmin: protectedProcedure
@@ -1575,20 +1599,20 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        await db.changeLearnerTeacherRole(input.userId, input.newRole);
+        await db.changeLearnerTeacherRole(input.userId, input.newRole, ctx.user.id);
         return true;
       }),
     createAdminAccount: protectedProcedure
       .input(z.object({ name: z.string().trim().min(2).max(80), email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(10).max(128) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
-        return db.createManagedAdminAccount({ openId: `admin_${nanoid(40)}`, name: input.name, email: input.email, passwordHash: hashPassword(input.password) });
+        return db.createManagedAdminAccount({ openId: `admin_${nanoid(40)}`, name: input.name, email: input.email, passwordHash: hashPassword(input.password), actorId: ctx.user.id });
       }),
     adjustUserLevel: protectedProcedure
       .input(z.object({ userId: z.number().int().positive(), targetLevel: z.number().int().min(1).max(10) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
-        return db.adjustManagedUserLevel(input.userId, input.targetLevel);
+        return db.adjustManagedUserLevel(input.userId, input.targetLevel, ctx.user.id);
       }),
     getLearningGroups: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
@@ -1616,7 +1640,13 @@ export const appRouter = router({
       .input(z.object({ studentId: z.number().int().positive(), teacherId: z.number().int().positive().nullable() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
-        return db.assignStudentTeacher(input.studentId, input.teacherId);
+        return db.assignStudentTeacher(input.studentId, input.teacherId, ctx.user.id);
+      }),
+    getAuditLogs: protectedProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(200).default(100) }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.getAdminAuditLogs(input?.limit ?? 100);
       }),
     approveTeacher: protectedProcedure
       .input(z.object({ userId: z.number(), teacherLevel: z.number().optional() }))
@@ -1624,7 +1654,7 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        await db.updateTeacherStatus(input.userId, "approved", input.teacherLevel);
+        await db.updateTeacherStatus(input.userId, "approved", input.teacherLevel, ctx.user.id);
         return true;
       }),
   }),

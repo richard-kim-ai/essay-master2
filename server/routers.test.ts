@@ -100,6 +100,11 @@ describe("appRouter", () => {
       const result = await caller.teacherOperations.managedStudents();
       expect(Array.isArray(result)).toBe(true);
     });
+
+    it("일반 사용자의 담당 반 출결·진도 대시보드 조회를 차단한다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.teacherOperations.classDashboard({ attendanceDate: "2026-08-18" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
   });
 
   describe("academic approval administration", () => {
@@ -117,6 +122,11 @@ describe("appRouter", () => {
     it("기존 계정을 관리자 역할로 변경하는 입력을 허용하지 않는다", async () => {
       const caller = appRouter.createCaller(createMockContext({ user: { ...createMockContext().user!, role: "admin" } as any }));
       await expect(caller.admin.updateUserRole({ userId: 2, newRole: "admin" as any })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("일반 사용자의 관리자 감사 로그 조회를 차단한다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.admin.getAuditLogs({ limit: 20 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   });
 

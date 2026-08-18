@@ -96,6 +96,57 @@ export const learningGroupMembers = mysqlTable("learning_group_members", {
 export type LearningGroup = typeof learningGroups.$inferSelect;
 export type LearningGroupMember = typeof learningGroupMembers.$inferSelect;
 
+// 반 운영에서 출결을 일자별로 기록하고 교사가 담당 학생의 참여 상태를 확인합니다.
+export const classAttendance = mysqlTable("class_attendance", {
+  id: int("id").autoincrement().primaryKey(),
+  groupId: int("groupId").notNull(),
+  studentId: int("studentId").notNull(),
+  attendanceDate: varchar("attendanceDate", { length: 10 }).notNull(), // YYYY-MM-DD
+  status: mysqlEnum("status", ["present", "late", "absent", "excused"]).default("present").notNull(),
+  note: varchar("note", { length: 500 }),
+  recordedBy: int("recordedBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// 반 공지와 과제는 수신 대상 반을 보존하고 학생별 인앱 알림으로 함께 전달합니다.
+export const classAnnouncements = mysqlTable("class_announcements", {
+  id: int("id").autoincrement().primaryKey(),
+  groupId: int("groupId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: text("content").notNull(),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const classAssignments = mysqlTable("class_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  groupId: int("groupId").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  instructions: text("instructions").notNull(),
+  dueAt: timestamp("dueAt"),
+  createdBy: int("createdBy").notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// 관리자 계정 생성과 역할·레벨 조정은 별도 원장으로 남겨 운영자가 추적할 수 있습니다.
+export const adminAuditLogs = mysqlTable("admin_audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  actorId: int("actorId").notNull(),
+  targetUserId: int("targetUserId"),
+  action: mysqlEnum("action", ["admin_account_created", "role_changed", "level_changed", "teacher_assigned"]).notNull(),
+  summary: varchar("summary", { length: 500 }).notNull(),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ClassAttendance = typeof classAttendance.$inferSelect;
+export type ClassAnnouncement = typeof classAnnouncements.$inferSelect;
+export type ClassAssignment = typeof classAssignments.$inferSelect;
+export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
+
 // 관리자가 교사에게 부여하는 진도·수료증 권한입니다. 조직 전체 또는 특정 학생으로 범위를 제한합니다.
 export const teacherPermissionGrants = mysqlTable("teacher_permission_grants", {
   id: int("id").autoincrement().primaryKey(),

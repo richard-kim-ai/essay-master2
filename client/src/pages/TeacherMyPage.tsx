@@ -10,6 +10,7 @@ import { GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock, Arro
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { TeacherProgressDialog } from "@/components/TeacherProgressDialog";
+import { TeacherClassOperations } from "@/components/TeacherClassOperations";
 
 export default function TeacherMyPage() {
   const { user, isAuthenticated } = useAuth();
@@ -130,6 +131,7 @@ export default function TeacherMyPage() {
         <Tabs defaultValue="students" className="space-y-6">
           <TabsList className="bg-white p-1 shadow-sm">
             <TabsTrigger value="students" className="gap-2"><Users className="h-4 w-4" /> 지도 학생 목록 및 정렬</TabsTrigger>
+            <TabsTrigger value="classes" className="gap-2"><CheckCircle className="h-4 w-4" /> 담당 반 출결·과제</TabsTrigger>
             <TabsTrigger value="certificates" className="gap-2"><Award className="h-4 w-4" /> 수료 공동 승인</TabsTrigger>
             <TabsTrigger value="guidelines" className="gap-2"><ShieldCheck className="h-4 w-4" /> 교사 권한 가이드</TabsTrigger>
           </TabsList>
@@ -194,6 +196,10 @@ export default function TeacherMyPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="classes" className="space-y-6">
+            <TeacherClassOperations enabled={teacherEnabled} />
           </TabsContent>
 
           <TabsContent value="certificates" className="space-y-6">
