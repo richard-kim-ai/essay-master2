@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { Users, BookOpen, Award, MessageSquare, Send, CheckCircle2, UserCheck, Shield, ArrowLeft, Link as LinkIcon, UserPlus } from "lucide-react";
+import { Users, BookOpen, Award, Bot, ClipboardList, MessageSquare, Send, CheckCircle2, UserCheck, Shield, ArrowLeft, Link as LinkIcon, UserPlus } from "lucide-react";
 import { Link } from "wouter";
 
 export default function ParentPortal() {
@@ -129,7 +130,7 @@ export default function ParentPortal() {
                 </CardTitle>
                 <CardDescription>가입 과정: <span className="font-semibold text-blue-700">{studentDetail.user.courseLabel || studentDetail.user.tag || "과정 미설정"}</span> · 가입일: {new Date(studentDetail.user.createdAt).toLocaleDateString()} · 최근 접속: {new Date(studentDetail.user.lastSignedIn).toLocaleString()}</CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-4">
+              <CardContent className="grid gap-3 sm:grid-cols-5">
                 <div className="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
                   <p className="text-xs font-medium text-indigo-600">선택 학습 과정</p>
                   <h3 className="mt-1 text-base font-bold text-indigo-900">{studentDetail.user.courseLabel || studentDetail.user.tag || "미설정"}</h3>
@@ -145,6 +146,10 @@ export default function ParentPortal() {
                 <div className="p-4 bg-purple-50/50 rounded-xl border border-purple-100">
                   <p className="text-xs font-medium text-purple-600">취득한 수료증</p>
                   <h3 className="text-2xl font-bold text-purple-900 mt-1">{studentDetail.certificates.length}장</h3>
+                </div>
+                <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-100">
+                  <p className="text-xs font-medium text-amber-700">반 과제</p>
+                  <h3 className="mt-1 text-2xl font-bold text-amber-900">{studentDetail.classAssignments?.length ?? 0}건</h3>
                 </div>
               </CardContent>
             </Card>
@@ -172,6 +177,35 @@ export default function ParentPortal() {
                         <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">첨삭 완료</span>
                       </div>
                     ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-amber-100 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base font-bold">
+                  <ClipboardList className="h-4 w-4 text-amber-600" /> 반 과제 제출·채점 현황
+                </CardTitle>
+                <CardDescription>배정 과제, 자녀의 제출 답안, 교사 채점과 검토 완료된 AI 1차 첨삭을 확인합니다.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {(studentDetail.classAssignments?.length ?? 0) === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-500">현재 배정된 반 과제가 없습니다.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {studentDetail.classAssignments.slice(0, 6).map((assignment: any) => {
+                      const evaluation = assignment.aiFeedback?.evaluationJson ? (() => { try { return JSON.parse(assignment.aiFeedback.evaluationJson); } catch { return null; } })() : null;
+                      const statusLabel = assignment.submissionStatus === "reviewed" ? "교사 채점 완료" : assignment.submissionStatus === "submitted" ? "교사 검토 대기" : assignment.isOverdue ? "마감 경과·미제출" : "제출 전";
+                      const statusClass = assignment.submissionStatus === "reviewed" ? "bg-emerald-100 text-emerald-700" : assignment.submissionStatus === "submitted" ? "bg-blue-100 text-blue-700" : assignment.isOverdue ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700";
+                      return <div key={assignment.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div><p className="font-semibold text-slate-900">{assignment.title}</p><p className="mt-1 text-xs text-slate-500">{assignment.groupName} · 마감 {assignment.dueAt ? new Date(assignment.dueAt).toLocaleString("ko-KR") : "미지정"}</p></div>
+                          <Badge className={statusClass}>{statusLabel}</Badge>
+                        </div>
+                        {assignment.submission ? <details className="mt-3 rounded-lg border border-slate-200 bg-white"><summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-700">제출 답안·채점 결과 보기</summary><div className="space-y-3 border-t border-slate-100 p-3"><div><p className="text-xs font-bold text-slate-500">제출 답안</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{assignment.submission.content}</p></div>{assignment.submission.status === "reviewed" && <div className="rounded-lg bg-emerald-50 p-3"><p className="text-xs font-bold text-emerald-800">교사 최종 채점 · {assignment.submission.score ?? "-"}점</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{assignment.submission.teacherComment || "교사 피드백을 준비 중입니다."}</p></div>}{assignment.aiFeedback && <div className="rounded-lg bg-indigo-50 p-3"><p className="flex items-center gap-1.5 text-xs font-bold text-indigo-800"><Bot className="h-3.5 w-3.5" /> 검토 완료 AI 1차 첨삭 · {assignment.aiFeedback.overallScore}점</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{evaluation?.summary || assignment.aiFeedback.draftComment}</p>{evaluation?.priorityImprovements?.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-slate-600">{evaluation.priorityImprovements.map((item: string, index: number) => <li key={`${item}-${index}`}>{item}</li>)}</ul>}</div>}</div></details> : <p className="mt-3 text-sm text-slate-500">아직 자녀가 답안을 제출하지 않았습니다.</p>}
+                      </div>;
+                    })}
                   </div>
                 )}
               </CardContent>

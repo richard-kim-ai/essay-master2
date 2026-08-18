@@ -1,12 +1,12 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight } from "lucide-react";
+import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight, Sparkles, Loader2 } from "lucide-react";
 import { useState } from "react";
 import {
   LineChart,
@@ -26,22 +26,23 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-function BadgeSection() {
-  const { data: badges, isLoading } = trpc.badges.getByUser.useQuery();
-  const awardMutation = trpc.badges.award.useMutation();
-  const utils = trpc.useUtils();
+const BADGE_TOOL_LINKS: Record<string, string> = {
+  summary: "/summary-practice",
+  reordering: "/paragraph-reordering",
+  quiz: "/quiz",
+  thesis_checklist: "/thesis-checklist",
+  topic_wizard: "/topic-wizard",
+};
 
-  const handleTestAward = (courseType: string, badgeType: string, badgeName: string) => {
-    awardMutation.mutate({ courseType, badgeType, badgeName }, {
-      onSuccess: () => {
-        utils.badges.getByUser.invalidate();
-        toast.success(`'${badgeName}' 뱃지를 획득했습니다!`);
-      },
-      onError: (err) => {
-        toast.error(err.message);
-      }
-    });
-  };
+function courseTypeFromTag(tag?: string | null) {
+  if (tag?.includes("중고등")) return "middle_high";
+  if (tag?.includes("고등")) return "high_univ";
+  if (tag?.includes("일반")) return "general_adult";
+  return "elementary";
+}
+
+function BadgeSection({ courseType }: { courseType: string }) {
+  const { data: badges, isLoading } = trpc.badges.getByUser.useQuery();
 
   if (isLoading) return <div className="text-sm text-slate-500">뱃지 불러오는 중...</div>;
 
@@ -56,10 +57,11 @@ function BadgeSection() {
     { courseType: "general_adult", badgeType: "summary", badgeName: "비즈니스 기획 전문가 뱃지" },
   ];
 
+  const visibleDefinitions = badgeDefinitions.filter((definition) => definition.courseType === courseType);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {badgeDefinitions.map((def) => {
+        {visibleDefinitions.map((def) => {
           const isEarned = earnedBadgeTypes.has(`${def.courseType}-${def.badgeType}`);
           return (
             <div key={`${def.courseType}-${def.badgeType}`} className={`p-4 rounded-xl border flex items-center justify-between ${isEarned ? "bg-amber-50/70 border-amber-200" : "bg-white border-slate-200 opacity-60"}`}>
@@ -76,9 +78,7 @@ function BadgeSection() {
                 {isEarned ? (
                   <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded-full">획득 완료</span>
                 ) : (
-                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => handleTestAward(def.courseType, def.badgeType, def.badgeName)}>
-                    수행하기
-                  </Button>
+                  <Link href={BADGE_TOOL_LINKS[def.badgeType] || "/curriculum"}><Button size="sm" variant="outline" className="text-xs h-7">학습 시작</Button></Link>
                 )}
               </div>
             </div>
@@ -91,6 +91,12 @@ function BadgeSection() {
 
 export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
+  const isSampleMode = !isAuthenticated || Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
+  const [sampleCourse, setSampleCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => {
+    if (typeof window === "undefined") return "elementary";
+    const stored = window.localStorage.getItem("essaymaster-sample-course");
+    return ["elementary", "middle_high", "high_univ", "general_adult"].includes(stored || "") ? stored as "elementary" | "middle_high" | "high_univ" | "general_adult" : "elementary";
+  });
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -132,6 +138,20 @@ export default function Dashboard() {
   });
   const { data: weeklyUsageData } = trpc.aiAutoFeedback.getWeeklyUsage.useQuery(undefined, {
     enabled: isAuthenticated,
+  });
+  const [difficultyGuide, setDifficultyGuide] = useState<{
+    headline: string;
+    summary: string;
+    recommendedDifficulty: "easy" | "medium" | "hard";
+    focus: string;
+    nextAction: string;
+    basis: string;
+    presetMode: "standard" | "advanced";
+    source: "ai" | "fallback";
+  } | null>(null);
+  const difficultyGuideMutation = trpc.questionBank.difficultyLearningGuide.useMutation({
+    onSuccess: (guide) => setDifficultyGuide(guide),
+    onError: (error) => toast.error(error.message || "AI 추천 학습 가이드를 준비하지 못했습니다."),
   });
 
   // 비로그인 방문자도 샘플 대시보드를 탐색할 수 있도록 가상 사용자 지정
@@ -185,16 +205,8 @@ export default function Dashboard() {
     { key: "general_adult", title: "일반/직장인 과정 진도", rows: courseRows.general_adult, progress: gaProgress, color: "amber" },
   ];
 
-  const userCourseTag = user?.tag; // "초등", "중고등", "고등/대입", "일반" 등
-  const courseCards = userCourseTag
-    ? allCourseCards.filter(c => {
-        if (userCourseTag.includes("초등")) return c.key === "elementary";
-        if (userCourseTag.includes("중고등")) return c.key === "middle_high";
-        if (userCourseTag.includes("고등")) return c.key === "high_univ";
-        if (userCourseTag.includes("일반")) return c.key === "general_adult";
-        return true;
-      })
-    : allCourseCards;
+  const activeCourseType = isSampleMode ? sampleCourse : courseTypeFromTag(user?.tag);
+  const courseCards = allCourseCards.filter((card) => card.key === activeCourseType);
   const displayCards = courseCards.length > 0 ? courseCards : allCourseCards;
 
   const totalProgress = progressData?.length || 0;
@@ -221,6 +233,7 @@ export default function Dashboard() {
     name: `Level ${idx + 1}`,
     score: p.score || 0,
   })) || [];
+  const compactProgressChartData = progressChartData.length > 16 ? progressChartData.slice(-16) : progressChartData;
 
   const growthData = [
     { week: "1주", score: 45 },
@@ -254,13 +267,14 @@ export default function Dashboard() {
       : 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-slate-50/70 py-6 sm:py-8">
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-8">학습 대시보드</h1>
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+        <h1 className="mb-5 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">학습 대시보드</h1>
+        {isSampleMode && <div className="mb-6 flex flex-col gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">샘플 학습 과정 선택</p><p className="mt-1 text-sm text-indigo-700">선택한 과정의 커리큘럼·뱃지·수료증 예시만 보고 학습을 시작할 수 있습니다.</p></div><select aria-label="샘플 학습 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as typeof sampleCourse; setSampleCourse(course); window.localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select></div>}
 
         {/* Course Progress Breakdown Bars (개인화된 가입 과정에 맞춤 표시) */}
-        <div className="mb-8 grid gap-6 lg:grid-cols-4">
+        <div className="mb-5 grid gap-4">
           {displayCards.map((course) => (
             <Card
               key={course.key}
@@ -271,7 +285,7 @@ export default function Dashboard() {
               className="cursor-pointer border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
               aria-label={`${course.title} 상세 모듈 보기`}
             >
-              <CardHeader className="pb-2">
+              <CardHeader className="pb-1">
                 <CardTitle className="flex items-center justify-between text-sm font-bold text-slate-700"><span>{course.title}</span><ChevronRight className="h-4 w-4 text-slate-400" /></CardTitle>
                 <CardDescription className="text-[11px]">클릭하여 세부 모듈 확인</CardDescription>
               </CardHeader>
@@ -283,6 +297,28 @@ export default function Dashboard() {
             </Card>
           ))}
         </div>
+
+        {!isSampleMode && (
+          <Card className="mb-5 overflow-hidden border-violet-200 bg-gradient-to-br from-violet-50 via-white to-indigo-50 shadow-sm">
+            <CardHeader className="gap-3 border-b border-violet-100 px-5 pt-5 sm:px-6 sm:pt-6">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-900"><Sparkles className="h-5 w-5 text-violet-600" /> AI 추천 학습 가이드</CardTitle>
+                <CardDescription className="mt-1">현재 운영 난이도, 과정별 문항 분포·정답률, 나의 서버 검증 수행 기록을 바탕으로 다음 학습을 안내합니다.</CardDescription>
+              </div>
+              <CardAction className="col-auto row-auto w-full sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:w-auto"><Button onClick={() => difficultyGuideMutation.mutate()} disabled={difficultyGuideMutation.isPending} className="w-full bg-violet-700 text-white hover:bg-violet-800 sm:w-auto">
+                {difficultyGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />분석 중</> : <><Sparkles className="mr-2 h-4 w-4" />맞춤 가이드 만들기</>}
+              </Button></CardAction>
+            </CardHeader>
+            <CardContent className="px-5 py-5 sm:px-6">
+              {difficultyGuide ? (
+                <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+                  <div className="rounded-xl border border-violet-100 bg-white/90 p-5"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">{difficultyGuide.headline}</p><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${difficultyGuide.recommendedDifficulty === "easy" ? "bg-emerald-100 text-emerald-800" : difficultyGuide.recommendedDifficulty === "medium" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}>{difficultyGuide.recommendedDifficulty === "easy" ? "초급 추천" : difficultyGuide.recommendedDifficulty === "medium" ? "중급 추천" : "고급 추천"}</span><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-800">{difficultyGuide.presetMode === "advanced" ? "심화 운영" : "표준 운영"}</span></div><p className="mt-3 text-sm leading-6 text-slate-700">{difficultyGuide.summary}</p><p className="mt-3 text-xs leading-5 text-slate-500">판단 근거: {difficultyGuide.basis}</p></div>
+                  <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-4"><p className="text-xs font-bold text-indigo-800">이번 학습 초점</p><p className="mt-2 text-sm leading-6 text-slate-800">{difficultyGuide.focus}</p></div><div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4"><p className="text-xs font-bold text-emerald-800">바로 할 일</p><p className="mt-2 text-sm leading-6 text-slate-800">{difficultyGuide.nextAction}</p></div></div>
+                </div>
+              ) : <div className="rounded-xl border border-dashed border-violet-200 bg-white/60 p-5 text-sm leading-6 text-slate-600">가이드를 만들면 현재 프리셋과 실제 학습 기록을 반영해 적절한 다음 문항 난이도와 구체적인 연습 순서를 제안합니다.</div>}
+            </CardContent>
+          </Card>
+        )}
 
         <Dialog open={Boolean(selectedCourse)} onOpenChange={(open) => { if (!open) setSelectedCourse(null); }}>
           <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
@@ -304,7 +340,7 @@ export default function Dashboard() {
         </Dialog>
 
         {/* Summary Cards */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-gray-600">
@@ -312,7 +348,7 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-indigo-600">
+              <div className="text-2xl font-extrabold text-indigo-600 sm:text-3xl">
                 {totalProgress > 0
                   ? Math.round((completedProgress / totalProgress) * 100)
                   : 0}
@@ -331,7 +367,7 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-green-600">{avgScore}</div>
+              <div className="text-2xl font-extrabold text-green-600 sm:text-3xl">{avgScore}</div>
               <p className="text-xs text-gray-500 mt-2">점</p>
             </CardContent>
           </Card>
@@ -343,7 +379,7 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-blue-600">{correctRate}%</div>
+              <div className="text-2xl font-extrabold text-blue-600 sm:text-3xl">{correctRate}%</div>
               <p className="text-xs text-gray-500 mt-2">
                 {quizStats.correct} / {quizStats.total} 정답
               </p>
@@ -357,7 +393,7 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-purple-600">12</div>
+              <div className="text-2xl font-extrabold text-purple-600 sm:text-3xl">12</div>
               <p className="text-xs text-gray-500 mt-2">일</p>
             </CardContent>
           </Card>
@@ -375,7 +411,7 @@ export default function Dashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <BadgeSection />
+              <BadgeSection courseType={activeCourseType} />
             </CardContent>
           </Card>
 
@@ -455,14 +491,14 @@ export default function Dashboard() {
               <CardHeader>
                 <CardTitle>레벨별 점수</CardTitle>
                 <CardDescription>
-                  각 레벨에서 획득한 점수를 확인하세요
+                  최근 {Math.min(16, progressChartData.length)}개 레벨의 점수를 확인하세요
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={progressChartData}>
+                  <BarChart data={compactProgressChartData}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                     <YAxis />
                     <Tooltip />
                     <Bar dataKey="score" fill="#4f46e5" />

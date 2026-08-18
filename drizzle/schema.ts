@@ -145,6 +145,22 @@ export const classAssignmentSubmissions = mysqlTable("class_assignment_submissio
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// 교사 최종 채점 전 AI가 생성한 과제별 1차 첨삭 초안과 구조화 평가 근거를 보존합니다.
+export const classAssignmentAiFeedbacks = mysqlTable("class_assignment_ai_feedbacks", {
+  id: int("id").autoincrement().primaryKey(),
+  submissionId: int("submissionId").notNull(),
+  generatedBy: int("generatedBy").notNull(),
+  modelId: varchar("modelId", { length: 120 }).notNull(),
+  overallScore: int("overallScore").notNull(),
+  evaluationJson: text("evaluationJson").notNull(),
+  draftComment: text("draftComment").notNull(),
+  status: mysqlEnum("status", ["generated", "reviewed", "discarded"]).default("generated").notNull(),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 // 교사가 반복 사용하는 채점·첨삭 문구를 개인별로 보관합니다.
 export const teacherFeedbackTemplates = mysqlTable("teacher_feedback_templates", {
   id: int("id").autoincrement().primaryKey(),
@@ -170,6 +186,7 @@ export type ClassAttendance = typeof classAttendance.$inferSelect;
 export type ClassAnnouncement = typeof classAnnouncements.$inferSelect;
 export type ClassAssignment = typeof classAssignments.$inferSelect;
 export type ClassAssignmentSubmission = typeof classAssignmentSubmissions.$inferSelect;
+export type ClassAssignmentAiFeedback = typeof classAssignmentAiFeedbacks.$inferSelect;
 export type TeacherFeedbackTemplate = typeof teacherFeedbackTemplates.$inferSelect;
 export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
 
@@ -356,6 +373,20 @@ export const quizAnswer = mysqlTable("quiz_answer", {
 
 export type QuizAnswer = typeof quizAnswer.$inferSelect;
 export type InsertQuizAnswer = typeof quizAnswer.$inferInsert;
+
+// 서버가 검증한 학습 도구 수행 결과만 뱃지 수여 근거로 사용합니다.
+export const learningToolAttempts = mysqlTable("learning_tool_attempts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionBankId: int("questionBankId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  toolType: mysqlEnum("toolType", ["quiz", "reordering", "summary"]).notNull(),
+  score: int("score").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type LearningToolAttempt = typeof learningToolAttempts.$inferSelect;
+export type InsertLearningToolAttempt = typeof learningToolAttempts.$inferInsert;
 
 // 수료증 테이블
 export const certificate = mysqlTable("certificate", {
@@ -709,6 +740,58 @@ export const workbookMistakes = mysqlTable("workbook_mistakes", {
 
 export type WorkbookMistake = typeof workbookMistakes.$inferSelect;
 export type InsertWorkbookMistake = typeof workbookMistakes.$inferInsert;
+
+// 문제은행 기반 학습 도구의 오답 기록: 퀴즈·단락 재구성·요약 연습 등 100점 미만 결과를 오답 노트에 축적한다.
+export const learningToolMistakes = mysqlTable("learning_tool_mistakes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionBankId: int("questionBankId").notNull(),
+  courseType: varchar("courseType", { length: 50 }).notNull(),
+  toolType: varchar("toolType", { length: 64 }).notNull(),
+  userAnswer: text("userAnswer").notNull(),
+  score: int("score").notNull(),
+  aiFeedback: text("aiFeedback"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type LearningToolMistake = typeof learningToolMistakes.$inferSelect;
+export type InsertLearningToolMistake = typeof learningToolMistakes.$inferInsert;
+
+// 학생이 요청한 AI 레슨 가이드를 보존하여 이후 동일한 학습 맥락에서 다시 열람합니다.
+export const aiLessonGuideHistories = mysqlTable("ai_lesson_guide_histories", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  courseType: varchar("courseType", { length: 50 }).notNull(),
+  level: int("level").notNull(),
+  lessonIndex: int("lessonIndex").notNull(),
+  lessonTitle: varchar("lessonTitle", { length: 255 }).notNull(),
+  guideJson: text("guideJson").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AiLessonGuideHistory = typeof aiLessonGuideHistories.$inferSelect;
+export type InsertAiLessonGuideHistory = typeof aiLessonGuideHistories.$inferInsert;
+
+// 교사가 담당 반의 채점 완료 답안을 익명화·편집해 승인한 뒤 학생 참고용으로 게시합니다.
+export const approvedWritingExamples = mysqlTable("approved_writing_examples", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceSubmissionId: int("sourceSubmissionId").notNull(),
+  teacherId: int("teacherId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  topic: varchar("topic", { length: 255 }).notNull(),
+  skillTags: varchar("skillTags", { length: 255 }),
+  anonymizedContent: text("anonymizedContent").notNull(),
+  teacherNote: text("teacherNote"),
+  status: mysqlEnum("status", ["draft", "published", "withdrawn"]).default("draft").notNull(),
+  publishedAt: timestamp("publishedAt"),
+  withdrawnAt: timestamp("withdrawnAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ApprovedWritingExample = typeof approvedWritingExamples.$inferSelect;
+export type InsertApprovedWritingExample = typeof approvedWritingExamples.$inferInsert;
 
 // 교사 서술형 워크북 첨삭 피드백 테이블
 export const workbookTeacherFeedback = mysqlTable("workbook_teacher_feedback", {

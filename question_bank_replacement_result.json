@@ -1,0 +1,111 @@
+{
+  "success": true,
+  "previousActiveCount": 200,
+  "importedRows": 200,
+  "newQuestionIdRange": [
+    90001,
+    90200
+  ],
+  "activeCounts": [
+    {
+      "courseType": "elementary",
+      "toolType": "quiz",
+      "count": 10
+    },
+    {
+      "courseType": "elementary",
+      "toolType": "reordering",
+      "count": 10
+    },
+    {
+      "courseType": "elementary",
+      "toolType": "summary",
+      "count": 10
+    },
+    {
+      "courseType": "elementary",
+      "toolType": "thesis_checklist",
+      "count": 10
+    },
+    {
+      "courseType": "elementary",
+      "toolType": "topic_wizard",
+      "count": 10
+    },
+    {
+      "courseType": "middle_high",
+      "toolType": "quiz",
+      "count": 10
+    },
+    {
+      "courseType": "middle_high",
+      "toolType": "reordering",
+      "count": 10
+    },
+    {
+      "courseType": "middle_high",
+      "toolType": "summary",
+      "count": 10
+    },
+    {
+      "courseType": "middle_high",
+      "toolType": "thesis_checklist",
+      "count": 10
+    },
+    {
+      "courseType": "middle_high",
+      "toolType": "topic_wizard",
+      "count": 10
+    },
+    {
+      "courseType": "high_univ",
+      "toolType": "quiz",
+      "count": 10
+    },
+    {
+      "courseType": "high_univ",
+      "toolType": "reordering",
+      "count": 10
+    },
+    {
+      "courseType": "high_univ",
+      "toolType": "summary",
+      "count": 10
+    },
+    {
+      "courseType": "high_univ",
+      "toolType": "thesis_checklist",
+      "count": 10
+    },
+    {
+      "courseType": "high_univ",
+      "toolType": "topic_wizard",
+      "count": 10
+    },
+    {
+      "courseType": "general_adult",
+      "toolType": "quiz",
+      "count": 10
+    },
+    {
+      "courseType": "general_adult",
+      "toolType": "reordering",
+      "count": 10
+    },
+    {
+      "courseType": "general_adult",
+      "toolType": "summary",
+      "count": 10
+    },
+    {
+      "courseType": "general_adult",
+      "toolType": "thesis_checklist",
+      "count": 10
+    },
+    {
+      "courseType": "general_adult",
+      "toolType": "topic_wizard",
+      "count": 10
+    }
+  ]
+}

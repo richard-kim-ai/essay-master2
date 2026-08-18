@@ -1,313 +1,89 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 import { toast } from "sonner";
-import {
-  CheckCircle2,
-  AlertCircle,
-  Lightbulb,
-  RefreshCw,
-  Download,
-} from "lucide-react";
+import { AlertCircle, CheckCircle2, Lightbulb, Loader2, RefreshCw, Sparkles, XCircle } from "lucide-react";
 
-interface CheckItem {
-  id: string;
-  label: string;
-  description: string;
-  checked: boolean;
-}
+type CriterionId = "clear" | "arguable" | "specific" | "supportable" | "relevant" | "original" | "balanced" | "grammatical";
+type Status = "pass" | "warn" | "fail";
+type AnalysisItem = { id: CriterionId; status: Status; rationale: string; suggestion: string };
+type Analysis = { score: number; summary: string; items: AnalysisItem[]; recommendedThesis: string; source: "ai" | "fallback" };
 
-const CHECKLIST_ITEMS: CheckItem[] = [
-  {
-    id: "clear",
-    label: "명확성",
-    description: "주제문이 명확하고 이해하기 쉬운가?",
-    checked: false,
-  },
-  {
-    id: "arguable",
-    label: "논쟁성",
-    description: "주제문이 논쟁의 여지가 있는가? (사실이 아닌 의견인가?)",
-    checked: false,
-  },
-  {
-    id: "specific",
-    label: "구체성",
-    description: "주제문이 너무 광범위하지 않고 구체적인가?",
-    checked: false,
-  },
-  {
-    id: "supportable",
-    label: "뒷받침 가능성",
-    description: "주제문을 뒷받침할 증거나 논거를 제시할 수 있는가?",
-    checked: false,
-  },
-  {
-    id: "relevant",
-    label: "관련성",
-    description: "주제문이 과제나 주제와 관련이 있는가?",
-    checked: false,
-  },
-  {
-    id: "original",
-    label: "독창성",
-    description: "주제문이 독창적이고 개인의 의견을 담고 있는가?",
-    checked: false,
-  },
-  {
-    id: "balanced",
-    label: "균형성",
-    description: "주제문이 한쪽으로 치우치지 않고 균형잡혀 있는가?",
-    checked: false,
-  },
-  {
-    id: "grammatical",
-    label: "문법성",
-    description: "주제문의 문법이 올바른가?",
-    checked: false,
-  },
+const CHECKLIST_ITEMS: { id: CriterionId; label: string; description: string }[] = [
+  { id: "clear", label: "명확성", description: "주장과 대상이 한 번에 이해되는가?" },
+  { id: "arguable", label: "논쟁성", description: "사실 소개가 아니라 판단·주장을 담고 있는가?" },
+  { id: "specific", label: "구체성", description: "범위와 조건이 지나치게 넓거나 모호하지 않은가?" },
+  { id: "supportable", label: "뒷받침 가능성", description: "사례·자료·논거로 설득할 수 있는가?" },
+  { id: "relevant", label: "관련성", description: "입력한 주제와 중심 쟁점이 이어지는가?" },
+  { id: "original", label: "관점성", description: "자신의 판단 기준이나 관점이 드러나는가?" },
+  { id: "balanced", label: "균형성", description: "반론이나 조건을 고려할 여지가 있는가?" },
+  { id: "grammatical", label: "문장성", description: "문법과 어휘가 자연스럽고 정확한가?" },
 ];
 
+const statusStyle: Record<Status, { card: string; badge: string; label: string; icon: typeof CheckCircle2 }> = {
+  pass: { card: "border-emerald-200 bg-emerald-50", badge: "bg-emerald-100 text-emerald-800", label: "충족", icon: CheckCircle2 },
+  warn: { card: "border-amber-200 bg-amber-50", badge: "bg-amber-100 text-amber-900", label: "보완", icon: AlertCircle },
+  fail: { card: "border-rose-200 bg-rose-50", badge: "bg-rose-100 text-rose-800", label: "재작성", icon: XCircle },
+};
+
 export default function ThesisChecklist() {
+  const { user, isAuthenticated, loading } = useAuth();
+  const courseType = getCourseTypeFromUserTag(user?.tag);
+  const courseLabel = getCourseTag(courseType);
+  const [topic, setTopic] = useState("");
   const [thesis, setThesis] = useState("");
-  const [items, setItems] = useState<CheckItem[]>(CHECKLIST_ITEMS);
-  const [analyzed, setAnalyzed] = useState(false);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const analyzeMutation = trpc.questionBank.analyzeThesis.useMutation();
 
-  const handleCheck = (id: string) => {
-    setItems(
-      items.map((item) =>
-        item.id === id ? { ...item, checked: !item.checked } : item
-      )
-    );
-  };
+  const itemById = useMemo(() => new Map(analysis?.items.map((item) => [item.id, item]) || []), [analysis]);
 
-  const handleAnalyze = () => {
-    if (!thesis.trim()) {
-      toast.error("주제문을 입력해주세요.");
+  const handleAnalyze = async () => {
+    if (thesis.trim().length < 10) {
+      toast.error("10자 이상으로 자신의 판단이 담긴 주제문을 작성해주세요.");
       return;
     }
-    if (thesis.length < 10) {
-      toast.error("더 자세한 주제문을 입력해주세요.");
-      return;
+    try {
+      const result = await analyzeMutation.mutateAsync({ thesis: thesis.trim(), courseType, topic: topic.trim() || undefined });
+      setAnalysis(result as Analysis);
+      toast.success(result.source === "ai" ? "AI 주제문 분석이 완료되었습니다." : "임시 점검 결과를 표시했습니다. 다시 분석하면 AI 피드백을 받을 수 있습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "주제문 분석을 준비하지 못했습니다.");
     }
-    setAnalyzed(true);
-    toast.success("주제문 분석이 완료되었습니다!");
   };
 
-  const handleReset = () => {
-    setThesis("");
-    setItems(CHECKLIST_ITEMS);
-    setAnalyzed(false);
-  };
+  const handleReset = () => { setTopic(""); setThesis(""); setAnalysis(null); };
+  const scoreTone = !analysis ? "text-slate-700" : analysis.score >= 80 ? "text-emerald-700" : analysis.score >= 60 ? "text-amber-700" : "text-rose-700";
 
-  const checkedCount = items.filter((item) => item.checked).length;
-  const totalCount = items.length;
-  const completionRate = Math.round((checkedCount / totalCount) * 100);
-
-  const getScoreColor = (rate: number) => {
-    if (rate === 100) return "text-green-600";
-    if (rate >= 75) return "text-blue-600";
-    if (rate >= 50) return "text-yellow-600";
-    return "text-red-600";
-  };
-
-  const getScoreBgColor = (rate: number) => {
-    if (rate === 100) return "bg-green-50 border-green-200";
-    if (rate >= 75) return "bg-blue-50 border-blue-200";
-    if (rate >= 50) return "bg-yellow-50 border-yellow-200";
-    return "bg-red-50 border-red-200";
-  };
+  if (loading) return <div className="py-12 text-center text-slate-600">학습자 정보를 확인하고 있습니다...</div>;
+  if (!isAuthenticated) return <div className="py-12 text-center text-slate-600">로그인 후 주제문 체크리스트를 이용할 수 있습니다.</div>;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            ✅ 주제문 체크리스트
-          </h1>
-          <p className="text-lg text-gray-600">
-            작성한 주제문이 좋은 주제문인지 체계적으로 검토해보세요.
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 px-4 py-8 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-5xl">
+        <header className="mb-6"><Badge className="bg-violet-100 text-violet-800 hover:bg-violet-100">{courseLabel} 과정</Badge><h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">주제문 체크리스트</h1><p className="mt-2 text-base leading-7 text-slate-600">AI가 작성한 주제문을 여덟 가지 기준으로 살피고, 보완 방향과 예시를 제공합니다.</p></header>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.4fr)]">
+          <Card className="h-fit border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-6">
+            <h2 className="text-lg font-bold text-slate-900">주제문 입력</h2><p className="mt-1 text-sm text-slate-600">주제는 선택 사항이지만, 함께 입력하면 관련성 평가가 더 정확해집니다.</p>
+            <div className="mt-5 space-y-4"><div className="space-y-2"><label className="text-sm font-semibold text-slate-800">연결된 주제 <span className="font-normal text-slate-500">(선택)</span></label><Textarea value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="예: 학교에서 생성형 AI를 활용하는 기준" className="min-h-20 resize-none" /></div><div className="space-y-2"><label className="text-sm font-semibold text-slate-800">나의 주제문</label><Textarea value={thesis} onChange={(event) => { setThesis(event.target.value); setAnalysis(null); }} placeholder="예: 학교는 학습 목적과 개인정보 보호 기준을 갖춘 경우에만 생성형 AI 사용을 허용해야 한다." className="min-h-40" /></div></div>
+            <div className="mt-5 space-y-2"><Button onClick={handleAnalyze} disabled={analyzeMutation.isPending} className="w-full bg-violet-700 hover:bg-violet-800">{analyzeMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />AI 분석 중</> : <><Sparkles className="mr-2 h-4 w-4" />AI 분석 시작</>}</Button><Button variant="outline" onClick={handleReset} className="w-full"><RefreshCw className="mr-2 h-4 w-4" />초기화</Button></div>
+            {analysis && <div className="mt-5 rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">AI 종합 점수</p><p className={`mt-1 text-4xl font-bold ${scoreTone}`}>{analysis.score}<span className="text-lg">점</span></p><p className="mt-2 text-sm leading-6 text-slate-700">{analysis.summary}</p></div>}
+          </Card>
+          <section className="space-y-4">
+            {!analysis ? <Card className="border-dashed border-slate-300 bg-white p-10 text-center shadow-sm"><AlertCircle className="mx-auto h-12 w-12 text-slate-300" /><h2 className="mt-4 text-lg font-bold text-slate-800">AI 분석을 시작해 보세요</h2><p className="mt-2 text-sm leading-6 text-slate-500">수동 체크로 점수를 만드는 대신, 입력한 문장을 기준으로 각 항목이 녹색·주황·빨강으로 표시됩니다.</p></Card> : <>
+              <Card className="border-violet-200 bg-violet-50 p-5 shadow-sm"><div className="flex items-start gap-3"><Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" /><div className="flex-1"><p className="font-bold text-slate-900">AI 주제문 작성 예시</p><p className="mt-2 text-sm leading-7 text-slate-800">{analysis.recommendedThesis}</p><Button size="sm" variant="outline" onClick={() => { setThesis(analysis.recommendedThesis); setAnalysis(null); toast.success("AI 예시를 입력창에 적용했습니다. 자신의 표현으로 다듬어 다시 분석해 보세요."); }} className="mt-3 border-violet-300 bg-white text-violet-800 hover:bg-violet-100">예시를 편집하기</Button></div></div></Card>
+              <div className="grid gap-3 sm:grid-cols-2">{CHECKLIST_ITEMS.map((criterion) => { const item = itemById.get(criterion.id); const status = item?.status ?? "warn"; const style = statusStyle[status]; const Icon = style.icon; return <Card key={criterion.id} onClick={handleAnalyze} className={`cursor-pointer border p-4 shadow-sm transition hover:shadow-md ${style.card}`}><div className="flex items-start gap-3"><Checkbox checked={status === "pass"} aria-label={`${criterion.label} AI 재분석`} onCheckedChange={() => handleAnalyze()} disabled={analyzeMutation.isPending} className="mt-1" /><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><h3 className="font-bold text-slate-900">{criterion.label}</h3><Badge className={style.badge}>{style.label}</Badge></div><p className="mt-1 text-xs leading-5 text-slate-600">{criterion.description}</p><p className="mt-3 text-sm font-medium leading-6 text-slate-800">{item?.rationale}</p><p className="mt-2 text-xs leading-5 text-slate-700"><span className="font-bold">다음 수정: </span>{item?.suggestion}</p></div><Icon className="mt-1 h-5 w-5 shrink-0 text-slate-700" /></div></Card>; })}</div>
+              <p className="text-center text-xs text-slate-500">체크 항목이나 카드를 누르면 현재 문장을 다시 AI 분석합니다. 녹색은 충족, 주황은 보완, 빨강은 재작성 권장입니다.</p>
+            </>}
+          </section>
         </div>
-
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Left: Thesis Input */}
-          <div className="lg:col-span-1">
-            <Card className="p-6 bg-white sticky top-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                주제문 입력
-              </h3>
-              <Textarea
-                placeholder="검토할 주제문을 입력하세요..."
-                value={thesis}
-                onChange={(e) => setThesis(e.target.value)}
-                className="min-h-[150px] mb-4 p-3"
-              />
-
-              <div className="space-y-2">
-                <Button
-                  onClick={handleAnalyze}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-                >
-                  분석 시작
-                </Button>
-                <Button
-                  onClick={handleReset}
-                  variant="outline"
-                  className="w-full"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  초기화
-                </Button>
-              </div>
-
-              {analyzed && (
-                <div className={`mt-4 p-4 rounded-lg border ${getScoreBgColor(completionRate)}`}>
-                  <p className={`text-sm font-semibold ${getScoreColor(completionRate)}`}>
-                    완성도: {completionRate}%
-                  </p>
-                  <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                    <div
-                      className={`h-2 rounded-full transition-all ${
-                        completionRate === 100
-                          ? "bg-green-500"
-                          : completionRate >= 75
-                          ? "bg-blue-500"
-                          : completionRate >= 50
-                          ? "bg-yellow-500"
-                          : "bg-red-500"
-                      }`}
-                      style={{ width: `${completionRate}%` }}
-                    ></div>
-                  </div>
-                </div>
-              )}
-            </Card>
-          </div>
-
-          {/* Right: Checklist */}
-          <div className="lg:col-span-2">
-            {analyzed ? (
-              <div className="space-y-4">
-                {/* Score Card */}
-                <Card className={`p-6 border-2 ${getScoreBgColor(completionRate)}`}>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xl font-bold text-gray-900">
-                      주제문 평가
-                    </h3>
-                    <div className={`text-4xl font-bold ${getScoreColor(completionRate)}`}>
-                      {completionRate}%
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-600">
-                    {completionRate === 100
-                      ? "완벽한 주제문입니다! 이 주제문으로 논술을 시작해도 좋습니다."
-                      : completionRate >= 75
-                      ? "좋은 주제문입니다. 몇 가지 개선 사항을 확인해보세요."
-                      : completionRate >= 50
-                      ? "개선이 필요한 부분들이 있습니다. 아래 항목들을 확인하세요."
-                      : "주제문을 다시 작성하는 것을 권장합니다."}
-                  </p>
-                </Card>
-
-                {/* Checklist Items */}
-                <div className="space-y-3">
-                  {items.map((item) => (
-                    <Card
-                      key={item.id}
-                      className={`p-4 cursor-pointer transition-all ${
-                        item.checked
-                          ? "bg-green-50 border-green-200"
-                          : "bg-white hover:bg-gray-50"
-                      }`}
-                      onClick={() => handleCheck(item.id)}
-                    >
-                      <div className="flex items-start gap-3">
-                        <Checkbox
-                          checked={item.checked}
-                          onChange={() => handleCheck(item.id)}
-                          className="mt-1"
-                        />
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-gray-900">
-                            {item.label}
-                          </h4>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {item.description}
-                          </p>
-                        </div>
-                        {item.checked && (
-                          <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-1" />
-                        )}
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-
-                {/* Summary */}
-                <Card className="p-6 bg-blue-50 border-blue-200">
-                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <Lightbulb className="w-5 h-5 text-blue-600" />
-                    개선 제안
-                  </h4>
-                  <ul className="space-y-2 text-sm text-gray-700">
-                    {items
-                      .filter((item) => !item.checked)
-                      .map((item) => (
-                        <li key={item.id} className="flex gap-2">
-                          <span className="text-blue-600 font-semibold">•</span>
-                          <span>
-                            <strong>{item.label}:</strong> {item.description}
-                          </span>
-                        </li>
-                      ))}
-                  </ul>
-                  {items.every((item) => item.checked) && (
-                    <p className="text-green-700 font-semibold mt-4">
-                      ✓ 모든 항목을 확인했습니다! 이 주제문으로 논술을 시작하세요.
-                    </p>
-                  )}
-                </Card>
-              </div>
-            ) : (
-              <Card className="p-12 text-center bg-white">
-                <AlertCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg">
-                  주제문을 입력하고 "분석 시작" 버튼을 클릭하세요.
-                </p>
-              </Card>
-            )}
-          </div>
-        </div>
-
-        {/* Tips */}
-        <Card className="mt-6 p-6 bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
-          <h4 className="font-semibold text-gray-900 mb-3">
-            💡 좋은 주제문의 특징
-          </h4>
-          <div className="grid md:grid-cols-2 gap-4 text-sm text-gray-700">
-            <div>
-              <p className="font-semibold text-gray-900 mb-2">✓ 해야 할 것</p>
-              <ul className="space-y-1">
-                <li>• 명확하고 구체적인 주장을 담기</li>
-                <li>• 논쟁의 여지가 있는 의견 제시</li>
-                <li>• 증거로 뒷받침할 수 있는 내용</li>
-              </ul>
-            </div>
-            <div>
-              <p className="font-semibold text-gray-900 mb-2">✗ 하지 말아야 할 것</p>
-              <ul className="space-y-1">
-                <li>• 너무 광범위한 주제</li>
-                <li>• 명백한 사실만 담기</li>
-                <li>• 모호하고 불명확한 표현</li>
-              </ul>
-            </div>
-          </div>
-        </Card>
-      </div>
+        <Card className="mt-6 border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5"><h2 className="font-bold text-slate-900">좋은 주제문을 만드는 간단한 공식</h2><p className="mt-2 text-sm leading-6 text-slate-700"><strong>대상</strong> + <strong>판단·주장</strong> + <strong>판단 기준 또는 조건</strong>을 한 문장으로 연결해 보세요. 분석 결과의 예시는 출발점이므로 그대로 제출하기보다 자신의 근거와 표현으로 다시 다듬는 것이 좋습니다.</p></Card>
+      </main>
     </div>
   );
 }

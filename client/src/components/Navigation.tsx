@@ -66,6 +66,16 @@ export default function Navigation() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(user?.name || "");
   const [editAvatar, setEditAvatar] = useState(user?.avatarUrl || "");
+  const sampleLoginMutation = trpc.auth.loginWithEmail.useMutation({
+    onSuccess: async () => {
+      await refresh?.();
+      window.location.href = "/dashboard";
+    },
+    onError: () => {
+      toast.error("샘플 체험 계정으로 로그인하지 못했습니다. 로그인 화면에서 다시 시도해주세요.");
+      window.location.href = "/login";
+    },
+  });
 
   const updateProfileMutation = trpc.auth.updateProfile.useMutation({
     onSuccess: () => {
@@ -194,24 +204,10 @@ export default function Navigation() {
                   size="sm"
                   variant="outline"
                   className="bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-bold gap-1"
-                  onClick={async () => {
-                    try {
-                      const res = await fetch("/api/trpc/auth.loginWithEmail", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ json: { email: "student@sample.com", password: "sample1234" } }),
-                      });
-                      if (res.ok) {
-                        window.location.href = "/dashboard";
-                      } else {
-                        window.location.href = "/login";
-                      }
-                    } catch {
-                      window.location.href = "/login";
-                    }
-                  }}
+                  disabled={sampleLoginMutation.isPending}
+                  onClick={() => sampleLoginMutation.mutate({ email: "student@sample.com", password: "sample1234" })}
                 >
-                  ✨ 샘플 모드 체험
+                  {sampleLoginMutation.isPending ? "샘플 준비 중..." : "✨ 샘플 모드 체험"}
                 </Button>
               </div>
             )}
@@ -416,7 +412,7 @@ export default function Navigation() {
                       {/* Mobile MyPage / Account Submenu Section */}
                       <div className="border-b border-gray-200 pb-3 mb-2">
                         <p className="px-4 text-xs font-bold text-blue-600 uppercase mb-2">마이페이지 & 개인 기록</p>
-                        <Link href="/dashboard">
+                        <Link href="/dashboard-detail">
                           <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
                             <BarChart3 className="w-4 h-4 text-blue-600" />
                             <span>학습 대시보드</span>

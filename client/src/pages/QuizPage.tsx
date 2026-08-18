@@ -9,10 +9,14 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import QuestionFeedbackBox from "@/components/QuestionFeedbackBox";
+import { readAdminPreviewCourse } from "@/lib/adminPreviewCourse";
 
 export default function QuizPage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [courseType, setCourseType] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("elementary");
+  useEffect(() => {
+    if (user?.role === "admin") setCourseType(readAdminPreviewCourse());
+  }, [user?.role]);
   const { data: qList, isLoading: qLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "quiz", limit: 10 });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string>("");
@@ -23,6 +27,7 @@ export default function QuizPage() {
   const [earnedBadgeName, setEarnedBadgeName] = useState("");
 
   const submitMutation = trpc.quiz.submitAnswer.useMutation();
+  const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
   const awardBadgeMutation = trpc.badges.award.useMutation();
   const utils = trpc.useUtils();
 
@@ -65,18 +70,28 @@ export default function QuizPage() {
       await submitMutation.mutateAsync({
         quizId: currentQ?.id || 1,
         userAnswer: selectedAnswer,
-        isCorrect,
-        feedback: parsedData.explanation || "정답 및 해설",
-        economyScore: "0.85",
-        clarityScore: "0.90",
-        accuracyScore: "0.88",
       });
     } catch (e) {
       // ignore offline/fallback error
     }
+
+    if (isCorrect === 0 && currentQ) {
+      try {
+        await recordMistakeMutation.mutateAsync({
+          questionBankId: currentQ.id,
+          courseType,
+          toolType: "quiz",
+          userAnswer: selectedAnswer,
+          score: 0,
+          aiFeedback: parsedData.explanation || "정답과 해설을 다시 확인해 보세요.",
+        });
+      } catch {
+        toast.error("오답 노트를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.");
+      }
+    }
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(i => i + 1);
       setSelectedAnswer("");
@@ -84,19 +99,15 @@ export default function QuizPage() {
     } else {
       setFinished(true);
       const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} AI 퀴즈 마스터 뱃지`;
-      setEarnedBadgeName(bName);
-      setShowCelebration(true);
-      // 퀴즈 완료 시 자동 뱃지 수여
-      awardBadgeMutation.mutate({
-        courseType,
-        badgeType: "quiz",
-        badgeName: bName,
-      }, {
-        onSuccess: () => {
-          utils.badges.getByUser.invalidate();
-          toast.success("축하합니다! 퀴즈 과정을 완료하고 새로운 뱃지를 획득했습니다.");
-        }
-      });
+      try {
+        await awardBadgeMutation.mutateAsync({ courseType, badgeType: "quiz", badgeName: bName });
+        setEarnedBadgeName(bName);
+        setShowCelebration(true);
+        utils.badges.getByUser.invalidate();
+        toast.success("퀴즈 10문항을 모두 정답으로 완료해 뱃지를 획득했습니다.");
+      } catch {
+        toast.info("퀴즈 뱃지는 서로 다른 10문항을 모두 정답으로 완료하면 수여됩니다.");
+      }
     }
   };
 
