@@ -1,0 +1,16 @@
+{
+  "engine_version": "1.0.0",
+  "terminology_policy": {
+    "do_not_use": ["강한 제재형 표현", "학생 잘못"],
+    "use_instead": ["표현 보완 지적", "재작성 요청", "평가 보류", "각하", "보완 필요 지점"]
+  },
+  "dimensions": [
+    { "dimension": "과제·논제 이해", "competencies": ["task_understanding"], "max_score": 10 },
+    { "dimension": "내용·사고력", "competencies": ["central_claim", "reasoning_basis"], "max_score": 15 },
+    { "dimension": "주장·논증", "competencies": ["evidence_use", "claim_evidence_link", "logical_inference"], "max_score": 25 },
+    { "dimension": "반론·비판", "competencies": ["counterargument_response"], "max_score": 10 },
+    { "dimension": "구성·문단", "competencies": ["macro_structure", "paragraphing"], "max_score": 15 },
+    { "dimension": "연결·일관성", "competencies": ["coherence"], "max_score": 10 },
+    { "dimension": "표현·언어규범", "competencies": ["sentence_expression", "language_conventions"], "max_score": 15 }
+  ]
+}

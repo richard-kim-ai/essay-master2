@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://essay-master.local/schemas/writing-evaluation-engine-v1.json",
+  "title": "AI 논술·글쓰기 평가엔진 v1.0 요청 스키마",
+  "type": "object",
+  "required": ["metadata", "task", "submission"],
+  "additionalProperties": false,
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["curriculum_code", "theory_category", "education_level", "difficulty", "writing_type"],
+      "additionalProperties": false,
+      "properties": {
+        "task_id": { "type": "string" },
+        "curriculum_code": { "type": "string", "minLength": 1 },
+        "theory_category": { "type": "string", "minLength": 1 },
+        "education_level": {
+          "type": "string",
+          "enum": ["elementary", "middle_high", "high_univ", "general_adult"]
+        },
+        "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "writing_type": {
+          "type": "string",
+          "enum": ["ARGUMENTATIVE", "EXPLANATORY", "REFLECTIVE", "SUMMARY", "CREATIVE"]
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["prompt"],
+      "additionalProperties": false,
+      "properties": {
+        "prompt": { "type": "string", "minLength": 1 },
+        "constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min_chars": { "type": "integer", "minimum": 0 },
+            "max_chars": { "type": "integer", "minimum": 1 },
+            "required_elements": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "submission": {
+      "type": "object",
+      "required": ["learner_id", "essay_text"],
+      "additionalProperties": false,
+      "properties": {
+        "learner_id": { "type": "string", "minLength": 1 },
+        "essay_text": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

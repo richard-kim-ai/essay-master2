@@ -7,6 +7,8 @@ import * as db from "./db";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateEssay } from "./aiFeedback";
+import { evaluateWriting } from "./writingEvaluationEngine";
+import { buildSimulationSamplesFromStudentData, simulateEvaluationLearning } from "./writingEvaluationSimulation";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -22,6 +24,46 @@ import {
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
+
+const writingEvaluationMetadataInput = z.object({
+  task_id: z.string().optional(),
+  curriculum_code: z.string().min(1),
+  theory_category: z.string().min(1),
+  education_level: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+  difficulty: z.number().int().min(1).max(5),
+  writing_type: z.enum(["ARGUMENTATIVE", "EXPLANATORY", "REFLECTIVE", "SUMMARY", "CREATIVE"]),
+});
+
+const writingEvaluationTaskInput = z.object({
+  prompt: z.string().min(1),
+  constraints: z.object({
+    min_chars: z.number().int().min(0).optional(),
+    max_chars: z.number().int().min(1).optional(),
+    required_elements: z.array(z.string()).optional(),
+  }).optional(),
+});
+
+const writingEvaluationInput = z.object({
+  metadata: writingEvaluationMetadataInput,
+  task: writingEvaluationTaskInput,
+  submission: z.object({
+    learner_id: z.string().min(1),
+    essay_text: z.string().min(1),
+  }),
+});
+
+const writingEvaluationSimulationInput = z.object({
+  metadata: writingEvaluationMetadataInput.omit({ task_id: true }),
+  task: writingEvaluationTaskInput,
+  samples: z.array(z.object({
+    sample_id: z.string().min(1),
+    learner_id: z.string().min(1),
+    essay_text: z.string().min(1),
+    previous_score: z.number().nullable().optional(),
+    source: z.enum(["essay_submission", "ai_auto_feedback", "manual"]).optional(),
+  })).min(1),
+});
 
 function requestOrigin(req: { protocol: string; headers: Record<string, unknown> }) {
   const forwardedProto = req.headers["x-forwarded-proto"];
@@ -694,6 +736,53 @@ export const appRouter = router({
           suggestions: JSON.stringify(feedback.suggestions),
           strengths: JSON.stringify(feedback.strengths),
           weaknesses: JSON.stringify(feedback.weaknesses),
+        });
+      }),
+  }),
+
+  writingEvaluationEngine: router({
+    evaluate: protectedProcedure
+      .input(writingEvaluationInput)
+      .mutation(({ input }) => evaluateWriting(input)),
+
+    simulate: protectedProcedure
+      .input(writingEvaluationSimulationInput)
+      .mutation(({ input }) => simulateEvaluationLearning(input)),
+
+    simulateMyEssays: protectedProcedure
+      .input(
+        z.object({
+          metadata: writingEvaluationMetadataInput.omit({ task_id: true }),
+          task: writingEvaluationTaskInput,
+          limit: z.number().int().min(1).max(50).default(20),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const essaySubmissions = await db.getEssaySubmissionsByUser(ctx.user.id);
+        const aiFeedbacks = await db.getAIAutoFeedbackByUser(ctx.user.id);
+        const samples = buildSimulationSamplesFromStudentData({
+          essaySubmissions: essaySubmissions.slice(0, input.limit),
+          aiFeedbacks: aiFeedbacks.slice(0, input.limit),
+        }).slice(0, input.limit);
+
+        if (samples.length === 0) {
+          return {
+            engine_version: "1.0.0",
+            sample_count: 0,
+            scored_count: 0,
+            average_score: 0,
+            decision_counts: {},
+            recurring_error_patterns: [],
+            next_learning_distribution: [],
+            calibration_candidates: [],
+            evaluations: [],
+          };
+        }
+
+        return simulateEvaluationLearning({
+          metadata: input.metadata,
+          task: input.task,
+          samples,
         });
       }),
   }),
