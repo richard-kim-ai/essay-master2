@@ -145,6 +145,22 @@ export const classAssignmentSubmissions = mysqlTable("class_assignment_submissio
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// 교사 최종 채점 전 AI가 생성한 과제별 1차 첨삭 초안과 구조화 평가 근거를 보존합니다.
+export const classAssignmentAiFeedbacks = mysqlTable("class_assignment_ai_feedbacks", {
+  id: int("id").autoincrement().primaryKey(),
+  submissionId: int("submissionId").notNull(),
+  generatedBy: int("generatedBy").notNull(),
+  modelId: varchar("modelId", { length: 120 }).notNull(),
+  overallScore: int("overallScore").notNull(),
+  evaluationJson: text("evaluationJson").notNull(),
+  draftComment: text("draftComment").notNull(),
+  status: mysqlEnum("status", ["generated", "reviewed", "discarded"]).default("generated").notNull(),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 // 교사가 반복 사용하는 채점·첨삭 문구를 개인별로 보관합니다.
 export const teacherFeedbackTemplates = mysqlTable("teacher_feedback_templates", {
   id: int("id").autoincrement().primaryKey(),
@@ -170,6 +186,7 @@ export type ClassAttendance = typeof classAttendance.$inferSelect;
 export type ClassAnnouncement = typeof classAnnouncements.$inferSelect;
 export type ClassAssignment = typeof classAssignments.$inferSelect;
 export type ClassAssignmentSubmission = typeof classAssignmentSubmissions.$inferSelect;
+export type ClassAssignmentAiFeedback = typeof classAssignmentAiFeedbacks.$inferSelect;
 export type TeacherFeedbackTemplate = typeof teacherFeedbackTemplates.$inferSelect;
 export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
 

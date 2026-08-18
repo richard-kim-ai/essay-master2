@@ -98,18 +98,18 @@ export default function TeacherMyPage() {
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-8">
-        <div className="flex flex-col gap-4 rounded-2xl bg-gradient-to-r from-indigo-700 to-blue-800 p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between sm:p-8">
+        <div className="flex flex-col gap-4 rounded-2xl p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between sm:p-8" style={{ backgroundImage: "linear-gradient(110deg, #172a88 0%, #2563eb 52%, #173a9a 100%)", color: "#ffffff" }}>
           <div>
             <div className="flex items-center gap-2">
-              <Badge className="bg-white/20 text-white hover:bg-white/30">교사 포털</Badge>
-              <span className="text-xs text-indigo-200">Level {user.teacherLevel || 1} 권한</span>
-              <Badge className="bg-emerald-500 text-white">승인 완료</Badge>
+              <Badge className="border-0" style={{ backgroundColor: "rgba(255,255,255,0.18)", color: "#ffffff" }}>교사 포털</Badge>
+              <span className="text-xs" style={{ color: "#dbeafe" }}>Level {user.teacherLevel || 1} 권한</span>
+              <Badge className="border-0" style={{ backgroundColor: "#059669", color: "#ffffff" }}>승인 완료</Badge>
             </div>
             <h1 className="mt-2 text-3xl font-bold">{user.name || "선생님"} 교사 마이페이지</h1>
-            <p className="mt-1 text-sm text-indigo-100">{teacherLevelNames[user.teacherLevel || 1]}</p>
+            <p className="mt-1 text-sm" style={{ color: "#dbeafe" }}>{teacherLevelNames[user.teacherLevel || 1]}</p>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/essay-submission"><Button variant="secondary" className="gap-2 bg-white text-indigo-900 hover:bg-indigo-50"><FileEdit className="h-4 w-4" /> 첨삭 관리 센터</Button></Link>
+            <Link href="/essay-submission"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#ffffff", color: "#1e1b4b" }}><FileEdit className="h-4 w-4" /> 첨삭 관리 센터</Button></Link>
           </div>
         </div>
 

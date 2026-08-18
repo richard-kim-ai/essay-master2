@@ -45,6 +45,7 @@ import {
   classAnnouncements,
   classAssignments,
   classAssignmentSubmissions,
+  classAssignmentAiFeedbacks,
   teacherFeedbackTemplates,
   adminAuditLogs,
   type InsertSocialProviderConfig,
@@ -886,10 +887,13 @@ export async function getStudentDetailStats(userId: number) {
   const userRecord = await getUserById(userId);
   if (!userRecord) return null;
 
-  const submissions = await getEssaySubmissionsByUser(userId);
-  const userProgress = await getProgressByUser(userId);
-  const userCerts = await getCertificatesByUser(userId);
-  const aiFeedbacks = await getAIAutoFeedbackByUser(userId);
+  const [submissions, userProgress, userCerts, aiFeedbacks, classAssignmentDetails] = await Promise.all([
+    getEssaySubmissionsByUser(userId),
+    getProgressByUser(userId),
+    getCertificatesByUser(userId),
+    getAIAutoFeedbackByUser(userId),
+    getStudentClassAssignmentDetails(userId),
+  ]);
 
   return {
     user: {
@@ -908,6 +912,7 @@ export async function getStudentDetailStats(userId: number) {
     progress: userProgress,
     certificates: userCerts,
     aiFeedbacks,
+    classAssignments: classAssignmentDetails,
   };
 }
 
@@ -2081,6 +2086,69 @@ export async function submitStudentClassAssignment(studentId: number, assignment
   return created;
 }
 
+export async function getStudentClassAssignmentDetails(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const [assignments, aiFeedbacks] = await Promise.all([
+    getStudentClassAssignments(studentId),
+    db.select().from(classAssignmentAiFeedbacks).orderBy(desc(classAssignmentAiFeedbacks.generatedAt)),
+  ]);
+  const feedbackBySubmissionId = new Map<number, typeof classAssignmentAiFeedbacks.$inferSelect>();
+  aiFeedbacks.forEach((feedback) => {
+    if (feedback.status === "reviewed" && !feedbackBySubmissionId.has(feedback.submissionId)) feedbackBySubmissionId.set(feedback.submissionId, feedback);
+  });
+  return assignments.map((assignment) => ({
+    ...assignment,
+    aiFeedback: assignment.submission ? feedbackBySubmissionId.get(assignment.submission.id) ?? null : null,
+  }));
+}
+
+export async function getClassAssignmentAiFeedbacks(submissionId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(classAssignmentAiFeedbacks).where(eq(classAssignmentAiFeedbacks.submissionId, submissionId)).orderBy(desc(classAssignmentAiFeedbacks.generatedAt));
+}
+
+export async function generateClassAssignmentAiFeedback(teacherId: number, submissionId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
+  if (!submission) throw new Error("AI 첨삭을 생성할 제출물을 찾을 수 없습니다.");
+  const [assignment, student] = await Promise.all([
+    db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId)).then((rows) => rows[0]),
+    db.select().from(users).where(eq(users.id, submission.studentId)).then((rows) => rows[0]),
+  ]);
+  if (!assignment || !student) throw new Error("과제 또는 학생 정보를 찾을 수 없습니다.");
+  await assertTeacherGroupOwnership(teacherId, assignment.groupId);
+
+  const courseType = getCourseTypeFromUserTag(student.tag);
+  const evaluation = await evaluateSubjectiveWorkbookAnswer({
+    courseType,
+    level: 1,
+    title: assignment.title,
+    prompt: assignment.instructions,
+    correctAnswer: "과제 안내에 제시된 논제에 맞춰 주장과 근거를 갖춘 답안을 작성합니다.",
+    explanation: assignment.instructions,
+  }, submission.content);
+  const { data: models } = await listLLMModels();
+  const modelId = evaluation.status === "insufficient"
+    ? "rule-based-insufficient-check"
+    : (['gpt-5', 'claude-sonnet-4-6', 'gemini-3.1-pro-preview'].find((id) => models.some((model) => model.id === id)) ?? "structured-rubric");
+  const draftComment = `[AI 1차 첨삭 초안 · 교사 검토 전]\n${formatSubjectiveEvaluationFeedback(evaluation)}`;
+  await db.insert(classAssignmentAiFeedbacks).values({
+    submissionId,
+    generatedBy: teacherId,
+    modelId,
+    overallScore: evaluation.score,
+    evaluationJson: JSON.stringify(evaluation),
+    draftComment,
+    status: "generated",
+    generatedAt: new Date(),
+  });
+  const [created] = await db.select().from(classAssignmentAiFeedbacks).where(eq(classAssignmentAiFeedbacks.submissionId, submissionId)).orderBy(desc(classAssignmentAiFeedbacks.id));
+  return created;
+}
+
 export async function getTeacherClassAssignmentSubmissions(teacherId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -2111,6 +2179,7 @@ export async function reviewStudentClassAssignment(teacherId: number, submission
   if (!assignment) throw new Error("연결된 과제를 찾을 수 없습니다.");
   await assertTeacherGroupOwnership(teacherId, assignment.groupId);
   await db.update(classAssignmentSubmissions).set({ status: "reviewed", score: input.score, teacherComment: input.teacherComment.trim(), reviewedAt: new Date(), updatedAt: new Date() }).where(eq(classAssignmentSubmissions.id, submissionId));
+  await db.update(classAssignmentAiFeedbacks).set({ status: "reviewed", reviewedAt: new Date(), updatedAt: new Date() }).where(and(eq(classAssignmentAiFeedbacks.submissionId, submissionId), eq(classAssignmentAiFeedbacks.status, "generated")));
   await db.insert(appNotifications).values({ userId: submission.studentId, assignmentId: assignment.id, title: `[과제 채점 완료] ${assignment.title}`, message: `교사가 과제를 채점했습니다. 점수 ${input.score}점과 피드백을 확인하세요.`, category: "teacher_feedback" });
   const [updated] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
   return updated;
@@ -2247,6 +2316,45 @@ export async function getTeacherAssignmentNotificationStats(teacherId: number) {
     openedThenSubmitted: total.openedThenSubmitted + row.openedThenSubmitted,
   }), { sent: 0, read: 0, unread: 0, submittedAfterNotice: 0, openedThenSubmitted: 0 });
   return { summary: { ...summary, readRate: summary.sent ? Math.round((summary.read / summary.sent) * 100) : 0, conversionRate: summary.sent ? Math.round((summary.openedThenSubmitted / summary.sent) * 100) : 0 }, rows };
+}
+
+export async function getTeacherAssignmentReminderHistory(teacherId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const [groups, assignments, notifications, submissions, allUsers] = await Promise.all([
+    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
+    db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)),
+    db.select().from(appNotifications).where(eq(appNotifications.category, "assignment_deadline")),
+    db.select().from(classAssignmentSubmissions),
+    db.select().from(users),
+  ]);
+  const groupsById = new Map(groups.map((group) => [group.id, group]));
+  const assignmentsById = new Map(assignments.map((assignment) => [assignment.id, assignment]));
+  const usersById = new Map(allUsers.map((user) => [user.id, user]));
+  return notifications.flatMap((notification) => {
+    if (!notification.assignmentId) return [];
+    const assignment = assignmentsById.get(notification.assignmentId);
+    const group = assignment ? groupsById.get(assignment.groupId) : null;
+    if (!assignment || !group) return [];
+    const submission = submissions.find((item) => item.assignmentId === assignment.id && item.studentId === notification.userId) ?? null;
+    const submittedAfterNotice = Boolean(submission?.submittedAt && submission.submittedAt >= notification.createdAt);
+    return [{
+      notificationId: notification.id,
+      assignmentId: assignment.id,
+      assignmentTitle: assignment.title,
+      groupName: group.name,
+      studentId: notification.userId,
+      studentName: usersById.get(notification.userId)?.name || `학생 #${notification.userId}`,
+      studentEmail: usersById.get(notification.userId)?.email || null,
+      dueAt: assignment.dueAt,
+      notifiedAt: notification.createdAt,
+      isRead: notification.isRead === 1,
+      readAt: notification.readAt,
+      submittedAt: submission?.submittedAt ?? null,
+      submittedAfterNotice,
+      submissionStatus: submission?.status ?? "pending",
+    }];
+  }).sort((left, right) => right.notifiedAt.getTime() - left.notifiedAt.getTime());
 }
 
 export async function getTeacherPermissionGrants() {

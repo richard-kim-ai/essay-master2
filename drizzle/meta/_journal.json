@@ -260,6 +260,13 @@
       "when": 1787021833292,
       "tag": "0036_left_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1787033465541,
+      "tag": "0037_curvy_dorian_gray",
+      "breakpoints": true
     }
   ]
 }

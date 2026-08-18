@@ -111,8 +111,11 @@ describe("appRouter", () => {
       await expect(caller.teacherOperations.feedbackTemplates()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.monthlyAssignmentStats({ month: "2026-08" })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.assignmentNotificationStats()).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.teacherOperations.assignmentReminderHistory()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.classAssignmentSubmissions()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.reviewClassAssignmentSubmission({ submissionId: 1, score: 80, teacherComment: "구체적인 근거를 더 보강해보세요." })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.teacherOperations.classAssignmentAiFeedback({ submissionId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.teacherOperations.generateClassAssignmentAiFeedback({ submissionId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.notifyUpcomingAssignmentStudents({ hoursAhead: 72 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   });
@@ -124,6 +127,13 @@ describe("appRouter", () => {
       }));
       await expect(teacherCaller.student.myAssignments()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(teacherCaller.student.submitAssignment({ assignmentId: 1, content: "과제 답안 제출을 위한 충분한 길이의 예시 문장입니다." })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
+  describe("parent assignment access", () => {
+    it("연결되지 않은 학생의 과제·채점 정보를 학부모 계정으로 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   });
 
