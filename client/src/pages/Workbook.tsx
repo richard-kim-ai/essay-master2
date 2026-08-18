@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
-import { Loader2, CheckCircle, HelpCircle, Send, Award, ListChecks, Lightbulb } from "lucide-react";
+import { Loader2, CheckCircle, HelpCircle, Send, Award, ListChecks, Lightbulb, Sparkles, ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -37,6 +37,14 @@ type SubmittedWorkbookResult = {
   score: number;
   aiFeedback: string;
   evaluation?: SubjectiveEvaluation | null;
+};
+
+type LessonWritingGuide = {
+  learningGoal: string;
+  thinkingSteps: string[];
+  sentenceFrame: string;
+  practiceExample: string;
+  selfCheck: string[];
 };
 
 const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: { id: number; title: string; content: string; example: string }[] }>> = {
@@ -246,6 +254,7 @@ export default function Workbook() {
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [submittedResults, setSubmittedResults] = useState<Record<number, SubmittedWorkbookResult>>({});
   const [submittingQId, setSubmittingQId] = useState<number | null>(null);
+  const [lessonGuide, setLessonGuide] = useState<LessonWritingGuide | null>(null);
 
   const progressMutation = trpc.progress.upsert.useMutation();
   const { data: workbookQuestions = [], isLoading: qLoading } = trpc.curriculum.getWorkbookQuestions.useQuery({
@@ -255,6 +264,7 @@ export default function Workbook() {
   }, { enabled: isAuthenticated });
 
   const submitAnswerMutation = trpc.curriculum.submitWorkbookAnswer.useMutation();
+  const lessonGuideMutation = trpc.questionBank.lessonWritingGuide.useMutation();
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
@@ -273,6 +283,20 @@ export default function Workbook() {
   };
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
+
+  const handleLessonGuide = async () => {
+    try {
+      const guide = await lessonGuideMutation.mutateAsync({
+        courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
+        lessonTitle: lesson.title,
+        lessonContent: lesson.content,
+        lessonExample: lesson.example,
+      });
+      setLessonGuide(guide);
+    } catch (error: any) {
+      toast.error(error?.message || "AI 레슨 가이드를 불러오지 못했습니다.");
+    }
+  };
 
   const handleCompleteLesson = async () => {
     setLoading(true);
@@ -340,7 +364,7 @@ export default function Workbook() {
                   key={l.id}
                   variant={currentLesson === idx ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setCurrentLesson(idx)}
+                  onClick={() => { setCurrentLesson(idx); setLessonGuide(null); }}
                   className={currentLesson === idx ? "bg-indigo-600 text-white" : ""}
                 >
                   Lesson {idx + 1}: {l.title} {completedLessons.includes(idx) ? "✓" : ""}
@@ -354,6 +378,28 @@ export default function Workbook() {
               <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm font-medium text-indigo-900">
                 {lesson.example}
               </div>
+            </div>
+
+            <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex gap-3">
+                  <div className="rounded-xl bg-violet-100 p-2.5 text-violet-700"><Sparkles className="h-5 w-5" /></div>
+                  <div><p className="font-bold text-slate-900">AI 레슨 코치: 생각 순서와 연습 예시</p><p className="mt-1 text-sm leading-6 text-slate-600">현재 개념을 답안에 적용하는 방법을 안내합니다. 아래 기출문제의 정답은 공개하지 않습니다.</p></div>
+                </div>
+                <Button size="sm" onClick={handleLessonGuide} disabled={lessonGuideMutation.isPending} className="shrink-0 bg-violet-700 text-white hover:bg-violet-800">
+                  {lessonGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />준비 중</> : <><Sparkles className="mr-2 h-4 w-4" />AI 가이드 받기</>}
+                </Button>
+              </div>
+              {lessonGuide && <div className="mt-5 grid gap-4 border-t border-violet-200 pt-5 md:grid-cols-2">
+                <div className="space-y-3"><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">이번 레슨 목표</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.learningGoal}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">생각 순서</p><ol className="mt-2 space-y-2 text-sm leading-6 text-slate-700">{lessonGuide.thinkingSteps.map((item, index) => <li key={item} className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-200 text-xs font-bold text-violet-800">{index + 1}</span>{item}</li>)}</ol></div></div>
+                <div className="space-y-3"><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">문장 틀</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.sentenceFrame}</p></div><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">새 연습 예시</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.practiceExample}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">제출 전 셀프 체크</p><ul className="mt-2 space-y-1 text-sm leading-6 text-slate-700">{lessonGuide.selfCheck.map((item) => <li key={item}>• {item}</li>)}</ul></div></div>
+              </div>}
+            </div>
+
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-3">
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. 개념 적용</p><p className="mt-1 text-sm text-slate-700">AI 가이드로 생각 순서를 확인한 뒤 기출문제를 풉니다.</p></div>
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">2. 주제와 주장 설계</p><Link href="/topic-wizard"><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제 설정 위저드 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">3. 주제문 검토</p><Link href="/thesis-checklist"><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">AI 주제문 체크 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
             </div>
 
             {/* 고정 기출문제 3문항 섹션 */}
