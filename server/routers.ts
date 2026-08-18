@@ -1213,6 +1213,9 @@ export const appRouter = router({
         aiFeedback: z.string().min(1).max(6000),
       }))
       .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "user") {
+          return { stored: true, skipped: true, reason: "관리자·교사 점검 결과는 학습자 오답 노트에 저장하지 않습니다." };
+        }
         if (input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 학습 도구 결과만 저장할 수 있습니다." });
         }

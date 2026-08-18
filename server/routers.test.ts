@@ -138,6 +138,34 @@ describe("appRouter", () => {
       await expect(caller.learningResources.myLessonGuideHistory()).resolves.toEqual(expect.any(Array));
       await expect(caller.learningResources.publishedWritingExamples()).resolves.toEqual(expect.any(Array));
     });
+
+    it("관리자 점검 계정은 다른 과정의 퀴즈 오답을 저장하지 않고 정상 종료한다", async () => {
+      const adminCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "admin", tag: "일반" } as any,
+      }));
+      await expect(adminCaller.questionBank.recordMistake({
+        questionBankId: 90001,
+        courseType: "elementary",
+        toolType: "quiz",
+        userAnswer: "관리자 점검 답안",
+        score: 0,
+        aiFeedback: "관리자 점검용 피드백입니다.",
+      })).resolves.toMatchObject({ skipped: true });
+    });
+
+    it("학습자는 가입하지 않은 과정의 학습 도구 오답을 저장할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "초등" } as any,
+      }));
+      await expect(caller.questionBank.recordMistake({
+        questionBankId: 90001,
+        courseType: "general_adult",
+        toolType: "quiz",
+        userAnswer: "학습자 답안",
+        score: 0,
+        aiFeedback: "과정 제한 검증용 피드백입니다.",
+      })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
   });
 
   describe("parent assignment access", () => {
