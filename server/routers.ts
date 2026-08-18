@@ -40,6 +40,28 @@ const questionGenerationInput = z.object({
   if (!value.tool_type && !value.toolType) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "생성할 학습 도구가 필요합니다.", path: ["tool_type"] });
 });
 
+const theoryContentWriteInput = z.object({
+  courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+  lessonLevel: z.coerce.number().int().min(1).max(5),
+  theoryCategory: z.string().trim().min(2).max(32),
+  theorySubcategory: z.string().trim().min(2).max(128),
+  exampleMode: z.enum(["TEXTBOOK_SIMILAR", "TEXTBOOK_PLUS_NEW"]),
+  title: z.string().trim().min(4).max(255),
+  contentData: z.string().trim().min(20),
+  sourceNote: z.string().trim().min(2).max(255).optional(),
+  isActive: z.coerce.number().int().min(0).max(1).optional(),
+});
+
+const theoryGenerationInput = z.object({
+  course: z.enum(["ELEMENTARY", "MIDDLE_HIGH", "HIGH_ADMISSION", "GENERAL_WORK"]),
+  theory_category: z.string().trim().min(2).max(32),
+  theory_subcategory: z.string().trim().min(2).max(128).default("AUTO"),
+  lesson_level: z.coerce.number().int().min(1).max(5),
+  content_count: z.coerce.number().int().min(1).max(6).default(3),
+  example_mode: z.enum(["TEXTBOOK_SIMILAR", "TEXTBOOK_PLUS_NEW"]).default("TEXTBOOK_PLUS_NEW"),
+  context: z.string().trim().min(2).max(500).default("AUTO"),
+});
+
 function requestOrigin(req: { protocol: string; headers: Record<string, unknown> }) {
   const forwardedProto = req.headers["x-forwarded-proto"];
   const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.toString().split(",")[0])?.trim() || req.protocol || "https";
@@ -674,6 +696,51 @@ export const appRouter = router({
       assignmentDeadline: z.boolean(),
       notice: z.boolean(),
     })).mutation(({ ctx, input }) => db.updateUserPushPreferences(ctx.user.id, input)),
+  }),
+
+  // ========== Theory lesson content routes ==========
+  theoryContent: router({
+    list: adminProcedure
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(), status: z.enum(["all", "active", "inactive"]).optional() }).optional())
+      .query(({ input }) => db.getTheoryContentAdminList(input)),
+
+    listDrafts: adminProcedure
+      .input(z.object({ status: z.enum(["preview", "approved", "rejected"]).optional() }).optional())
+      .query(({ input }) => db.getTheoryDrafts(input)),
+
+    create: adminProcedure.input(theoryContentWriteInput).mutation(({ input }) => db.createTheoryContent(input)),
+
+    update: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), data: theoryContentWriteInput }))
+      .mutation(({ input }) => db.updateTheoryContent(input.id, input.data)),
+
+    setActive: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), isActive: z.boolean() }))
+      .mutation(({ input }) => db.setTheoryContentActive(input.id, input.isActive)),
+
+    generatePreviews: adminProcedure
+      .input(theoryGenerationInput)
+      .mutation(({ ctx, input }) => db.generateTheoryContentPreviews(ctx.user.id, input)),
+
+    updateDraft: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), data: theoryContentWriteInput }))
+      .mutation(({ input }) => db.updateTheoryDraft(input.id, input.data)),
+
+    approveDraft: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => db.approveTheoryDraft(input.id, ctx.user.id)),
+
+    rejectDraft: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => db.rejectTheoryDraft(input.id, ctx.user.id)),
+
+    getMyProgress: protectedProcedure
+      .input(z.object({ theoryContentIds: z.array(z.number().int().positive()).max(30).optional() }).optional())
+      .query(({ ctx, input }) => db.getTheoryProgressByUser(ctx.user.id, input?.theoryContentIds)),
+
+    completeCheck: protectedProcedure
+      .input(z.object({ theoryContentId: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => db.completeTheoryCheck(ctx.user.id, input.theoryContentId)),
   }),
 
   // ========== Progress Routes ==========

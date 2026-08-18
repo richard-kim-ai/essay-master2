@@ -67,6 +67,21 @@ describe("appRouter", () => {
     });
   });
 
+  describe("theory content administration", () => {
+    it("일반 사용자는 이론 콘텐츠 운영 목록에 접근할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.theoryContent.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("관리자는 이론 콘텐츠 운영 목록을 조회할 수 있다", async () => {
+      const ctx = createMockContext();
+      ctx.user = { ...ctx.user!, role: "admin" };
+      const caller = appRouter.createCaller(ctx);
+      const result = await caller.theoryContent.list();
+      expect(Array.isArray(result)).toBe(true);
+    });
+  });
+
   describe("difficulty operation preset", () => {
     it("일반 사용자는 전체 과정의 난이도 운영 프리셋을 변경할 수 없다", async () => {
       const caller = appRouter.createCaller(createMockContext());

@@ -612,6 +612,44 @@ export const lessonTheoryContent = mysqlTable("lesson_theory_content", {
 export type LessonTheoryContent = typeof lessonTheoryContent.$inferSelect;
 export type InsertLessonTheoryContent = typeof lessonTheoryContent.$inferInsert;
 
+// AI가 생성한 이론 콘텐츠는 관리자 승인 전까지 본문 테이블과 분리해 보관한다.
+export const lessonTheoryDrafts = mysqlTable("lesson_theory_drafts", {
+  id: int("id").autoincrement().primaryKey(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  lessonLevel: int("lessonLevel").notNull(),
+  theoryCategory: varchar("theoryCategory", { length: 32 }).notNull(),
+  theorySubcategory: varchar("theorySubcategory", { length: 128 }).notNull(),
+  exampleMode: mysqlEnum("exampleMode", ["TEXTBOOK_SIMILAR", "TEXTBOOK_PLUS_NEW"]).default("TEXTBOOK_PLUS_NEW").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  contentData: text("contentData").notNull(),
+  sourceNote: varchar("sourceNote", { length: 255 }).default("AI 생성 이론 콘텐츠"),
+  generationRequestJson: text("generationRequestJson"),
+  modelId: varchar("modelId", { length: 120 }),
+  qaIssuesJson: text("qaIssuesJson"),
+  status: mysqlEnum("status", ["preview", "approved", "rejected"]).default("preview").notNull(),
+  createdBy: int("createdBy").notNull(),
+  approvedBy: int("approvedBy"),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type LessonTheoryDraft = typeof lessonTheoryDrafts.$inferSelect;
+export type InsertLessonTheoryDraft = typeof lessonTheoryDrafts.$inferInsert;
+
+// 이론 레슨의 강의 중 확인문제를 완료한 학습자만 별도로 기록한다.
+export const lessonTheoryProgress = mysqlTable("lesson_theory_progress", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  theoryContentId: int("theoryContentId").notNull(),
+  completedAt: timestamp("completedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type LessonTheoryProgress = typeof lessonTheoryProgress.$inferSelect;
+export type InsertLessonTheoryProgress = typeof lessonTheoryProgress.$inferInsert;
+
 // 학습도구 뱃지 테이블
 export const userBadges = mysqlTable("user_badges", {
   id: int("id").autoincrement().primaryKey(),

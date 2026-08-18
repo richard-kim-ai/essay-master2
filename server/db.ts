@@ -18,6 +18,8 @@ import {
   aiUsageLogs,
   dynamicCurriculum,
   lessonTheoryContent,
+  lessonTheoryDrafts,
+  lessonTheoryProgress,
   siteSettings,
   parentStudentLinks,
   userBadges,
@@ -64,7 +66,7 @@ import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared
 import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
 import { generateQuestionBankItems, qaQuestionItem, type AdaptiveStats, type GenerationRequestInput } from "./questionGeneration";
 import { buildCourseQuizContent, buildCourseSummaryContent, isLegacyRepeatedLearningContent } from "./learningToolContent";
-import { buildTheoryLessonSeedItems } from "./theoryLessonContent";
+import { buildTheoryLessonSeedItems, generateTheoryLessonDrafts, qaTheoryLessonCandidate, theoryLessonRequestSchema, type TheoryLessonDraftCandidate, type TheoryLessonRequestInput } from "./theoryLessonContent";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -473,6 +475,146 @@ export async function seedLessonTheoryContentIfNeeded() {
       title: item.title, contentData: item.contentData, sourceNote: item.sourceNote, isActive: item.isActive,
     });
   }
+}
+
+type TheoryCourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
+type TheoryContentWriteInput = {
+  courseType: TheoryCourseType;
+  lessonLevel: number;
+  theoryCategory: string;
+  theorySubcategory: string;
+  exampleMode: "TEXTBOOK_SIMILAR" | "TEXTBOOK_PLUS_NEW";
+  title: string;
+  contentData: string;
+  sourceNote?: string | null;
+  isActive?: number;
+};
+
+function assertTheoryContentQuality(input: TheoryContentWriteInput) {
+  const candidate: TheoryLessonDraftCandidate = {
+    ...input,
+    sourceNote: input.sourceNote || "관리자 편집 이론 콘텐츠",
+    qaIssues: [],
+  };
+  const issues = qaTheoryLessonCandidate(candidate);
+  if (issues.length) throw new Error(`이론 콘텐츠 QA를 통과하지 못했습니다: ${issues.join(" · ")}`);
+  return candidate;
+}
+
+export async function getTheoryContentAdminList(input?: { courseType?: TheoryCourseType; status?: "all" | "active" | "inactive" }) {
+  const db = await getDb();
+  if (!db) return [];
+  await seedLessonTheoryContentIfNeeded();
+  const rows = await db.select().from(lessonTheoryContent).orderBy(desc(lessonTheoryContent.updatedAt));
+  return rows.filter((item) =>
+    (!input?.courseType || item.courseType === input.courseType)
+    && (input?.status !== "active" || item.isActive === 1)
+    && (input?.status !== "inactive" || item.isActive === 0),
+  );
+}
+
+export async function createTheoryContent(input: TheoryContentWriteInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const valid = assertTheoryContentQuality(input);
+  const [created] = await db.insert(lessonTheoryContent).values({
+    courseType: valid.courseType, lessonLevel: valid.lessonLevel, theoryCategory: valid.theoryCategory, theorySubcategory: valid.theorySubcategory,
+    exampleMode: valid.exampleMode, title: valid.title, contentData: valid.contentData, sourceNote: valid.sourceNote, isActive: input.isActive ?? 1,
+  });
+  return created;
+}
+
+export async function updateTheoryContent(id: number, input: TheoryContentWriteInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const valid = assertTheoryContentQuality(input);
+  await db.update(lessonTheoryContent).set({
+    courseType: valid.courseType, lessonLevel: valid.lessonLevel, theoryCategory: valid.theoryCategory, theorySubcategory: valid.theorySubcategory,
+    exampleMode: valid.exampleMode, title: valid.title, contentData: valid.contentData, sourceNote: valid.sourceNote, isActive: input.isActive ?? 1,
+  }).where(eq(lessonTheoryContent.id, id));
+  return { id, ...valid };
+}
+
+export async function setTheoryContentActive(id: number, isActive: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.update(lessonTheoryContent).set({ isActive: isActive ? 1 : 0 }).where(eq(lessonTheoryContent.id, id));
+  return { id, isActive: isActive ? 1 : 0 };
+}
+
+export async function getTheoryDrafts(input?: { status?: "preview" | "approved" | "rejected" }) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(lessonTheoryDrafts).orderBy(desc(lessonTheoryDrafts.updatedAt));
+  return input?.status ? rows.filter((item) => item.status === input.status) : rows;
+}
+
+export async function generateTheoryContentPreviews(userId: number, input: TheoryLessonRequestInput) {
+  const request = theoryLessonRequestSchema.parse(input);
+  const generated = await generateTheoryLessonDrafts(request);
+  const db = await getDb();
+  if (!db) return generated.items.map((item, index) => ({ ...item, id: -(index + 1), status: "preview" as const, modelId: generated.modelId, createdBy: userId }));
+  const saved = [];
+  for (const item of generated.items) {
+    const [result] = await db.insert(lessonTheoryDrafts).values({
+      courseType: item.courseType, lessonLevel: item.lessonLevel, theoryCategory: item.theoryCategory, theorySubcategory: item.theorySubcategory,
+      exampleMode: item.exampleMode, title: item.title, contentData: item.contentData, sourceNote: item.sourceNote,
+      generationRequestJson: JSON.stringify(request), modelId: generated.modelId, qaIssuesJson: JSON.stringify(item.qaIssues), status: "preview", createdBy: userId,
+    });
+    saved.push({ id: result.insertId, ...item, status: "preview" as const, modelId: generated.modelId, createdBy: userId });
+  }
+  return saved;
+}
+
+export async function updateTheoryDraft(id: number, input: TheoryContentWriteInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const candidate: TheoryLessonDraftCandidate = { ...input, sourceNote: input.sourceNote || "AI 생성 이론 콘텐츠 · 관리자 수정", qaIssues: [] };
+  const qaIssues = qaTheoryLessonCandidate(candidate);
+  await db.update(lessonTheoryDrafts).set({ ...input, sourceNote: candidate.sourceNote, qaIssuesJson: JSON.stringify(qaIssues), status: "preview" }).where(eq(lessonTheoryDrafts.id, id));
+  return { id, ...candidate, qaIssues, status: "preview" as const };
+}
+
+export async function approveTheoryDraft(id: number, adminId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const [draft] = await db.select().from(lessonTheoryDrafts).where(eq(lessonTheoryDrafts.id, id));
+  if (!draft || draft.status !== "preview") throw new Error("승인 대기 중인 이론 콘텐츠 초안을 찾을 수 없습니다.");
+  const candidate = assertTheoryContentQuality({
+    courseType: draft.courseType, lessonLevel: draft.lessonLevel, theoryCategory: draft.theoryCategory, theorySubcategory: draft.theorySubcategory,
+    exampleMode: draft.exampleMode, title: draft.title, contentData: draft.contentData, sourceNote: draft.sourceNote, isActive: 1,
+  });
+  const [inserted] = await db.insert(lessonTheoryContent).values({ ...candidate, isActive: 1 });
+  await db.update(lessonTheoryDrafts).set({ status: "approved", approvedBy: adminId, approvedAt: new Date(), qaIssuesJson: JSON.stringify([]) }).where(eq(lessonTheoryDrafts.id, id));
+  return { draftId: id, theoryContentId: inserted.insertId };
+}
+
+export async function rejectTheoryDraft(id: number, adminId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.update(lessonTheoryDrafts).set({ status: "rejected", approvedBy: adminId, approvedAt: new Date() }).where(eq(lessonTheoryDrafts.id, id));
+  return { id, status: "rejected" as const };
+}
+
+export async function getTheoryProgressByUser(userId: number, theoryContentIds?: number[]) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(lessonTheoryProgress).where(eq(lessonTheoryProgress.userId, userId));
+  return theoryContentIds?.length ? rows.filter((item) => theoryContentIds.includes(item.theoryContentId)) : rows;
+}
+
+export async function completeTheoryCheck(userId: number, theoryContentId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const [content] = await db.select().from(lessonTheoryContent).where(and(eq(lessonTheoryContent.id, theoryContentId), eq(lessonTheoryContent.isActive, 1)));
+  if (!content) throw new Error("활성화된 이론 콘텐츠를 찾을 수 없습니다.");
+  const [existing] = await db.select().from(lessonTheoryProgress).where(and(eq(lessonTheoryProgress.userId, userId), eq(lessonTheoryProgress.theoryContentId, theoryContentId)));
+  if (existing) {
+    await db.update(lessonTheoryProgress).set({ completedAt: new Date() }).where(eq(lessonTheoryProgress.id, existing.id));
+    return { ...existing, completedAt: new Date(), alreadyCompleted: true };
+  }
+  const [created] = await db.insert(lessonTheoryProgress).values({ userId, theoryContentId });
+  return { id: created.insertId, userId, theoryContentId, alreadyCompleted: false };
 }
 
 // ========== Progress Functions ==========

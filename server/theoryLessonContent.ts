@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { invokeLLM, listLLMModels } from "./_core/llm";
 
 export const THEORY_LESSON_MASTER_PROMPT_VERSION = "2026-08-18-theory-lesson-v1";
 export const THEORY_LESSON_CONTENT_SCOPE = "THEORY_LESSON" as const;
@@ -57,4 +58,130 @@ export function buildTheoryLessonSeedItems(): TheoryLessonSeedItem[] {
       sourceNote: `논술의 기초 ${unit.subcategory} 원리 기반 재구성`, isActive: 1,
     };
   }));
+}
+
+const theoryPayloadSchema = z.object({
+  core_concept: z.string().trim().min(24),
+  textbook_anchor: z.object({ kind: z.string().trim().min(2), text: z.string().trim().min(12) }),
+  textbook_similar_example: z.object({ label: z.string().trim().min(2), text: z.string().trim().min(12) }),
+  wrong_example: z.string().trim().min(8),
+  improved_example: z.string().trim().min(8),
+  in_lesson_check: z.object({ question: z.string().trim().min(8), answer: z.string().trim().min(4) }),
+  answer_feedback: z.string().trim().min(8),
+  next_step: z.string().trim().min(8),
+  source_boundary: z.string().trim().min(12),
+});
+
+export type TheoryLessonDraftCandidate = {
+  courseType: TheoryLessonSeedItem["courseType"];
+  lessonLevel: number;
+  theoryCategory: string;
+  theorySubcategory: string;
+  exampleMode: TheoryLessonSeedItem["exampleMode"];
+  title: string;
+  contentData: string;
+  sourceNote: string;
+  qaIssues: string[];
+};
+
+const courseTypeMap = {
+  ELEMENTARY: "elementary",
+  MIDDLE_HIGH: "middle_high",
+  HIGH_ADMISSION: "high_univ",
+  GENERAL_WORK: "general_adult",
+} as const;
+
+const generatedTheorySchema = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      minItems: 1,
+      maxItems: 6,
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          theory_subcategory: { type: "string" },
+          core_concept: { type: "string" },
+          textbook_anchor: { type: "object", properties: { kind: { type: "string" }, text: { type: "string" } }, required: ["kind", "text"], additionalProperties: false },
+          textbook_similar_example: { type: "object", properties: { label: { type: "string" }, text: { type: "string" } }, required: ["label", "text"], additionalProperties: false },
+          wrong_example: { type: "string" },
+          improved_example: { type: "string" },
+          in_lesson_check: { type: "object", properties: { question: { type: "string" }, answer: { type: "string" } }, required: ["question", "answer"], additionalProperties: false },
+          answer_feedback: { type: "string" },
+          next_step: { type: "string" },
+          source_boundary: { type: "string" },
+        },
+        required: ["title", "theory_subcategory", "core_concept", "textbook_anchor", "textbook_similar_example", "wrong_example", "improved_example", "in_lesson_check", "answer_feedback", "next_step", "source_boundary"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+} as const;
+
+export function qaTheoryLessonCandidate(candidate: TheoryLessonDraftCandidate) {
+  const issues: string[] = [];
+  if (!candidate.title || candidate.title.trim().length < 4) issues.push("제목은 4자 이상이어야 합니다.");
+  if (/placeholder|seed|test|테스트 문항/i.test(candidate.title)) issues.push("제목에 개발용 표현을 사용할 수 없습니다.");
+  try {
+    const content = theoryPayloadSchema.parse(JSON.parse(candidate.contentData));
+    if (content.wrong_example === content.improved_example) issues.push("바꿔 볼 문장과 개선 예는 서로 달라야 합니다.");
+    if (!content.source_boundary.includes("교재") && !content.source_boundary.includes("유사")) issues.push("출처·유사 예시 구분 안내가 필요합니다.");
+  } catch (error) {
+    issues.push(error instanceof Error ? `이론 콘텐츠 구조가 유효하지 않습니다: ${error.message}` : "이론 콘텐츠 구조가 유효하지 않습니다.");
+  }
+  return issues;
+}
+
+export async function generateTheoryLessonDrafts(input: TheoryLessonRequestInput): Promise<{ modelId: string | null; items: TheoryLessonDraftCandidate[] }> {
+  const request = theoryLessonRequestSchema.parse(input);
+  const requestedCount = Math.min(6, request.content_count);
+  const { data: models } = await listLLMModels();
+  const modelId = ["gpt-5-mini", "claude-haiku-4-5", "gemini-3-flash-preview"].find((candidate) => models.some((model) => model.id === candidate)) ?? models[0]?.id ?? null;
+  const response = await invokeLLM({
+    model: modelId ?? undefined,
+    messages: [
+      { role: "system", content: THEORY_LESSON_MASTER_PROMPT },
+      { role: "user", content: `${buildTheoryLessonUserPrompt({ ...request, content_count: requestedCount })}\n\n각 결과는 하나의 독립 이론 레슨입니다. 실제 출처의 긴 문장을 복제하지 말고, 교재 원리와 새 유사 예시를 구분하세요. 모든 확인문제는 학습자가 즉시 답할 수 있도록 명료하게 작성하세요.` },
+    ],
+    responseFormat: {
+      type: "json_schema",
+      json_schema: { name: "lesson_theory_draft", strict: true, schema: generatedTheorySchema },
+    },
+  });
+  const raw = response.choices?.[0]?.message?.content;
+  if (typeof raw !== "string" || !raw.trim()) throw new Error("AI 이론 콘텐츠 응답이 비어 있습니다.");
+  const parsed = JSON.parse(raw) as { items?: unknown[] };
+  if (!Array.isArray(parsed.items) || parsed.items.length !== requestedCount) throw new Error("AI가 요청한 개수와 다른 이론 콘텐츠를 반환했습니다.");
+  const courseType = courseTypeMap[request.course];
+  const items = parsed.items.map((item, index) => {
+    const candidate = item as Record<string, unknown>;
+    const payload = theoryPayloadSchema.parse({
+      core_concept: candidate.core_concept,
+      textbook_anchor: candidate.textbook_anchor,
+      textbook_similar_example: candidate.textbook_similar_example,
+      wrong_example: candidate.wrong_example,
+      improved_example: candidate.improved_example,
+      in_lesson_check: candidate.in_lesson_check,
+      answer_feedback: candidate.answer_feedback,
+      next_step: candidate.next_step,
+      source_boundary: candidate.source_boundary,
+    });
+    const draft: TheoryLessonDraftCandidate = {
+      courseType,
+      lessonLevel: request.lesson_level,
+      theoryCategory: request.theory_category,
+      theorySubcategory: typeof candidate.theory_subcategory === "string" ? candidate.theory_subcategory.trim() : request.theory_subcategory,
+      exampleMode: request.example_mode,
+      title: typeof candidate.title === "string" ? candidate.title.trim() : `이론 레슨 ${index + 1}`,
+      contentData: JSON.stringify({ content_scope: THEORY_LESSON_CONTENT_SCOPE, master_prompt_version: THEORY_LESSON_MASTER_PROMPT_VERSION, course: request.course, theory_category: request.theory_category, theory_subcategory: candidate.theory_subcategory, lesson_level: request.lesson_level, ...payload }),
+      sourceNote: "AI 생성 이론 콘텐츠 · 관리자 승인 필요",
+      qaIssues: [],
+    };
+    return { ...draft, qaIssues: qaTheoryLessonCandidate(draft) };
+  });
+  return { modelId, items };
 }
