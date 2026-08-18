@@ -105,6 +105,7 @@ export default function Certificate() {
     return COURSE_DEFINITIONS.some((course) => course.type === stored) ? stored as CourseType : "elementary";
   });
   const activeCourse = isSampleUser ? sampleCourse : courseTypeFromTag(user?.tag);
+  const isLearnerAccount = user?.role === "user";
 
   const getCertificatesQuery = trpc.certificate.getUserCertificates.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -140,7 +141,7 @@ export default function Certificate() {
   const visibleCertificates = certificates.filter((certificate) => certificate.courseType === activeCourse);
 
   const isLevelEligible = (courseType: CourseType, level: number) => {
-    if (isSampleUser || courseType !== activeCourse) return false;
+    if (!isLearnerAccount || isSampleUser || courseType !== activeCourse) return false;
     return Boolean(eligibilityQuery.data?.levelEligibility?.find((item: any) => item.level === level)?.isEligible);
   };
 
@@ -168,6 +169,11 @@ export default function Certificate() {
   };
 
   const handleOpenPreview = (courseType: "elementary" | "middle_high" | "high_univ" | "general_adult", level: number) => {
+    if (!isLearnerAccount && !isSampleUser) {
+      toast.info("관리자 계정은 수료증을 직접 신청하지 않습니다. 수료증 관리 화면으로 이동합니다.");
+      window.location.href = "/admin/certificates";
+      return;
+    }
     if (hasAlreadyIssued(courseType, level)) {
       toast.error("이미 해당 레벨의 수료증이 발급되었습니다. 아래 발급 목록에서 확인하세요.");
       return;
@@ -178,6 +184,12 @@ export default function Certificate() {
   };
 
   const handleConfirmIssue = async () => {
+    if (!isLearnerAccount && !isSampleUser) {
+      setPreviewOpen(false);
+      toast.info("관리자 계정은 수료증 관리 화면에서 발급·승인 작업을 진행합니다.");
+      window.location.href = "/admin/certificates";
+      return;
+    }
     // 중복 발급 프론트 검사
     if (hasAlreadyIssued(selectedCourse, selectedLevel)) {
       toast.error("이미 해당 레벨의 수료증이 발급되었습니다.");
@@ -214,6 +226,7 @@ export default function Certificate() {
           <h1 className="text-3xl font-extrabold text-slate-900">수료증</h1>
           <p className="text-sm text-slate-600 mt-1">{isSampleUser ? "과정을 선택해 수료증 예시를 확인하고, 회원가입 후 실제 학습 기록으로 발급받으세요." : "가입 과정의 수료 기준을 충족한 뒤 수료증을 미리보기 및 발급받으세요."}</p>
           {isSampleUser && <label className="mt-4 flex max-w-sm flex-col gap-1.5 text-sm font-semibold text-slate-700">샘플 학습 과정 선택<select className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-medium text-indigo-900" value={sampleCourse} onChange={(event) => { const course = event.target.value as CourseType; setSampleCourse(course); window.localStorage.setItem("essaymaster-sample-course", course); }}><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select></label>}
+          {!isLearnerAccount && !isSampleUser && <div className="mt-4 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm font-medium text-indigo-950">관리자 계정은 수료증 신청 대신 발급·승인 관리 화면을 이용합니다.</p><Button size="sm" className="bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => { window.location.href = "/admin/certificates"; }}>수료증 관리로 이동</Button></div>}
         </div>
 
         {/* Issue New Certificate Section */}

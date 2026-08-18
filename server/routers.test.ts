@@ -190,6 +190,11 @@ describe("appRouter", () => {
         user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
       }));
       await expect(teacherCaller.certificate.issue({ courseType: "elementary", level: 1, certificateType: "level_certificate" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      const adminCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "admin", teacherStatus: "approved" } as any,
+      }));
+      await expect(adminCaller.certificate.issue({ courseType: "elementary", level: 1, certificateType: "level_certificate" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
 
     it.skip("should create certificate", async () => {
