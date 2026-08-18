@@ -31,6 +31,7 @@ export default function ParagraphReordering() {
   const [isAdvancing, setIsAdvancing] = useState(false);
   const awardBadgeMutation = trpc.badges.award.useMutation();
   const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
+  const reorderingSubmitMutation = trpc.questionBank.reorderingSubmit.useMutation();
   const utils = trpc.useUtils();
 
   const currentQuestion = questions[sessionIndex];
@@ -81,11 +82,14 @@ export default function ParagraphReordering() {
     setDraggedId(null);
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (result || paragraphs.length === 0) return;
-    const correctCount = paragraphs.filter((paragraph, index) => paragraph.correctOrder === index + 1).length;
-    const score = Math.round((correctCount / paragraphs.length) * 100);
-    setResult({ score, passed: score >= 70 });
+    try {
+      const verified = await reorderingSubmitMutation.mutateAsync({ questionId: currentQuestion.id, orderedParagraphIds: paragraphs.map((paragraph) => paragraph.id) });
+      setResult({ score: verified.score, passed: verified.passed });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "단락 순서를 검증하지 못했습니다.");
+    }
   };
 
   const resetCurrent = () => {
@@ -120,9 +124,14 @@ export default function ParagraphReordering() {
     const passedCount = updatedScores.filter((score) => score >= 70).length;
     if (passedCount >= 7) {
       const badgeName = `${courseLabel} 단락 재구성 10회 완주`;
-      setEarnedBadgeName(badgeName);
-      setShowCelebration(true);
-      awardBadgeMutation.mutate({ courseType, badgeType: "reordering_10_session", badgeName }, { onSuccess: () => utils.badges.getByUser.invalidate() });
+      try {
+        await awardBadgeMutation.mutateAsync({ courseType, badgeType: "reordering_10_session", badgeName });
+        setEarnedBadgeName(badgeName);
+        setShowCelebration(true);
+        utils.badges.getByUser.invalidate();
+      } catch {
+        toast.info("뱃지는 서버가 확인한 서로 다른 10문항 중 7문항 이상을 70점 이상으로 완료하면 수여됩니다.");
+      }
     } else {
       toast.info("10회 실습을 완료했습니다. 다시 도전해 평균 점수를 높여보세요.");
     }

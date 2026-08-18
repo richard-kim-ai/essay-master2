@@ -266,6 +266,20 @@ describe("appRouter", () => {
       }));
       await expect(caller.badges.award({ courseType: "elementary", badgeType: "summary", badgeName: "초등 요약왕 뱃지" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
+
+    it("수행 기록이 없는 학습자는 요약 뱃지를 임의로 수여할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "초등" } as any,
+      }));
+      await expect(caller.badges.award({ courseType: "elementary", badgeType: "summary", badgeName: "초등 요약 전문가 뱃지" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("검증 근거가 정의되지 않은 임의 뱃지 유형을 차단한다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "초등" } as any,
+      }));
+      await expect(caller.badges.award({ courseType: "elementary", badgeType: "topic_wizard", badgeName: "임의 수여 뱃지" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
   });
 
   describe("essaySubmission", () => {

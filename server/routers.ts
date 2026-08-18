@@ -20,6 +20,7 @@ import {
   verifyPassword,
 } from "./email";
 import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
+import type { CourseType } from "@shared/course";
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
@@ -890,29 +891,11 @@ export const appRouter = router({
   // ========== Quiz Routes ==========
   quiz: router({
     submitAnswer: protectedProcedure
-      .input(
-        z.object({
-          quizId: z.number(),
-          userAnswer: z.string(),
-          isCorrect: z.number(),
-          feedback: z.string().optional(),
-          economyScore: z.string().optional(),
-          clarityScore: z.string().optional(),
-          accuracyScore: z.string().optional(),
-        })
-      )
-      .mutation(({ ctx, input }) =>
-        db.saveQuizAnswer({
-          userId: ctx.user.id,
-          quizId: input.quizId,
-          userAnswer: input.userAnswer,
-          isCorrect: input.isCorrect,
-          feedback: input.feedback ?? undefined,
-          economyScore: input.economyScore ?? undefined,
-          clarityScore: input.clarityScore ?? undefined,
-          accuracyScore: input.accuracyScore ?? undefined,
-        })
-      ),
+      .input(z.object({ quizId: z.number().int().positive(), userAnswer: z.string().trim().min(1).max(4000) }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 퀴즈 결과를 저장할 수 있습니다." });
+        return db.verifyAndSaveQuizAttempt(ctx.user.id, input.quizId, input.userAnswer, getCourseTypeFromUserTag(ctx.user.tag));
+      }),
 
     getByUser: protectedProcedure.query(({ ctx }) =>
       db.getQuizAnswersByUser(ctx.user.id)
@@ -1183,6 +1166,11 @@ export const appRouter = router({
         if (input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 학습 도구를 완료해야 해당 과정 뱃지를 획득할 수 있습니다." });
         }
+        if (!(["quiz", "summary", "reordering_10_session"] as const).includes(input.badgeType as "quiz" | "summary" | "reordering_10_session")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "검증 가능한 학습 도구 뱃지만 수여할 수 있습니다." });
+        }
+        const eligibility = await db.getLearningToolBadgeEligibility(ctx.user.id, input.courseType as CourseType, input.badgeType as "quiz" | "summary" | "reordering_10_session");
+        if (!eligibility.eligible) throw new TRPCError({ code: "FORBIDDEN", message: eligibility.message });
         return await db.awardBadge(ctx.user.id, input.courseType, input.badgeType, input.badgeName);
       }),
   }),
@@ -1202,6 +1190,12 @@ export const appRouter = router({
       .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), limit: z.number().int().min(1).max(10).default(10) }))
       .query(async ({ input }) => {
         return await db.getReorderingPracticeSet(input.courseType, input.limit);
+      }),
+    reorderingSubmit: protectedProcedure
+      .input(z.object({ questionId: z.number().int().positive(), orderedParagraphIds: z.array(z.string().min(1)).min(3).max(12) }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 단락 재구성 결과를 저장할 수 있습니다." });
+        return db.verifyAndRecordReorderingAttempt(ctx.user.id, input.questionId, input.orderedParagraphIds, getCourseTypeFromUserTag(ctx.user.tag));
       }),
     recordMistake: protectedProcedure
       .input(z.object({
@@ -1484,7 +1478,8 @@ export const appRouter = router({
     gradeEssay: protectedProcedure
       .input(z.object({ questionId: z.number(), userAnswer: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        return await db.gradeEssayWithAi(input.questionId, input.userAnswer);
+        if (ctx.user.role !== "user") return await db.gradeEssayWithAi(input.questionId, input.userAnswer);
+        return await db.gradeAndRecordSummaryAttempt(ctx.user.id, input.questionId, input.userAnswer, getCourseTypeFromUserTag(ctx.user.tag));
       }),
     curriculumDifficultyStats: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });

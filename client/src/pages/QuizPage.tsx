@@ -66,11 +66,6 @@ export default function QuizPage() {
       await submitMutation.mutateAsync({
         quizId: currentQ?.id || 1,
         userAnswer: selectedAnswer,
-        isCorrect,
-        feedback: parsedData.explanation || "정답 및 해설",
-        economyScore: "0.85",
-        clarityScore: "0.90",
-        accuracyScore: "0.88",
       });
     } catch (e) {
       // ignore offline/fallback error
@@ -92,7 +87,7 @@ export default function QuizPage() {
     }
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(i => i + 1);
       setSelectedAnswer("");
@@ -100,19 +95,15 @@ export default function QuizPage() {
     } else {
       setFinished(true);
       const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} AI 퀴즈 마스터 뱃지`;
-      setEarnedBadgeName(bName);
-      setShowCelebration(true);
-      // 퀴즈 완료 시 자동 뱃지 수여
-      awardBadgeMutation.mutate({
-        courseType,
-        badgeType: "quiz",
-        badgeName: bName,
-      }, {
-        onSuccess: () => {
-          utils.badges.getByUser.invalidate();
-          toast.success("축하합니다! 퀴즈 과정을 완료하고 새로운 뱃지를 획득했습니다.");
-        }
-      });
+      try {
+        await awardBadgeMutation.mutateAsync({ courseType, badgeType: "quiz", badgeName: bName });
+        setEarnedBadgeName(bName);
+        setShowCelebration(true);
+        utils.badges.getByUser.invalidate();
+        toast.success("퀴즈 10문항을 모두 정답으로 완료해 뱃지를 획득했습니다.");
+      } catch {
+        toast.info("퀴즈 뱃지는 서로 다른 10문항을 모두 정답으로 완료하면 수여됩니다.");
+      }
     }
   };
 
