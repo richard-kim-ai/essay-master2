@@ -743,6 +743,42 @@ export const learningToolMistakes = mysqlTable("learning_tool_mistakes", {
 export type LearningToolMistake = typeof learningToolMistakes.$inferSelect;
 export type InsertLearningToolMistake = typeof learningToolMistakes.$inferInsert;
 
+// 학생이 요청한 AI 레슨 가이드를 보존하여 이후 동일한 학습 맥락에서 다시 열람합니다.
+export const aiLessonGuideHistories = mysqlTable("ai_lesson_guide_histories", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  courseType: varchar("courseType", { length: 50 }).notNull(),
+  level: int("level").notNull(),
+  lessonIndex: int("lessonIndex").notNull(),
+  lessonTitle: varchar("lessonTitle", { length: 255 }).notNull(),
+  guideJson: text("guideJson").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AiLessonGuideHistory = typeof aiLessonGuideHistories.$inferSelect;
+export type InsertAiLessonGuideHistory = typeof aiLessonGuideHistories.$inferInsert;
+
+// 교사가 담당 반의 채점 완료 답안을 익명화·편집해 승인한 뒤 학생 참고용으로 게시합니다.
+export const approvedWritingExamples = mysqlTable("approved_writing_examples", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceSubmissionId: int("sourceSubmissionId").notNull(),
+  teacherId: int("teacherId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  topic: varchar("topic", { length: 255 }).notNull(),
+  skillTags: varchar("skillTags", { length: 255 }),
+  anonymizedContent: text("anonymizedContent").notNull(),
+  teacherNote: text("teacherNote"),
+  status: mysqlEnum("status", ["draft", "published", "withdrawn"]).default("draft").notNull(),
+  publishedAt: timestamp("publishedAt"),
+  withdrawnAt: timestamp("withdrawnAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ApprovedWritingExample = typeof approvedWritingExamples.$inferSelect;
+export type InsertApprovedWritingExample = typeof approvedWritingExamples.$inferInsert;
+
 // 교사 서술형 워크북 첨삭 피드백 테이블
 export const workbookTeacherFeedback = mysqlTable("workbook_teacher_feedback", {
   id: int("id").autoincrement().primaryKey(),

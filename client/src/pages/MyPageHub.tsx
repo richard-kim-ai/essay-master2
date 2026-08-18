@@ -97,6 +97,24 @@ export default function MyPageHub() {
                 <ClipboardPenLine className="mr-1.5 w-4 h-4" /> 내 과제
               </Button>
             )}
+            {user?.role === "user" && (
+              <Button
+                variant="outline"
+                onClick={() => setLocation("/ai-guide-history")}
+                className="h-10 border-white/30 bg-white/10 text-sm font-bold text-white hover:bg-white/20 hover:text-white"
+              >
+                <BookOpen className="mr-1.5 w-4 h-4" /> AI 가이드 이력
+              </Button>
+            )}
+            {user?.role === "user" && (
+              <Button
+                variant="outline"
+                onClick={() => setLocation("/writing-examples")}
+                className="h-10 border-white/30 bg-white/10 text-sm font-bold text-white hover:bg-white/20 hover:text-white"
+              >
+                <Award className="mr-1.5 w-4 h-4" /> 우수 예시문
+              </Button>
+            )}
             <Button
               onClick={() => setLocation("/dashboard-detail")}
               className="h-10 shrink-0 text-sm font-bold shadow-sm"

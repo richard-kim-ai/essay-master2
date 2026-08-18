@@ -27,6 +27,9 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import TeacherSignup from "./pages/TeacherSignup";
 import TeacherMyPage from "./pages/TeacherMyPage";
+import TeacherWritingExamples from "./pages/TeacherWritingExamples";
+import AiGuideHistory from "./pages/AiGuideHistory";
+import WritingExampleLibrary from "./pages/WritingExampleLibrary";
 import MyPageHub from "./pages/MyPageHub";
 import VerifyEmail from "./pages/VerifyEmail";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -189,6 +192,13 @@ function Router() {
           </Layout>
         )}
       </Route>
+      <Route path={"/teacher/writing-examples"}>
+        {(params) => (
+          <Layout>
+            <TeacherWritingExamples />
+          </Layout>
+        )}
+      </Route>
       <Route path={"/ai-auto-feedback"}>
         {(params) => (
           <Layout>
@@ -284,6 +294,20 @@ function Router() {
         {(params) => (
           <Layout>
             <ThesisChecklist />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/ai-guide-history"}>
+        {(params) => (
+          <Layout>
+            <AiGuideHistory />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/writing-examples"}>
+        {(params) => (
+          <Layout>
+            <WritingExampleLibrary />
           </Layout>
         )}
       </Route>

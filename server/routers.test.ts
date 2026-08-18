@@ -113,6 +113,8 @@ describe("appRouter", () => {
       await expect(caller.teacherOperations.assignmentNotificationStats()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.assignmentReminderHistory()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.classAssignmentSubmissions()).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.teacherOperations.approvedWritingExamples()).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.teacherOperations.publishWritingExample({ sourceSubmissionId: 1, courseType: "elementary", title: "익명 예시", topic: "주장과 근거", anonymizedContent: "학생의 식별 정보를 제거한 충분한 길이의 익명화 예시문입니다. 근거를 두 가지 이상 제시합니다.", confirmAnonymized: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.reviewClassAssignmentSubmission({ submissionId: 1, score: 80, teacherComment: "구체적인 근거를 더 보강해보세요." })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.classAssignmentAiFeedback({ submissionId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.generateClassAssignmentAiFeedback({ submissionId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -127,6 +129,14 @@ describe("appRouter", () => {
       }));
       await expect(teacherCaller.student.myAssignments()).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(teacherCaller.student.submitAssignment({ assignmentId: 1, content: "과제 답안 제출을 위한 충분한 길이의 예시 문장입니다." })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(teacherCaller.learningResources.myLessonGuideHistory()).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(teacherCaller.learningResources.publishedWritingExamples()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("학습자는 자기 AI 레슨 가이드 이력과 가입 과정의 승인 예시문을 조회할 수 있다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.learningResources.myLessonGuideHistory()).resolves.toEqual(expect.any(Array));
+      await expect(caller.learningResources.publishedWritingExamples()).resolves.toEqual(expect.any(Array));
     });
   });
 

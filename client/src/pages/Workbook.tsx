@@ -288,6 +288,8 @@ export default function Workbook() {
     try {
       const guide = await lessonGuideMutation.mutateAsync({
         courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
+        level,
+        lessonIndex: currentLesson,
         lessonTitle: lesson.title,
         lessonContent: lesson.content,
         lessonExample: lesson.example,

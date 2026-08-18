@@ -30,6 +30,8 @@ import {
   curriculumWorkbookAnswers,
   workbookMistakes,
   learningToolMistakes,
+  aiLessonGuideHistories,
+  approvedWritingExamples,
   workbookTeacherFeedback,
   appNotifications,
   policyDocuments,
@@ -2212,7 +2214,106 @@ export async function getTeacherClassAssignmentSubmissions(teacherId: number) {
     const group = assignment ? groupsById.get(assignment.groupId) : null;
     if (!assignment || !group) return [];
     const student = usersById.get(submission.studentId);
-    return [{ ...submission, assignmentTitle: assignment.title, assignmentInstructions: assignment.instructions, dueAt: assignment.dueAt, groupId: group.id, groupName: group.name, studentName: student?.name || `학생 #${submission.studentId}`, studentEmail: student?.email || null }];
+    return [{ ...submission, assignmentTitle: assignment.title, assignmentInstructions: assignment.instructions, dueAt: assignment.dueAt, groupId: group.id, groupName: group.name, courseType: group.courseType || "middle_high", studentName: student?.name || `학생 #${submission.studentId}`, studentEmail: student?.email || null }];
+  });
+}
+
+export async function saveAiLessonGuideHistory(input: {
+  userId: number;
+  courseType: CourseType;
+  level: number;
+  lessonIndex: number;
+  lessonTitle: string;
+  guide: unknown;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const inserted = await db.insert(aiLessonGuideHistories).values({
+    userId: input.userId,
+    courseType: input.courseType,
+    level: input.level,
+    lessonIndex: input.lessonIndex,
+    lessonTitle: input.lessonTitle.trim(),
+    guideJson: JSON.stringify(input.guide),
+  });
+  const [created] = await db.select().from(aiLessonGuideHistories).where(eq(aiLessonGuideHistories.id, Number(inserted[0].insertId)));
+  return created;
+}
+
+export async function getAiLessonGuideHistoriesByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(aiLessonGuideHistories).where(eq(aiLessonGuideHistories.userId, userId)).orderBy(desc(aiLessonGuideHistories.createdAt));
+}
+
+function containsDirectIdentifier(content: string, student: { name: string | null; email: string | null }) {
+  const normalized = content.toLowerCase();
+  if (student.name && student.name.trim().length >= 2 && normalized.includes(student.name.trim().toLowerCase())) return true;
+  if (student.email && normalized.includes(student.email.toLowerCase())) return true;
+  return /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/.test(content) || /01[0-9][\s-]?\d{3,4}[\s-]?\d{4}/.test(content);
+}
+
+export async function createApprovedWritingExample(teacherId: number, input: {
+  sourceSubmissionId: number;
+  courseType: CourseType;
+  title: string;
+  topic: string;
+  skillTags?: string;
+  anonymizedContent: string;
+  teacherNote?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, input.sourceSubmissionId));
+  if (!submission || submission.status !== "reviewed") throw new Error("채점이 완료된 담당 반 학생의 제출물만 예시문 후보로 승인할 수 있습니다.");
+  const [assignment, student] = await Promise.all([
+    db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId)).then((rows) => rows[0]),
+    db.select().from(users).where(eq(users.id, submission.studentId)).then((rows) => rows[0]),
+  ]);
+  if (!assignment || !student) throw new Error("예시문 후보의 원본 정보를 찾을 수 없습니다.");
+  await assertTeacherGroupOwnership(teacherId, assignment.groupId);
+  const content = input.anonymizedContent.trim();
+  if (containsDirectIdentifier(content, student)) throw new Error("학생 이름·이메일·연락처를 제거한 익명화 본문만 게시할 수 있습니다.");
+  const inserted = await db.insert(approvedWritingExamples).values({
+    sourceSubmissionId: submission.id,
+    teacherId,
+    courseType: input.courseType,
+    title: input.title.trim(),
+    topic: input.topic.trim(),
+    skillTags: input.skillTags?.trim() || null,
+    anonymizedContent: content,
+    teacherNote: input.teacherNote?.trim() || null,
+    status: "published",
+    publishedAt: new Date(),
+  });
+  const [created] = await db.select().from(approvedWritingExamples).where(eq(approvedWritingExamples.id, Number(inserted[0].insertId)));
+  return created;
+}
+
+export async function getTeacherApprovedWritingExamples(teacherId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(approvedWritingExamples).where(eq(approvedWritingExamples.teacherId, teacherId)).orderBy(desc(approvedWritingExamples.updatedAt));
+}
+
+export async function withdrawApprovedWritingExample(teacherId: number, exampleId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [example] = await db.select().from(approvedWritingExamples).where(and(eq(approvedWritingExamples.id, exampleId), eq(approvedWritingExamples.teacherId, teacherId)));
+  if (!example) throw new Error("철회할 예시문을 찾을 수 없습니다.");
+  await db.update(approvedWritingExamples).set({ status: "withdrawn", withdrawnAt: new Date(), updatedAt: new Date() }).where(eq(approvedWritingExamples.id, exampleId));
+  return true;
+}
+
+export async function getPublishedWritingExamples(input: { courseType: CourseType; search?: string; skillTag?: string }) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(approvedWritingExamples).where(and(eq(approvedWritingExamples.courseType, input.courseType), eq(approvedWritingExamples.status, "published"))).orderBy(desc(approvedWritingExamples.publishedAt));
+  const search = input.search?.trim().toLowerCase();
+  const skillTag = input.skillTag?.trim().toLowerCase();
+  return rows.filter((row) => {
+    const searchable = `${row.title} ${row.topic} ${row.skillTags || ""} ${row.teacherNote || ""}`.toLowerCase();
+    return (!search || searchable.includes(search)) && (!skillTag || (row.skillTags || "").toLowerCase().includes(skillTag));
   });
 }
 

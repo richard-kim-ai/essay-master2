@@ -701,6 +701,19 @@ export const appRouter = router({
       }),
   }),
 
+  learningResources: router({
+    myLessonGuideHistory: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 AI 가이드 이력을 조회할 수 있습니다." });
+      return db.getAiLessonGuideHistoriesByUser(ctx.user.id);
+    }),
+    publishedWritingExamples: protectedProcedure
+      .input(z.object({ search: z.string().trim().max(120).optional(), skillTag: z.string().trim().max(80).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 예시문 라이브러리를 조회할 수 있습니다." });
+        return db.getPublishedWritingExamples({ courseType: getCourseTypeFromUserTag(ctx.user.tag), search: input?.search, skillTag: input?.skillTag });
+      }),
+  }),
+
   teacherOperations: router({
     myPermissionGrants: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") {
@@ -773,6 +786,31 @@ export const appRouter = router({
       if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
       return db.getTeacherClassAssignmentSubmissions(ctx.user.id);
     }),
+    approvedWritingExamples: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.getTeacherApprovedWritingExamples(ctx.user.id);
+    }),
+    publishWritingExample: protectedProcedure
+      .input(z.object({
+        sourceSubmissionId: z.number().int().positive(),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        title: z.string().trim().min(2).max(255),
+        topic: z.string().trim().min(2).max(255),
+        skillTags: z.string().trim().max(255).optional(),
+        anonymizedContent: z.string().trim().min(30).max(20000),
+        teacherNote: z.string().trim().max(3000).optional(),
+        confirmAnonymized: z.literal(true),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.createApprovedWritingExample(ctx.user.id, input);
+      }),
+    withdrawWritingExample: protectedProcedure
+      .input(z.object({ exampleId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.withdrawApprovedWritingExample(ctx.user.id, input.exampleId);
+      }),
     reviewClassAssignmentSubmission: protectedProcedure
       .input(z.object({ submissionId: z.number().int().positive(), score: z.number().int().min(0).max(100), teacherComment: z.string().trim().min(2).max(5000) }))
       .mutation(async ({ ctx, input }) => {
@@ -1198,15 +1236,19 @@ export const appRouter = router({
     lessonWritingGuide: protectedProcedure
       .input(z.object({
         courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        level: z.number().int().min(1).max(20),
+        lessonIndex: z.number().int().min(0).max(50),
         lessonTitle: z.string().min(2).max(300),
         lessonContent: z.string().min(2).max(3000),
         lessonExample: z.string().min(2).max(3000),
       }))
-      .mutation(({ ctx, input }) => {
+      .mutation(async ({ ctx, input }) => {
         if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 AI 레슨 가이드만 이용할 수 있습니다." });
         }
-        return db.generateLessonWritingGuide(input);
+        const guide = await db.generateLessonWritingGuide(input);
+        const history = await db.saveAiLessonGuideHistory({ userId: ctx.user.id, ...input, guide });
+        return { ...guide, historyId: history?.id ?? null };
       }),
     analyzeThesis: protectedProcedure
       .input(z.object({

@@ -109,6 +109,7 @@ export default function TeacherMyPage() {
             <p className="mt-1 text-sm" style={{ color: "#dbeafe" }}>{teacherLevelNames[user.teacherLevel || 1]}</p>
           </div>
           <div className="flex items-center gap-3">
+            <Link href="/teacher/writing-examples"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#e0e7ff", color: "#312e81" }}><Award className="h-4 w-4" /> 우수 예시문 관리</Button></Link>
             <Link href="/essay-submission"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#ffffff", color: "#1e1b4b" }}><FileEdit className="h-4 w-4" /> 첨삭 관리 센터</Button></Link>
           </div>
         </div>
