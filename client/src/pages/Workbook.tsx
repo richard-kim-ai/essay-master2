@@ -47,6 +47,18 @@ type LessonWritingGuide = {
   selfCheck: string[];
 };
 
+type TheoryLessonPayload = {
+  core_concept?: string;
+  textbook_anchor?: { kind?: string; text?: string };
+  textbook_similar_example?: { label?: string; text?: string };
+  wrong_example?: string;
+  improved_example?: string;
+  in_lesson_check?: { question?: string; answer?: string };
+  answer_feedback?: string;
+  next_step?: string;
+  source_boundary?: string;
+};
+
 const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: { id: number; title: string; content: string; example: string }[] }>> = {
   elementary: {
     1: {
@@ -262,6 +274,10 @@ export default function Workbook() {
     level,
     lessonIndex: currentLesson,
   }, { enabled: isAuthenticated });
+  const { data: theoryContent = [], isLoading: theoryLoading } = trpc.curriculum.getTheoryContent.useQuery({
+    courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
+    lessonLevel: level,
+  }, { enabled: isAuthenticated && ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) });
 
   const submitAnswerMutation = trpc.curriculum.submitWorkbookAnswer.useMutation();
   const lessonGuideMutation = trpc.questionBank.lessonWritingGuide.useMutation();
@@ -270,7 +286,7 @@ export default function Workbook() {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
   }
 
-  const workbookData = WORKBOOK_CONTENT[courseType]?.[level] || {
+  const fallbackWorkbookData = WORKBOOK_CONTENT[courseType]?.[level] || {
     title: `Level ${level}: 맞춤형 논술 실습`,
     lessons: [
       {
@@ -281,8 +297,23 @@ export default function Workbook() {
       },
     ],
   };
+  const theoryLessons = theoryContent.map((item, index) => {
+    let theory: TheoryLessonPayload = {};
+    try { theory = JSON.parse(item.contentData) as TheoryLessonPayload; } catch { /* 안전한 설명형 fallback 사용 */ }
+    return {
+      id: "id" in item ? item.id : -(index + 1),
+      title: item.title,
+      content: theory.core_concept || "이론 콘텐츠를 준비하고 있습니다.",
+      example: `${theory.textbook_anchor?.kind || "교재 원리"}: ${theory.textbook_anchor?.text || "핵심 원리를 확인하세요."}\n${theory.textbook_similar_example?.label || "유사 예시"}: ${theory.textbook_similar_example?.text || "새 소재에 원리를 적용해 보세요."}`,
+      theory,
+    };
+  });
+  const workbookData = theoryLessons.length > 0
+    ? { title: `${fallbackWorkbookData.title} · 이론 학습`, lessons: theoryLessons }
+    : fallbackWorkbookData;
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
+  const activeTheory = (lesson as { theory?: TheoryLessonPayload }).theory;
 
   const handleLessonGuide = async () => {
     try {
@@ -357,7 +388,7 @@ export default function Workbook() {
         <Card className="border-indigo-100 shadow-sm">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-slate-900">{workbookData.title}</CardTitle>
-            <CardDescription>과정별 맞춤 핵심 개념 학습 후, 고정 기출문제 3문항을 풀이하고 진도를 완료하세요.</CardDescription>
+            <CardDescription>{theoryLoading ? "과정별 이론 콘텐츠를 준비하고 있습니다." : theoryLessons.length > 0 ? "교재 연동 이론 콘텐츠를 먼저 학습한 뒤, 고정 기출문제를 풀이합니다." : "과정별 맞춤 핵심 개념 학습 후, 고정 기출문제를 풀이하고 진도를 완료하세요."}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex gap-2 border-b border-slate-200 pb-4 overflow-x-auto">
@@ -374,13 +405,19 @@ export default function Workbook() {
               ))}
             </div>
 
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-6 space-y-4">
-              <h3 className="text-xl font-bold text-slate-900">{lesson.title}</h3>
-              <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
-              <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm font-medium text-indigo-900">
-                {lesson.example}
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-6 space-y-4">
+                <h3 className="text-xl font-bold text-slate-900">{lesson.title}</h3>
+                <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
+                <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm font-medium text-indigo-900">
+                  <p className="whitespace-pre-line">{lesson.example}</p>
+                </div>
+                {activeTheory && <div className="grid gap-3 border-t border-indigo-100 pt-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div>
+                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div>
+                  <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 md:col-span-2"><p className="text-xs font-bold text-amber-800">강의 중 확인</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">정답·피드백: {activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>
+                  <p className="text-xs leading-5 text-slate-500 md:col-span-2">{activeTheory.source_boundary}</p>
+                </div>}
               </div>
-            </div>
 
             <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

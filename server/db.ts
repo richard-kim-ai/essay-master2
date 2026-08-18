@@ -17,6 +17,7 @@ import {
   pushSubscription,
   aiUsageLogs,
   dynamicCurriculum,
+  lessonTheoryContent,
   siteSettings,
   parentStudentLinks,
   userBadges,
@@ -63,6 +64,7 @@ import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared
 import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
 import { generateQuestionBankItems, qaQuestionItem, type AdaptiveStats, type GenerationRequestInput } from "./questionGeneration";
 import { buildCourseQuizContent, buildCourseSummaryContent, isLegacyRepeatedLearningContent } from "./learningToolContent";
+import { buildTheoryLessonSeedItems } from "./theoryLessonContent";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -432,6 +434,45 @@ export async function getDynamicCurriculumByType(courseType: "elementary" | "mid
       try { return row.aiTags ? (JSON.parse(row.aiTags) as string[]) : []; } catch { return []; }
     })(),
   }));
+}
+
+/** question_bank와 별개로 이론 설명·예시·강의 중 확인문제를 조회한다. */
+export async function getLessonTheoryContentList(input: {
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
+  lessonLevel?: number;
+  theoryCategory?: string;
+}) {
+  await seedLessonTheoryContentIfNeeded();
+  const db = await getDb();
+  if (!db) return buildTheoryLessonSeedItems().filter((item) =>
+    item.courseType === input.courseType
+    && (!input.lessonLevel || item.lessonLevel === input.lessonLevel)
+    && (!input.theoryCategory || item.theoryCategory === input.theoryCategory)
+    && item.isActive === 1,
+  );
+  const rows = await db.select().from(lessonTheoryContent)
+    .where(and(eq(lessonTheoryContent.courseType, input.courseType), eq(lessonTheoryContent.isActive, 1)))
+    .orderBy(lessonTheoryContent.lessonLevel, lessonTheoryContent.theoryCategory);
+  return rows.filter((item) =>
+    (!input.lessonLevel || item.lessonLevel === input.lessonLevel)
+    && (!input.theoryCategory || item.theoryCategory === input.theoryCategory),
+  );
+}
+
+/** 기본 이론 콘텐츠가 없을 때만 보충한다. 기존 관리 콘텐츠와 question_bank에는 영향을 주지 않는다. */
+export async function seedLessonTheoryContentIfNeeded() {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(lessonTheoryContent);
+  const existingKeys = new Set(existing.map((item) => `${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`));
+  const missing = buildTheoryLessonSeedItems().filter((item) => !existingKeys.has(`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`));
+  for (const item of missing) {
+    await db.insert(lessonTheoryContent).values({
+      contentScope: "THEORY_LESSON", courseType: item.courseType, lessonLevel: item.lessonLevel,
+      theoryCategory: item.theoryCategory, theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
+      title: item.title, contentData: item.contentData, sourceNote: item.sourceNote, isActive: item.isActive,
+    });
+  }
 }
 
 // ========== Progress Functions ==========

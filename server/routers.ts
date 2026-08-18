@@ -595,6 +595,14 @@ export const appRouter = router({
       .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
       .query(({ input }) => db.getDynamicCurriculumByType(input)),
 
+    getTheoryContent: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        lessonLevel: z.number().int().min(1).max(5).optional(),
+        theoryCategory: z.string().trim().min(1).max(32).optional(),
+      }))
+      .query(({ input }) => db.getLessonTheoryContentList(input)),
+
     getById: protectedProcedure
       .input(z.number())
       .query(({ input }) => db.getCurriculumById(input)),

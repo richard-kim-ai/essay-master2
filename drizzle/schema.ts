@@ -591,6 +591,27 @@ export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
 export type DynamicCurriculum = typeof dynamicCurriculum.$inferSelect;
 export type InsertDynamicCurriculum = typeof dynamicCurriculum.$inferInsert;
 
+// 이론학습용 설명·교재식 예시·강의 중 확인문제 콘텐츠.
+// question_bank의 랜덤 출제·평가 문항과 절대 혼합하지 않는다.
+export const lessonTheoryContent = mysqlTable("lesson_theory_content", {
+  id: int("id").autoincrement().primaryKey(),
+  contentScope: mysqlEnum("contentScope", ["THEORY_LESSON"]).default("THEORY_LESSON").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  lessonLevel: int("lessonLevel").notNull(),
+  theoryCategory: varchar("theoryCategory", { length: 32 }).notNull(),
+  theorySubcategory: varchar("theorySubcategory", { length: 128 }).notNull(),
+  exampleMode: mysqlEnum("exampleMode", ["TEXTBOOK_SIMILAR", "TEXTBOOK_PLUS_NEW"]).default("TEXTBOOK_PLUS_NEW").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  contentData: text("contentData").notNull(),
+  sourceNote: varchar("sourceNote", { length: 255 }).default("논술의 기초 정리본 기반 재구성"),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type LessonTheoryContent = typeof lessonTheoryContent.$inferSelect;
+export type InsertLessonTheoryContent = typeof lessonTheoryContent.$inferInsert;
+
 // 학습도구 뱃지 테이블
 export const userBadges = mysqlTable("user_badges", {
   id: int("id").autoincrement().primaryKey(),
