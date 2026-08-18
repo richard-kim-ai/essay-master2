@@ -24,6 +24,7 @@ export default function SummaryPractice() {
 
   const awardBadgeMutation = trpc.badges.award.useMutation();
   const gradeEssayMutation = trpc.questionBank.gradeEssay.useMutation();
+  const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
   const utils = trpc.useUtils();
 
   const currentQId = qList && qList.length > 0 ? qList[0].id : 1;
@@ -68,20 +69,35 @@ export default function SummaryPractice() {
       setIsAnalyzing(false);
       toast.success("AI 실시간 채점 및 분석이 완료되었습니다!");
 
-      const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 요약 전문가 뱃지`;
-      setEarnedBadgeName(bName);
-      setShowCelebration(true);
-
-      awardBadgeMutation.mutate({
-        courseType,
-        badgeType: "summary",
-        badgeName: bName,
-      }, {
-        onSuccess: () => {
-          utils.badges.getByUser.invalidate();
-          toast.success("요약 연습 완료 뱃지가 발급되었습니다!");
+      if (res.overallScore < 100 && qList?.[0]) {
+        try {
+          await recordMistakeMutation.mutateAsync({
+            questionBankId: qList[0].id,
+            courseType,
+            toolType: "summary",
+            userAnswer: summary,
+            score: res.overallScore,
+            aiFeedback: res.feedback || "핵심 쟁점과 결론의 조건을 다시 확인해 보세요.",
+          });
+        } catch {
+          toast.error("요약 결과를 오답 노트에 저장하지 못했습니다.");
         }
-      });
+      }
+
+      if (res.overallScore >= 80) {
+        const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 요약 전문가 뱃지`;
+        try {
+          await awardBadgeMutation.mutateAsync({ courseType, badgeType: "summary", badgeName: bName });
+          setEarnedBadgeName(bName);
+          setShowCelebration(true);
+          utils.badges.getByUser.invalidate();
+          toast.success("서로 다른 요약 3문항에서 80점 이상을 달성해 뱃지를 획득했습니다.");
+        } catch {
+          toast.info("요약 뱃지는 서로 다른 3문항에서 80점 이상을 달성하면 수여됩니다.");
+        }
+      } else {
+        toast.info("이번 점수는 뱃지 기준(80점 이상)에 도달하지 않았습니다. 핵심 주장과 근거를 다시 정리해 보세요.");
+      }
     } catch (err: any) {
       setIsAnalyzing(false);
       toast.error(err.message || "AI 채점 중 오류가 발생했습니다.");

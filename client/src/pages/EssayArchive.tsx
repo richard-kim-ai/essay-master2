@@ -10,6 +10,24 @@ import { BookOpen, Search, Play, Star, Sparkles, ArrowRight, Bookmark, Calendar,
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
+function getArchiveLearningSummary(contentData: unknown) {
+  if (!contentData) return "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
+  let source = contentData;
+  if (typeof contentData === "string") {
+    try {
+      source = JSON.parse(contentData);
+    } catch {
+      return contentData.replace(/[{}["]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 140) || "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
+    }
+  }
+  if (typeof source !== "object" || source === null) return "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
+  const data = source as Record<string, unknown>;
+  const candidates = [data.prompt, data.description, data.question, data.passage, data.originalText, data.theme, data.topic]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (candidates.length > 0) return candidates[0].replace(/\s+/g, " ").trim().slice(0, 140);
+  return "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
+}
+
 export default function EssayArchive() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -262,9 +280,10 @@ export default function EssayArchive() {
                     <span>•</span>
                     <span>정답률: <strong className="text-indigo-600">{q.correctRate}%</strong></span>
                   </div>
-                  <p className="text-xs text-slate-600 line-clamp-3 bg-slate-50 p-3 rounded-xl border border-slate-100 font-mono">
-                    {q.contentData}
-                  </p>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                    <p className="mb-1 text-[11px] font-bold text-indigo-700">학습 포인트</p>
+                    <p className="line-clamp-3 text-xs leading-5 text-slate-600">{getArchiveLearningSummary(q.contentData)}</p>
+                  </div>
                   <div className="flex gap-2 pt-2">
                     <Button
                       onClick={(e) => {

@@ -173,9 +173,13 @@ export async function evaluateSummary(
  */
 export async function evaluateEssay(
   essayContent: string,
-  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult",
+  difficultyMode: "standard" | "advanced" = "standard",
 ): Promise<EssayFeedback> {
-    let prompt = "";
+  const difficultyDirective = difficultyMode === "advanced"
+    ? "심화 운영 기준입니다. 주장과 근거의 대응, 근거의 구체성, 반론 검토, 판단 기준의 일관성을 엄격히 확인하세요. 평균적 표현에는 과도한 고득점을 주지 말고, 개선 과제는 한 단계 높은 수준으로 제시하세요."
+    : "표준 운영 기준입니다. 과정 수준에 맞춰 주장·근거·구조의 기본기를 우선 확인하고, 실행 가능한 보완 과제를 제시하세요.";
+  let prompt = "";
   if (courseType === "elementary") {
     prompt = `학생의 논술: "${essayContent}"
 
@@ -242,8 +246,7 @@ export async function evaluateEssay(
     messages: [
       {
         role: "system",
-        content:
-          "당신은 논술 교육 전문가입니다. 학생의 논술을 종합적으로 평가하고 피드백을 제공합니다. 항상 JSON 형식으로 응답하세요.",
+        content: `당신은 논술 교육 전문가입니다. 학생의 논술을 종합적으로 평가하고 피드백을 제공합니다. ${difficultyDirective} 항상 JSON 형식으로 응답하세요.`,
       },
       { role: "user", content: prompt },
     ],
