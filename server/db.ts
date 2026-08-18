@@ -20,6 +20,7 @@ import {
   siteSettings,
   parentStudentLinks,
   userBadges,
+  learningToolAttempts,
   questionBank,
   questionBankTrash,
   questionBankMaintenanceSettings,
@@ -2644,6 +2645,94 @@ export async function getUserBadges(userId: number) {
   const db = await getDb();
   if (!db) return [];
   return await db.select().from(userBadges).where(eq(userBadges.userId, userId));
+}
+
+export async function recordLearningToolAttempt(input: {
+  userId: number;
+  questionBankId: number;
+  courseType: CourseType;
+  toolType: "quiz" | "reordering" | "summary";
+  score: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const safeScore = Math.max(0, Math.min(100, Math.round(input.score)));
+  await db.insert(learningToolAttempts).values({ ...input, score: safeScore });
+  return { stored: true, score: safeScore };
+}
+
+export async function verifyAndSaveQuizAttempt(userId: number, quizId: number, userAnswer: string, expectedCourseType?: CourseType) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [question] = await db.select().from(questionBank).where(and(eq(questionBank.id, quizId), eq(questionBank.toolType, "quiz"), eq(questionBank.isActive, 1)));
+  if (!question) throw new Error("활성 퀴즈 문항을 찾을 수 없습니다.");
+  if (expectedCourseType && question.courseType !== expectedCourseType) throw new Error("가입한 과정의 퀴즈 문항만 제출할 수 있습니다.");
+  let content: { answer?: string; explanation?: string } = {};
+  try { content = JSON.parse(question.contentData); } catch { throw new Error("퀴즈 문항 형식이 올바르지 않습니다."); }
+  const isCorrect = Boolean(content.answer && userAnswer.trim() === content.answer.trim()) ? 1 : 0;
+  const feedback = content.explanation || "정답과 해설을 다시 확인해 보세요.";
+  await db.insert(quizAnswer).values({
+    userId,
+    quizId,
+    userAnswer: userAnswer.trim(),
+    isCorrect,
+    feedback,
+    economyScore: "0.00",
+    clarityScore: "0.00",
+    accuracyScore: "0.00",
+  });
+  await recordLearningToolAttempt({ userId, questionBankId: quizId, courseType: question.courseType, toolType: "quiz", score: isCorrect ? 100 : 0 });
+  return { isCorrect, score: isCorrect ? 100 : 0, feedback };
+}
+
+export async function gradeAndRecordSummaryAttempt(userId: number, questionId: number, userAnswer: string, expectedCourseType?: CourseType) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [question] = await db.select().from(questionBank).where(and(eq(questionBank.id, questionId), eq(questionBank.toolType, "summary"), eq(questionBank.isActive, 1)));
+  if (!question) throw new Error("활성 요약 문항을 찾을 수 없습니다.");
+  if (expectedCourseType && question.courseType !== expectedCourseType) throw new Error("가입한 과정의 요약 문항만 제출할 수 있습니다.");
+  const evaluation = await gradeEssayWithAi(questionId, userAnswer);
+  await recordLearningToolAttempt({ userId, questionBankId: questionId, courseType: question.courseType, toolType: "summary", score: evaluation.overallScore });
+  return evaluation;
+}
+
+export async function verifyAndRecordReorderingAttempt(userId: number, questionId: number, orderedParagraphIds: string[], expectedCourseType?: CourseType) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [question] = await db.select().from(questionBank).where(and(eq(questionBank.id, questionId), eq(questionBank.toolType, "reordering"), eq(questionBank.isActive, 1)));
+  if (!question) throw new Error("활성 단락 재구성 문항을 찾을 수 없습니다.");
+  if (expectedCourseType && question.courseType !== expectedCourseType) throw new Error("가입한 과정의 단락 재구성 문항만 제출할 수 있습니다.");
+  let content: { paragraphs?: Array<{ id: string; correctOrder: number }>; explanation?: string } = {};
+  try { content = JSON.parse(question.contentData); } catch { throw new Error("단락 재구성 문항 형식이 올바르지 않습니다."); }
+  const expected = content.paragraphs || [];
+  if (expected.length < 3 || orderedParagraphIds.length !== expected.length || new Set(orderedParagraphIds).size !== expected.length) throw new Error("제출한 단락 순서가 문항 구성과 일치하지 않습니다.");
+  const validIds = new Set(expected.map((paragraph) => paragraph.id));
+  if (orderedParagraphIds.some((id) => !validIds.has(id))) throw new Error("제출한 단락 순서에 올바르지 않은 항목이 있습니다.");
+  const correctCount = orderedParagraphIds.filter((id, index) => expected.find((paragraph) => paragraph.id === id)?.correctOrder === index + 1).length;
+  const score = Math.round((correctCount / expected.length) * 100);
+  await recordLearningToolAttempt({ userId, questionBankId: questionId, courseType: question.courseType, toolType: "reordering", score });
+  return { score, passed: score >= 70, feedback: content.explanation || "논리적 연결과 단락의 기능을 다시 확인해 보세요." };
+}
+
+export async function getLearningToolBadgeEligibility(userId: number, courseType: CourseType, badgeType: "quiz" | "summary" | "reordering_10_session") {
+  const db = await getDb();
+  if (!db) return { eligible: false, completed: 0, required: badgeType === "summary" ? 3 : 10, message: "학습 기록을 확인할 수 없습니다." };
+  const toolType = badgeType === "reordering_10_session" ? "reordering" : badgeType;
+  const attempts = await db.select().from(learningToolAttempts).where(and(eq(learningToolAttempts.userId, userId), eq(learningToolAttempts.courseType, courseType), eq(learningToolAttempts.toolType, toolType)));
+  const bestScoresByQuestion = new Map<number, number>();
+  attempts.forEach((attempt) => bestScoresByQuestion.set(attempt.questionBankId, Math.max(bestScoresByQuestion.get(attempt.questionBankId) ?? 0, attempt.score)));
+  const bestScores = Array.from(bestScoresByQuestion.values());
+  if (badgeType === "quiz") {
+    const completed = bestScores.filter((score) => score === 100).length;
+    return { eligible: completed >= 10, completed, required: 10, message: "서로 다른 퀴즈 10문항을 모두 정답으로 완료해야 합니다." };
+  }
+  if (badgeType === "summary") {
+    const completed = bestScores.filter((score) => score >= 80).length;
+    return { eligible: completed >= 3, completed, required: 3, message: "서로 다른 요약 3문항에서 80점 이상을 받아야 합니다." };
+  }
+  const attemptedQuestionCount = bestScoresByQuestion.size;
+  const passedQuestionCount = bestScores.filter((score) => score >= 70).length;
+  return { eligible: attemptedQuestionCount >= 10 && passedQuestionCount >= 7, completed: passedQuestionCount, required: 7, attemptedQuestionCount, message: "서로 다른 단락 재구성 10문항을 풀고 7문항 이상에서 70점 이상을 받아야 합니다." };
 }
 
 export async function awardBadge(userId: number, courseType: string, badgeType: string, badgeName: string) {

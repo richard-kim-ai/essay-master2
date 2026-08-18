@@ -374,6 +374,20 @@ export const quizAnswer = mysqlTable("quiz_answer", {
 export type QuizAnswer = typeof quizAnswer.$inferSelect;
 export type InsertQuizAnswer = typeof quizAnswer.$inferInsert;
 
+// 서버가 검증한 학습 도구 수행 결과만 뱃지 수여 근거로 사용합니다.
+export const learningToolAttempts = mysqlTable("learning_tool_attempts", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionBankId: int("questionBankId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  toolType: mysqlEnum("toolType", ["quiz", "reordering", "summary"]).notNull(),
+  score: int("score").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type LearningToolAttempt = typeof learningToolAttempts.$inferSelect;
+export type InsertLearningToolAttempt = typeof learningToolAttempts.$inferInsert;
+
 // 수료증 테이블
 export const certificate = mysqlTable("certificate", {
   id: int("id").autoincrement().primaryKey(),
