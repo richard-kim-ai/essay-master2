@@ -2688,6 +2688,55 @@ export async function generateTopicWizardGuide(input: {
   return JSON.parse(content) as { headline: string; guidance: string; example: string; tips: string[] };
 }
 
+export async function generateLessonWritingGuide(input: {
+  courseType: CourseType;
+  lessonTitle: string;
+  lessonContent: string;
+  lessonExample: string;
+}) {
+  const response = await invokeLLM({
+    model: "gpt-5-mini",
+    messages: [
+      {
+        role: "system",
+        content: "당신은 한국어 논술교육 코치입니다. 학습자가 레슨 핵심 개념을 스스로 적용하도록 돕는 가이드를 작성하세요. 실제 평가 문항의 정답이나 모범답안을 제공하지 마세요. 대신 새로운 안전한 연습 소재로 사고 순서, 문장 틀, 짧은 예시문을 제공하세요. 사고 순서는 정확히 3개로, 각 항목은 한 문장 70자 이내여야 합니다. 문장 틀은 3줄 이내, 새 연습 예시는 350자 이내로 작성하세요. 과정 수준을 지키고, 설명은 간결하고 실행 가능하게 작성하세요.",
+      },
+      {
+        role: "user",
+        content: `과정: ${getCourseTag(input.courseType)}\n레슨: ${input.lessonTitle}\n핵심 개념: ${input.lessonContent}\n기존 설명 예시: ${input.lessonExample}\n이 레슨 직후 학습자가 글쓰기 전에 볼 AI 가이드를 생성하세요.`,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "lesson_writing_guide",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            learningGoal: { type: "string" },
+            thinkingSteps: { type: "array", items: { type: "string", maxLength: 120 }, minItems: 3, maxItems: 3 },
+            sentenceFrame: { type: "string", maxLength: 360 },
+            practiceExample: { type: "string", maxLength: 650 },
+            selfCheck: { type: "array", items: { type: "string", maxLength: 130 }, minItems: 3, maxItems: 3 },
+          },
+          required: ["learningGoal", "thinkingSteps", "sentenceFrame", "practiceExample", "selfCheck"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+  const content = response.choices[0]?.message?.content;
+  if (typeof content !== "string") throw new Error("AI 레슨 가이드를 생성하지 못했습니다.");
+  return JSON.parse(content) as {
+    learningGoal: string;
+    thinkingSteps: string[];
+    sentenceFrame: string;
+    practiceExample: string;
+    selfCheck: string[];
+  };
+}
+
 export async function analyzeThesisStatement(input: { thesis: string; courseType: CourseType; topic?: string }) {
   try {
     const response = await invokeLLM({

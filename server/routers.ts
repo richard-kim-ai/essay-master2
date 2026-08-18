@@ -1195,6 +1195,19 @@ export const appRouter = router({
         }
         return db.generateTopicWizardGuide(input);
       }),
+    lessonWritingGuide: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        lessonTitle: z.string().min(2).max(300),
+        lessonContent: z.string().min(2).max(3000),
+        lessonExample: z.string().min(2).max(3000),
+      }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 AI 레슨 가이드만 이용할 수 있습니다." });
+        }
+        return db.generateLessonWritingGuide(input);
+      }),
     analyzeThesis: protectedProcedure
       .input(z.object({
         thesis: z.string().trim().min(10).max(1200),
