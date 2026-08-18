@@ -23,6 +23,7 @@ export default function QuizPage() {
   const [earnedBadgeName, setEarnedBadgeName] = useState("");
 
   const submitMutation = trpc.quiz.submitAnswer.useMutation();
+  const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
   const awardBadgeMutation = trpc.badges.award.useMutation();
   const utils = trpc.useUtils();
 
@@ -73,6 +74,21 @@ export default function QuizPage() {
       });
     } catch (e) {
       // ignore offline/fallback error
+    }
+
+    if (isCorrect === 0 && currentQ) {
+      try {
+        await recordMistakeMutation.mutateAsync({
+          questionBankId: currentQ.id,
+          courseType,
+          toolType: "quiz",
+          userAnswer: selectedAnswer,
+          score: 0,
+          aiFeedback: parsedData.explanation || "정답과 해설을 다시 확인해 보세요.",
+        });
+      } catch {
+        toast.error("오답 노트를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.");
+      }
     }
   };
 

@@ -24,6 +24,7 @@ export default function SummaryPractice() {
 
   const awardBadgeMutation = trpc.badges.award.useMutation();
   const gradeEssayMutation = trpc.questionBank.gradeEssay.useMutation();
+  const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
   const utils = trpc.useUtils();
 
   const currentQId = qList && qList.length > 0 ? qList[0].id : 1;
@@ -67,6 +68,21 @@ export default function SummaryPractice() {
       });
       setIsAnalyzing(false);
       toast.success("AI 실시간 채점 및 분석이 완료되었습니다!");
+
+      if (res.overallScore < 100 && qList?.[0]) {
+        try {
+          await recordMistakeMutation.mutateAsync({
+            questionBankId: qList[0].id,
+            courseType,
+            toolType: "summary",
+            userAnswer: summary,
+            score: res.overallScore,
+            aiFeedback: res.feedback || "핵심 쟁점과 결론의 조건을 다시 확인해 보세요.",
+          });
+        } catch {
+          toast.error("요약 결과를 오답 노트에 저장하지 못했습니다.");
+        }
+      }
 
       const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 요약 전문가 뱃지`;
       setEarnedBadgeName(bName);

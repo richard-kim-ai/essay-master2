@@ -622,8 +622,10 @@ export const appRouter = router({
     getStats: protectedProcedure.query(({ ctx }) => db.getWorkbookStatsByUser(ctx.user.id)),
 
     removeMistake: protectedProcedure
-      .input(z.object({ mistakeId: z.number() }))
-      .mutation(({ ctx, input }) => db.removeWorkbookMistake(input.mistakeId, ctx.user.id)),
+      .input(z.object({ mistakeId: z.number(), source: z.enum(["workbook", "learning_tool"]).default("workbook") }))
+      .mutation(({ ctx, input }) => input.source === "learning_tool"
+        ? db.removeLearningToolMistake(input.mistakeId, ctx.user.id)
+        : db.removeWorkbookMistake(input.mistakeId, ctx.user.id)),
 
     getRecommendedQuestions: protectedProcedure.query(({ ctx }) => db.getRecommendedQuestionsForUser(ctx.user.id)),
 
@@ -1162,6 +1164,48 @@ export const appRouter = router({
       .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), limit: z.number().int().min(1).max(10).default(10) }))
       .query(async ({ input }) => {
         return await db.getReorderingPracticeSet(input.courseType, input.limit);
+      }),
+    recordMistake: protectedProcedure
+      .input(z.object({
+        questionBankId: z.number().int().positive(),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        toolType: z.enum(["quiz", "reordering", "summary"]),
+        userAnswer: z.string().min(1).max(8000),
+        score: z.number().min(0).max(100),
+        aiFeedback: z.string().min(1).max(6000),
+      }))
+      .mutation(({ ctx, input }) => {
+        if (input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 학습 도구 결과만 저장할 수 있습니다." });
+        }
+        return db.recordLearningToolMistake({ userId: ctx.user.id, ...input });
+      }),
+    topicWizardGuide: protectedProcedure
+      .input(z.object({
+        step: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        category: z.string().max(100).optional(),
+        topic: z.string().max(500).optional(),
+        mainIdea: z.string().max(1200).optional(),
+        outline: z.string().max(4000).optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 AI 가이드만 이용할 수 있습니다." });
+        }
+        return db.generateTopicWizardGuide(input);
+      }),
+    analyzeThesis: protectedProcedure
+      .input(z.object({
+        thesis: z.string().trim().min(10).max(1200),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        topic: z.string().max(500).optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 주제문 분석만 이용할 수 있습니다." });
+        }
+        return db.analyzeThesisStatement(input);
       }),
     create: protectedProcedure
       .input(z.object({

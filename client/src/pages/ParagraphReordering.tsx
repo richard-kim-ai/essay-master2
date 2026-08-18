@@ -28,7 +28,9 @@ export default function ParagraphReordering() {
   const [scores, setScores] = useState<number[]>([]);
   const [showCelebration, setShowCelebration] = useState(false);
   const [earnedBadgeName, setEarnedBadgeName] = useState("");
+  const [isAdvancing, setIsAdvancing] = useState(false);
   const awardBadgeMutation = trpc.badges.award.useMutation();
+  const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
   const utils = trpc.useUtils();
 
   const currentQuestion = questions[sessionIndex];
@@ -43,6 +45,7 @@ export default function ParagraphReordering() {
     setSessionIndex(0);
     setScores([]);
     setResult(null);
+    setIsAdvancing(false);
   }, [courseType]);
 
   useEffect(() => {
@@ -90,12 +93,28 @@ export default function ParagraphReordering() {
     setParagraphs([...content.paragraphs].sort(() => Math.random() - 0.5));
   };
 
-  const nextQuestion = () => {
-    if (!result) return;
+  const nextQuestion = async () => {
+    if (!result || !currentQuestion || isAdvancing) return;
+    setIsAdvancing(true);
+    if (result.score < 100) {
+      try {
+        await recordMistakeMutation.mutateAsync({
+          questionBankId: currentQuestion.id,
+          courseType,
+          toolType: "reordering",
+          userAnswer: paragraphs.map((paragraph, index) => `${index + 1}. ${paragraph.content}`).join("\n"),
+          score: result.score,
+          aiFeedback: `${content?.explanation || "논리적 연결과 단락의 기능을 다시 확인해 보세요."} (정답 위치: ${content?.paragraphs.map((paragraph) => paragraph.correctOrder).join(" → ") || ""})`,
+        });
+      } catch {
+        toast.error("이번 실습 결과를 오답 노트에 저장하지 못했습니다.");
+      }
+    }
     const updatedScores = [...scores, result.score];
     setScores(updatedScores);
     if (sessionIndex + 1 < questions.length) {
       setSessionIndex((index) => index + 1);
+      setIsAdvancing(false);
       return;
     }
     const passedCount = updatedScores.filter((score) => score >= 70).length;
@@ -107,12 +126,14 @@ export default function ParagraphReordering() {
     } else {
       toast.info("10회 실습을 완료했습니다. 다시 도전해 평균 점수를 높여보세요.");
     }
+    setIsAdvancing(false);
   };
 
   const restartSession = () => {
     setSessionIndex(0);
     setScores([]);
     setResult(null);
+    setIsAdvancing(false);
     utils.questionBank.reorderingPractice.invalidate({ courseType, limit: 10 });
   };
 
@@ -131,7 +152,7 @@ export default function ParagraphReordering() {
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><Link href="/curriculum"><Button variant="ghost" className="-ml-3 text-slate-600">← 커리큘럼으로 돌아가기</Button></Link><div className="flex items-center gap-2"><span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">{courseLabel} 과정</span><span className={`rounded-full border px-3 py-1 text-xs font-bold ${difficultyTone[difficulty]}`}>{difficultyLabel[difficulty]}</span></div></div>
-        <Card className="border-indigo-100 shadow-sm"><CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-2xl font-bold text-slate-900">단락 재구성 드래그 실습</CardTitle><CardDescription className="mt-1">실습 {sessionIndex + 1}/10 · 카드를 드래그하거나 화살표 버튼으로 논리적 순서로 배치하세요.</CardDescription></div><span className="text-sm font-semibold text-slate-600">완료 {scores.length}/10</span></div><Progress className="mt-4 h-2" value={(scores.length / 10) * 100} /></CardHeader><CardContent className="space-y-5"><div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-900">{content.prompt}</p>{content.difficultyProfile?.learningFocus && <p className="mt-2 text-xs text-slate-600">학습 초점: {content.difficultyProfile.learningFocus}</p>}</div><div className="space-y-3">{paragraphs.map((paragraph, index) => <div key={paragraph.id} draggable={!result} onDragStart={() => setDraggedId(paragraph.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(paragraph.id)} className={`flex items-center gap-2 rounded-xl border bg-white p-3 shadow-sm transition ${result ? "cursor-default" : "cursor-grab active:cursor-grabbing hover:border-indigo-300"}`}><GripVertical className="h-5 w-5 shrink-0 text-slate-400" /><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">{index + 1}</span><p className="flex-1 text-sm leading-6 text-slate-800">{paragraph.content}</p><div className="flex shrink-0 flex-col"><Button size="icon" variant="ghost" disabled={Boolean(result) || index === 0} aria-label="위로 이동" onClick={() => moveParagraph(paragraph.id, -1)}><ArrowUp className="h-3.5 w-3.5" /></Button><Button size="icon" variant="ghost" disabled={Boolean(result) || index === paragraphs.length - 1} aria-label="아래로 이동" onClick={() => moveParagraph(paragraph.id, 1)}><ArrowDown className="h-3.5 w-3.5" /></Button></div></div>)}</div>{result && <div className={`rounded-xl border p-4 ${result.passed ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}><p className="flex items-center gap-2 font-bold"><CheckCircle2 className="h-5 w-5" />이번 실습 {result.score}점 · {result.passed ? "통과" : "재도전 권장"}</p><p className="mt-1 text-sm">{content.explanation}</p></div>}<div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-between"><Button variant="outline" disabled={Boolean(result)} onClick={resetCurrent}><RotateCcw className="mr-2 h-4 w-4" />현재 문항 다시 섞기</Button>{result ? <Button onClick={nextQuestion} className="bg-indigo-700 hover:bg-indigo-800">{sessionIndex === 9 ? "10회 결과 보기" : "다음 문항"}</Button> : <Button onClick={submit} className="bg-indigo-700 hover:bg-indigo-800"><Check className="mr-2 h-4 w-4" />정답 제출 및 검증</Button>}</div></CardContent></Card>
+        <Card className="border-indigo-100 shadow-sm"><CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-2xl font-bold text-slate-900">단락 재구성 드래그 실습</CardTitle><CardDescription className="mt-1">실습 {sessionIndex + 1}/10 · 카드를 드래그하거나 화살표 버튼으로 논리적 순서로 배치하세요.</CardDescription></div><span className="text-sm font-semibold text-slate-600">완료 {Math.min(scores.length, questions.length)}/10</span></div><Progress className="mt-4 h-2" value={(Math.min(scores.length, questions.length) / 10) * 100} /></CardHeader><CardContent className="space-y-5"><div className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="text-sm font-semibold text-slate-900">{content.prompt}</p>{content.difficultyProfile?.learningFocus && <p className="mt-2 text-xs text-slate-600">학습 초점: {content.difficultyProfile.learningFocus}</p>}</div><div className="space-y-3">{paragraphs.map((paragraph, index) => <div key={paragraph.id} draggable={!result} onDragStart={() => setDraggedId(paragraph.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleDrop(paragraph.id)} className={`flex items-center gap-2 rounded-xl border bg-white p-3 shadow-sm transition ${result ? "cursor-default" : "cursor-grab active:cursor-grabbing hover:border-indigo-300"}`}><GripVertical className="h-5 w-5 shrink-0 text-slate-400" /><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">{index + 1}</span><p className="flex-1 text-sm leading-6 text-slate-800">{paragraph.content}</p><div className="flex shrink-0 flex-col"><Button size="icon" variant="ghost" disabled={Boolean(result) || index === 0} aria-label="위로 이동" onClick={() => moveParagraph(paragraph.id, -1)}><ArrowUp className="h-3.5 w-3.5" /></Button><Button size="icon" variant="ghost" disabled={Boolean(result) || index === paragraphs.length - 1} aria-label="아래로 이동" onClick={() => moveParagraph(paragraph.id, 1)}><ArrowDown className="h-3.5 w-3.5" /></Button></div></div>)}</div>{result && <div className={`rounded-xl border p-4 ${result.passed ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}><p className="flex items-center gap-2 font-bold"><CheckCircle2 className="h-5 w-5" />이번 실습 {result.score}점 · {result.passed ? "통과" : "재도전 권장"}</p><p className="mt-1 text-sm">{content.explanation}</p></div>}<div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-between"><Button variant="outline" disabled={Boolean(result)} onClick={resetCurrent}><RotateCcw className="mr-2 h-4 w-4" />현재 문항 다시 섞기</Button>{result ? <Button onClick={nextQuestion} disabled={isAdvancing} className="bg-indigo-700 hover:bg-indigo-800">{isAdvancing ? "결과 저장 중..." : sessionIndex === 9 ? "10회 결과 보기" : "다음 문항"}</Button> : <Button onClick={submit} className="bg-indigo-700 hover:bg-indigo-800"><Check className="mr-2 h-4 w-4" />정답 제출 및 검증</Button>}</div></CardContent></Card>
       </div>
     </div>
   );

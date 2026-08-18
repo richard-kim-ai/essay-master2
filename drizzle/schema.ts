@@ -727,6 +727,22 @@ export const workbookMistakes = mysqlTable("workbook_mistakes", {
 export type WorkbookMistake = typeof workbookMistakes.$inferSelect;
 export type InsertWorkbookMistake = typeof workbookMistakes.$inferInsert;
 
+// 문제은행 기반 학습 도구의 오답 기록: 퀴즈·단락 재구성·요약 연습 등 100점 미만 결과를 오답 노트에 축적한다.
+export const learningToolMistakes = mysqlTable("learning_tool_mistakes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  questionBankId: int("questionBankId").notNull(),
+  courseType: varchar("courseType", { length: 50 }).notNull(),
+  toolType: varchar("toolType", { length: 64 }).notNull(),
+  userAnswer: text("userAnswer").notNull(),
+  score: int("score").notNull(),
+  aiFeedback: text("aiFeedback"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type LearningToolMistake = typeof learningToolMistakes.$inferSelect;
+export type InsertLearningToolMistake = typeof learningToolMistakes.$inferInsert;
+
 // 교사 서술형 워크북 첨삭 피드백 테이블
 export const workbookTeacherFeedback = mysqlTable("workbook_teacher_feedback", {
   id: int("id").autoincrement().primaryKey(),
