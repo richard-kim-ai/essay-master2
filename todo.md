@@ -211,3 +211,21 @@
 - [x] 사이드바 및 네비게이션에서 수료증 관리, 커리큘럼 카테고리 관리가 '관리자 대시보드' 하위 카테고리 메뉴로 깔끔하게 정리되도록 중복 링크 통합
 - [x] 마이페이지 컴포넌트에서 로그인한 사용자의 역할(학생, 교사, 관리자)과 레벨에 따라 맞춤형 메뉴와 대시보드 영역이 동적으로 렌더링되도록 구현
 - [x] Vitest 단위 테스트 및 빌드 검증 완료
+
+## 2026-08 추가 요청: 문제 생성 엔진 Master/User Prompt 분리 및 공통 generation service 구축
+- [x] `server/questionGeneration.ts`에 버전 관리 Master Prompt(`2026-08-18-taxonomy-a-f-v1`)와 짧은 구조화 User Prompt 조립 로직 구축
+- [x] 교육 이론 taxonomy A~F, 4개 과정, 5개 학습 도구, difficulty 1~5/AUTO, 난이도 metrics, QA 검증, 중복 방지, 적응형 난이도 규칙 구현
+- [x] 기존 `question_bank` CSV/DB 컬럼과 호환되도록 `easy|medium|hard` 컬럼은 유지하고 상세 난이도·metrics는 `contentData` JSON에 저장
+- [x] 관리자 AI 생성, CSV 대량 승인, 자동 난이도 조절 흐름이 동일한 generation service 및 QA 검증을 사용하도록 통합
+- [x] 관리자 화면에 과정/도구/이론/난이도/문항수/topic 선택, 생성→미리보기→수정→개별/일괄 승인 기능 연결
+- [x] JSON schema 파싱 실패, placeholder/복수정답/중복 차단, AUTO 난이도, CSV import/export 검증 테스트 추가
+- [x] `docs/question-bank-master-prompt.md`에 API 호출 예시, 환경/운영 흐름, 저장 DTO 매핑 문서화
+
+## 2026-08 추가 요청: 교재 연동 이론학습 콘텐츠 데이터 구축
+- [x] `question_bank`와 별개인 `lesson_theory_content` 스키마 및 `contentScope=THEORY_LESSON` 분리 구조 구축
+- [x] Theory Lesson Content Generator Master/User Prompt 구조와 교재 출처·유사 예시 구분 규칙 구현
+- [x] 4대 과정별(초등, 중고등, 고등/대입, 일반/직장인) 12개 이론 단원씩 총 48개 실제 이론학습 데이터 생성
+- [x] 문장 쓰기(A01/A02/A03/A04), 단락 쓰기(B01/B04/B07), 요약하기(C01/C02/C04), 주제 설정(D03) 핵심 단원 반영
+- [x] 워크북 화면이 이론학습 데이터를 우선 렌더링하고 기존 하드코딩 워크북은 fallback으로 유지하도록 연결
+- [x] 원격 DB 시드 반영 완료: 과정별 12개씩 총 48개
+- [x] TypeScript 타입 검사, 전체 Vitest 회귀 테스트, 프로덕션 빌드 검증 완료

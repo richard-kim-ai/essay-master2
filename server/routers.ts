@@ -25,6 +25,17 @@ import {
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
+const questionGenerationInput = z.object({
+  course: z.string().optional(),
+  tool_type: z.string().optional(),
+  courseType: z.string().optional(),
+  toolType: z.string().optional(),
+  theory_category: z.string().default("AUTO"),
+  difficulty: z.union([z.literal("AUTO"), z.coerce.number().int().min(1).max(5)]).default("AUTO"),
+  count: z.number().int().min(1).max(20).optional(),
+  question_count: z.number().int().min(1).max(20).optional(),
+  topic: z.string().trim().min(1).default("AUTO"),
+});
 
 const writingEvaluationMetadataInput = z.object({
   task_id: z.string().optional(),
@@ -428,6 +439,14 @@ export const appRouter = router({
     getById: protectedProcedure
       .input(z.number())
       .query(({ input }) => db.getCurriculumById(input)),
+
+    getTheoryContent: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        lessonLevel: z.number().int().min(1).max(5).optional(),
+        theoryCategory: z.string().optional(),
+      }))
+      .query(({ input }) => db.getLessonTheoryContentList(input)),
   }),
 
   // ========== Progress Routes ==========
@@ -822,6 +841,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        await db.assertQuestionBankItemQuality(input);
         return await db.createQuestionBankItem(input);
       }),
     update: protectedProcedure
@@ -859,6 +879,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         for (const item of input.items) {
+          await db.assertQuestionBankItemQuality(item);
           await db.createQuestionBankItem(item);
         }
         return { success: true, count: input.items.length };
@@ -940,16 +961,30 @@ export const appRouter = router({
       return await db.getCurriculumDifficultyStats();
     }),
     generateAiQuestions: protectedProcedure
-      .input(z.object({ courseType: z.string(), toolType: z.string(), count: z.number().default(3) }))
+      .input(questionGenerationInput)
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.generateAiQuestionsForCategory(input.courseType, input.toolType, input.count);
+        return await db.previewGeneratedQuestionBankItems({
+          course: input.course ?? input.courseType ?? "MIDDLE_HIGH",
+          tool_type: input.tool_type ?? input.toolType ?? "SUMMARY",
+          theory_category: input.theory_category,
+          difficulty: input.difficulty,
+          question_count: input.question_count ?? input.count ?? 3,
+          topic: input.topic,
+        });
       }),
     previewAiQuestions: protectedProcedure
-      .input(z.object({ courseType: z.string(), toolType: z.string(), count: z.number().default(3) }))
+      .input(questionGenerationInput)
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.previewAiQuestionsForCategory(input.courseType, input.toolType, input.count);
+        return await db.previewGeneratedQuestionBankItems({
+          course: input.course ?? input.courseType ?? "MIDDLE_HIGH",
+          tool_type: input.tool_type ?? input.toolType ?? "SUMMARY",
+          theory_category: input.theory_category,
+          difficulty: input.difficulty,
+          question_count: input.question_count ?? input.count ?? 3,
+          topic: input.topic,
+        });
       }),
     promoteUser: protectedProcedure
       .input(z.object({ userId: z.number(), targetLevel: z.number() }))

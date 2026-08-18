@@ -15,6 +15,7 @@ import {
   pushSubscription,
   aiUsageLogs,
   dynamicCurriculum,
+  lessonTheoryContent,
   siteSettings,
   parentStudentLinks,
   userBadges,
@@ -27,10 +28,73 @@ import {
 import { eq, and, desc, gte } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
+import {
+  generateQuestionBankItems,
+  generationRequestSchema,
+  qaQuestionItem,
+  type GenerationRequestInput,
+} from "./questionGeneration";
+import { THEORY_LESSON_SEED_ITEM_COUNT, buildTheoryLessonSeedItems } from "./theoryLessonContent";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
 let memoryProgressId = 1;
+
+const QUESTION_BANK_MASTER_PROMPT = `
+당신은 Essay Master의 한국어 논술교육 전문 문항개발 AI이다.
+
+핵심 목표:
+- 실제 학습자가 풀 수 있는 완전한 문제를 만든다.
+- placeholder, seed, 개발 테스트 문구를 만들지 않는다.
+- 문항마다 학습 목표, 정답 또는 평가 기준, 해설, 오답별 해설을 포함한다.
+- 과정과 난이도를 분리해서 판단한다.
+- 같은 문장 구조, 같은 오류, 같은 해설 문구를 이름만 바꿔 반복하지 않는다.
+
+대상별 커리큘럼 기준:
+- elementary: 초등고학년, TOPIK 3, 단문 중심, 명확한 인과관계, 피드백은 해요체, 예문과 정답은 해라체, 자신의 생각 표현과 감정/사실 분리 강조
+- middle_high: 중학생, TOPIK 4, 중문 구조, 접속어 활용, 객관적 해라체, 근거 제시와 문장 간 연결 강조
+- high_univ: 고등학생 또는 대입수험생, TOPIK 5~6 심화, 복문 구조와 시사·사회·학술 어휘, 논리적 격식체, 제시문 요약·비교 분석 강조
+- general_adult: 일반인/직장인, TOPIK 6 실무, 두괄식 비즈니스체, 보고서/칼럼조 논술, 대안 제시와 기대효과 강조
+
+자연스러운 한글 필수 검증:
+- 주술 호응 불일치 수정
+- 불필요한 이중 피동 수정: 선택되어지다, 보여집니다, 생각되어집니다 금지
+- 영어식 소유 표현 제거: ~의 가지는 -> ~이 지닌, ~에서 나타나는
+- 명사화 과다 사용 억제: ~함에 있어서, ~에 대한 확인을 하는 것 -> ~할 때, ~을 확인할 때
+- 외국어 직역투 제거: 좋은 시간을 가졌다, 그것은 중요하다 -> 즐겁게 보냈다, 이 점은 중요하다
+- 사족과 강조 반복 금지: 중요하고 중요, 꼭 반드시 등 금지
+
+교육 이론:
+- 문장 쓰기: 경제성, 동어 반복 회피, 명료성, 정확성, 주술 호응, 조사, 피동, 번역투, 명사화
+- 단락 쓰기: 중심 생각, 소주제문, 뒷받침 문장, 통일성, 일관성, 연속성, 전개
+- 요약: 삭제, 상위어 대치, 주제문 선택, 주제문 창출, 단락 기능, 전체 구조
+- 주제 설정: 가주제, 문제 구체화, 참주제, 자료 수집 가능성
+- 주제문 작성: 완전성, 구체성, 주장성, 논증 가능성, 범위 적절성
+
+도구별 요구:
+- quiz: 실제 문장/지문, 4지선다, 정답, 오답별 해설, 문장 교정 필터 포함
+- reordering: 문장 카드 3개 이상, 객관적 배열 근거, correct_answer, ordering_logic 포함
+- summary: 완결된 제시문, 핵심 주장, 핵심 근거, 삭제 가능 정보, model_answer 포함
+- topic_wizard: 가주제에서 참주제로 좁히는 선택 또는 작성 문제
+- thesis_checklist: 주제문 초안 평가와 수정 활동
+
+contentData에는 다음 필드를 가능한 모두 포함한다:
+course, tool_type, curriculum_stage, curriculum_stage_label, theory_category, theory_subcategory, difficulty, question, passage, choices, correct_answer, model_answer, explanation, wrong_answer_explanations, learning_objective, evaluation_criteria, keywords, estimated_time, difficulty_metrics, language_profile, topik_profile, natural_korean_filters, tutor_response_template.
+
+tutor_response_template.output_sections는 반드시 다음 3개를 포함한다:
+칭찬 및 총평, 자연스러움 교정 (Before & After), 다음 단계 가이드.
+
+응답은 반드시 JSON object만 반환한다. 형식:
+{
+  "items": [
+    {
+      "title": "문항 제목",
+      "difficulty": "easy|medium|hard",
+      "contentData": { ... }
+    }
+  ]
+}
+`;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -280,6 +344,64 @@ export async function getDynamicCurriculumByType(courseType: "elementary" | "mid
       try { return row.aiTags ? (JSON.parse(row.aiTags) as string[]) : []; } catch { return []; }
     })(),
   }));
+}
+
+export async function getLessonTheoryContentList(input: {
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
+  lessonLevel?: number;
+  theoryCategory?: string;
+}) {
+  await seedLessonTheoryContentIfNeeded();
+  const db = await getDb();
+  if (!db) {
+    return buildTheoryLessonSeedItems().filter((item) => {
+      if (item.courseType !== input.courseType) return false;
+      if (input.lessonLevel && item.lessonLevel !== input.lessonLevel) return false;
+      if (input.theoryCategory && item.theoryCategory !== input.theoryCategory) return false;
+      return item.isActive === 1;
+    });
+  }
+
+  const rows = await db
+    .select()
+    .from(lessonTheoryContent)
+    .where(and(eq(lessonTheoryContent.courseType, input.courseType), eq(lessonTheoryContent.isActive, 1)))
+    .orderBy(lessonTheoryContent.lessonLevel, lessonTheoryContent.theoryCategory);
+
+  return rows.filter((item) => {
+    if (input.lessonLevel && item.lessonLevel !== input.lessonLevel) return false;
+    if (input.theoryCategory && item.theoryCategory !== input.theoryCategory) return false;
+    return true;
+  });
+}
+
+export async function seedLessonTheoryContentIfNeeded() {
+  const db = await getDb();
+  if (!db) return;
+
+  const existing = await db.select().from(lessonTheoryContent);
+  const hasSeparatedTheoryContent = existing.some((item) => item.contentScope === "THEORY_LESSON");
+  const hasCoreCoverage = existing.filter((item) => item.isActive === 1).length >= THEORY_LESSON_SEED_ITEM_COUNT;
+  if (hasSeparatedTheoryContent && hasCoreCoverage) return;
+
+  if (existing.length > 0) {
+    await db.delete(lessonTheoryContent);
+  }
+
+  for (const item of buildTheoryLessonSeedItems()) {
+    await db.insert(lessonTheoryContent).values({
+      contentScope: "THEORY_LESSON",
+      courseType: item.courseType,
+      lessonLevel: item.lessonLevel,
+      theoryCategory: item.theoryCategory,
+      theorySubcategory: item.theorySubcategory,
+      exampleMode: item.exampleMode,
+      title: item.title,
+      contentData: item.contentData,
+      sourceNote: item.sourceNote,
+      isActive: item.isActive,
+    });
+  }
 }
 
 // ========== Progress Functions ==========
@@ -1641,52 +1763,227 @@ export async function getAllQuestionFeedbacks() {
   return await db.select().from(questionFeedbacks);
 }
 
-export async function generateAiQuestionsForCategory(courseType: string, toolType: string, count: number = 3) {
-  const promptText = `당신은 대한민국 최고 수준의 논술 교육 전문가이자 문항 출제 위원입니다.
-다음 조건에 맞추어 '${courseType}' 과정의 '${toolType}' 학습 도구를 위한 실전 논술 문항 ${count}개를 JSON 배열 형식으로 생성해 주세요.
-반드시 아래의 JSON 구조로만 응답하세요:
-[
-  {
-    "title": "문항 제목",
-    "difficulty": "medium",
-    "contentData": "{\"prompt\":\"본문내용\",\"options\":[\"보기1\",\"보기2\"],\"answer\":\"보기1\",\"explanation\":\"해설\"}"
+function getCurriculumStageProfile(courseType: string, index: number = 1) {
+  if (courseType === "elementary") {
+    return {
+      curriculum_stage: "upper_elementary",
+      curriculum_stage_label: "초등고학년",
+      topik: "TOPIK 3",
+      feedback_style: "해요체",
+      questionEnding: "보세요.",
+      explanationEnding: "이에요.",
+    };
   }
-]
-다른 부가 설명 없이 순수 JSON 배열만 출력해 주세요.`;
+  if (courseType === "middle_high") {
+    return {
+      curriculum_stage: "middle_school",
+      curriculum_stage_label: "중학생",
+      topik: "TOPIK 4",
+      feedback_style: "객관적 해라체",
+      questionEnding: "고른다.",
+      explanationEnding: "이다.",
+    };
+  }
+  if (courseType === "high_univ" && index % 2 === 0) {
+    return {
+      curriculum_stage: "admission_candidate",
+      curriculum_stage_label: "대입수험생",
+      topik: "TOPIK 6 심화",
+      feedback_style: "논문 심사위원형 정중체",
+      questionEnding: "고르십시오.",
+      explanationEnding: "입니다.",
+    };
+  }
+  if (courseType === "high_univ") {
+    return {
+      curriculum_stage: "high_school",
+      curriculum_stage_label: "고등학생",
+      topik: "TOPIK 5",
+      feedback_style: "전문 강사형 정중체",
+      questionEnding: "고르십시오.",
+      explanationEnding: "입니다.",
+    };
+  }
+  return {
+    curriculum_stage: "general_adult",
+    curriculum_stage_label: "일반인/직장인",
+    topik: "TOPIK 6 실무",
+    feedback_style: "실무 첨삭형 정중체",
+    questionEnding: "고르십시오.",
+    explanationEnding: "입니다.",
+  };
+}
+
+function buildFallbackQuestionContent(courseType: string, toolType: string, index: number = 1) {
+  const profile = getCurriculumStageProfile(courseType, index);
+  const topic = courseType === "general_adult" ? "회의 결과 정리" : courseType === "high_univ" ? "AI 추천 알고리즘" : courseType === "middle_high" ? "학교 내 휴대전화 사용" : "학급 도서관 이용";
+  const claim = courseType === "general_adult"
+    ? "회의 결과 정리는 결정 사항과 담당자를 먼저 제시할 때 실행력이 높아진다."
+    : courseType === "high_univ"
+      ? "AI 추천 알고리즘은 편의를 높이지만 정보 편향을 줄이는 선택권이 함께 보장되어야 한다."
+      : courseType === "middle_high"
+        ? "학교 내 휴대전화 사용은 정보 접근을 돕지만 수업 집중을 해치지 않는 공동 규칙이 필요하다."
+        : "학급 도서관은 함께 쓰는 공간이므로 책을 제자리에 꽂는 약속이 필요하다.";
+  const naturalFilters = [
+    { error_type: "주술 호응 불일치", rewrite: "주어와 서술어의 짝을 맞춘다." },
+    { error_type: "불필요한 이중 피동", rewrite: "선택되어지다를 선택하다 또는 선택되다로 고친다." },
+    { error_type: "영어식 소유 표현", rewrite: "~의 가지는을 ~이 지닌으로 고친다." },
+    { error_type: "명사화 과다 사용", rewrite: "~함에 있어서를 ~할 때로 고친다." },
+    { error_type: "외국어 직역투", rewrite: "좋은 시간을 가졌다를 맥락에 맞는 한국어 서술로 고친다." },
+  ];
+  const base = {
+    title: `${topic} ${toolType} 학습 문항`,
+    course: courseType === "elementary" ? "ELEMENTARY" : courseType === "middle_high" ? "MIDDLE_HIGH" : courseType === "high_univ" ? "HIGH_ADMISSION" : "GENERAL_WORK",
+    tool_type: toolType,
+    curriculum_stage: profile.curriculum_stage,
+    curriculum_stage_label: profile.curriculum_stage_label,
+    theory_category: "문장 쓰기",
+    theory_subcategory: "경제성",
+    difficulty: index,
+    learning_objective: `${topic} 소재를 바탕으로 논술 표현의 명료성과 논리성을 점검한다.`,
+    evaluation_criteria: {
+      정확성: "핵심 판단이 정확한가",
+      논리성: "주장과 근거가 자연스럽게 연결되는가",
+      표현력: "대상 수준에 맞는 한국어 표현인가",
+    },
+    keywords: [topic, profile.curriculum_stage_label, profile.topik],
+    estimated_time: 120 + index * 20,
+    difficulty_metrics: {
+      vocabulary_complexity: Math.min(5, index),
+      sentence_complexity: Math.min(5, index),
+      information_density: Math.min(5, index),
+      reasoning_depth: Math.min(5, index),
+      error_complexity: Math.min(5, index),
+      answer_ambiguity: Math.min(5, Math.max(1, index - 1)),
+      concept_integration: Math.min(5, index),
+    },
+    language_profile: {
+      audience: profile.curriculum_stage_label,
+      feedback_style: profile.feedback_style,
+      example_register: "해라체",
+    },
+    topik_profile: {
+      band: profile.topik,
+      control_note: "학습 대상의 TOPIK 기반 어휘·문법 수준을 넘는 표현은 핵심 개념일 때만 사용한다.",
+    },
+    natural_korean_filters: naturalFilters,
+    tutor_response_template: {
+      output_sections: [
+        { name: "칭찬 및 총평" },
+        { name: "자연스러움 교정 (Before & After)" },
+        { name: "다음 단계 가이드" },
+      ],
+    },
+  };
+
+  if (toolType === "quiz") {
+    return {
+      ...base,
+      title: `${topic} 문장 교정: 불필요한 반복 제거`,
+      question: profile.curriculum_stage === "upper_elementary" ? "다음 문장을 읽고 가장 자연스럽게 고친 선택지를 골라 보세요." : `다음 문장을 읽고 가장 자연스럽게 고친 선택지를 ${profile.questionEnding}`,
+      passage: `${claim} 그래서 이 점을 다시 확인할 수 있고, 이 점을 기억해야 한다.`,
+      choices: [
+        claim,
+        `${claim} 이처럼 같은 생각을 다시 말하는 것이 중요하다.`,
+        `${topic}은 매우 중요하므로 자세히 알아보아야 한다.`,
+        `${topic}의 가지는 의미는 생각되어져야 한다.`,
+      ],
+      correct_answer: claim,
+      model_answer: claim,
+      explanation: `정답은 불필요한 반복을 줄이고 핵심 판단을 직접 드러낸 문장${profile.explanationEnding}`,
+      wrong_answer_explanations: {
+        [`${claim} 이처럼 같은 생각을 다시 말하는 것이 중요하다.`]: "앞 문장의 판단을 비슷한 말로 다시 덧붙였다.",
+        [`${topic}은 매우 중요하므로 자세히 알아보아야 한다.`]: "중요하다는 평가만 있고 구체적 판단과 근거 방향이 약하다.",
+        [`${topic}의 가지는 의미는 생각되어져야 한다.`]: "영어식 소유 표현과 이중 피동이 함께 나타난다.",
+      },
+    };
+  }
+
+  if (toolType === "reordering") {
+    const paragraphs = [
+      { id: "A", content: `${topic}에 관한 글은 먼저 쟁점을 분명히 해야 한다.`, correctOrder: 1 },
+      { id: "B", content: claim, correctOrder: 2 },
+      { id: "C", content: "그 이유는 공동의 기준이 있을 때 갈등을 줄일 수 있기 때문이다.", correctOrder: 3 },
+      { id: "D", content: "따라서 주장과 근거를 차례로 제시해야 단락의 흐름이 자연스럽다.", correctOrder: 4 },
+    ];
+    return {
+      ...base,
+      theory_category: "단락 쓰기",
+      theory_subcategory: "일관성",
+      title: `${topic} 단락 재구성: 주장과 근거 배열`,
+      question: profile.curriculum_stage === "upper_elementary" ? "문장들의 앞뒤 관계를 생각하며 순서를 맞춰 보세요." : `문장 사이의 논리 관계를 기준으로 순서를 ${profile.questionEnding}`,
+      passage: "",
+      paragraphs,
+      choices: [],
+      correct_answer: "A-B-C-D",
+      model_answer: paragraphs.map(p => p.content).join(" "),
+      explanation: `쟁점 제시, 주장, 근거, 결론 순서로 배열할 때 단락의 일관성이 살아납니다.`,
+      wrong_answer_explanations: {
+        "근거가 주장보다 먼저 오는 배열": "무엇을 뒷받침하는 근거인지 알기 어렵다.",
+        "결론이 중간에 오는 배열": "뒤 문장의 역할이 흐려진다.",
+        "쟁점 제시가 빠진 배열": "독자가 글의 문제 상황을 파악하기 어렵다.",
+      },
+    };
+  }
+
+  return {
+    ...base,
+    theory_category: toolType === "summary" ? "요약" : toolType === "topic_wizard" ? "주제 설정" : "주제문 작성",
+    theory_subcategory: toolType === "summary" ? "삭제" : toolType === "topic_wizard" ? "참주제 설정" : "주장 명확성",
+    title: `${topic} ${toolType} 핵심 연습`,
+    question: profile.curriculum_stage === "upper_elementary" ? "핵심 생각이 잘 드러나도록 답을 정리해 보세요." : `핵심 생각과 근거가 드러나도록 답을 작성하십시오.`,
+    passage: `${topic}은 학습자에게 익숙한 주제이지만, 글로 쓸 때는 주장과 근거를 구분해야 한다. ${claim}`,
+    choices: [],
+    correct_answer: claim,
+    model_answer: claim,
+    explanation: `핵심 주장과 근거를 구분하면 글의 방향이 명확해집니다.`,
+    wrong_answer_explanations: {},
+    essential_information: [claim],
+    deletable_details: ["반복 설명", "감정적 강조"],
+  };
+}
+
+export async function generateAiQuestionsForCategory(inputOrCourse: GenerationRequestInput | string, toolType?: string, count: number = 3) {
+  const request = typeof inputOrCourse === "string"
+    ? generationRequestSchema.parse({
+        course: inputOrCourse,
+        tool_type: toolType || "quiz",
+        theory_category: "AUTO",
+        difficulty: "AUTO",
+        question_count: count,
+        topic: "AUTO",
+      })
+    : generationRequestSchema.parse(inputOrCourse);
 
   try {
-    const res: any = await invokeLLM({
-      messages: [{ role: "user", content: promptText }],
-      responseFormat: { type: "json_object" }
+    const existingItems = await getQuestionBankList();
+    const adaptiveStats = await getQuestionBankStats();
+    return await generateQuestionBankItems(request, {
+      existingItems,
+      adaptiveStats,
     });
-    const contentStr = res?.choices?.[0]?.message?.content || "[]";
-    let parsed = JSON.parse(contentStr);
-    const items = Array.isArray(parsed) ? parsed : (parsed.items || parsed.questions || []);
-    return items.map((item: any) => ({
-      courseType,
-      toolType,
-      title: item.title || `[AI 생성] ${courseType} 실전 논술`,
-      contentData: typeof item.contentData === "string" ? item.contentData : JSON.stringify(item.contentData || { prompt: "AI 생성 본문" }),
-      difficulty: ["easy", "medium", "hard"].includes(item.difficulty) ? item.difficulty : "medium",
-      isActive: 1,
-    }));
   } catch (e) {
-    // Fallback static real items if LLM fails
     const fallbackItems = [];
-    for (let i = 1; i <= count; i++) {
-      fallbackItems.push({
-        courseType,
-        toolType,
-        title: `[AI 생성 실전] ${courseType} ${toolType} 문항 #${i}`,
-        contentData: JSON.stringify({
-          prompt: `AI가 심층 설계한 ${courseType} 과정 ${toolType} 실전 학습 문항입니다. 논리적 사고력을 검증하세요.`,
-          options: toolType === "quiz" ? ["논리적 타당성이 검증된 주장", "감정적 호소에 치우친 오류", "모순되는 전제와 결론", "무관한 사실 나열"] : undefined,
-          answer: toolType === "quiz" ? "논리적 타당성이 검증된 주장" : "모범 답안",
-          explanation: "AI 심층 출제 위원이 제공하는 상세 논증 해설입니다."
-        }),
+    for (let i = 1; i <= request.question_count; i++) {
+      const legacyCourse = request.course === "ELEMENTARY" ? "elementary"
+        : request.course === "MIDDLE_HIGH" ? "middle_high"
+          : request.course === "HIGH_ADMISSION" ? "high_univ"
+            : request.course === "GENERAL_WORK" ? "general_adult"
+              : request.course;
+      const legacyTool = request.tool_type === "PARAGRAPH_REORDERING" ? "reordering"
+        : request.tool_type === "CHECKLIST" ? "thesis_checklist"
+          : request.tool_type.toLowerCase();
+      const contentData = buildFallbackQuestionContent(legacyCourse, legacyTool, i);
+      const dto = {
+        courseType: contentData.course === "ELEMENTARY" ? "elementary" : contentData.course === "MIDDLE_HIGH" ? "middle_high" : contentData.course === "HIGH_ADMISSION" ? "high_univ" : "general_adult",
+        toolType: contentData.tool_type === "PARAGRAPH_REORDERING" ? "reordering" : contentData.tool_type === "CHECKLIST" ? "thesis_checklist" : String(contentData.tool_type).toLowerCase(),
+        title: contentData.title,
+        contentData: JSON.stringify(contentData),
         difficulty: i % 2 === 0 ? "hard" : "medium",
         isActive: 1,
-      });
+      } as const;
+      const qa = qaQuestionItem(dto, []);
+      fallbackItems.push({ ...dto, qaStatus: qa.passed ? "passed" : "blocked", qaIssues: qa.issues, duplicateScore: qa.duplicateScore });
     }
     return fallbackItems;
   }
@@ -1706,6 +2003,19 @@ export async function getSimilarQuestions(questionId: number) {
 // AI 생성 미리보기 임시 저장소 (메모리 캐시 또는 테이블 대체용)
 export async function previewAiQuestionsForCategory(courseType: string, toolType: string, count: number = 3) {
   return await generateAiQuestionsForCategory(courseType, toolType, count);
+}
+
+export async function previewGeneratedQuestionBankItems(input: GenerationRequestInput) {
+  return await generateAiQuestionsForCategory(input);
+}
+
+export async function assertQuestionBankItemQuality(data: { title: string; contentData: string }) {
+  const existingItems = await getQuestionBankList();
+  const qa = qaQuestionItem({ ...data, courseType: "middle_high", toolType: "quiz", difficulty: "medium", isActive: 1 }, existingItems);
+  if (!qa.passed) {
+    throw new Error(`Question QA failed: ${qa.issues.join(", ")}`);
+  }
+  return qa;
 }
 
 export async function gradeEssayWithAi(questionId: number, userAnswer: string) {

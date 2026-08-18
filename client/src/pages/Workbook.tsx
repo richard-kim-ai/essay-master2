@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
-import { Loader2, CheckCircle } from "lucide-react";
+import { Loader2, CheckCircle, BookOpen, Lightbulb, MessageSquare } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -108,6 +108,23 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
   },
 };
 
+type WorkbookLesson = {
+  id: number;
+  title: string;
+  content: string;
+  example: string;
+  theoryCategory?: string;
+  theorySubcategory?: string;
+  textbookAnchor?: { kind?: string; text?: string };
+  wrongExample?: string;
+  improvedExample?: string;
+  checkQuestion?: string;
+  checkAnswer?: string;
+  answerFeedback?: string;
+  nextStep?: string;
+  sourceBoundary?: string;
+};
+
 export default function Workbook() {
   const { isAuthenticated } = useAuth();
   const [, params] = useRoute("/workbook/:courseType/:level");
@@ -119,12 +136,41 @@ export default function Workbook() {
   const [loading, setLoading] = useState(false);
 
   const progressMutation = trpc.progress.upsert.useMutation();
+  const { data: theoryContent } = trpc.curriculum.getTheoryContent.useQuery(
+    { courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult", lessonLevel: level },
+    { enabled: isAuthenticated },
+  );
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
   }
 
-  const workbookData = WORKBOOK_CONTENT[courseType]?.[level] || {
+  const dbLessons: WorkbookLesson[] = (theoryContent || []).map((item: any, index: number) => {
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(item.contentData);
+    } catch {
+      parsed = {};
+    }
+    return {
+      id: item.id ?? index + 1,
+      title: item.title,
+      content: parsed.core_concept || "",
+      example: parsed.textbook_similar_example?.text || parsed.improved_example || "",
+      theoryCategory: item.theoryCategory,
+      theorySubcategory: item.theorySubcategory,
+      textbookAnchor: parsed.textbook_anchor,
+      wrongExample: parsed.wrong_example,
+      improvedExample: parsed.improved_example,
+      checkQuestion: parsed.in_lesson_check?.question,
+      checkAnswer: parsed.in_lesson_check?.answer,
+      answerFeedback: parsed.answer_feedback,
+      nextStep: parsed.next_step,
+      sourceBoundary: parsed.source_boundary,
+    };
+  });
+
+  const fallbackWorkbookData: { title: string; lessons: WorkbookLesson[] } = WORKBOOK_CONTENT[courseType]?.[level] || {
     title: `Level ${level}: 맞춤형 논술 실습`,
     lessons: [
       {
@@ -135,6 +181,9 @@ export default function Workbook() {
       },
     ],
   };
+  const workbookData = dbLessons.length > 0
+    ? { title: `Level ${level}: 교재 연동 이론학습`, lessons: dbLessons }
+    : fallbackWorkbookData;
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
 
@@ -192,11 +241,47 @@ export default function Workbook() {
             </div>
 
             <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-6 space-y-4">
-              <h3 className="text-xl font-bold text-slate-900">{lesson.title}</h3>
-              <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
-              <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm font-medium text-indigo-900">
-                {lesson.example}
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xl font-bold text-slate-900">{lesson.title}</h3>
+                {lesson.theoryCategory && <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700">{lesson.theoryCategory} · {lesson.theorySubcategory}</span>}
               </div>
+              <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
+              {lesson.textbookAnchor && (
+                <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm text-slate-700">
+                  <div className="mb-2 flex items-center gap-2 font-bold text-indigo-800"><BookOpen className="h-4 w-4" /> 교재 기준</div>
+                  <p className="leading-6"><span className="font-semibold">{lesson.textbookAnchor.kind}</span>: {lesson.textbookAnchor.text}</p>
+                </div>
+              )}
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-lg bg-white p-4 border border-rose-100 text-sm text-rose-900">
+                  <div className="mb-2 font-bold">잘못된 예</div>
+                  {lesson.wrongExample || lesson.example}
+                </div>
+                <div className="rounded-lg bg-white p-4 border border-emerald-100 text-sm text-emerald-900">
+                  <div className="mb-2 font-bold">개선 예 / 유사 예시</div>
+                  {lesson.improvedExample || lesson.example}
+                </div>
+              </div>
+              {lesson.checkQuestion && (
+                <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 text-sm text-amber-950">
+                  <div className="mb-2 flex items-center gap-2 font-bold"><MessageSquare className="h-4 w-4" /> 강의 중 확인문제</div>
+                  <p className="leading-6">{lesson.checkQuestion}</p>
+                  <details className="mt-3">
+                    <summary className="cursor-pointer font-semibold">정답과 해설 보기</summary>
+                    <div className="mt-2 space-y-1 leading-6">
+                      <p><span className="font-semibold">정답:</span> {lesson.checkAnswer}</p>
+                      <p>{lesson.answerFeedback}</p>
+                    </div>
+                  </details>
+                </div>
+              )}
+              {lesson.nextStep && (
+                <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                  <div className="mb-2 flex items-center gap-2 font-bold text-slate-900"><Lightbulb className="h-4 w-4 text-amber-500" /> 다음 단계</div>
+                  <p className="leading-6">{lesson.nextStep}</p>
+                </div>
+              )}
+              {lesson.sourceBoundary && <p className="text-xs leading-5 text-slate-500">{lesson.sourceBoundary}</p>}
             </div>
 
             <div className="flex items-center justify-between pt-4">

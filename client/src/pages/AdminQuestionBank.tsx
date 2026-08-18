@@ -11,6 +11,39 @@ import { toast } from "sonner";
 import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert } from "lucide-react";
 import { Link } from "wouter";
 
+function parseCsvRows(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      cell += '"';
+      i += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") i += 1;
+      row.push(cell);
+      if (row.some(value => value.trim().length > 0)) rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  row.push(cell);
+  if (row.some(value => value.trim().length > 0)) rows.push(row);
+  return rows;
+}
+
 export default function AdminQuestionBank() {
   const { user } = useAuth();
   const [courseFilter, setCourseFilter] = useState<string>("all");
@@ -22,9 +55,12 @@ export default function AdminQuestionBank() {
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
 
   // AI Generator Form & Preview State
-  const [genCourse, setGenCourse] = useState("elementary");
-  const [genTool, setGenTool] = useState("quiz");
-  const [genCount, setGenCount] = useState(3);
+  const [genCourse, setGenCourse] = useState("MIDDLE_HIGH");
+  const [genTool, setGenTool] = useState("SUMMARY");
+  const [genTheory, setGenTheory] = useState("C04");
+  const [genDifficulty, setGenDifficulty] = useState<"AUTO" | "1" | "2" | "3" | "4" | "5">("3");
+  const [genTopic, setGenTopic] = useState("AUTO");
+  const [genCount, setGenCount] = useState(10);
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewItems, setPreviewItems] = useState<any[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -106,9 +142,12 @@ export default function AdminQuestionBank() {
     setIsGenerating(true);
     try {
       const items = await previewAiQuestionsMutation.mutateAsync({
-        courseType: genCourse,
-        toolType: genTool,
-        count: genCount,
+        course: genCourse,
+        tool_type: genTool,
+        theory_category: genTheory,
+        difficulty: genDifficulty === "AUTO" ? "AUTO" : Number(genDifficulty),
+        question_count: genCount,
+        topic: genTopic.trim() || "AUTO",
       });
       if (items && items.length > 0) {
         setPreviewItems(items);
@@ -126,14 +165,38 @@ export default function AdminQuestionBank() {
 
   const handleApprovePreview = async () => {
     try {
-      await bulkCreateMutation.mutateAsync({ items: previewItems });
-      toast.success(`${previewItems.length}개의 검토된 문항이 문제은행에 최종 승인 및 반영되었습니다.`);
+      const approvedItems = previewItems.filter(item => item.qaStatus !== "blocked");
+      if (approvedItems.length === 0) {
+        toast.error("승인 가능한 문항이 없습니다. QA 차단 사유를 수정한 뒤 다시 승인해주세요.");
+        return;
+      }
+      await bulkCreateMutation.mutateAsync({ items: approvedItems });
+      toast.success(`${approvedItems.length}개의 검토된 문항이 문제은행에 최종 승인 및 반영되었습니다.`);
       setIsPreviewOpen(false);
       setActiveTab("list");
       refetch();
       refetchStats();
     } catch (err) {
       toast.error("문항 일괄 반영 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleApprovePreviewItem = async (idx: number) => {
+    try {
+      const item = previewItems[idx];
+      if (!item || item.qaStatus === "blocked") {
+        toast.error("QA에서 차단된 문항입니다. 본문을 수정한 뒤 전체 승인 흐름으로 반영해주세요.");
+        return;
+      }
+      await createMutation.mutateAsync(item);
+      const updated = previewItems.filter((_, itemIdx) => itemIdx !== idx);
+      setPreviewItems(updated);
+      toast.success("선택한 문항 1개가 문제은행에 승인 반영되었습니다.");
+      refetch();
+      refetchStats();
+      if (updated.length === 0) setIsPreviewOpen(false);
+    } catch (err) {
+      toast.error("선택 문항 승인 중 오류가 발생했습니다.");
     }
   };
 
@@ -172,21 +235,21 @@ export default function AdminQuestionBank() {
     reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
-        const lines = text.split("\n").filter(Boolean);
-        if (lines.length < 2) {
+        const rows = parseCsvRows(text);
+        if (rows.length < 2) {
           toast.error("CSV 파일에 유효한 데이터가 없습니다.");
           return;
         }
 
         const items: any[] = [];
-        for (let i = 1; i < lines.length; i++) {
-          const row = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || lines[i].split(",");
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
           if (row.length >= 6) {
-            const courseType = (row[1]?.replace(/"/g, "").trim() || "middle_high") as any;
-            const toolType = row[2]?.replace(/"/g, "").trim() || "quiz";
-            const title = row[3]?.replace(/"/g, "").trim() || `업로드 문항 #${i}`;
-            const contentData = row[4]?.replace(/^"|"$/g, "").replace(/\\n/g, "\n") || '{"prompt":"샘플"}';
-            const difficulty = (row[5]?.replace(/"/g, "").trim() || "medium") as any;
+            const courseType = (row[1]?.trim() || "middle_high") as any;
+            const toolType = row[2]?.trim() || "quiz";
+            const title = row[3]?.trim() || `업로드 문항 ${i}`;
+            const contentData = row[4]?.replace(/\\n/g, "\n") || '{"question":"","explanation":"","model_answer":""}';
+            const difficulty = (row[5]?.trim() || "medium") as any;
 
             items.push({ courseType, toolType, title, contentData, difficulty, isActive: 1 });
           }
@@ -358,10 +421,10 @@ export default function AdminQuestionBank() {
                     onChange={e => setGenCourse(e.target.value)}
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
                   >
-                    <option value="elementary">초등 논술 과정</option>
-                    <option value="middle_high">중고등 논술 과정</option>
-                    <option value="high_univ">고등 / 대입 과정</option>
-                    <option value="general_adult">일반 / 직장인 과정</option>
+                    <option value="ELEMENTARY">초등 논술 과정</option>
+                    <option value="MIDDLE_HIGH">중고등 논술 과정</option>
+                    <option value="HIGH_ADMISSION">고등 / 대입 과정</option>
+                    <option value="GENERAL_WORK">일반 / 직장인 과정</option>
                   </select>
                 </div>
                 <div>
@@ -371,11 +434,48 @@ export default function AdminQuestionBank() {
                     onChange={e => setGenTool(e.target.value)}
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
                   >
-                    <option value="quiz">AI 문장 퀴즈 (quiz)</option>
-                    <option value="reordering">단락 재구성 (reordering)</option>
-                    <option value="summary">요약 연습 (summary)</option>
-                    <option value="topic_wizard">주제 설정 위저드 (topic_wizard)</option>
-                    <option value="thesis_checklist">주제문 체크리스트 (thesis_checklist)</option>
+                    <option value="QUIZ">AI 문장 퀴즈</option>
+                    <option value="PARAGRAPH_REORDERING">단락 재구성</option>
+                    <option value="SUMMARY">요약 연습</option>
+                    <option value="TOPIC_WIZARD">주제 설정 위저드</option>
+                    <option value="CHECKLIST">주제문 체크리스트</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-2 block">이론 카테고리</label>
+                  <select
+                    value={genTheory}
+                    onChange={e => setGenTheory(e.target.value)}
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
+                  >
+                    <option value="AUTO">AUTO</option>
+                    <option value="A01">A01 경제성</option>
+                    <option value="A02">A02 동어 반복 회피</option>
+                    <option value="A03">A03 명료성</option>
+                    <option value="A04">A04 정확성</option>
+                    <option value="B05">B05 일관성과 연속성</option>
+                    <option value="C01">C01 삭제</option>
+                    <option value="C02">C02 상위어 대치</option>
+                    <option value="C03">C03 주제문 선택</option>
+                    <option value="C04">C04 주제문 창출</option>
+                    <option value="D03">D03 참주제</option>
+                    <option value="E03">E03 주장성</option>
+                    <option value="F01">F01 주장-근거 연결</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-2 block">난이도</label>
+                  <select
+                    value={genDifficulty}
+                    onChange={e => setGenDifficulty(e.target.value as any)}
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
+                  >
+                    <option value="AUTO">AUTO</option>
+                    <option value="1">1단계</option>
+                    <option value="2">2단계</option>
+                    <option value="3">3단계</option>
+                    <option value="4">4단계</option>
+                    <option value="5">5단계</option>
                   </select>
                 </div>
                 <div>
@@ -388,7 +488,18 @@ export default function AdminQuestionBank() {
                     <option value={1}>1문항</option>
                     <option value={3}>3문항 (추천)</option>
                     <option value={5}>5문항</option>
+                    <option value={10}>10문항</option>
+                    <option value={20}>20문항</option>
                   </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 mb-2 block">주제</label>
+                  <Input
+                    value={genTopic}
+                    onChange={e => setGenTopic(e.target.value)}
+                    placeholder="AUTO 또는 직접 입력"
+                    className="h-[46px] bg-white border-slate-200 rounded-xl text-sm font-medium"
+                  />
                 </div>
               </div>
 
@@ -422,14 +533,21 @@ export default function AdminQuestionBank() {
               {previewItems.map((item, idx) => (
                 <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
-                      검토 문항 #{idx + 1}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
+                        검토 문항 #{idx + 1}
+                      </span>
+                      <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${item.qaStatus === "blocked" ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
+                        {item.qaStatus === "blocked" ? "QA 차단" : "QA 통과"}
+                      </span>
+                    </div>
                     <select
                       value={item.difficulty}
                       onChange={e => {
                         const updated = [...previewItems];
                         updated[idx].difficulty = e.target.value;
+                        updated[idx].qaStatus = "passed";
+                        updated[idx].qaIssues = [];
                         setPreviewItems(updated);
                       }}
                       className="px-2.5 py-1 bg-white border border-slate-200 rounded text-xs font-semibold"
@@ -440,6 +558,12 @@ export default function AdminQuestionBank() {
                     </select>
                   </div>
 
+                  {item.qaStatus === "blocked" && (
+                    <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+                      차단 사유: {(item.qaIssues || []).join(", ") || "품질 기준 미달"}
+                    </div>
+                  )}
+
                   <div>
                     <label className="text-xs font-bold text-slate-700 mb-1 block">문항 제목</label>
                     <Input
@@ -447,6 +571,8 @@ export default function AdminQuestionBank() {
                       onChange={e => {
                         const updated = [...previewItems];
                         updated[idx].title = e.target.value;
+                        updated[idx].qaStatus = "passed";
+                        updated[idx].qaIssues = [];
                         setPreviewItems(updated);
                       }}
                       className="text-sm bg-white font-bold"
@@ -461,10 +587,24 @@ export default function AdminQuestionBank() {
                       onChange={e => {
                         const updated = [...previewItems];
                         updated[idx].contentData = e.target.value;
+                        updated[idx].qaStatus = "passed";
+                        updated[idx].qaIssues = [];
                         setPreviewItems(updated);
                       }}
                       className="font-mono text-xs bg-white"
                     />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={item.qaStatus === "blocked"}
+                      onClick={() => handleApprovePreviewItem(idx)}
+                      className="h-8 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5 mr-1" /> 이 문항만 승인
+                    </Button>
                   </div>
                 </div>
               ))}
