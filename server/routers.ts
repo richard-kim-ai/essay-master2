@@ -263,6 +263,8 @@ export const appRouter = router({
           return { requiresVerification: true } as const;
         }
 
+        const defaultAiTutor = input.accountType === "student" && !input.preferredTeacherId ? await db.getDefaultAiTutor() : null;
+        const selectedTeacherId = input.accountType === "student" ? (input.preferredTeacherId ?? defaultAiTutor?.id ?? null) : null;
         const user = await db.createEmailUser({
           openId: `email_${nanoid(40)}`,
           name: input.name,
@@ -272,7 +274,8 @@ export const appRouter = router({
           verificationTokenHash: tokenHash,
           verificationTokenExpiresAt: expiresAt,
           tag: input.accountType === "parent" ? "학부모" : getCourseTag(input.courseType!),
-          preferredTeacherId: input.accountType === "student" ? input.preferredTeacherId ?? null : null,
+          teacherId: selectedTeacherId,
+          preferredTeacherId: selectedTeacherId,
         });
 
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "회원가입에 실패했습니다." });
@@ -716,6 +719,34 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
         try { return await db.createClassAssignment(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제 배정 권한이 없습니다." }); }
+      }),
+    feedbackTemplates: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.listTeacherFeedbackTemplates(ctx.user.id);
+    }),
+    saveFeedbackTemplate: protectedProcedure
+      .input(z.object({ templateId: z.number().int().positive().optional(), title: z.string().trim().min(2).max(120), content: z.string().trim().min(2).max(5000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.saveTeacherFeedbackTemplate(ctx.user.id, input);
+      }),
+    deleteFeedbackTemplate: protectedProcedure
+      .input(z.object({ templateId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.deleteTeacherFeedbackTemplate(ctx.user.id, input.templateId);
+      }),
+    monthlyAssignmentStats: protectedProcedure
+      .input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.getTeacherMonthlyAssignmentStats(ctx.user.id, input.month);
+      }),
+    notifyUpcomingAssignmentStudents: protectedProcedure
+      .input(z.object({ hoursAhead: z.number().int().min(24).max(168).default(72) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.notifyUpcomingAssignmentStudents(ctx.user.id, input.hoursAhead);
       }),
     updateStudentProgress: protectedProcedure
       .input(z.object({ studentId: z.number(), curriculumId: z.number(), score: z.number().min(0).max(100), completed: z.boolean() }))

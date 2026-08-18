@@ -131,6 +131,16 @@ export const classAssignments = mysqlTable("class_assignments", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// 교사가 반복 사용하는 채점·첨삭 문구를 개인별로 보관합니다.
+export const teacherFeedbackTemplates = mysqlTable("teacher_feedback_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 // 관리자 계정 생성과 역할·레벨 조정은 별도 원장으로 남겨 운영자가 추적할 수 있습니다.
 export const adminAuditLogs = mysqlTable("admin_audit_logs", {
   id: int("id").autoincrement().primaryKey(),
@@ -145,6 +155,7 @@ export const adminAuditLogs = mysqlTable("admin_audit_logs", {
 export type ClassAttendance = typeof classAttendance.$inferSelect;
 export type ClassAnnouncement = typeof classAnnouncements.$inferSelect;
 export type ClassAssignment = typeof classAssignments.$inferSelect;
+export type TeacherFeedbackTemplate = typeof teacherFeedbackTemplates.$inferSelect;
 export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
 
 // 관리자가 교사에게 부여하는 진도·수료증 권한입니다. 조직 전체 또는 특정 학생으로 범위를 제한합니다.

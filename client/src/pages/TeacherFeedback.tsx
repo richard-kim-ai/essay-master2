@@ -27,7 +27,11 @@ export default function TeacherFeedback() {
   const [selectedText, setSelectedText] = useState("");
   const [selectedDraft, setSelectedDraft] = useState<any>(null);
   const [draftChangeSummary, setDraftChangeSummary] = useState("");
+  const [templateTitle, setTemplateTitle] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const isTeacherReviewer = user?.role === "teacher" || user?.role === "admin";
+  const isApprovedTeacher = user?.role === "teacher" && user?.teacherStatus === "approved";
+  const utils = trpc.useUtils();
 
   const getEssayQuery = trpc.essaySubmission.getById.useQuery(essayId || 0, {
     enabled: !!essayId,
@@ -41,6 +45,9 @@ export default function TeacherFeedback() {
   const createFeedbackMutation = trpc.teacherFeedback.create.useMutation();
   const updateFeedbackMutation = trpc.teacherFeedback.update.useMutation();
   const addCommentMutation = trpc.teacherFeedback.addComment.useMutation();
+  const templatesQuery = trpc.teacherOperations.feedbackTemplates.useQuery(undefined, { enabled: isApprovedTeacher });
+  const saveTemplateMutation = trpc.teacherOperations.saveFeedbackTemplate.useMutation({ onSuccess: () => { utils.teacherOperations.feedbackTemplates.invalidate(); setTemplateTitle(""); toast.success("피드백 상용구를 저장했습니다."); }, onError: (error) => toast.error(error.message) });
+  const deleteTemplateMutation = trpc.teacherOperations.deleteFeedbackTemplate.useMutation({ onSuccess: () => { utils.teacherOperations.feedbackTemplates.invalidate(); setSelectedTemplateId(""); toast.success("피드백 상용구를 삭제했습니다."); }, onError: (error) => toast.error(error.message) });
   const aiDraftsQuery = trpc.teacherAi.draftsForEssay.useQuery({ essayId: essayId || 0 }, { enabled: Boolean(essayId && isTeacherReviewer) });
   const draftRevisionsQuery = trpc.teacherAi.revisionsForDraft.useQuery({ draftId: selectedDraft?.id || 0 }, { enabled: Boolean(selectedDraft?.id && isTeacherReviewer) });
   const generateDraftMutation = trpc.teacherAi.generateDraft.useMutation();
@@ -371,6 +378,7 @@ export default function TeacherFeedback() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     종합 평가
                   </label>
+                  {isApprovedTeacher && <div className="mb-2 grid gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2 sm:grid-cols-[1fr_auto_auto]"><select aria-label="저장된 피드백 상용구" value={selectedTemplateId} onChange={(event) => { const id = event.target.value; setSelectedTemplateId(id); const template = templatesQuery.data?.find((item) => item.id === Number(id)); if (template) setOverallComment(template.content); }} className="h-9 rounded-md border border-indigo-200 bg-white px-2 text-xs"><option value="">저장된 상용구 불러오기</option>{templatesQuery.data?.map((template) => <option key={template.id} value={template.id}>{template.title}</option>)}</select><Button type="button" variant="outline" size="sm" disabled={!selectedTemplateId || deleteTemplateMutation.isPending} onClick={() => deleteTemplateMutation.mutate({ templateId: Number(selectedTemplateId) })}>삭제</Button><div className="flex gap-1"><Input aria-label="새 상용구 제목" value={templateTitle} onChange={(event) => setTemplateTitle(event.target.value)} placeholder="상용구 제목" className="h-9 text-xs" /><Button type="button" size="sm" variant="outline" disabled={!templateTitle.trim() || !overallComment.trim() || saveTemplateMutation.isPending} onClick={() => saveTemplateMutation.mutate({ title: templateTitle.trim(), content: overallComment.trim() })}>저장</Button></div></div>}
                   <Textarea
                     placeholder="종합 평가를 입력하세요..."
                     value={overallComment}

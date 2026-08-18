@@ -105,6 +105,13 @@ describe("appRouter", () => {
       const caller = appRouter.createCaller(createMockContext());
       await expect(caller.teacherOperations.classDashboard({ attendanceDate: "2026-08-18" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
+
+    it("일반 사용자의 상용구·월간 통계·마감 알림 작업을 차단한다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.teacherOperations.feedbackTemplates()).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.teacherOperations.monthlyAssignmentStats({ month: "2026-08" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.teacherOperations.notifyUpcomingAssignmentStudents({ hoursAhead: 72 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
   });
 
   describe("academic approval administration", () => {

@@ -44,6 +44,7 @@ import {
   classAttendance,
   classAnnouncements,
   classAssignments,
+  teacherFeedbackTemplates,
   adminAuditLogs,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
@@ -151,6 +152,33 @@ export async function getUserByEmail(email: string) {
 
   const result = await db.select().from(users).where(eq(users.email, email));
   return result[0];
+}
+
+const DEFAULT_AI_TUTOR_EMAIL = "ai-tutor@essaymaster.internal";
+
+export async function getDefaultAiTutor() {
+  const existing = await getUserByEmail(DEFAULT_AI_TUTOR_EMAIL);
+  if (existing) return existing;
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  try {
+    await db.insert(users).values({
+      openId: "ai_tutor_bot_system",
+      name: "AI 첨삭 전용 봇",
+      email: DEFAULT_AI_TUTOR_EMAIL,
+      role: "teacher",
+      teacherStatus: "approved",
+      teacherLevel: 3,
+      loginMethod: "email",
+      tag: "AI 첨삭",
+      lastSignedIn: new Date(),
+    });
+  } catch {
+    // 동시 생성 시 재조회합니다.
+  }
+  const tutor = await getUserByEmail(DEFAULT_AI_TUTOR_EMAIL);
+  if (!tutor) throw new Error("AI 첨삭 기본 봇을 준비하지 못했습니다.");
+  return tutor;
 }
 
 export async function updateUserEmailVerified(userId: number) {
@@ -1776,6 +1804,7 @@ export async function getApprovedTeachersForRecommendation(courseType?: CourseTy
   if (!db) return [];
   const teachers = await db.select().from(users).where(and(eq(users.role, "teacher"), eq(users.teacherStatus, "approved")));
   return teachers
+    .filter((teacher) => teacher.email !== DEFAULT_AI_TUTOR_EMAIL)
     .map((teacher) => ({
       id: teacher.id,
       name: teacher.name || "이름 미설정 교사",
@@ -2001,6 +2030,94 @@ export async function createClassAssignment(teacherId: number, input: { groupId:
   const dueLabel = input.dueAt ? ` 마감: ${input.dueAt.toLocaleDateString("ko-KR")}` : "";
   if (members.length) await db.insert(appNotifications).values(members.map((member) => ({ userId: member.studentId, title: `[반 과제] ${input.title}`, message: `${input.instructions}${dueLabel}`, category: "class_assignment" })));
   return true;
+}
+
+export async function listTeacherFeedbackTemplates(teacherId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(teacherFeedbackTemplates).where(eq(teacherFeedbackTemplates.teacherId, teacherId)).orderBy(desc(teacherFeedbackTemplates.updatedAt));
+}
+
+export async function saveTeacherFeedbackTemplate(teacherId: number, input: { templateId?: number; title: string; content: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const values = { title: input.title.trim(), content: input.content.trim(), updatedAt: new Date() };
+  if (input.templateId) {
+    const [existing] = await db.select().from(teacherFeedbackTemplates).where(and(eq(teacherFeedbackTemplates.id, input.templateId), eq(teacherFeedbackTemplates.teacherId, teacherId)));
+    if (!existing) throw new Error("수정할 피드백 상용구를 찾을 수 없습니다.");
+    await db.update(teacherFeedbackTemplates).set(values).where(eq(teacherFeedbackTemplates.id, input.templateId));
+  } else {
+    await db.insert(teacherFeedbackTemplates).values({ teacherId, ...values });
+  }
+  return listTeacherFeedbackTemplates(teacherId);
+}
+
+export async function deleteTeacherFeedbackTemplate(teacherId: number, templateId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(teacherFeedbackTemplates).where(and(eq(teacherFeedbackTemplates.id, templateId), eq(teacherFeedbackTemplates.teacherId, teacherId)));
+  return true;
+}
+
+function getMonthRange(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("월 형식은 YYYY-MM이어야 합니다.");
+  const [year, monthNumber] = month.split("-").map(Number);
+  return { start: new Date(year, monthNumber - 1, 1), end: new Date(year, monthNumber, 1) };
+}
+
+export async function getTeacherMonthlyAssignmentStats(teacherId: number, month: string) {
+  const db = await getDb();
+  if (!db) return { month, summary: { assignments: 0, expected: 0, submitted: 0, reviewed: 0, pending: 0 }, rows: [] as any[] };
+  const { start, end } = getMonthRange(month);
+  const [groups, members, allUsers, assignments, submissions, feedbacks] = await Promise.all([
+    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
+    db.select().from(learningGroupMembers),
+    db.select().from(users),
+    db.select().from(classAssignments).where(and(eq(classAssignments.isActive, 1), gte(classAssignments.dueAt, start), lt(classAssignments.dueAt, end))),
+    db.select().from(essaySubmission).where(and(gte(essaySubmission.submittedAt, start), lt(essaySubmission.submittedAt, end))),
+    db.select().from(teacherFeedback).where(eq(teacherFeedback.teacherId, teacherId)),
+  ]);
+  const usersById = new Map(allUsers.map((user) => [user.id, user]));
+  const reviewedEssayIds = new Set(feedbacks.map((feedback) => feedback.essayId));
+  const rows = groups.flatMap((group) => {
+    const groupAssignments = assignments.filter((assignment) => assignment.groupId === group.id);
+    return members.filter((member) => member.groupId === group.id).map((member) => {
+      const studentSubmissions = submissions.filter((submission) => submission.userId === member.studentId && submission.status !== "draft");
+      const submitted = Math.min(studentSubmissions.length, groupAssignments.length);
+      const reviewed = Math.min(studentSubmissions.filter((submission) => reviewedEssayIds.has(submission.id)).length, submitted);
+      const expected = groupAssignments.length;
+      const student = usersById.get(member.studentId);
+      return { groupId: group.id, groupName: group.name, studentId: member.studentId, studentName: student?.name || `학생 #${member.studentId}`, studentEmail: student?.email || null, expected, submitted, reviewed, pending: Math.max(submitted - reviewed, 0), unsubmitted: Math.max(expected - submitted, 0) };
+    });
+  });
+  const summary = rows.reduce((total, row) => ({ assignments: total.assignments, expected: total.expected + row.expected, submitted: total.submitted + row.submitted, reviewed: total.reviewed + row.reviewed, pending: total.pending + row.pending }), { assignments: assignments.length, expected: 0, submitted: 0, reviewed: 0, pending: 0 });
+  return { month, summary, rows };
+}
+
+export async function notifyUpcomingAssignmentStudents(teacherId: number, hoursAhead = 72) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const now = new Date();
+  const deadline = new Date(now.getTime() + hoursAhead * 60 * 60 * 1000);
+  const [groups, members, assignments, submissions, notifications] = await Promise.all([
+    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
+    db.select().from(learningGroupMembers),
+    db.select().from(classAssignments).where(and(eq(classAssignments.isActive, 1), gte(classAssignments.dueAt, now), lt(classAssignments.dueAt, deadline))),
+    db.select().from(essaySubmission),
+    db.select().from(appNotifications),
+  ]);
+  const ownedGroupIds = new Set(groups.map((group) => group.id));
+  const newNotifications: Array<typeof appNotifications.$inferInsert> = [];
+  assignments.filter((assignment) => ownedGroupIds.has(assignment.groupId) && assignment.dueAt).forEach((assignment) => {
+    members.filter((member) => member.groupId === assignment.groupId).forEach((member) => {
+      const submittedAfterAssignment = submissions.some((submission) => submission.userId === member.studentId && submission.status !== "draft" && submission.submittedAt && submission.submittedAt >= assignment.createdAt);
+      const title = `[과제 마감 임박] ${assignment.title}`;
+      const alreadyNotified = notifications.some((notification) => notification.userId === member.studentId && notification.title === title && notification.category === "assignment_deadline");
+      if (!submittedAfterAssignment && !alreadyNotified) newNotifications.push({ userId: member.studentId, title, message: `마감일 ${assignment.dueAt!.toLocaleString("ko-KR")} 전까지 과제를 제출해주세요.`, category: "assignment_deadline" });
+    });
+  });
+  if (newNotifications.length) await db.insert(appNotifications).values(newNotifications);
+  return { notified: newNotifications.length, hoursAhead };
 }
 
 export async function getTeacherPermissionGrants() {
