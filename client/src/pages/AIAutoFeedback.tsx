@@ -19,6 +19,8 @@ export default function AIAutoFeedback() {
   const [feedback, setFeedback] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [feedbackMode, setFeedbackMode] = useState<"legacy" | "evaluation_v1">("evaluation_v1");
+  const [evaluationRecordId, setEvaluationRecordId] = useState<number | null>(null);
+  const [revisionText, setRevisionText] = useState("");
 
   const { data: quota, refetch: refetchQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -34,6 +36,7 @@ export default function AIAutoFeedback() {
     },
   });
   const evaluateAndCorrectMutation = trpc.writingEvaluationEngine.evaluateAndCorrect.useMutation();
+  const reevaluateMutation = trpc.writingEvaluationEngine.reevaluate.useMutation();
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
@@ -101,6 +104,13 @@ export default function AIAutoFeedback() {
             overallComment: (result as any).overallComment || "",
           };
 
+      if (feedbackMode === "evaluation_v1") {
+        setEvaluationRecordId((result as any).record_id ?? null);
+        setRevisionText((result as any).correction?.revised_text || content);
+      } else {
+        setEvaluationRecordId(null);
+        setRevisionText("");
+      }
       setFeedback(feedbackData);
       toast.success("AI 첨삭이 완료되었습니다!");
     } catch (error) {
@@ -424,6 +434,52 @@ export default function AIAutoFeedback() {
                           </li>
                         ))}
                       </ul>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {feedbackMode === "evaluation_v1" && evaluationRecordId && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>재작성 후 재평가</CardTitle>
+                      <CardDescription>AI 개선문을 그대로 제출하지 말고, 자신의 생각과 표현으로 다시 고쳐 보세요.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <Textarea
+                        value={revisionText}
+                        onChange={(event) => setRevisionText(event.target.value)}
+                        rows={8}
+                        className="resize-none"
+                      />
+                      <Button
+                        className="w-full bg-emerald-600 hover:bg-emerald-700"
+                        disabled={reevaluateMutation.isPending || !revisionText.trim()}
+                        onClick={async () => {
+                          try {
+                            const result = await reevaluateMutation.mutateAsync({
+                              record_id: evaluationRecordId,
+                              revised_text: revisionText,
+                            });
+                            const next = result.evaluation;
+                            setEvaluationRecordId(result.record_id ?? evaluationRecordId);
+                            setRevisionText(result.correction.revised_text || revisionText);
+                            setFeedback((current: any) => ({
+                              ...current,
+                              revisedEssay: result.correction.revised_text || revisionText,
+                              overallScore: next.total_score,
+                              strengths: next.strengths,
+                              weaknesses: next.improvement_points,
+                              suggestions: next.feedback.revision_steps,
+                              overallComment: result.correction.learner_explanation,
+                            }));
+                            toast.success("재평가가 완료되었습니다!");
+                          } catch {
+                            toast.error("재평가 중 오류가 발생했습니다.");
+                          }
+                        }}
+                      >
+                        {reevaluateMutation.isPending ? "재평가 중..." : "수정한 글 다시 평가하기"}
+                      </Button>
                     </CardContent>
                   </Card>
                 )}

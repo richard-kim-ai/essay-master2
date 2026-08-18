@@ -26,6 +26,8 @@
 - `writingEvaluationEngine.evaluateAndCorrect`: 평가와 실제 사용자용 첨삭문 생성
 - `writingEvaluationEngine.simulate`: 샘플 배열 기반 시뮬레이션
 - `writingEvaluationEngine.simulateMyEssays`: 로그인한 학생의 기존 글 데이터 기반 시뮬레이션
+- `writingEvaluationEngine.history`: 평가·재작성 이력 조회
+- `writingEvaluationEngine.reevaluate`: 수정한 글 재평가
 
 ## 표현 정책
 

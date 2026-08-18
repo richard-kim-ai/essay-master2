@@ -241,6 +241,26 @@ export const aiAutoFeedback = mysqlTable("ai_auto_feedback", {
 export type AIAutoFeedback = typeof aiAutoFeedback.$inferSelect;
 export type InsertAIAutoFeedback = typeof aiAutoFeedback.$inferInsert;
 
+// 독립 평가엔진 실행 및 재작성 이력 테이블
+export const writingEvaluationRecord = mysqlTable("writing_evaluation_record", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  essaySubmissionId: int("essaySubmissionId"),
+  parentRecordId: int("parentRecordId"),
+  metadataJson: text("metadataJson").notNull(),
+  taskJson: text("taskJson").notNull(),
+  originalText: text("originalText").notNull(),
+  revisedText: text("revisedText"),
+  evaluationJson: text("evaluationJson").notNull(),
+  correctionJson: text("correctionJson"),
+  decision: varchar("decision", { length: 32 }).notNull(),
+  totalScore: int("totalScore").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type WritingEvaluationRecord = typeof writingEvaluationRecord.$inferSelect;
+export type InsertWritingEvaluationRecord = typeof writingEvaluationRecord.$inferInsert;
+
 // AI 사용량 및 일일 쿼터 로그 테이블
 export const aiUsageLogs = mysqlTable("ai_usage_logs", {
   id: int("id").autoincrement().primaryKey(),

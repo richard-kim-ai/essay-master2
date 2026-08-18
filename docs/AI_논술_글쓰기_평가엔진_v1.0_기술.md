@@ -185,6 +185,8 @@ generated/evaluation-engine/
 | `writingEvaluationEngine.evaluateAndCorrect` | 단일 글 평가와 사용자용 AI 첨삭문 생성 |
 | `writingEvaluationEngine.simulate` | 전달된 샘플 글 배열 시뮬레이션 |
 | `writingEvaluationEngine.simulateMyEssays` | 로그인한 사용자의 기존 글 데이터로 시뮬레이션 |
+| `writingEvaluationEngine.history` | 로그인한 사용자의 평가·재작성 이력 조회 |
+| `writingEvaluationEngine.reevaluate` | 기존 기록의 재작성 답안을 부모 기록과 연결해 재평가 |
 
 ### 자유작문 사용자 흐름
 
@@ -201,6 +203,8 @@ generated/evaluation-engine/
 ```
 
 `evaluateAndCorrect`의 첨삭 결과는 평가 점수를 대신하는 모범답안이 아니다. 원문의 의도와 학생의 목소리를 유지하면서 보완 이유를 설명하고, 학생이 직접 다시 써 볼 수 있게 하는 학습용 결과다.
+
+평가·첨삭 결과는 `writing_evaluation_record`에 저장한다. 재작성 결과는 `parentRecordId`로 이전 기록과 연결되며, 점수 변화와 반복 오류를 성장 분석에 사용할 수 있다. 원문, 평가 JSON, 첨삭 JSON은 별도 필드로 보관해 기존 `ai_auto_feedback` 데이터와 호환성을 유지한다.
 
 ## 9. 유사 서비스 대비 포지셔닝
 

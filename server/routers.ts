@@ -63,6 +63,7 @@ const writingEvaluationInput = z.object({
     learner_id: z.string().min(1),
     essay_text: z.string().min(1),
   }),
+  essay_submission_id: z.number().int().positive().optional(),
 });
 
 const writingEvaluationSimulationInput = z.object({
@@ -767,10 +768,64 @@ export const appRouter = router({
 
     evaluateAndCorrect: protectedProcedure
       .input(writingEvaluationInput)
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const evaluation = evaluateWriting(input);
         const correction = await generateWritingCorrection(input, evaluation);
-        return { evaluation, correction };
+        const record = await db.createWritingEvaluationRecord({
+          userId: ctx.user.id,
+          essaySubmissionId: input.essay_submission_id,
+          metadataJson: JSON.stringify(input.metadata),
+          taskJson: JSON.stringify(input.task),
+          originalText: input.submission.essay_text,
+          revisedText: correction.revised_text,
+          evaluationJson: JSON.stringify(evaluation),
+          correctionJson: JSON.stringify(correction),
+          decision: evaluation.decision,
+          totalScore: evaluation.total_score,
+        });
+        await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", 0);
+        return { evaluation, correction, record_id: record?.insertId ?? null };
+      }),
+
+    history: protectedProcedure.query(({ ctx }) => db.getWritingEvaluationRecordsByUser(ctx.user.id)),
+
+    getById: protectedProcedure
+      .input(z.number().int().positive())
+      .query(({ ctx, input }) => db.getWritingEvaluationRecordByIdForUser(input, ctx.user.id)),
+
+    reevaluate: protectedProcedure
+      .input(z.object({
+        record_id: z.number().int().positive(),
+        revised_text: z.string().trim().min(1),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const parent = await db.getWritingEvaluationRecordByIdForUser(input.record_id, ctx.user.id);
+        if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "평가 기록을 찾을 수 없습니다." });
+
+        const request = {
+          metadata: JSON.parse(parent.metadataJson),
+          task: JSON.parse(parent.taskJson),
+          submission: {
+            learner_id: String(ctx.user.id),
+            essay_text: input.revised_text,
+          },
+        };
+        const evaluation = evaluateWriting(request);
+        const correction = await generateWritingCorrection(request, evaluation);
+        const record = await db.createWritingEvaluationRecord({
+          userId: ctx.user.id,
+          essaySubmissionId: parent.essaySubmissionId ?? undefined,
+          parentRecordId: parent.id,
+          metadataJson: JSON.stringify(request.metadata),
+          taskJson: JSON.stringify(request.task),
+          originalText: input.revised_text,
+          revisedText: correction.revised_text,
+          evaluationJson: JSON.stringify(evaluation),
+          correctionJson: JSON.stringify(correction),
+          decision: evaluation.decision,
+          totalScore: evaluation.total_score,
+        });
+        return { evaluation, correction, record_id: record?.insertId ?? null, parent_record_id: parent.id };
       }),
 
     simulate: protectedProcedure

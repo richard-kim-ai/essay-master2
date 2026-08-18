@@ -10,6 +10,7 @@ import {
   teacherFeedback,
   feedbackComment,
   aiAutoFeedback,
+  writingEvaluationRecord,
   socialProviderConfig,
   appSecretConfig,
   pushSubscription,
@@ -727,6 +728,62 @@ export async function createAIAutoFeedback(input: {
   if (!db) throw new Error("Database is not available");
 
   const [result] = await db.insert(aiAutoFeedback).values(input);
+  return result;
+}
+
+// ========== Independent Writing Evaluation Records ==========
+
+export async function getWritingEvaluationRecordsByUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(writingEvaluationRecord)
+    .where(eq(writingEvaluationRecord.userId, userId))
+    .orderBy(desc(writingEvaluationRecord.createdAt));
+}
+
+export async function getWritingEvaluationRecordByIdForUser(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(writingEvaluationRecord)
+    .where(and(eq(writingEvaluationRecord.id, id), eq(writingEvaluationRecord.userId, userId)));
+  return result[0];
+}
+
+export async function createWritingEvaluationRecord(input: {
+  userId: number;
+  essaySubmissionId?: number;
+  parentRecordId?: number;
+  metadataJson: string;
+  taskJson: string;
+  originalText: string;
+  revisedText?: string;
+  evaluationJson: string;
+  correctionJson?: string;
+  decision: string;
+  totalScore: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  const [result] = await db.insert(writingEvaluationRecord).values({
+    userId: input.userId,
+    essaySubmissionId: input.essaySubmissionId ?? null,
+    parentRecordId: input.parentRecordId ?? null,
+    metadataJson: input.metadataJson,
+    taskJson: input.taskJson,
+    originalText: input.originalText,
+    revisedText: input.revisedText ?? null,
+    evaluationJson: input.evaluationJson,
+    correctionJson: input.correctionJson ?? null,
+    decision: input.decision,
+    totalScore: input.totalScore,
+  });
   return result;
 }
 
