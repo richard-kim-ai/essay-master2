@@ -9,10 +9,14 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import QuestionFeedbackBox from "@/components/QuestionFeedbackBox";
+import { readAdminPreviewCourse } from "@/lib/adminPreviewCourse";
 
 export default function QuizPage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [courseType, setCourseType] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("elementary");
+  useEffect(() => {
+    if (user?.role === "admin") setCourseType(readAdminPreviewCourse());
+  }, [user?.role]);
   const { data: qList, isLoading: qLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "quiz", limit: 10 });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string>("");

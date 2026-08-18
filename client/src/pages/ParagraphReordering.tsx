@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Check, CheckCircle2, GripVertical, RotateCcw, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
+import { readAdminPreviewCourse } from "@/lib/adminPreviewCourse";
 
 type Paragraph = { id: string; content: string; correctOrder: number };
 type ReorderingContent = { prompt: string; paragraphs: Paragraph[]; explanation: string; difficultyProfile?: { learningFocus?: string } };
@@ -18,7 +19,7 @@ const difficultyTone = { easy: "bg-emerald-50 text-emerald-700 border-emerald-20
 
 export default function ParagraphReordering() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
-  const courseType = getCourseTypeFromUserTag(user?.tag);
+  const courseType = user?.role === "admin" ? readAdminPreviewCourse() : getCourseTypeFromUserTag(user?.tag);
   const courseLabel = getCourseTag(courseType);
   const { data: questions = [], isLoading, isError } = trpc.questionBank.reorderingPractice.useQuery({ courseType, limit: 10 }, { enabled: !authLoading && Boolean(user?.id) });
   const [sessionIndex, setSessionIndex] = useState(0);
