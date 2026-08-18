@@ -183,19 +183,19 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50/80 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
               <ShieldCheck className="h-8 w-8" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-slate-900">학습자 전체 분석 & 관리자 대시보드</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">학습자 전체 분석 & 관리자 대시보드</h1>
               <p className="text-sm text-slate-600 mt-1">전체 학생 현황, AI 사용량 통계 및 커리큘럼 난이도를 총괄 관리합니다.</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <Link href="/admin/academic-permissions">
               <Button size="sm" variant="outline" className="gap-1.5 bg-white text-xs text-indigo-700 hover:bg-indigo-50">
                 <KeyRound className="w-3.5 h-3.5" /> 교사 권한·수료 승인
@@ -211,7 +211,7 @@ export default function AdminDashboard() {
         </div>
 
         {/* Analytics Overview Cards with Interactive Tooltip & Hover Animation */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-blue-300 hover:-translate-y-1 cursor-pointer group">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-blue-600 transition">전체 가입 회원</CardTitle>
@@ -274,9 +274,9 @@ export default function AdminDashboard() {
         </div>
 
         {/* Detailed Sections */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
           {/* Left 2 Cols: Student List & Stats */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="space-y-5">
             <Card className="border-slate-200">
               <CardHeader className="pb-4">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -356,7 +356,7 @@ export default function AdminDashboard() {
               </CardHeader>
 
               <CardContent>
-                <div className="overflow-x-auto">
+                <div className="hidden max-h-[560px] overflow-auto rounded-lg border border-slate-100 md:block">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
@@ -393,8 +393,8 @@ export default function AdminDashboard() {
                                 className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                               />
                             </td>
-                            <td className="py-3 px-4 font-semibold text-slate-900">{u.name || `사용자 #${u.id}`}</td>
-                            <td className="py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
+                            <td className="max-w-36 truncate py-3 px-4 font-semibold text-slate-900">{u.name || `사용자 #${u.id}`}</td>
+                            <td className="max-w-52 truncate py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
                             <td className="py-3 px-4">
                               <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
                                 {u.role === 'admin' ? '관리자' : '학습자'}
@@ -413,6 +413,15 @@ export default function AdminDashboard() {
                       )}
                     </tbody>
                   </table>
+                </div>
+                <div className="space-y-2 md:hidden">
+                  {filteredUsers.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">검색 결과와 일치하는 학습자가 없습니다.</p> : filteredUsers.map((u) => (
+                    <div key={u.id} className={`flex items-center gap-3 rounded-xl border p-3 ${selectedStudentIds.includes(u.id) ? "border-indigo-200 bg-indigo-50/70" : "border-slate-200 bg-white"}`}>
+                      <input type="checkbox" checked={selectedStudentIds.includes(u.id)} onChange={() => handleToggleSelectOne(u.id)} className="shrink-0 rounded border-slate-300 text-indigo-600" />
+                      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="truncate text-sm font-bold text-slate-900">{u.name || `사용자 #${u.id}`}</p><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${u.role === "admin" ? "bg-violet-100 text-violet-800" : "bg-blue-100 text-blue-800"}`}>{u.role === "admin" ? "관리자" : "학습자"}</span></div><p className="mt-0.5 truncate text-xs text-slate-500">{u.email || "소셜 로그인 계정"}</p></div>
+                      <Link href={`/admin/student/${u.id}`}><Button size="sm" variant="outline" className="h-8 px-2 text-xs"><Eye className="h-3.5 w-3.5" /></Button></Link>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>

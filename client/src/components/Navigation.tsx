@@ -412,7 +412,7 @@ export default function Navigation() {
                       {/* Mobile MyPage / Account Submenu Section */}
                       <div className="border-b border-gray-200 pb-3 mb-2">
                         <p className="px-4 text-xs font-bold text-blue-600 uppercase mb-2">마이페이지 & 개인 기록</p>
-                        <Link href="/dashboard">
+                        <Link href="/dashboard-detail">
                           <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
                             <BarChart3 className="w-4 h-4 text-blue-600" />
                             <span>학습 대시보드</span>
