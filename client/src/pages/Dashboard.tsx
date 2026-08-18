@@ -26,22 +26,23 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-function BadgeSection() {
-  const { data: badges, isLoading } = trpc.badges.getByUser.useQuery();
-  const awardMutation = trpc.badges.award.useMutation();
-  const utils = trpc.useUtils();
+const BADGE_TOOL_LINKS: Record<string, string> = {
+  summary: "/summary-practice",
+  reordering: "/paragraph-reordering",
+  quiz: "/quiz",
+  thesis_checklist: "/thesis-checklist",
+  topic_wizard: "/topic-wizard",
+};
 
-  const handleTestAward = (courseType: string, badgeType: string, badgeName: string) => {
-    awardMutation.mutate({ courseType, badgeType, badgeName }, {
-      onSuccess: () => {
-        utils.badges.getByUser.invalidate();
-        toast.success(`'${badgeName}' 뱃지를 획득했습니다!`);
-      },
-      onError: (err) => {
-        toast.error(err.message);
-      }
-    });
-  };
+function courseTypeFromTag(tag?: string | null) {
+  if (tag?.includes("중고등")) return "middle_high";
+  if (tag?.includes("고등")) return "high_univ";
+  if (tag?.includes("일반")) return "general_adult";
+  return "elementary";
+}
+
+function BadgeSection({ courseType }: { courseType: string }) {
+  const { data: badges, isLoading } = trpc.badges.getByUser.useQuery();
 
   if (isLoading) return <div className="text-sm text-slate-500">뱃지 불러오는 중...</div>;
 
@@ -56,10 +57,11 @@ function BadgeSection() {
     { courseType: "general_adult", badgeType: "summary", badgeName: "비즈니스 기획 전문가 뱃지" },
   ];
 
+  const visibleDefinitions = badgeDefinitions.filter((definition) => definition.courseType === courseType);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {badgeDefinitions.map((def) => {
+        {visibleDefinitions.map((def) => {
           const isEarned = earnedBadgeTypes.has(`${def.courseType}-${def.badgeType}`);
           return (
             <div key={`${def.courseType}-${def.badgeType}`} className={`p-4 rounded-xl border flex items-center justify-between ${isEarned ? "bg-amber-50/70 border-amber-200" : "bg-white border-slate-200 opacity-60"}`}>
@@ -76,9 +78,7 @@ function BadgeSection() {
                 {isEarned ? (
                   <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded-full">획득 완료</span>
                 ) : (
-                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => handleTestAward(def.courseType, def.badgeType, def.badgeName)}>
-                    수행하기
-                  </Button>
+                  <Link href={BADGE_TOOL_LINKS[def.badgeType] || "/curriculum"}><Button size="sm" variant="outline" className="text-xs h-7">학습 시작</Button></Link>
                 )}
               </div>
             </div>
@@ -91,6 +91,12 @@ function BadgeSection() {
 
 export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
+  const isSampleMode = !isAuthenticated || Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
+  const [sampleCourse, setSampleCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => {
+    if (typeof window === "undefined") return "elementary";
+    const stored = window.localStorage.getItem("essaymaster-sample-course");
+    return ["elementary", "middle_high", "high_univ", "general_adult"].includes(stored || "") ? stored as "elementary" | "middle_high" | "high_univ" | "general_adult" : "elementary";
+  });
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -185,16 +191,8 @@ export default function Dashboard() {
     { key: "general_adult", title: "일반/직장인 과정 진도", rows: courseRows.general_adult, progress: gaProgress, color: "amber" },
   ];
 
-  const userCourseTag = user?.tag; // "초등", "중고등", "고등/대입", "일반" 등
-  const courseCards = userCourseTag
-    ? allCourseCards.filter(c => {
-        if (userCourseTag.includes("초등")) return c.key === "elementary";
-        if (userCourseTag.includes("중고등")) return c.key === "middle_high";
-        if (userCourseTag.includes("고등")) return c.key === "high_univ";
-        if (userCourseTag.includes("일반")) return c.key === "general_adult";
-        return true;
-      })
-    : allCourseCards;
+  const activeCourseType = isSampleMode ? sampleCourse : courseTypeFromTag(user?.tag);
+  const courseCards = allCourseCards.filter((card) => card.key === activeCourseType);
   const displayCards = courseCards.length > 0 ? courseCards : allCourseCards;
 
   const totalProgress = progressData?.length || 0;
@@ -258,6 +256,7 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-8">학습 대시보드</h1>
+        {isSampleMode && <div className="mb-6 flex flex-col gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">샘플 학습 과정 선택</p><p className="mt-1 text-sm text-indigo-700">선택한 과정의 커리큘럼·뱃지·수료증 예시만 보고 학습을 시작할 수 있습니다.</p></div><select aria-label="샘플 학습 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as typeof sampleCourse; setSampleCourse(course); window.localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select></div>}
 
         {/* Course Progress Breakdown Bars (개인화된 가입 과정에 맞춤 표시) */}
         <div className="mb-8 grid gap-6 lg:grid-cols-4">
@@ -375,7 +374,7 @@ export default function Dashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <BadgeSection />
+              <BadgeSection courseType={activeCourseType} />
             </CardContent>
           </Card>
 

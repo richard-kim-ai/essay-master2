@@ -180,6 +180,18 @@ describe("appRouter", () => {
   });
 
   describe("certificate", () => {
+    it("학습자 계정만 자신의 수료 기준을 조회하고 수료증을 신청할 수 있다", async () => {
+      const learnerCaller = appRouter.createCaller(createMockContext());
+      const eligibility = await learnerCaller.certificate.eligibility();
+      expect(eligibility).toHaveProperty("completionRate");
+      expect(eligibility).toHaveProperty("levelEligibility");
+
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.certificate.issue({ courseType: "elementary", level: 1, certificateType: "level_certificate" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
     it.skip("should create certificate", async () => {
       const ctx = createMockContext();
       const caller = appRouter.createCaller(ctx);
@@ -201,6 +213,15 @@ describe("appRouter", () => {
       const result = await caller.certificate.getUserCertificates();
 
       expect(Array.isArray(result)).toBe(true);
+    });
+  });
+
+  describe("badges", () => {
+    it("교사 계정은 학습 뱃지를 임의로 수여할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(caller.badges.award({ courseType: "elementary", badgeType: "summary", badgeName: "초등 요약왕 뱃지" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   });
 

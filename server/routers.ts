@@ -19,7 +19,7 @@ import {
   sendVerificationEmail,
   verifyPassword,
 } from "./email";
-import { getCourseTag } from "@shared/course";
+import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
@@ -885,6 +885,8 @@ export const appRouter = router({
       db.getCertificatesByUser(ctx.user.id)
     ),
 
+    eligibility: protectedProcedure.query(({ ctx }) => db.getStudentCertificateEligibility(ctx.user.id)),
+
     getByShareToken: publicProcedure
       .input(z.string())
       .query(({ input }) => db.getCertificateByShareToken(input)),
@@ -901,16 +903,21 @@ export const appRouter = router({
           pdfUrl: z.string().optional(),
         })
       )
-      .mutation(({ ctx, input }) =>
-        db.issueCertificate({
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 수료증을 신청할 수 있습니다." });
+        try {
+          return await db.issueCertificate({
           userId: ctx.user.id,
           courseType: input.courseType,
           level: input.level,
           certificateType: input.certificateType,
           shareToken: nanoid(),
           pdfUrl: input.pdfUrl,
-        })
-      ),
+          });
+        } catch (error: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "수료증 발급 조건을 확인할 수 없습니다." });
+        }
+      }),
   }),
 
   // ========== Essay Submission Routes ==========
@@ -1132,6 +1139,10 @@ export const appRouter = router({
     award: protectedProcedure
       .input(z.object({ courseType: z.string(), badgeType: z.string(), badgeName: z.string() }))
       .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 학습 뱃지를 획득할 수 있습니다." });
+        if (input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 학습 도구를 완료해야 해당 과정 뱃지를 획득할 수 있습니다." });
+        }
         return await db.awardBadge(ctx.user.id, input.courseType, input.badgeType, input.badgeName);
       }),
   }),
@@ -1527,15 +1538,19 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
         const shareToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        return await db.adminIssueCertificate({
-          userId: input.userId,
-          courseType: input.courseType,
-          level: input.level,
-          certificateType: input.certificateType,
-          shareToken,
-          issuedBy: ctx.user.id,
-          issueReason: input.issueReason,
-        });
+        try {
+          return await db.adminIssueCertificate({
+            userId: input.userId,
+            courseType: input.courseType,
+            level: input.level,
+            certificateType: input.certificateType,
+            shareToken,
+            issuedBy: ctx.user.id,
+            issueReason: input.issueReason,
+          });
+        } catch (error: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "수료증 발급 조건을 확인할 수 없습니다." });
+        }
       }),
     revokeCertificateAdmin: protectedProcedure
       .input(z.object({ certificateId: z.number(), reason: z.string().trim().min(2).max(500) }))

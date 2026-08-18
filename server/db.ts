@@ -483,6 +483,14 @@ export async function issueCertificate(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  await assertCertificateIssuanceEligibility(input);
+  const existing = await db.select().from(certificate).where(and(
+    eq(certificate.userId, input.userId),
+    eq(certificate.courseType, input.courseType),
+    input.level === undefined ? eq(certificate.certificateType, input.certificateType) : eq(certificate.level, input.level),
+    eq(certificate.status, "active"),
+  ));
+  if (existing.length > 0) throw new Error("동일 과정·레벨의 활성 수료증이 이미 존재합니다.");
 
   const courseNameKo = input.courseType === "elementary" ? "초등 논술 과정" : input.courseType === "middle_high" ? "중고등 논술 과정" : input.courseType === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정";
   const title = `${courseNameKo} Level ${input.level || 1} 수료증`;
@@ -951,6 +959,7 @@ export async function adminIssueCertificate(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  await assertCertificateIssuanceEligibility(input);
 
   const existing = await db
     .select()
@@ -1041,20 +1050,55 @@ export async function saveCertificateApprovalPolicy(input: {
 }
 
 export async function getStudentCertificateEligibility(studentId: number) {
-  const [student, studentProgress] = await Promise.all([getUserById(studentId), getProgressByUser(studentId)]);
+  const student = await getUserById(studentId);
   if (!student) throw new Error("학생을 찾을 수 없습니다.");
-  const completedCount = studentProgress.filter((item) => item.completed === 1).length;
-  const completionRate = Math.min(100, Math.round((completedCount / 4) * 100));
-  const averageScore = studentProgress.length > 0
-    ? Math.round(studentProgress.reduce((sum, item) => sum + (item.score || 0), 0) / studentProgress.length)
+  const courseType = getCourseTypeFromUserTag(student.tag);
+  const [studentProgress, dynamicModules, staticModules, policies] = await Promise.all([
+    getProgressByUser(studentId),
+    getDynamicCurriculumByType(courseType),
+    getCurriculumByType(courseType),
+    getCertificateApprovalPolicies(),
+  ]);
+  const modules = dynamicModules.length > 0 ? dynamicModules : staticModules;
+  const orderedModules = [...modules].sort((left: any, right: any) => Number(left.level ?? 0) - Number(right.level ?? 0));
+  const moduleIds = new Set(orderedModules.map((module: any) => module.id));
+  const courseProgress = studentProgress.filter((item) => moduleIds.has(item.curriculumId));
+  const completedIds = new Set(courseProgress.filter((item) => item.completed === 1 || Number(item.completed) >= 100).map((item) => item.curriculumId));
+  const completedCount = orderedModules.filter((module: any) => completedIds.has(module.id)).length;
+  const completionRate = orderedModules.length > 0 ? Math.round((completedCount / orderedModules.length) * 100) : 0;
+  const averageScore = courseProgress.length > 0
+    ? Math.round(courseProgress.reduce((sum, item) => sum + (item.score || 0), 0) / courseProgress.length)
     : 0;
-  return {
-    student,
-    courseType: getCourseTypeFromUserTag(student.tag),
-    courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)),
-    completionRate,
-    averageScore,
-  };
+  const policy = policies.find((item) => item.courseType === courseType) ?? null;
+  const levelEligibility = orderedModules.map((module: any) => {
+    const requiredModules = orderedModules.filter((candidate: any) => Number(candidate.level ?? 0) <= Number(module.level ?? 0));
+    const requiredCompleted = requiredModules.filter((candidate: any) => completedIds.has(candidate.id)).length;
+    const levelCompletionRate = requiredModules.length > 0 ? Math.round((requiredCompleted / requiredModules.length) * 100) : 0;
+    return {
+      level: Number(module.level ?? 1), completionRate: levelCompletionRate, completedCount: requiredCompleted, totalCount: requiredModules.length,
+      isEligible: Boolean(policy?.isActive) && levelCompletionRate >= (policy?.minimumCompletionRate ?? 100) && averageScore >= (policy?.minimumAverageScore ?? 0),
+    };
+  });
+  return { student, courseType, courseLabel: getCourseTag(courseType), completionRate, averageScore, completedCount, totalCount: orderedModules.length, policy: policy ? { minimumCompletionRate: policy.minimumCompletionRate, minimumAverageScore: policy.minimumAverageScore, isActive: policy.isActive } : null, levelEligibility };
+}
+
+export async function assertCertificateIssuanceEligibility(input: {
+  userId: number;
+  courseType: CourseType;
+  level?: number;
+  certificateType: "level_certificate" | "graduation_certificate";
+}) {
+  const eligibility = await getStudentCertificateEligibility(input.userId);
+  if (eligibility.student.role !== "user") throw new Error("학습자 계정에만 수료증을 발급할 수 있습니다.");
+  if (eligibility.courseType !== input.courseType) throw new Error("가입·학습 중인 과정과 다른 과정의 수료증은 발급할 수 없습니다.");
+  if (!eligibility.policy?.isActive) throw new Error("해당 과정의 수료증 발급 정책이 비활성화되어 있습니다.");
+  if (input.certificateType === "graduation_certificate") {
+    if (eligibility.completionRate < eligibility.policy.minimumCompletionRate || eligibility.averageScore < eligibility.policy.minimumAverageScore) throw new Error(`수료 기준을 충족하지 않았습니다. 현재 완료율 ${eligibility.completionRate}%입니다.`);
+    return eligibility;
+  }
+  const levelStatus = eligibility.levelEligibility.find((item) => item.level === (input.level ?? 1));
+  if (!levelStatus?.isEligible) throw new Error(`Level ${input.level ?? 1} 수료 기준을 충족하지 않았습니다. 현재 완료율 ${levelStatus?.completionRate ?? 0}%입니다.`);
+  return eligibility;
 }
 
 export async function createCertificateApprovalRequest(input: {
@@ -1920,7 +1964,7 @@ export async function addLearningGroupMember(groupId: number, studentId: number,
   ]);
   if (!group) throw new Error("반·그룹을 찾을 수 없습니다.");
   if (!student || student.role !== "user") throw new Error("학습자만 반·그룹에 편성할 수 있습니다.");
-  if (existing) return existing;
+  if (existing.length > 0) return existing[0];
   const [inserted] = await db.insert(learningGroupMembers).values({ groupId, studentId, addedBy });
   if (group.teacherId) await db.update(users).set({ teacherId: group.teacherId, updatedAt: new Date() }).where(eq(users.id, studentId));
   const [member] = await db.select().from(learningGroupMembers).where(eq(learningGroupMembers.id, Number(inserted.insertId)));

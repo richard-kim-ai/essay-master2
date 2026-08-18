@@ -8,6 +8,7 @@ const curriculumManagerPath = new URL("../client/src/pages/AdminCurriculumManage
 const curriculumDetailPath = new URL("../client/src/pages/CurriculumDetail.tsx", import.meta.url);
 const curriculumPagePath = new URL("../client/src/pages/Curriculum.tsx", import.meta.url);
 const routersPath = new URL("./routers.ts", import.meta.url);
+const dbPath = new URL("./db.ts", import.meta.url);
 
 describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("관리자 대시보드 페이지가 권한 확인 및 학습자 전체 분석을 포함한다", () => {
@@ -45,6 +46,12 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("revokeCertificateAdmin");
     expect(source).toContain("deleteCurriculumCategoryAdmin");
     expect(source).toContain("ctx.user.role !== \"admin\"");
+  });
+
+  it("빈 반에도 첫 학생을 편성하고, 중복 편성만 건너뛴다", () => {
+    const source = readFileSync(dbPath, "utf8");
+    expect(source).toContain("if (existing.length > 0) return existing[0]");
+    expect(source).toContain("db.insert(learningGroupMembers).values({ groupId, studentId, addedBy })");
   });
 
   it("학생용 신규 과정 상세 페이지가 AI 태그와 샘플 PDF 다운로드를 제공한다", () => {

@@ -13,12 +13,21 @@ import { toast } from "sonner";
 export default function MyPageHub() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const isSampleUser = Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
+  const [sampleCourse, setSampleCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => {
+    const stored = localStorage.getItem("essaymaster-sample-course");
+    return ["elementary", "middle_high", "high_univ", "general_adult"].includes(stored || "") ? stored as "elementary" | "middle_high" | "high_univ" | "general_adult" : "elementary";
+  });
+  const activeCourse = isSampleUser ? sampleCourse : user?.tag?.includes("중고등") ? "middle_high" : user?.tag?.includes("고등") ? "high_univ" : user?.tag?.includes("일반") ? "general_adult" : "elementary";
+  const courseLabels = { elementary: "초등 논술", middle_high: "중고등 논술", high_univ: "고등/대입 논술", general_adult: "일반/직장인 논술" };
 
   const { data: progressList } = trpc.progress.getByUser.useQuery();
   const { data: offlineEssays = [] } = trpc.essaySubmission.getByUser.useQuery();
   const { data: certificates = [] } = trpc.certificate.getUserCertificates.useQuery();
   const { data: badges = [] } = trpc.curriculum.getUserBadges.useQuery();
   const { data: weeklySummary } = trpc.curriculum.getWeeklySummary.useQuery();
+  const visibleCertificates = certificates.filter((certificate: any) => certificate.courseType === activeCourse);
+  const visibleBadges = badges.filter((badge: any) => badge.courseType === activeCourse);
 
   // Weekly Goal State (stored in localStorage per user)
   const goalKey = `essay_weekly_goal_${user?.id || 1}`;
@@ -68,7 +77,7 @@ export default function MyPageHub() {
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
                   {user?.role === "admin" ? "총괄 관리자" : user?.role === "teacher" ? "첨삭 교사" : "일반 학습자"}
                 </span>
-                <span className="text-xs text-indigo-200">{user?.tag || "일반 과정"}</span>
+                  <span className="text-xs text-indigo-200">{isSampleUser ? `${courseLabels[activeCourse]} 샘플` : user?.tag || "일반 과정"}</span>
               </div>
               <h1 className="mt-1 truncate text-xl font-extrabold tracking-tight md:text-2xl">
                 {user?.name || "사용자"}님의 마이페이지
@@ -97,6 +106,8 @@ export default function MyPageHub() {
             </Button>
           </div>
         </div>
+
+        {isSampleUser && <Card className="border-indigo-100 bg-indigo-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">샘플 학습 과정 설정</p><p className="mt-1 text-sm text-indigo-700">희망 과정을 고르면 해당 커리큘럼·뱃지·수료증 예시로 체험할 수 있습니다.</p></div><div className="flex gap-2"><select aria-label="샘플 학습 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as typeof sampleCourse; setSampleCourse(course); localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select><Button onClick={() => setLocation("/curriculum")} className="bg-indigo-600 text-white hover:bg-indigo-700">학습 시작</Button></div></CardContent></Card>}
 
         {/* Weekly Study Summary Mini Cards */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -140,7 +151,7 @@ export default function MyPageHub() {
               <p className="text-xs text-slate-500 font-medium">해낸 모듈 / 뱃지</p>
               <div className="flex items-center gap-2 mt-0.5">
                 <p className="text-xl font-extrabold text-slate-900">
-                  {weeklySummary?.completedModules || 3}개 완료 / {badges.length}개 뱃지
+                  {weeklySummary?.completedModules || 0}개 완료 / {visibleBadges.length}개 뱃지
                 </p>
                 <span className="text-[11px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
                   Active
@@ -262,7 +273,7 @@ export default function MyPageHub() {
               <div>
                 <p className="text-xs text-slate-500">발급된 수료증</p>
                 <p className="text-2xl font-extrabold text-slate-900 mt-1">
-                  {certificates.length}장 발급됨
+                  {visibleCertificates.length}장 발급됨
                 </p>
               </div>
               <p className="text-xs text-slate-600">고해상도 이미지 및 PDF 다운로드, 소셜 공유를 지원합니다.</p>
@@ -307,15 +318,15 @@ export default function MyPageHub() {
         {/* 성취 갤러리 위젯 (획득 뱃지 목록) */}
         <div className="space-y-3 pt-2">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Trophy className="w-5 h-5 text-amber-500" /> 나의 성취 갤러리 ({badges.length}개 뱃지 획득)
+            <Trophy className="w-5 h-5 text-amber-500" /> 나의 성취 갤러리 ({visibleBadges.length}개 뱃지 획득)
           </h2>
-          {badges.length === 0 ? (
+          {visibleBadges.length === 0 ? (
             <Card className="p-8 text-center bg-white border-slate-200 text-slate-500">
               <p className="text-sm">아직 획득한 뱃지가 없습니다. 워크북 오답 복습 퀴즈를 완료하거나 학습 도구를 이용해보세요!</p>
             </Card>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-              {badges.map((b: any) => (
+              {visibleBadges.map((b: any) => (
                 <Card
                   key={b.id}
                   onClick={() => setSelectedBadge(b)}

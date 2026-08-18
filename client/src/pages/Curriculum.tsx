@@ -68,7 +68,12 @@ const CURRICULUM_DATA = {
 export default function Curriculum() {
   const { user, isAuthenticated } = useAuth();
   const userCourse = getCourseTypeFromUserTag(user?.tag);
-  const [courseType] = React.useState<CourseType>(userCourse);
+  const isSampleUser = Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
+  const [sampleCourse, setSampleCourse] = React.useState<CourseType>(() => {
+    const stored = localStorage.getItem("essaymaster-sample-course");
+    return ["elementary", "middle_high", "high_univ", "general_adult"].includes(stored || "") ? stored as CourseType : "elementary";
+  });
+  const courseType = isSampleUser ? sampleCourse : userCourse;
 
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -100,11 +105,12 @@ export default function Curriculum() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div>
             <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-bold rounded-full uppercase">
-              회원 맞춤 과정
+              {isSampleUser ? "샘플 맞춤 과정" : "회원 맞춤 과정"}
             </span>
             <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 mt-1">{courseNames[courseType]}</h1>
-            <p className="text-sm text-slate-600 mt-1">회원가입 시 선택하신 과정에 최적화된 단계별 학습 레슨과 실전 논술 훈련을 제공합니다.</p>
+            <p className="text-sm text-slate-600 mt-1">{isSampleUser ? "샘플에서 선택한 과정의 단계별 레슨을 체험하세요. 회원가입 후 학습 기록을 이어갈 수 있습니다." : "회원가입 시 선택하신 과정에 최적화된 단계별 학습 레슨과 실전 논술 훈련을 제공합니다."}</p>
           </div>
+          {isSampleUser && <select aria-label="샘플 커리큘럼 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as CourseType; setSampleCourse(course); localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select>}
         </div>
 
         <div className="mt-6">
