@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
-import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle } from "lucide-react";
+import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -49,43 +49,58 @@ export default function MyPageHub() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto space-y-5 p-4 md:p-6 lg:p-8">
         {/* Top Header Profile Banner */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 bg-gradient-to-r from-indigo-700 via-indigo-800 to-blue-900 text-white p-8 rounded-3xl shadow-xl">
-          <div className="flex items-center gap-5">
-            <div className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center overflow-hidden shrink-0">
+        <div
+          className="flex flex-col gap-4 rounded-2xl p-5 text-white shadow-lg md:flex-row md:items-center md:justify-between md:p-6"
+          style={{ background: "linear-gradient(115deg, #312e81 0%, #1e3a8a 100%)", color: "#ffffff" }}
+        >
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/25 bg-white/15" style={{ backgroundColor: "rgba(255,255,255,0.15)" }}>
               {user?.avatarUrl ? (
                 <img src={user.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
               ) : (
                 <User className="w-8 h-8 text-indigo-200" />
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
                   {user?.role === "admin" ? "총괄 관리자" : user?.role === "teacher" ? "첨삭 교사" : "일반 학습자"}
                 </span>
                 <span className="text-xs text-indigo-200">{user?.tag || "일반 과정"}</span>
               </div>
-              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight mt-1">
+              <h1 className="mt-1 truncate text-xl font-extrabold tracking-tight md:text-2xl">
                 {user?.name || "사용자"}님의 마이페이지
               </h1>
-              <p className="text-xs md:text-sm text-indigo-200 mt-0.5">
+              <p className="mt-0.5 truncate text-xs text-indigo-100 md:text-sm">
                 {user?.email} · 주간 학습 목표 및 핵심 학습 공간을 한눈에 관리하세요.
               </p>
             </div>
           </div>
-          <Button
-            onClick={() => setLocation("/dashboard-detail")}
-            className="bg-white text-indigo-900 hover:bg-indigo-50 font-bold gap-2 shadow-md"
-          >
-            상세 대시보드로 이동 <ArrowRight className="w-4 h-4" />
-          </Button>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {user?.role === "user" && (
+              <Button
+                variant="outline"
+                onClick={() => setLocation("/my-assignments")}
+                className="h-10 border-white/30 bg-white/10 text-sm font-bold text-white hover:bg-white/20 hover:text-white"
+              >
+                <ClipboardPenLine className="mr-1.5 w-4 h-4" /> 내 과제
+              </Button>
+            )}
+            <Button
+              onClick={() => setLocation("/dashboard-detail")}
+              className="h-10 shrink-0 text-sm font-bold shadow-sm"
+              style={{ backgroundColor: "#ffffff", color: "#312e81" }}
+            >
+              상세 대시보드 <ArrowRight className="ml-1.5 w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Weekly Study Summary Mini Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card className="border-slate-200 bg-white shadow-sm p-5 flex items-center gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Card className="flex items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
               <Clock className="w-6 h-6" />
             </div>
@@ -101,7 +116,7 @@ export default function MyPageHub() {
               </div>
             </div>
           </Card>
-          <Card className="border-slate-200 bg-white shadow-sm p-5 flex items-center gap-4">
+          <Card className="flex items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
               <CheckCircle className="w-6 h-6" />
             </div>
@@ -117,7 +132,7 @@ export default function MyPageHub() {
               </div>
             </div>
           </Card>
-          <Card className="border-slate-200 bg-white shadow-sm p-5 flex items-center gap-4">
+          <Card className="flex items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
               <Trophy className="w-6 h-6" />
             </div>
@@ -136,8 +151,8 @@ export default function MyPageHub() {
         </div>
 
         {/* Weekly Goal Widget */}
-        <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50/60 to-purple-50/60 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <Card className="border-indigo-100 bg-indigo-50/70 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between py-4">
             <CardTitle className="text-base font-bold text-indigo-950 flex items-center gap-2">
               <Target className="w-5 h-5 text-indigo-600" /> 주간 학습 목표 및 달성률
             </CardTitle>
@@ -153,7 +168,7 @@ export default function MyPageHub() {
               <Sliders className="w-3.5 h-3.5 mr-1" /> {isEditingGoal ? "취소" : "목표 설정"}
             </Button>
           </CardHeader>
-          <CardContent className="space-y-4 pt-2">
+          <CardContent className="space-y-3 pb-4 pt-0">
             {isEditingGoal && (
               <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-indigo-200">
                 <span className="text-xs font-semibold text-slate-700">주간 목표 모듈 수:</span>
@@ -182,7 +197,7 @@ export default function MyPageHub() {
         </Card>
 
         {/* 3 Main Hub Cards */}
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {/* Card 1: Learning Dashboard */}
           <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all">
             <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 rounded-t-xl">
@@ -287,35 +302,10 @@ export default function MyPageHub() {
             </CardContent>
           </Card>
 
-          {/* Card 5: Notifications Center */}
-          <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all">
-            <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 rounded-t-xl">
-              <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" /> 알림 센터
-              </CardTitle>
-              <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">실시간 소식</span>
-            </CardHeader>
-            <CardContent className="pt-6 space-y-4">
-              <div>
-                <p className="text-xs text-slate-500">교사 첨삭 및 공지</p>
-                <p className="text-2xl font-extrabold text-slate-900 mt-1">
-                  인앱 알림 모아보기
-                </p>
-              </div>
-              <p className="text-xs text-slate-600">담당 교사의 첨삭 완료 내역과 주요 학습 소식을 한곳에서 확인하세요.</p>
-              <Button
-                variant="outline"
-                className="w-full text-indigo-600 border-indigo-200 hover:bg-indigo-50 font-semibold"
-                onClick={() => setLocation("/notifications")}
-              >
-                알림 센터 열기 <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </CardContent>
-          </Card>
         </div>
 
         {/* 성취 갤러리 위젯 (획득 뱃지 목록) */}
-        <div className="space-y-4 pt-4">
+        <div className="space-y-3 pt-2">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Trophy className="w-5 h-5 text-amber-500" /> 나의 성취 갤러리 ({badges.length}개 뱃지 획득)
           </h2>

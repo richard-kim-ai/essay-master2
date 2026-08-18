@@ -44,6 +44,7 @@ import {
   classAttendance,
   classAnnouncements,
   classAssignments,
+  classAssignmentSubmissions,
   teacherFeedbackTemplates,
   adminAuditLogs,
   type InsertSocialProviderConfig,
@@ -2026,10 +2027,93 @@ export async function createClassAssignment(teacherId: number, input: { groupId:
   if (!db) throw new Error("Database is not available");
   await assertTeacherGroupOwnership(teacherId, input.groupId);
   const members = await db.select().from(learningGroupMembers).where(eq(learningGroupMembers.groupId, input.groupId));
-  await db.insert(classAssignments).values({ ...input, dueAt: input.dueAt ?? null, createdBy: teacherId, isActive: 1 });
+  const [inserted] = await db.insert(classAssignments).values({ ...input, dueAt: input.dueAt ?? null, createdBy: teacherId, isActive: 1 });
+  const assignmentId = Number(inserted.insertId);
   const dueLabel = input.dueAt ? ` 마감: ${input.dueAt.toLocaleDateString("ko-KR")}` : "";
-  if (members.length) await db.insert(appNotifications).values(members.map((member) => ({ userId: member.studentId, title: `[반 과제] ${input.title}`, message: `${input.instructions}${dueLabel}`, category: "class_assignment" })));
-  return true;
+  if (members.length) await db.insert(appNotifications).values(members.map((member) => ({ userId: member.studentId, assignmentId, title: `[반 과제] ${input.title}`, message: `${input.instructions}${dueLabel}`, category: "class_assignment" })));
+  return { assignmentId };
+}
+
+export async function getStudentClassAssignments(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const [memberships, groups, assignments, submissions] = await Promise.all([
+    db.select().from(learningGroupMembers).where(eq(learningGroupMembers.studentId, studentId)),
+    db.select().from(learningGroups).where(eq(learningGroups.isActive, 1)),
+    db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)),
+    db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.studentId, studentId)),
+  ]);
+  const groupIds = new Set(memberships.map((membership) => membership.groupId));
+  const groupsById = new Map(groups.map((group) => [group.id, group]));
+  const now = new Date();
+  return assignments
+    .filter((assignment) => groupIds.has(assignment.groupId))
+    .map((assignment) => {
+      const submission = submissions.find((item) => item.assignmentId === assignment.id) ?? null;
+      return {
+        ...assignment,
+        groupName: groupsById.get(assignment.groupId)?.name || "배정 반",
+        submission,
+        submissionStatus: submission?.status ?? "pending",
+        isOverdue: Boolean(assignment.dueAt && assignment.dueAt < now && !submission),
+      };
+    })
+    .sort((left, right) => (left.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER) - (right.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER));
+}
+
+export async function submitStudentClassAssignment(studentId: number, assignmentId: number, content: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [assignment] = await db.select().from(classAssignments).where(and(eq(classAssignments.id, assignmentId), eq(classAssignments.isActive, 1)));
+  if (!assignment) throw new Error("제출할 과제를 찾을 수 없습니다.");
+  const [membership] = await db.select().from(learningGroupMembers).where(and(eq(learningGroupMembers.groupId, assignment.groupId), eq(learningGroupMembers.studentId, studentId)));
+  if (!membership) throw new Error("배정받지 않은 과제는 제출할 수 없습니다.");
+  const [existing] = await db.select().from(classAssignmentSubmissions).where(and(eq(classAssignmentSubmissions.assignmentId, assignmentId), eq(classAssignmentSubmissions.studentId, studentId)));
+  if (existing?.status === "reviewed") throw new Error("교사 채점이 완료된 과제는 수정할 수 없습니다.");
+  const values = { content: content.trim(), status: "submitted" as const, submittedAt: new Date(), updatedAt: new Date() };
+  if (existing) {
+    await db.update(classAssignmentSubmissions).set(values).where(eq(classAssignmentSubmissions.id, existing.id));
+    const [updated] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, existing.id));
+    return updated;
+  }
+  const [inserted] = await db.insert(classAssignmentSubmissions).values({ assignmentId, studentId, ...values });
+  const [created] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, Number(inserted.insertId)));
+  return created;
+}
+
+export async function getTeacherClassAssignmentSubmissions(teacherId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const [groups, assignments, submissions, allUsers] = await Promise.all([
+    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
+    db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)),
+    db.select().from(classAssignmentSubmissions).orderBy(desc(classAssignmentSubmissions.submittedAt)),
+    db.select().from(users),
+  ]);
+  const groupsById = new Map(groups.map((group) => [group.id, group]));
+  const assignmentsById = new Map(assignments.map((assignment) => [assignment.id, assignment]));
+  const usersById = new Map(allUsers.map((user) => [user.id, user]));
+  return submissions.flatMap((submission) => {
+    const assignment = assignmentsById.get(submission.assignmentId);
+    const group = assignment ? groupsById.get(assignment.groupId) : null;
+    if (!assignment || !group) return [];
+    const student = usersById.get(submission.studentId);
+    return [{ ...submission, assignmentTitle: assignment.title, assignmentInstructions: assignment.instructions, dueAt: assignment.dueAt, groupId: group.id, groupName: group.name, studentName: student?.name || `학생 #${submission.studentId}`, studentEmail: student?.email || null }];
+  });
+}
+
+export async function reviewStudentClassAssignment(teacherId: number, submissionId: number, input: { score: number; teacherComment: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
+  if (!submission) throw new Error("채점할 과제 제출물을 찾을 수 없습니다.");
+  const [assignment] = await db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId));
+  if (!assignment) throw new Error("연결된 과제를 찾을 수 없습니다.");
+  await assertTeacherGroupOwnership(teacherId, assignment.groupId);
+  await db.update(classAssignmentSubmissions).set({ status: "reviewed", score: input.score, teacherComment: input.teacherComment.trim(), reviewedAt: new Date(), updatedAt: new Date() }).where(eq(classAssignmentSubmissions.id, submissionId));
+  await db.insert(appNotifications).values({ userId: submission.studentId, assignmentId: assignment.id, title: `[과제 채점 완료] ${assignment.title}`, message: `교사가 과제를 채점했습니다. 점수 ${input.score}점과 피드백을 확인하세요.`, category: "teacher_feedback" });
+  const [updated] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
+  return updated;
 }
 
 export async function listTeacherFeedbackTemplates(teacherId: number) {
@@ -2069,22 +2153,21 @@ export async function getTeacherMonthlyAssignmentStats(teacherId: number, month:
   const db = await getDb();
   if (!db) return { month, summary: { assignments: 0, expected: 0, submitted: 0, reviewed: 0, pending: 0 }, rows: [] as any[] };
   const { start, end } = getMonthRange(month);
-  const [groups, members, allUsers, assignments, submissions, feedbacks] = await Promise.all([
+  const [groups, members, allUsers, assignments, submissions] = await Promise.all([
     db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
     db.select().from(learningGroupMembers),
     db.select().from(users),
     db.select().from(classAssignments).where(and(eq(classAssignments.isActive, 1), gte(classAssignments.dueAt, start), lt(classAssignments.dueAt, end))),
-    db.select().from(essaySubmission).where(and(gte(essaySubmission.submittedAt, start), lt(essaySubmission.submittedAt, end))),
-    db.select().from(teacherFeedback).where(eq(teacherFeedback.teacherId, teacherId)),
+    db.select().from(classAssignmentSubmissions),
   ]);
   const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  const reviewedEssayIds = new Set(feedbacks.map((feedback) => feedback.essayId));
   const rows = groups.flatMap((group) => {
     const groupAssignments = assignments.filter((assignment) => assignment.groupId === group.id);
     return members.filter((member) => member.groupId === group.id).map((member) => {
-      const studentSubmissions = submissions.filter((submission) => submission.userId === member.studentId && submission.status !== "draft");
-      const submitted = Math.min(studentSubmissions.length, groupAssignments.length);
-      const reviewed = Math.min(studentSubmissions.filter((submission) => reviewedEssayIds.has(submission.id)).length, submitted);
+      const assignmentIds = new Set(groupAssignments.map((assignment) => assignment.id));
+      const studentSubmissions = submissions.filter((submission) => submission.studentId === member.studentId && assignmentIds.has(submission.assignmentId));
+      const submitted = studentSubmissions.length;
+      const reviewed = studentSubmissions.filter((submission) => submission.status === "reviewed").length;
       const expected = groupAssignments.length;
       const student = usersById.get(member.studentId);
       return { groupId: group.id, groupName: group.name, studentId: member.studentId, studentName: student?.name || `학생 #${member.studentId}`, studentEmail: student?.email || null, expected, submitted, reviewed, pending: Math.max(submitted - reviewed, 0), unsubmitted: Math.max(expected - submitted, 0) };
@@ -2103,21 +2186,67 @@ export async function notifyUpcomingAssignmentStudents(teacherId: number, hoursA
     db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
     db.select().from(learningGroupMembers),
     db.select().from(classAssignments).where(and(eq(classAssignments.isActive, 1), gte(classAssignments.dueAt, now), lt(classAssignments.dueAt, deadline))),
-    db.select().from(essaySubmission),
+    db.select().from(classAssignmentSubmissions),
     db.select().from(appNotifications),
   ]);
   const ownedGroupIds = new Set(groups.map((group) => group.id));
   const newNotifications: Array<typeof appNotifications.$inferInsert> = [];
   assignments.filter((assignment) => ownedGroupIds.has(assignment.groupId) && assignment.dueAt).forEach((assignment) => {
     members.filter((member) => member.groupId === assignment.groupId).forEach((member) => {
-      const submittedAfterAssignment = submissions.some((submission) => submission.userId === member.studentId && submission.status !== "draft" && submission.submittedAt && submission.submittedAt >= assignment.createdAt);
+      const submittedAfterAssignment = submissions.some((submission) => submission.assignmentId === assignment.id && submission.studentId === member.studentId);
       const title = `[과제 마감 임박] ${assignment.title}`;
-      const alreadyNotified = notifications.some((notification) => notification.userId === member.studentId && notification.title === title && notification.category === "assignment_deadline");
-      if (!submittedAfterAssignment && !alreadyNotified) newNotifications.push({ userId: member.studentId, title, message: `마감일 ${assignment.dueAt!.toLocaleString("ko-KR")} 전까지 과제를 제출해주세요.`, category: "assignment_deadline" });
+      const alreadyNotified = notifications.some((notification) => notification.userId === member.studentId && notification.assignmentId === assignment.id && notification.category === "assignment_deadline");
+      if (!submittedAfterAssignment && !alreadyNotified) newNotifications.push({ userId: member.studentId, assignmentId: assignment.id, title, message: `마감일 ${assignment.dueAt!.toLocaleString("ko-KR")} 전까지 과제를 제출해주세요.`, category: "assignment_deadline" });
     });
   });
   if (newNotifications.length) await db.insert(appNotifications).values(newNotifications);
   return { notified: newNotifications.length, hoursAhead };
+}
+
+export async function getTeacherAssignmentNotificationStats(teacherId: number) {
+  const db = await getDb();
+  const emptySummary = { sent: 0, read: 0, unread: 0, readRate: 0, submittedAfterNotice: 0, openedThenSubmitted: 0, conversionRate: 0 };
+  if (!db) return { summary: emptySummary, rows: [] as any[] };
+  const [groups, members, assignments, notifications, submissions] = await Promise.all([
+    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
+    db.select().from(learningGroupMembers),
+    db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)),
+    db.select().from(appNotifications).where(eq(appNotifications.category, "assignment_deadline")),
+    db.select().from(classAssignmentSubmissions),
+  ]);
+  const groupIds = new Set(groups.map((group) => group.id));
+  const groupsById = new Map(groups.map((group) => [group.id, group]));
+  const ownedAssignments = assignments.filter((assignment) => groupIds.has(assignment.groupId));
+  const rows = ownedAssignments.map((assignment) => {
+    const assignmentNotifications = notifications.filter((notification) => notification.assignmentId === assignment.id);
+    const assignedStudentIds = new Set(members.filter((member) => member.groupId === assignment.groupId).map((member) => member.studentId));
+    const sent = assignmentNotifications.length;
+    const read = assignmentNotifications.filter((notification) => notification.isRead === 1).length;
+    const submittedAfterNotice = assignmentNotifications.filter((notification) => submissions.some((submission) => submission.assignmentId === assignment.id && submission.studentId === notification.userId && submission.submittedAt >= notification.createdAt)).length;
+    const openedThenSubmitted = assignmentNotifications.filter((notification) => notification.isRead === 1 && submissions.some((submission) => submission.assignmentId === assignment.id && submission.studentId === notification.userId && submission.submittedAt >= notification.createdAt)).length;
+    return {
+      assignmentId: assignment.id,
+      title: assignment.title,
+      groupName: groupsById.get(assignment.groupId)?.name || "담당 반",
+      dueAt: assignment.dueAt,
+      assignedStudents: assignedStudentIds.size,
+      sent,
+      read,
+      unread: Math.max(sent - read, 0),
+      readRate: sent ? Math.round((read / sent) * 100) : 0,
+      submittedAfterNotice,
+      openedThenSubmitted,
+      conversionRate: sent ? Math.round((openedThenSubmitted / sent) * 100) : 0,
+    };
+  }).filter((row) => row.sent > 0).sort((left, right) => (right.dueAt?.getTime() ?? 0) - (left.dueAt?.getTime() ?? 0));
+  const summary = rows.reduce((total, row) => ({
+    sent: total.sent + row.sent,
+    read: total.read + row.read,
+    unread: total.unread + row.unread,
+    submittedAfterNotice: total.submittedAfterNotice + row.submittedAfterNotice,
+    openedThenSubmitted: total.openedThenSubmitted + row.openedThenSubmitted,
+  }), { sent: 0, read: 0, unread: 0, submittedAfterNotice: 0, openedThenSubmitted: 0 });
+  return { summary: { ...summary, readRate: summary.sent ? Math.round((summary.read / summary.sent) * 100) : 0, conversionRate: summary.sent ? Math.round((summary.openedThenSubmitted / summary.sent) * 100) : 0 }, rows };
 }
 
 export async function getTeacherPermissionGrants() {
@@ -3347,14 +3476,14 @@ export async function getNotificationsByUser(userId: number) {
 export async function markNotificationAsRead(notificationId: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  await db.update(appNotifications).set({ isRead: 1 }).where(and(eq(appNotifications.id, notificationId), eq(appNotifications.userId, userId)));
+  await db.update(appNotifications).set({ isRead: 1, readAt: new Date() }).where(and(eq(appNotifications.id, notificationId), eq(appNotifications.userId, userId)));
   return { success: true };
 }
 
 export async function markAllNotificationsAsRead(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  await db.update(appNotifications).set({ isRead: 1 }).where(eq(appNotifications.userId, userId));
+  await db.update(appNotifications).set({ isRead: 1, readAt: new Date() }).where(eq(appNotifications.userId, userId));
   return { success: true };
 }
 

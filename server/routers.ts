@@ -682,6 +682,23 @@ export const appRouter = router({
       ),
   }),
 
+  student: router({
+    myAssignments: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 배정 과제를 확인할 수 있습니다." });
+      return db.getStudentClassAssignments(ctx.user.id);
+    }),
+    submitAssignment: protectedProcedure
+      .input(z.object({ assignmentId: z.number().int().positive(), content: z.string().trim().min(20).max(20000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 과제를 제출할 수 있습니다." });
+        try {
+          return await db.submitStudentClassAssignment(ctx.user.id, input.assignmentId, input.content);
+        } catch (error: any) {
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제를 제출할 수 없습니다." });
+        }
+      }),
+  }),
+
   teacherOperations: router({
     myPermissionGrants: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") {
@@ -741,6 +758,24 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
         return db.getTeacherMonthlyAssignmentStats(ctx.user.id, input.month);
+      }),
+    assignmentNotificationStats: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.getTeacherAssignmentNotificationStats(ctx.user.id);
+    }),
+    classAssignmentSubmissions: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.getTeacherClassAssignmentSubmissions(ctx.user.id);
+    }),
+    reviewClassAssignmentSubmission: protectedProcedure
+      .input(z.object({ submissionId: z.number().int().positive(), score: z.number().int().min(0).max(100), teacherComment: z.string().trim().min(2).max(5000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try {
+          return await db.reviewStudentClassAssignment(ctx.user.id, input.submissionId, input);
+        } catch (error: any) {
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제를 채점할 수 없습니다." });
+        }
       }),
     notifyUpcomingAssignmentStudents: protectedProcedure
       .input(z.object({ hoursAhead: z.number().int().min(24).max(168).default(72) }))

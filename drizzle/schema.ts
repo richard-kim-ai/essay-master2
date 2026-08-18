@@ -131,6 +131,20 @@ export const classAssignments = mysqlTable("class_assignments", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+// 반 과제별 학생 제출물과 교사 채점 상태를 분리해 관리합니다.
+export const classAssignmentSubmissions = mysqlTable("class_assignment_submissions", {
+  id: int("id").autoincrement().primaryKey(),
+  assignmentId: int("assignmentId").notNull(),
+  studentId: int("studentId").notNull(),
+  content: text("content").notNull(),
+  status: mysqlEnum("status", ["submitted", "reviewed"]).default("submitted").notNull(),
+  submittedAt: timestamp("submittedAt").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+  score: int("score"),
+  teacherComment: text("teacherComment"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 // 교사가 반복 사용하는 채점·첨삭 문구를 개인별로 보관합니다.
 export const teacherFeedbackTemplates = mysqlTable("teacher_feedback_templates", {
   id: int("id").autoincrement().primaryKey(),
@@ -155,6 +169,7 @@ export const adminAuditLogs = mysqlTable("admin_audit_logs", {
 export type ClassAttendance = typeof classAttendance.$inferSelect;
 export type ClassAnnouncement = typeof classAnnouncements.$inferSelect;
 export type ClassAssignment = typeof classAssignments.$inferSelect;
+export type ClassAssignmentSubmission = typeof classAssignmentSubmissions.$inferSelect;
 export type TeacherFeedbackTemplate = typeof teacherFeedbackTemplates.$inferSelect;
 export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
 
@@ -715,7 +730,9 @@ export const appNotifications = mysqlTable("app_notifications", {
   title: varchar("title", { length: 255 }).notNull(),
   message: text("message").notNull(),
   category: varchar("category", { length: 50 }).default("teacher_feedback").notNull(), // 'teacher_feedback', 'assignment', 'system'
+  assignmentId: int("assignmentId"),
   isRead: int("isRead").default(0).notNull(), // 0: 안 읽음, 1: 읽음
+  readAt: timestamp("readAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

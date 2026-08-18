@@ -30,6 +30,7 @@ import {
   Check,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { NotificationPopover } from "@/components/NotificationPopover";
 
 interface NavItem {
   label: string;
@@ -217,6 +218,7 @@ export default function Navigation() {
 
             {isAuthenticated ? (
               <>
+                <NotificationPopover />
                 {/* Desktop User Menu */}
                 <div className="hidden md:block">
                   <DropdownMenu>

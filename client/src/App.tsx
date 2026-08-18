@@ -42,6 +42,7 @@ import AdminAIGovernance from "@/pages/AdminAIGovernance";
 import AdminAcademicPermissions from "@/pages/AdminAcademicPermissions";
 import MasterAdminConsole from "@/pages/MasterAdminConsole";
 import ParentPortal from "@/pages/ParentPortal";
+import StudentAssignments from "@/pages/StudentAssignments";
 import Layout from "./components/Layout";
 
 function Router() {
@@ -150,6 +151,13 @@ function Router() {
         {(params) => (
           <Layout>
             <EssayArchive />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/my-assignments"}>
+        {(params) => (
+          <Layout>
+            <StudentAssignments />
           </Layout>
         )}
       </Route>
