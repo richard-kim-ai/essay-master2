@@ -225,6 +225,13 @@
       "when": 1786996731323,
       "tag": "0031_red_gabe_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1787012151029,
+      "tag": "0032_majestic_famine",
+      "breakpoints": true
     }
   ]
 }

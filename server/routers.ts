@@ -668,6 +668,62 @@ export const appRouter = router({
       ),
   }),
 
+  teacherOperations: router({
+    myPermissionGrants: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      }
+      const grants = await db.getTeacherPermissionGrants();
+      return grants.filter((grant) => grant.teacherId === ctx.user.id && grant.isActive === 1);
+    }),
+    managedStudents: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      }
+      return db.getManagedStudentsForTeacher(ctx.user.id);
+    }),
+    updateStudentProgress: protectedProcedure
+      .input(z.object({ studentId: z.number(), curriculumId: z.number(), score: z.number().min(0).max(100), completed: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved" || !(await db.canTeacherManageStudent(ctx.user.id, input.studentId, "progress"))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생의 진도 관리 권한이 없습니다." });
+        }
+        return db.upsertProgress({ userId: input.studentId, curriculumId: input.curriculumId, score: input.score, completed: input.completed ? 1 : 0, completedAt: input.completed ? new Date() : null });
+      }),
+    requestCertificateApproval: protectedProcedure
+      .input(z.object({ studentId: z.number(), level: z.number().int().min(1).max(20).optional(), certificateType: z.enum(["level_certificate", "graduation_certificate"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved" || !(await db.canTeacherManageStudent(ctx.user.id, input.studentId, "certificate"))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생의 수료증 요청 권한이 없습니다." });
+        }
+        const eligibility = await db.getStudentCertificateEligibility(input.studentId);
+        const grants = await db.getTeacherPermissionGrants();
+        const applicableGrant = grants.find((grant) => grant.teacherId === ctx.user.id && grant.isActive === 1 && (grant.scopeType === "organization" || grant.studentId === input.studentId));
+        return db.createCertificateApprovalRequest({
+          studentId: input.studentId,
+          courseType: eligibility.courseType,
+          level: input.level,
+          certificateType: input.certificateType,
+          requestedBy: ctx.user.id,
+          requestScope: applicableGrant?.scopeType || "student",
+          evidenceCompletionRate: eligibility.completionRate,
+          evidenceAverageScore: eligibility.averageScore,
+        });
+      }),
+    reviewCertificateRequest: protectedProcedure
+      .input(z.object({ requestId: z.number(), note: z.string().trim().max(1000).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.reviewCertificateApprovalRequestByTeacher(input.requestId, ctx.user.id, input.note);
+      }),
+    certificateRequests: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN" });
+      const requests = await db.getCertificateApprovalRequests();
+      const permissions = await Promise.all(requests.map((request) => db.canTeacherManageStudent(ctx.user.id, request.studentId, "certificate")));
+      return requests.filter((_, index) => permissions[index]);
+    }),
+  }),
+
   // ========== Quiz Routes ==========
   quiz: router({
     submitAnswer: protectedProcedure
@@ -1227,6 +1283,55 @@ export const appRouter = router({
   }),
 
   admin: router({
+    getTeacherPermissionGrants: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return db.getTeacherPermissionGrants();
+    }),
+    saveTeacherPermissionGrant: protectedProcedure
+      .input(z.object({
+        grantId: z.number().optional(),
+        teacherId: z.number(),
+        scopeType: z.enum(["organization", "student"]),
+        organizationName: z.string().trim().min(2).max(160).optional(),
+        studentId: z.number().optional(),
+        canManageProgress: z.boolean(),
+        canRequestCertificate: z.boolean(),
+        isActive: z.boolean(),
+      }).superRefine((value, issue) => {
+        if (value.scopeType === "organization" && !value.organizationName) issue.addIssue({ code: z.ZodIssueCode.custom, message: "조직 단위에는 조직 또는 학급 이름이 필요합니다.", path: ["organizationName"] });
+        if (value.scopeType === "student" && !value.studentId) issue.addIssue({ code: z.ZodIssueCode.custom, message: "학생 단위에는 대상 학생 선택이 필요합니다.", path: ["studentId"] });
+        if (!value.canManageProgress && !value.canRequestCertificate) issue.addIssue({ code: z.ZodIssueCode.custom, message: "최소 하나의 관리 권한을 선택해야 합니다.", path: ["canManageProgress"] });
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.saveTeacherPermissionGrant({ ...input, organizationName: input.organizationName ?? null, studentId: input.studentId ?? null, canManageProgress: input.canManageProgress ? 1 : 0, canRequestCertificate: input.canRequestCertificate ? 1 : 0, isActive: input.isActive ? 1 : 0, grantedBy: ctx.user.id });
+      }),
+    setTeacherPermissionGrantActive: protectedProcedure
+      .input(z.object({ grantId: z.number(), isActive: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.setTeacherPermissionGrantActive(input.grantId, input.isActive ? 1 : 0);
+      }),
+    getCertificateApprovalPolicies: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return db.getCertificateApprovalPolicies();
+    }),
+    saveCertificateApprovalPolicy: protectedProcedure
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), teacherReviewRequired: z.boolean(), adminApprovalRequired: z.boolean(), minimumCompletionRate: z.number().int().min(0).max(100), minimumAverageScore: z.number().int().min(0).max(100), isActive: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.saveCertificateApprovalPolicy({ ...input, teacherReviewRequired: input.teacherReviewRequired ? 1 : 0, adminApprovalRequired: input.adminApprovalRequired ? 1 : 0, isActive: input.isActive ? 1 : 0, updatedBy: ctx.user.id });
+      }),
+    getCertificateApprovalRequests: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return db.getCertificateApprovalRequests();
+    }),
+    resolveCertificateApprovalRequest: protectedProcedure
+      .input(z.object({ requestId: z.number(), approved: z.boolean(), note: z.string().trim().max(1000).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.resolveCertificateApprovalRequestByAdmin({ requestId: input.requestId, adminId: ctx.user.id, approved: input.approved, note: input.note });
+      }),
     getAnalytics: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });

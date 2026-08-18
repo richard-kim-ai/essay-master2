@@ -70,6 +70,67 @@ export const parentStudentLinks = mysqlTable("parent_student_links", {
 export type ParentStudentLink = typeof parentStudentLinks.$inferSelect;
 export type InsertParentStudentLink = typeof parentStudentLinks.$inferInsert;
 
+// 관리자가 교사에게 부여하는 진도·수료증 권한입니다. 조직 전체 또는 특정 학생으로 범위를 제한합니다.
+export const teacherPermissionGrants = mysqlTable("teacher_permission_grants", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull(),
+  scopeType: mysqlEnum("scopeType", ["organization", "student"]).notNull(),
+  organizationName: varchar("organizationName", { length: 160 }),
+  studentId: int("studentId"),
+  canManageProgress: int("canManageProgress").default(0).notNull(),
+  canRequestCertificate: int("canRequestCertificate").default(0).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  grantedBy: int("grantedBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TeacherPermissionGrant = typeof teacherPermissionGrants.$inferSelect;
+export type InsertTeacherPermissionGrant = typeof teacherPermissionGrants.$inferInsert;
+
+// 수료증 발급 조건은 과정별로 관리하며, 기본값은 교사 검토와 관리자 최종 승인을 모두 요구합니다.
+export const certificateApprovalPolicies = mysqlTable("certificate_approval_policies", {
+  id: int("id").autoincrement().primaryKey(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull().unique(),
+  teacherReviewRequired: int("teacherReviewRequired").default(1).notNull(),
+  adminApprovalRequired: int("adminApprovalRequired").default(1).notNull(),
+  minimumCompletionRate: int("minimumCompletionRate").default(100).notNull(),
+  minimumAverageScore: int("minimumAverageScore").default(0).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  updatedBy: int("updatedBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CertificateApprovalPolicy = typeof certificateApprovalPolicies.$inferSelect;
+export type InsertCertificateApprovalPolicy = typeof certificateApprovalPolicies.$inferInsert;
+
+// 교사 검토와 관리자 최종 승인 단계를 독립적으로 남겨 수료증 발급 사유를 감사 가능하게 합니다.
+export const certificateApprovalRequests = mysqlTable("certificate_approval_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  studentId: int("studentId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  level: int("level"),
+  certificateType: mysqlEnum("certificateType", ["level_certificate", "graduation_certificate"]).notNull(),
+  status: mysqlEnum("status", ["pending_teacher", "pending_admin", "approved", "rejected"]).default("pending_teacher").notNull(),
+  requestedBy: int("requestedBy").notNull(),
+  requestScope: mysqlEnum("requestScope", ["organization", "student"]).notNull(),
+  evidenceCompletionRate: int("evidenceCompletionRate").default(0).notNull(),
+  evidenceAverageScore: int("evidenceAverageScore").default(0).notNull(),
+  teacherApprovedBy: int("teacherApprovedBy"),
+  teacherApprovedAt: timestamp("teacherApprovedAt"),
+  teacherNote: text("teacherNote"),
+  adminApprovedBy: int("adminApprovedBy"),
+  adminApprovedAt: timestamp("adminApprovedAt"),
+  adminNote: text("adminNote"),
+  certificateId: int("certificateId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CertificateApprovalRequest = typeof certificateApprovalRequests.$inferSelect;
+export type InsertCertificateApprovalRequest = typeof certificateApprovalRequests.$inferInsert;
+
 export type AppSecretConfig = typeof appSecretConfig.$inferSelect;
 export type InsertAppSecretConfig = typeof appSecretConfig.$inferInsert;
 

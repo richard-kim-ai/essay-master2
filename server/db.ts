@@ -6,6 +6,8 @@ import {
   progress,
   quizAnswer,
   certificate,
+  certificateApprovalPolicies,
+  certificateApprovalRequests,
   essaySubmission,
   teacherFeedback,
   feedbackComment,
@@ -36,6 +38,7 @@ import {
   teacherAiStyleExamples,
   teacherAiDrafts,
   teacherAiDraftRevisions,
+  teacherPermissionGrants,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -43,6 +46,7 @@ import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
+import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared/course";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -809,6 +813,8 @@ export async function getAllUsersStats() {
       role: u.role,
       teacherLevel: u.teacherLevel,
       teacherStatus: u.teacherStatus,
+      teacherId: u.teacherId,
+      tag: u.tag,
       loginMethod: u.loginMethod,
       createdAt: u.createdAt,
       lastSignedIn: u.lastSignedIn,
@@ -848,6 +854,9 @@ export async function getStudentDetailStats(userId: number) {
       name: userRecord.name,
       email: userRecord.email,
       role: userRecord.role,
+      tag: userRecord.tag,
+      courseType: getCourseTypeFromUserTag(userRecord.tag),
+      courseLabel: getCourseTag(getCourseTypeFromUserTag(userRecord.tag)),
       createdAt: userRecord.createdAt,
       lastSignedIn: userRecord.lastSignedIn,
       adminNotes: userRecord.adminNotes,
@@ -923,6 +932,181 @@ export async function adminIssueCertificate(input: {
     updatedAt: new Date(),
   });
   return res;
+}
+
+const CERTIFICATE_COURSE_TYPES: CourseType[] = ["elementary", "middle_high", "high_univ", "general_adult"];
+
+async function ensureCertificateApprovalPolicies() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const existingPolicies = await db.select().from(certificateApprovalPolicies);
+  const existingCourseTypes = new Set(existingPolicies.map((policy) => policy.courseType));
+  for (const courseType of CERTIFICATE_COURSE_TYPES) {
+    if (!existingCourseTypes.has(courseType)) {
+      await db.insert(certificateApprovalPolicies).values({
+        courseType,
+        teacherReviewRequired: 1,
+        adminApprovalRequired: 1,
+        minimumCompletionRate: 100,
+        minimumAverageScore: 0,
+        isActive: 1,
+      });
+    }
+  }
+}
+
+export async function getCertificateApprovalPolicies() {
+  const db = await getDb();
+  if (!db) return [];
+  await ensureCertificateApprovalPolicies();
+  return db.select().from(certificateApprovalPolicies);
+}
+
+export async function saveCertificateApprovalPolicy(input: {
+  courseType: CourseType;
+  teacherReviewRequired: number;
+  adminApprovalRequired: number;
+  minimumCompletionRate: number;
+  minimumAverageScore: number;
+  isActive: number;
+  updatedBy: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(certificateApprovalPolicies).where(eq(certificateApprovalPolicies.courseType, input.courseType));
+  const values = {
+    // 공동 승인 절차는 모든 과정에서 교사 검토와 관리자 최종 승인을 함께 요구합니다.
+    teacherReviewRequired: 1,
+    adminApprovalRequired: 1,
+    minimumCompletionRate: input.minimumCompletionRate,
+    minimumAverageScore: input.minimumAverageScore,
+    isActive: input.isActive,
+    updatedBy: input.updatedBy,
+    updatedAt: new Date(),
+  };
+  if (existing) {
+    await db.update(certificateApprovalPolicies).set(values).where(eq(certificateApprovalPolicies.id, existing.id));
+  } else {
+    await db.insert(certificateApprovalPolicies).values({ courseType: input.courseType, ...values });
+  }
+  return getCertificateApprovalPolicies();
+}
+
+export async function getStudentCertificateEligibility(studentId: number) {
+  const [student, studentProgress] = await Promise.all([getUserById(studentId), getProgressByUser(studentId)]);
+  if (!student) throw new Error("학생을 찾을 수 없습니다.");
+  const completedCount = studentProgress.filter((item) => item.completed === 1).length;
+  const completionRate = Math.min(100, Math.round((completedCount / 4) * 100));
+  const averageScore = studentProgress.length > 0
+    ? Math.round(studentProgress.reduce((sum, item) => sum + (item.score || 0), 0) / studentProgress.length)
+    : 0;
+  return {
+    student,
+    courseType: getCourseTypeFromUserTag(student.tag),
+    courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)),
+    completionRate,
+    averageScore,
+  };
+}
+
+export async function createCertificateApprovalRequest(input: {
+  studentId: number;
+  courseType: CourseType;
+  level?: number;
+  certificateType: "level_certificate" | "graduation_certificate";
+  requestedBy: number;
+  requestScope: "organization" | "student";
+  evidenceCompletionRate: number;
+  evidenceAverageScore: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await ensureCertificateApprovalPolicies();
+  const [policy] = await db.select().from(certificateApprovalPolicies).where(eq(certificateApprovalPolicies.courseType, input.courseType));
+  if (!policy?.isActive) throw new Error("해당 과정의 수료증 공동 승인 정책이 비활성화되어 있습니다.");
+  if (input.evidenceCompletionRate < policy.minimumCompletionRate || input.evidenceAverageScore < policy.minimumAverageScore) {
+    throw new Error("설정된 수료증 발급 조건을 아직 충족하지 않았습니다.");
+  }
+  const requests = await db.select().from(certificateApprovalRequests).where(eq(certificateApprovalRequests.studentId, input.studentId));
+  if (requests.some((request) => request.courseType === input.courseType && request.level === (input.level ?? null) && ["pending_teacher", "pending_admin", "approved"].includes(request.status))) {
+    throw new Error("동일 학생·과정·단계의 공동 승인 요청이 이미 존재합니다.");
+  }
+  const [result] = await db.insert(certificateApprovalRequests).values({
+    ...input,
+    level: input.level ?? null,
+    status: "pending_teacher",
+  });
+  return result;
+}
+
+export async function getCertificateApprovalRequests() {
+  const db = await getDb();
+  if (!db) return [];
+  const [requests, allUsers] = await Promise.all([
+    db.select().from(certificateApprovalRequests).orderBy(desc(certificateApprovalRequests.updatedAt)),
+    db.select().from(users),
+  ]);
+  const usersById = new Map(allUsers.map((user) => [user.id, user]));
+  return requests.map((request) => ({
+    ...request,
+    studentName: usersById.get(request.studentId)?.name || `학생 #${request.studentId}`,
+    studentEmail: usersById.get(request.studentId)?.email || null,
+    requestedByName: usersById.get(request.requestedBy)?.name || `교사 #${request.requestedBy}`,
+    courseLabel: getCourseTag(request.courseType),
+  }));
+}
+
+export async function reviewCertificateApprovalRequestByTeacher(requestId: number, teacherId: number, note?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [request] = await db.select().from(certificateApprovalRequests).where(eq(certificateApprovalRequests.id, requestId));
+  if (!request) throw new Error("수료증 승인 요청을 찾을 수 없습니다.");
+  if (request.status !== "pending_teacher") throw new Error("교사 검토 대기 중인 요청만 승인할 수 있습니다.");
+  if (!(await canTeacherManageStudent(teacherId, request.studentId, "certificate"))) throw new Error("해당 학생의 수료증 검토 권한이 없습니다.");
+  await db.update(certificateApprovalRequests).set({
+    status: "pending_admin",
+    teacherApprovedBy: teacherId,
+    teacherApprovedAt: new Date(),
+    teacherNote: note?.trim() || null,
+    updatedAt: new Date(),
+  }).where(eq(certificateApprovalRequests.id, requestId));
+  return true;
+}
+
+export async function resolveCertificateApprovalRequestByAdmin(input: { requestId: number; adminId: number; approved: boolean; note?: string; shareToken?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [request] = await db.select().from(certificateApprovalRequests).where(eq(certificateApprovalRequests.id, input.requestId));
+  if (!request) throw new Error("수료증 승인 요청을 찾을 수 없습니다.");
+  if (request.status !== "pending_admin") throw new Error("관리자 최종 승인 대기 중인 요청만 처리할 수 있습니다.");
+  if (!input.approved) {
+    await db.update(certificateApprovalRequests).set({
+      status: "rejected",
+      adminApprovedBy: input.adminId,
+      adminApprovedAt: new Date(),
+      adminNote: input.note?.trim() || "관리자 반려",
+      updatedAt: new Date(),
+    }).where(eq(certificateApprovalRequests.id, request.id));
+    return { approved: false };
+  }
+  const certificateResult = await adminIssueCertificate({
+    userId: request.studentId,
+    courseType: request.courseType,
+    level: request.level ?? undefined,
+    certificateType: request.certificateType,
+    shareToken: input.shareToken || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`,
+    issuedBy: input.adminId,
+    issueReason: input.note?.trim() || "교사 검토 및 관리자 공동 승인",
+  });
+  await db.update(certificateApprovalRequests).set({
+    status: "approved",
+    adminApprovedBy: input.adminId,
+    adminApprovedAt: new Date(),
+    adminNote: input.note?.trim() || null,
+    certificateId: Number((certificateResult as { insertId?: number }).insertId) || null,
+    updatedAt: new Date(),
+  }).where(eq(certificateApprovalRequests.id, request.id));
+  return { approved: true };
 }
 
 export async function adminRevokeCertificate(certificateId: number, revokedBy: number, reason: string) {
@@ -1573,6 +1757,100 @@ export async function updateUserRole(userId: number, newRole: "user" | "teacher"
   return true;
 }
 
+export async function getTeacherPermissionGrants() {
+  const db = await getDb();
+  if (!db) return [];
+  const [grants, allUsers] = await Promise.all([
+    db.select().from(teacherPermissionGrants).orderBy(desc(teacherPermissionGrants.updatedAt)),
+    db.select().from(users),
+  ]);
+  const usersById = new Map(allUsers.map((user) => [user.id, user]));
+  return grants.map((grant) => ({
+    ...grant,
+    teacherName: usersById.get(grant.teacherId)?.name || `교사 #${grant.teacherId}`,
+    teacherEmail: usersById.get(grant.teacherId)?.email || null,
+    studentName: grant.studentId ? usersById.get(grant.studentId)?.name || `학생 #${grant.studentId}` : null,
+    studentEmail: grant.studentId ? usersById.get(grant.studentId)?.email || null : null,
+    studentCourseLabel: grant.studentId ? getCourseTag(getCourseTypeFromUserTag(usersById.get(grant.studentId)?.tag)) : null,
+  }));
+}
+
+export async function saveTeacherPermissionGrant(input: {
+  grantId?: number;
+  teacherId: number;
+  scopeType: "organization" | "student";
+  organizationName?: string | null;
+  studentId?: number | null;
+  canManageProgress: number;
+  canRequestCertificate: number;
+  isActive: number;
+  grantedBy: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const values = {
+    teacherId: input.teacherId,
+    scopeType: input.scopeType,
+    organizationName: input.scopeType === "organization" ? input.organizationName?.trim() || "담당 학급" : null,
+    studentId: input.scopeType === "student" ? input.studentId ?? null : null,
+    canManageProgress: input.canManageProgress,
+    canRequestCertificate: input.canRequestCertificate,
+    isActive: input.isActive,
+    grantedBy: input.grantedBy,
+    updatedAt: new Date(),
+  };
+  if (input.grantId) {
+    await db.update(teacherPermissionGrants).set(values).where(eq(teacherPermissionGrants.id, input.grantId));
+  } else {
+    await db.insert(teacherPermissionGrants).values(values);
+  }
+  return getTeacherPermissionGrants();
+}
+
+export async function setTeacherPermissionGrantActive(grantId: number, isActive: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(teacherPermissionGrants).set({ isActive, updatedAt: new Date() }).where(eq(teacherPermissionGrants.id, grantId));
+  return getTeacherPermissionGrants();
+}
+
+async function getActiveTeacherPermissionGrants(teacherId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(teacherPermissionGrants).where(and(eq(teacherPermissionGrants.teacherId, teacherId), eq(teacherPermissionGrants.isActive, 1)));
+}
+
+export async function canTeacherManageStudent(teacherId: number, studentId: number, permission: "progress" | "certificate") {
+  const [student, grants] = await Promise.all([getUserById(studentId), getActiveTeacherPermissionGrants(teacherId)]);
+  if (!student || student.role !== "user" || student.tag === "학부모") return false;
+  return grants.some((grant) => {
+    const permissionGranted = permission === "progress" ? grant.canManageProgress === 1 : grant.canRequestCertificate === 1;
+    if (!permissionGranted) return false;
+    if (grant.scopeType === "student") return grant.studentId === studentId;
+    return student.teacherId === teacherId;
+  });
+}
+
+export async function getManagedStudentsForTeacher(teacherId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const [allUsers, grants] = await Promise.all([db.select().from(users), getActiveTeacherPermissionGrants(teacherId)]);
+  const directStudentIds = new Set(grants.filter((grant) => grant.scopeType === "student").map((grant) => grant.studentId).filter((id): id is number => id !== null));
+  const hasOrganizationScope = grants.some((grant) => grant.scopeType === "organization" && (grant.canManageProgress === 1 || grant.canRequestCertificate === 1));
+  return allUsers
+    .filter((user) => user.role === "user" && user.tag !== "학부모" && (directStudentIds.has(user.id) || (hasOrganizationScope && user.teacherId === teacherId)))
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      courseType: getCourseTypeFromUserTag(user.tag),
+      courseLabel: getCourseTag(getCourseTypeFromUserTag(user.tag)),
+      createdAt: user.createdAt,
+      lastSignedIn: user.lastSignedIn,
+      teacherId: user.teacherId,
+    }));
+}
+
 export async function getLinkedStudentsForParent(parentId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -1581,7 +1859,11 @@ export async function getLinkedStudentsForParent(parentId: number) {
   if (studentIds.length === 0) return [];
   
   const allU = await db.select().from(users);
-  return allU.filter(u => studentIds.includes(u.id));
+  return allU.filter((student) => studentIds.includes(student.id)).map((student) => ({
+    ...student,
+    courseType: getCourseTypeFromUserTag(student.tag),
+    courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)),
+  }));
 }
 
 export async function linkParentAndStudent(parentId: number, studentEmail: string) {
@@ -1593,13 +1875,13 @@ export async function linkParentAndStudent(parentId: number, studentEmail: strin
   }
   const [existing] = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), eq(parentStudentLinks.studentId, student.id)));
   if (existing) {
-    return { success: true, studentId: student.id };
+    return { success: true, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
   }
   await db.insert(parentStudentLinks).values({
     parentId,
     studentId: student.id,
   });
-  return { success: true, studentId: student.id };
+  return { success: true, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
 }
 
 export async function adminResetAllCertificates() {

@@ -189,6 +189,11 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/admin/academic-permissions">
+              <Button size="sm" variant="outline" className="gap-1.5 bg-white text-xs text-indigo-700 hover:bg-indigo-50">
+                <KeyRound className="w-3.5 h-3.5" /> 교사 권한·수료 승인
+              </Button>
+            </Link>
             <Button onClick={handleExportCSV} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 text-xs">
               <Download className="w-3.5 h-3.5" /> CSV 내보내기
             </Button>

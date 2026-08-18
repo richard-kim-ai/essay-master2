@@ -83,6 +83,32 @@ describe("appRouter", () => {
     });
   });
 
+  describe("teacherOperations", () => {
+    it("승인되지 않은 일반 사용자의 관리 범위 조회를 차단한다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.teacherOperations.managedStudents()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("승인된 교사는 자신에게 부여된 관리 범위 목록을 조회할 수 있다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: {
+          ...createMockContext().user!,
+          role: "teacher",
+          teacherStatus: "approved",
+        } as any,
+      }));
+      const result = await caller.teacherOperations.managedStudents();
+      expect(Array.isArray(result)).toBe(true);
+    });
+  });
+
+  describe("academic approval administration", () => {
+    it("일반 사용자의 교사 권한 부여 목록 조회를 차단한다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.admin.getTeacherPermissionGrants()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
   describe("quiz", () => {
     it.skip("should create quiz answer", async () => {
       const ctx = createMockContext();

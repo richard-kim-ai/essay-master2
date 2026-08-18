@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ export default function ParentPortal() {
 
   const linkMutation = trpc.parent.linkStudent.useMutation({
     onSuccess: (data) => {
-      toast.success("자녀 계정이 성공적으로 연동되었습니다.");
+      toast.success(`자녀 계정이 ${data.courseLabel || "선택"} 과정으로 성공적으로 연동되었습니다.`);
       setStudentEmailInput("");
       setLinkModalOpen(false);
       refetchLinked();
@@ -57,10 +57,12 @@ export default function ParentPortal() {
     addCommentMutation.mutate({ studentId: linkedStudentId, comment: commentText.trim() });
   };
 
-  // 첫 렌더링 시 연동된 학생이 있고 선택되지 않았다면 첫 번째 학생 자동 선택
-  if (linkedStudents && linkedStudents.length > 0 && linkedStudentId === null) {
-    setLinkedStudentId(linkedStudents[0].id);
-  }
+  // 연동된 학생이 처음 로드될 때만 첫 번째 학생을 선택합니다.
+  useEffect(() => {
+    if (linkedStudents && linkedStudents.length > 0 && linkedStudentId === null) {
+      setLinkedStudentId(linkedStudents[0].id);
+    }
+  }, [linkedStudents, linkedStudentId]);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto py-6 px-4">
@@ -88,7 +90,7 @@ export default function ParentPortal() {
               >
                 {linkedStudents.map((s: any) => (
                   <option key={s.id} value={s.id}>
-                    {s.name || `학생 #${s.id}`} ({s.email})
+                    {s.name || `학생 #${s.id}`} · {s.courseLabel || s.tag || "과정 미설정"} ({s.email})
                   </option>
                 ))}
               </select>
@@ -125,9 +127,13 @@ export default function ParentPortal() {
                   <UserCheck className="h-5 w-5 text-blue-600" />
                   <span>{studentDetail.user.name || "자녀"} 학생 학습 현황 개요</span>
                 </CardTitle>
-                <CardDescription>가입일: {new Date(studentDetail.user.createdAt).toLocaleDateString()} | 최근 접속: {new Date(studentDetail.user.lastSignedIn).toLocaleString()}</CardDescription>
+                <CardDescription>가입 과정: <span className="font-semibold text-blue-700">{studentDetail.user.courseLabel || studentDetail.user.tag || "과정 미설정"}</span> · 가입일: {new Date(studentDetail.user.createdAt).toLocaleDateString()} · 최근 접속: {new Date(studentDetail.user.lastSignedIn).toLocaleString()}</CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-3">
+              <CardContent className="grid gap-4 sm:grid-cols-4">
+                <div className="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
+                  <p className="text-xs font-medium text-indigo-600">선택 학습 과정</p>
+                  <h3 className="mt-1 text-base font-bold text-indigo-900">{studentDetail.user.courseLabel || studentDetail.user.tag || "미설정"}</h3>
+                </div>
                 <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
                   <p className="text-xs font-medium text-blue-600">완료한 학습 모듈</p>
                   <h3 className="text-2xl font-bold text-blue-900 mt-1">{studentDetail.progress.length}개</h3>
