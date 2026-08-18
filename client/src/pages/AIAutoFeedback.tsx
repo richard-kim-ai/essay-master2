@@ -18,6 +18,7 @@ export default function AIAutoFeedback() {
   const [content, setContent] = useState("");
   const [feedback, setFeedback] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [feedbackMode, setFeedbackMode] = useState<"legacy" | "evaluation_v1">("evaluation_v1");
 
   const { data: quota, refetch: refetchQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -32,6 +33,7 @@ export default function AIAutoFeedback() {
       }
     },
   });
+  const evaluateAndCorrectMutation = trpc.writingEvaluationEngine.evaluateAndCorrect.useMutation();
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
@@ -45,27 +47,59 @@ export default function AIAutoFeedback() {
 
     setLoading(true);
     try {
-      const result = await createFeedbackMutation.mutateAsync({
-        essayTitle: title,
-        essayContent: content,
-        courseType,
-        level: parseInt(level),
-      });
+      const result = feedbackMode === "evaluation_v1"
+        ? await evaluateAndCorrectMutation.mutateAsync({
+            metadata: {
+              curriculum_code: "FREE_WRITING",
+              theory_category: "free_writing",
+              education_level: courseType,
+              difficulty: parseInt(level),
+              writing_type: "ARGUMENTATIVE",
+            },
+            task: { prompt: title || "자유작문" },
+            submission: { learner_id: String(user?.id ?? "anonymous"), essay_text: content },
+          })
+        : await createFeedbackMutation.mutateAsync({
+            essayTitle: title,
+            essayContent: content,
+            courseType,
+            level: parseInt(level),
+          });
 
       // 피드백 데이터 파싱
       if (!result) return;
-      const feedbackData = {
-        feedbackId: (result as any).id,
-        revisedEssay: (result as any).revisedEssay || content,
-        structureScore: (result as any).structureScore || 0,
-        logicScore: (result as any).logicScore || 0,
-        expressionScore: (result as any).expressionScore || 0,
-        overallScore: (result as any).overallScore || 0,
-        strengths: (result as any).strengths ? JSON.parse((result as any).strengths) : [],
-        weaknesses: (result as any).weaknesses ? JSON.parse((result as any).weaknesses) : [],
-        suggestions: (result as any).suggestions ? JSON.parse((result as any).suggestions) : [],
-        overallComment: (result as any).overallComment || "",
-      };
+      const feedbackData = feedbackMode === "evaluation_v1"
+        ? (() => {
+            const evaluation = (result as any).evaluation;
+            const correction = (result as any).correction;
+            const scoreFor = (names: string[]) => {
+              const dimension = evaluation.dimension_scores?.find((item: any) => names.includes(item.dimension));
+              return dimension ? Math.round((dimension.score / dimension.max_score) * 100) : evaluation.total_score;
+            };
+            return {
+              revisedEssay: correction.revised_text || content,
+              structureScore: scoreFor(["구성·문단"]),
+              logicScore: scoreFor(["주장·논증", "연결·일관성"]),
+              expressionScore: scoreFor(["표현·언어규범"]),
+              overallScore: evaluation.total_score || 0,
+              strengths: evaluation.strengths || [],
+              weaknesses: evaluation.improvement_points || [],
+              suggestions: evaluation.feedback?.revision_steps || [],
+              overallComment: correction.learner_explanation || evaluation.feedback?.summary || "",
+            };
+          })()
+        : {
+            feedbackId: (result as any).id,
+            revisedEssay: (result as any).revisedEssay || content,
+            structureScore: (result as any).structureScore || 0,
+            logicScore: (result as any).logicScore || 0,
+            expressionScore: (result as any).expressionScore || 0,
+            overallScore: (result as any).overallScore || 0,
+            strengths: (result as any).strengths ? JSON.parse((result as any).strengths) : [],
+            weaknesses: (result as any).weaknesses ? JSON.parse((result as any).weaknesses) : [],
+            suggestions: (result as any).suggestions ? JSON.parse((result as any).suggestions) : [],
+            overallComment: (result as any).overallComment || "",
+          };
 
       setFeedback(feedbackData);
       toast.success("AI 첨삭이 완료되었습니다!");
@@ -148,6 +182,22 @@ export default function AIAutoFeedback() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Course Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    첨삭 모드
+                  </label>
+                  <Select value={feedbackMode} onValueChange={(value: "legacy" | "evaluation_v1") => setFeedbackMode(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="evaluation_v1">평가엔진 v1.0 · 평가 + 문장별 첨삭</SelectItem>
+                      <SelectItem value="legacy">기존 AI 첨삭 · 저장 및 비교</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {/* Course Type */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">

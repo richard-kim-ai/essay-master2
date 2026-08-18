@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://essay-master.local/schemas/writing-correction-v1.json",
+  "title": "Writing Correction Result v1",
+  "type": "object",
+  "required": [
+    "correction_version",
+    "learner_level",
+    "original_text",
+    "revised_text",
+    "sentence_corrections",
+    "learner_explanation",
+    "next_revision_task"
+  ],
+  "properties": {
+    "correction_version": { "const": "1.0.0" },
+    "learner_level": {
+      "enum": ["elementary", "middle_high", "high_univ", "general_adult"]
+    },
+    "original_text": { "type": "string" },
+    "revised_text": { "type": "string" },
+    "sentence_corrections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["original", "revised", "reason", "competency"],
+        "properties": {
+          "original": { "type": "string" },
+          "revised": { "type": "string" },
+          "reason": { "type": "string" },
+          "competency": { "type": "string" }
+        }
+      }
+    },
+    "learner_explanation": { "type": "string" },
+    "next_revision_task": { "type": "string" }
+  }
+}

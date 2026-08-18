@@ -171,6 +171,7 @@ AI 논술·글쓰기 평가엔진 v1.0은 Essay Master의 기존 `논술의 기�
 ```text
 server/writingEvaluationEngine.ts
 server/writingEvaluationSimulation.ts
+server/writingCorrectionEngine.ts
 docs/AI_논술_글쓰기_평가엔진_v1.0_기술.md
 docs/evaluation-master-prompt-v1.md
 generated/evaluation-engine/
@@ -181,10 +182,38 @@ generated/evaluation-engine/
 | API | 기능 |
 |---|---|
 | `writingEvaluationEngine.evaluate` | 단일 글 평가 |
+| `writingEvaluationEngine.evaluateAndCorrect` | 단일 글 평가와 사용자용 AI 첨삭문 생성 |
 | `writingEvaluationEngine.simulate` | 전달된 샘플 글 배열 시뮬레이션 |
 | `writingEvaluationEngine.simulateMyEssays` | 로그인한 사용자의 기존 글 데이터로 시뮬레이션 |
 
-## 9. 운영 규칙
+### 자유작문 사용자 흐름
+
+```text
+자유작문 입력
+→ 글 유형·학습 수준 확인
+→ 구조·문장 분석
+→ 평가 점수 산출
+→ 문장별 첨삭
+→ 개선문 제안
+→ 학생 수준별 설명
+→ 재작성 과제
+→ 재평가
+```
+
+`evaluateAndCorrect`의 첨삭 결과는 평가 점수를 대신하는 모범답안이 아니다. 원문의 의도와 학생의 목소리를 유지하면서 보완 이유를 설명하고, 학생이 직접 다시 써 볼 수 있게 하는 학습용 결과다.
+
+## 9. 유사 서비스 대비 포지셔닝
+
+| 항목 | 논술마스터(자사) | ai-nonsool.kr | nonsoolmate.com |
+|---|---|---|---|
+| 주 타깃 | 초등부터 일반인까지 자기주도 학습자 | 교사·기관 중심 | 대입 논술 수험생 |
+| 핵심 가치 | 커리큘럼, 평가, 자유작문 첨삭, 게이미피케이션의 결합 | AI 자동 채점과 교사 검토 | 전문 교사의 유료 첨삭 |
+| 피드백 방식 | 즉시 AI 평가·첨삭과 재작성·재평가 | AI 채점 중심 | 사람 첨삭 중심 |
+| 차별화 | 기존 학생 글 시뮬레이션, 성장 추적, 전 연령 루브릭 | 채점 워크플로우 | 대학별 기출과 사람의 깊은 코멘트 |
+
+자사의 직접 경쟁 포인트는 단순히 더 높은 점수를 제공하는 것이 아니라, `평가 → 첨삭 → 재작성 → 재평가 → 성장 기록`을 하나의 학습 루프로 제공하는 것이다. 기존 AI 첨삭 화면은 호환성을 유지하고, 신규 엔진의 `evaluateAndCorrect` API를 자유작문 전용 진입점으로 연결한다.
+
+## 10. 운영 규칙
 
 1. 평가엔진은 문제생성 Master Prompt를 수정하지 않는다.
 2. 기존 학생 글은 루브릭 자동 변경이 아니라 시뮬레이션 리포트 생성에만 사용한다.

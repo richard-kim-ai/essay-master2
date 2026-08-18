@@ -9,6 +9,7 @@ import { nanoid } from "nanoid";
 import { evaluateEssay } from "./aiFeedback";
 import { evaluateWriting } from "./writingEvaluationEngine";
 import { buildSimulationSamplesFromStudentData, simulateEvaluationLearning } from "./writingEvaluationSimulation";
+import { generateWritingCorrection } from "./writingCorrectionEngine";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -763,6 +764,14 @@ export const appRouter = router({
     evaluate: protectedProcedure
       .input(writingEvaluationInput)
       .mutation(({ input }) => evaluateWriting(input)),
+
+    evaluateAndCorrect: protectedProcedure
+      .input(writingEvaluationInput)
+      .mutation(async ({ input }) => {
+        const evaluation = evaluateWriting(input);
+        const correction = await generateWritingCorrection(input, evaluation);
+        return { evaluation, correction };
+      }),
 
     simulate: protectedProcedure
       .input(writingEvaluationSimulationInput)
