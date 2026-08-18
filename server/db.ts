@@ -56,6 +56,7 @@ import { invokeLLM, listLLMModels } from "./_core/llm";
 import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
 import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared/course";
 import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
+import { generateQuestionBankItems, qaQuestionItem, type AdaptiveStats, type GenerationRequestInput } from "./questionGeneration";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -3899,6 +3900,48 @@ export async function previewAiQuestionsForCategory(
   count: number = 3,
 ) {
   return await generateAiQuestionsForCategory(courseType, toolType, count);
+}
+
+export async function getQuestionGenerationAdaptiveStats(): Promise<AdaptiveStats[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [questions, answers] = await Promise.all([db.select().from(questionBank), db.select().from(quizAnswer)]);
+  const grouped = new Map<string, { attempts: number; correct: number }>();
+  for (const question of questions) {
+    const attempts = answers.filter((answer) => answer.quizId === question.id);
+    if (!attempts.length) continue;
+    const key = question.courseType;
+    const current = grouped.get(key) ?? { attempts: 0, correct: 0 };
+    current.attempts += attempts.length;
+    current.correct += attempts.filter((answer) => answer.isCorrect === 1).length;
+    grouped.set(key, current);
+  }
+  return Array.from(grouped.entries()).map(([courseType, value]) => ({ courseType, correctRate: Math.round((value.correct / value.attempts) * 100), totalAttempts: value.attempts }));
+}
+
+export async function previewGeneratedQuestionBankItems(input: GenerationRequestInput) {
+  const [existingItems, adaptiveStats] = await Promise.all([getQuestionBankList(), getQuestionGenerationAdaptiveStats()]);
+  return generateQuestionBankItems(input, { existingItems, adaptiveStats });
+}
+
+export async function assertQuestionBankItemQuality(
+  data: { id?: number; courseType: string; toolType: string; title: string; contentData: string; difficulty?: string; isActive?: number },
+  additionalExistingItems: Array<{ title: string; contentData: string }> = [],
+) {
+  const existingItems = (await getQuestionBankList()).filter((item) => item.id !== data.id);
+  const qa = qaQuestionItem({
+    courseType: data.courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
+    toolType: data.toolType as "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist",
+    title: data.title,
+    contentData: data.contentData,
+    difficulty: (data.difficulty ?? "medium") as "easy" | "medium" | "hard",
+    isActive: data.isActive ?? 1,
+  }, [
+    ...existingItems.map((item) => ({ title: item.title, contentData: item.contentData })),
+    ...additionalExistingItems,
+  ]);
+  if (!qa.passed) throw new Error(`문항 QA 검증에 실패했습니다: ${qa.issues.join(", ")}`);
+  return qa;
 }
 
 export async function gradeEssayWithAi(questionId: number, userAnswer: string) {

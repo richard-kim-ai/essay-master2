@@ -24,6 +24,21 @@ import { getCourseTag } from "@shared/course";
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
+const questionGenerationInput = z.object({
+  course: z.string().trim().min(1).optional(),
+  courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
+  tool_type: z.string().trim().min(1).optional(),
+  toolType: z.enum(["quiz", "reordering", "summary", "topic_wizard", "thesis_checklist"]).optional(),
+  theory_category: z.string().trim().min(1).default("AUTO"),
+  difficulty: z.union([z.literal("AUTO"), z.coerce.number().int().min(1).max(5)]).default("AUTO"),
+  question_count: z.coerce.number().int().min(1).max(20).optional(),
+  count: z.coerce.number().int().min(1).max(20).optional(),
+  topic: z.string().trim().min(1).default("AUTO"),
+}).superRefine((value, ctx) => {
+  if (!value.course && !value.courseType) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "생성할 과정이 필요합니다.", path: ["course"] });
+  if (!value.tool_type && !value.toolType) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "생성할 학습 도구가 필요합니다.", path: ["tool_type"] });
+});
+
 function requestOrigin(req: { protocol: string; headers: Record<string, unknown> }) {
   const forwardedProto = req.headers["x-forwarded-proto"];
   const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.toString().split(",")[0])?.trim() || req.protocol || "https";
@@ -1141,6 +1156,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        await db.assertQuestionBankItemQuality(input);
         return await db.createQuestionBankItem(input);
       }),
     update: protectedProcedure
@@ -1156,6 +1172,11 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         const { id, ...data } = input;
+        if (data.title !== undefined || data.contentData !== undefined || data.courseType !== undefined || data.toolType !== undefined || data.difficulty !== undefined) {
+          const existing = (await db.getQuestionBankList()).find((item) => item.id === id);
+          if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "수정할 문항을 찾을 수 없습니다." });
+          await db.assertQuestionBankItemQuality({ ...existing, ...data, id });
+        }
         return await db.updateQuestionBankItem(id, data);
       }),
     delete: protectedProcedure
@@ -1183,8 +1204,10 @@ export const appRouter = router({
         let updated = 0;
         let failed = 0;
         const failures: Array<{ id?: number; title: string; courseType: string; toolType: string; reason: string }> = [];
+        const acceptedItems: Array<{ title: string; contentData: string }> = [];
         for (const item of input.items) {
           try {
+            await db.assertQuestionBankItemQuality(item, acceptedItems);
             if (input.upsert) {
               const result = await db.upsertQuestionBankItem(item);
               if (result.action === "updated") updated += 1;
@@ -1193,6 +1216,7 @@ export const appRouter = router({
               await db.createQuestionBankItem(item);
               created += 1;
             }
+            acceptedItems.push({ title: item.title, contentData: item.contentData });
           } catch (error) {
             failed += 1;
             failures.push({
@@ -1356,24 +1380,16 @@ export const appRouter = router({
       return await db.getCurriculumDifficultyStats();
     }),
     generateAiQuestions: protectedProcedure
-      .input(z.object({
-        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
-        toolType: z.enum(["quiz", "reordering", "summary", "topic_wizard", "thesis_checklist"]),
-        count: z.number().int().min(1).max(5).default(3),
-      }))
+      .input(questionGenerationInput)
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.generateAiQuestionsForCategory(input.courseType, input.toolType, input.count);
+        return db.previewGeneratedQuestionBankItems({ course: input.course ?? input.courseType!, tool_type: input.tool_type ?? input.toolType!, theory_category: input.theory_category, difficulty: input.difficulty, question_count: input.question_count ?? input.count ?? 3, topic: input.topic });
       }),
     previewAiQuestions: protectedProcedure
-      .input(z.object({
-        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
-        toolType: z.enum(["quiz", "reordering", "summary", "topic_wizard", "thesis_checklist"]),
-        count: z.number().int().min(1).max(5).default(3),
-      }))
+      .input(questionGenerationInput)
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.previewAiQuestionsForCategory(input.courseType, input.toolType, input.count);
+        return db.previewGeneratedQuestionBankItems({ course: input.course ?? input.courseType!, tool_type: input.tool_type ?? input.toolType!, theory_category: input.theory_category, difficulty: input.difficulty, question_count: input.question_count ?? input.count ?? 3, topic: input.topic });
       }),
     promoteUser: protectedProcedure
       .input(z.object({ userId: z.number(), targetLevel: z.number() }))

@@ -26,8 +26,11 @@ export default function AdminQuestionBank() {
   const [backupCourse, setBackupCourse] = useState<"all" | QuestionBankCourse>("all");
 
   // AI Generator Form & Preview State
-  const [genCourse, setGenCourse] = useState<QuestionBankCourse>("elementary");
-  const [genTool, setGenTool] = useState<QuestionBankTool>("quiz");
+  const [genCourse, setGenCourse] = useState("MIDDLE_HIGH");
+  const [genTool, setGenTool] = useState("SUMMARY");
+  const [genTheory, setGenTheory] = useState("AUTO");
+  const [genDifficulty, setGenDifficulty] = useState<"AUTO" | "1" | "2" | "3" | "4" | "5">("AUTO");
+  const [genTopic, setGenTopic] = useState("AUTO");
   const [genCount, setGenCount] = useState(3);
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewItems, setPreviewItems] = useState<any[]>([]);
@@ -150,9 +153,12 @@ export default function AdminQuestionBank() {
     setIsGenerating(true);
     try {
       const items = await previewAiQuestionsMutation.mutateAsync({
-        courseType: genCourse,
-        toolType: genTool,
-        count: genCount,
+        course: genCourse,
+        tool_type: genTool,
+        theory_category: genTheory,
+        difficulty: genDifficulty === "AUTO" ? "AUTO" : Number(genDifficulty),
+        question_count: genCount,
+        topic: genTopic.trim() || "AUTO",
       });
       if (items && items.length > 0) {
         setPreviewItems(items);
@@ -171,8 +177,12 @@ export default function AdminQuestionBank() {
 
   const handleApprovePreview = async () => {
     try {
-      await bulkCreateMutation.mutateAsync({ items: previewItems });
-      toast.success(`${previewItems.length}개의 검토된 문항이 문제은행에 최종 승인 및 반영되었습니다.`);
+      const result = await bulkCreateMutation.mutateAsync({ items: previewItems });
+      if (result.failed > 0) {
+        toast.warning(`${result.created + result.updated}개를 반영했고 ${result.failed}개는 QA에서 차단되었습니다. 차단 사유를 확인해 수정하세요.`);
+        return;
+      }
+      toast.success(`${result.created + result.updated}개의 검토된 문항이 문제은행에 최종 승인 및 반영되었습니다.`);
       setIsPreviewOpen(false);
       setActiveTab("list");
       refetch();
@@ -180,6 +190,27 @@ export default function AdminQuestionBank() {
     } catch (err) {
       toast.error("문항 일괄 반영 중 오류가 발생했습니다.");
     }
+  };
+
+  const handleApprovePreviewItem = async (index: number) => {
+    const item = previewItems[index];
+    if (!item) return;
+    try {
+      await createMutation.mutateAsync(item);
+      setPreviewItems((items) => items.filter((_, itemIndex) => itemIndex !== index));
+      toast.success("문항 1개를 QA 검증 후 문제은행에 반영했습니다.");
+      refetch();
+      refetchStats();
+      if (previewItems.length === 1) setIsPreviewOpen(false);
+    } catch (error: any) {
+      toast.error(error?.message || "문항 QA 검증 또는 승인 저장에 실패했습니다.");
+    }
+  };
+
+  const updatePreviewItem = (index: number, patch: Record<string, unknown>) => {
+    setPreviewItems((items) => items.map((item, itemIndex) => itemIndex === index
+      ? { ...item, ...patch, qaStatus: "pending", qaIssues: ["수정 후 승인 시 서버 QA 재검증 필요"] }
+      : item));
   };
 
   const downloadQuestionsCsv = (items: any[] | undefined, scope: string, scopeLabel: string) => {
@@ -883,36 +914,36 @@ export default function AdminQuestionBank() {
                 <Sparkles className="w-5 h-5 text-indigo-600" /> AI 실전 논술 문항 사전 검토 및 승인 시스템
               </CardTitle>
               <CardDescription>
-                AI가 생성한 문항을 문제은행에 바로 반영하기 전, 미리보기 모달에서 내용과 JSON 구조를 직접 검토하고 수정할 수 있습니다.
+                마스터 프롬프트·구조화 JSON·중복·난이도 메트릭 QA를 통과한 문항만 미리보기로 표시합니다. 수정 문항은 승인 시 서버에서 다시 검증합니다.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 mb-2 block">교육 과정 선택</label>
                   <select
                     value={genCourse}
-                    onChange={e => setGenCourse(e.target.value as QuestionBankCourse)}
+                    onChange={e => setGenCourse(e.target.value)}
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
                   >
-                    <option value="elementary">초등 논술 과정</option>
-                    <option value="middle_high">중고등 논술 과정</option>
-                    <option value="high_univ">고등 / 대입 과정</option>
-                    <option value="general_adult">일반 / 직장인 과정</option>
+                    <option value="ELEMENTARY">초등 논술 과정</option>
+                    <option value="MIDDLE_HIGH">중고등 논술 과정</option>
+                    <option value="HIGH_ADMISSION">고등 / 대입 과정</option>
+                    <option value="GENERAL_WORK">일반 / 직장인 과정</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-700 mb-2 block">학습 도구 선택</label>
                   <select
                     value={genTool}
-                    onChange={e => setGenTool(e.target.value as QuestionBankTool)}
+                    onChange={e => setGenTool(e.target.value)}
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
                   >
-                    <option value="quiz">AI 문장 퀴즈 (quiz)</option>
-                    <option value="reordering">단락 재구성 (reordering)</option>
-                    <option value="summary">요약 연습 (summary)</option>
-                    <option value="topic_wizard">주제 설정 위저드 (topic_wizard)</option>
-                    <option value="thesis_checklist">주제문 체크리스트 (thesis_checklist)</option>
+                    <option value="QUIZ">AI 문장 퀴즈</option>
+                    <option value="PARAGRAPH_REORDERING">단락 재구성</option>
+                    <option value="SUMMARY">요약 연습</option>
+                    <option value="TOPIC_WIZARD">주제 설정 위저드</option>
+                    <option value="CHECKLIST">주제문 체크리스트</option>
                   </select>
                 </div>
                 <div>
@@ -923,10 +954,15 @@ export default function AdminQuestionBank() {
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium"
                   >
                     <option value={1}>1문항</option>
-                    <option value={3}>3문항 (추천)</option>
+                    <option value={3}>3문항</option>
                     <option value={5}>5문항</option>
+                    <option value={10}>10문항 (추천)</option>
+                    <option value={20}>20문항</option>
                   </select>
                 </div>
+                <div><label className="mb-2 block text-xs font-bold text-slate-700">이론 분류</label><select value={genTheory} onChange={e => setGenTheory(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium"><option value="AUTO">자동 배정</option><option value="A01">A01 경제성</option><option value="A03">A03 명료성</option><option value="A04">A04 정확성</option><option value="B05">B05 일관성·연속성</option><option value="C04">C04 주제문 창출</option><option value="D03">D03 참주제 설정</option><option value="E03">E03 주장·태도</option><option value="F01">F01 주장-근거 연결</option><option value="F04">F04 반론 처리</option></select></div>
+                <div><label className="mb-2 block text-xs font-bold text-slate-700">세부 난이도</label><select value={genDifficulty} onChange={e => setGenDifficulty(e.target.value as typeof genDifficulty)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium"><option value="AUTO">자동 조절 (정답률 기반)</option><option value="1">Level 1 · 인식</option><option value="2">Level 2 · 기본 적용</option><option value="3">Level 3 · 복합 적용</option><option value="4">Level 4 · 분석·추론</option><option value="5">Level 5 · 종합·실전</option></select></div>
+                <div className="md:col-span-2 xl:col-span-1"><label className="mb-2 block text-xs font-bold text-slate-700">소재 주제 <span className="font-normal text-slate-400">(선택)</span></label><Input value={genTopic === "AUTO" ? "" : genTopic} onChange={e => setGenTopic(e.target.value || "AUTO")} placeholder="자동 선택 또는 예: 학교 휴대전화 사용" className="h-[46px] bg-white" /></div>
               </div>
 
               <div className="pt-4 flex justify-end">
@@ -957,35 +993,19 @@ export default function AdminQuestionBank() {
 
             <div className="space-y-6 py-4">
               {previewItems.map((item, idx) => (
-                <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
-                      검토 문항 #{idx + 1}
-                    </span>
-                    <select
-                      value={item.difficulty}
-                      onChange={e => {
-                        const updated = [...previewItems];
-                        updated[idx].difficulty = e.target.value;
-                        setPreviewItems(updated);
-                      }}
-                      className="px-2.5 py-1 bg-white border border-slate-200 rounded text-xs font-semibold"
-                    >
-                      <option value="easy">초급 (easy)</option>
-                      <option value="medium">중급 (medium)</option>
-                      <option value="hard">고급 (hard)</option>
-                    </select>
+                  <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
+                        검토 문항 #{idx + 1}
+                      </span>
+                    <div className="flex items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.qaStatus === "passed" ? "bg-emerald-100 text-emerald-700" : item.qaStatus === "blocked" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"}`}>{item.qaStatus === "passed" ? "QA 통과" : item.qaStatus === "blocked" ? "QA 차단" : "재검증 필요"}</span><select value={item.difficulty} onChange={e => updatePreviewItem(idx, { difficulty: e.target.value })} className="px-2.5 py-1 bg-white border border-slate-200 rounded text-xs font-semibold"><option value="easy">초급 (easy)</option><option value="medium">중급 (medium)</option><option value="hard">고급 (hard)</option></select></div>
                   </div>
 
                   <div>
                     <label className="text-xs font-bold text-slate-700 mb-1 block">문항 제목</label>
                     <Input
                       value={item.title}
-                      onChange={e => {
-                        const updated = [...previewItems];
-                        updated[idx].title = e.target.value;
-                        setPreviewItems(updated);
-                      }}
+                      onChange={e => updatePreviewItem(idx, { title: e.target.value })}
                       className="text-sm bg-white font-bold"
                     />
                   </div>
@@ -995,14 +1015,11 @@ export default function AdminQuestionBank() {
                     <Textarea
                       rows={4}
                       value={item.contentData}
-                      onChange={e => {
-                        const updated = [...previewItems];
-                        updated[idx].contentData = e.target.value;
-                        setPreviewItems(updated);
-                      }}
+                      onChange={e => updatePreviewItem(idx, { contentData: e.target.value })}
                       className="font-mono text-xs bg-white"
                     />
                   </div>
+                  <div className="flex flex-col gap-2 border-t border-slate-200 pt-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-500">{item.qaIssues?.length ? `QA: ${item.qaIssues.join(", ")}` : `중복 유사도 ${Math.round((item.duplicateScore || 0) * 100)}% · 난이도 메트릭 검증 완료`}</p><Button size="sm" variant="outline" onClick={() => handleApprovePreviewItem(idx)} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50">이 문항만 승인</Button></div>
                 </div>
               ))}
             </div>
