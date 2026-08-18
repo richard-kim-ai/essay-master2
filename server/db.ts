@@ -47,6 +47,7 @@ import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
 import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared/course";
+import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -1944,6 +1945,46 @@ export async function getRandomQuestions(courseType: string, toolType: string, l
   // 무작위 셔플 후 limit 개수만큼 반환
   const shuffled = [...activeList].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, limit);
+}
+
+export async function ensureReorderingQuestionBankV2() {
+  const db = await getDb();
+  if (!db) return { inserted: 0, updated: 0, deactivated: 0 };
+
+  const allReordering = await db.select().from(questionBank).where(eq(questionBank.toolType, "reordering"));
+  let inserted = 0;
+  let updated = 0;
+  let deactivated = 0;
+
+  for (const legacy of allReordering.filter((item) => item.isActive === 1 && (item.contentData.includes("현대 사회에서 이 문제는 더 이상 미룰 수 없는") || item.contentData.includes("이 문장은 글 전체의 중심생각 역할을 한다.")))) {
+    await db.update(questionBank).set({ isActive: 0, updatedAt: new Date() }).where(eq(questionBank.id, legacy.id));
+    deactivated++;
+  }
+
+  for (const [courseType, seeds] of Object.entries(COURSE_REORDERING_QUESTIONS) as [CourseType, typeof COURSE_REORDERING_QUESTIONS[CourseType]][]) {
+    for (const seed of seeds) {
+      const title = `[${getCourseTag(courseType)}] 단락 재구성 v2 - ${seed.title}`;
+      const contentData = toReorderingContent(seed);
+      const existing = allReordering.find((item) => item.courseType === courseType && item.title === title);
+      if (existing) {
+        if (existing.contentData !== contentData || existing.difficulty !== seed.difficulty || existing.isActive !== 1) {
+          await db.update(questionBank).set({ contentData, difficulty: seed.difficulty, isActive: 1, updatedAt: new Date() }).where(eq(questionBank.id, existing.id));
+          updated++;
+        }
+      } else {
+        await db.insert(questionBank).values({ courseType, toolType: "reordering", title, contentData, difficulty: seed.difficulty, isActive: 1 });
+        inserted++;
+      }
+    }
+  }
+  return { inserted, updated, deactivated };
+}
+
+export async function getReorderingPracticeSet(courseType: CourseType, limit: number = 10) {
+  await ensureReorderingQuestionBankV2();
+  const list = await getQuestionBankList(courseType, "reordering");
+  const v2Items = list.filter((item) => item.isActive === 1 && item.contentData.includes('"reorderingVersion":"v2"'));
+  return [...v2Items].sort(() => Math.random() - 0.5).slice(0, Math.min(limit, v2Items.length));
 }
 
 export async function createQuestionBankItem(data: {

@@ -1024,6 +1024,11 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return await db.getRandomQuestions(input.courseType, input.toolType, input.limit);
       }),
+    reorderingPractice: protectedProcedure
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), limit: z.number().int().min(1).max(10).default(10) }))
+      .query(async ({ input }) => {
+        return await db.getReorderingPracticeSet(input.courseType, input.limit);
+      }),
     create: protectedProcedure
       .input(z.object({
         courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
