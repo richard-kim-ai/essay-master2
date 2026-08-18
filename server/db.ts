@@ -39,6 +39,8 @@ import {
   teacherAiDrafts,
   teacherAiDraftRevisions,
   teacherPermissionGrants,
+  learningGroups,
+  learningGroupMembers,
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
@@ -695,6 +697,8 @@ export async function createEmailUser(input: {
   teacherLevel?: number;
   teacherStatus?: "pending" | "approved" | "rejected";
   tag?: string;
+  teacherId?: number | null;
+  preferredTeacherId?: number | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
@@ -712,6 +716,8 @@ export async function createEmailUser(input: {
     role,
     teacherLevel: input.teacherLevel ?? 1,
     teacherStatus,
+    teacherId: input.teacherId ?? null,
+    preferredTeacherId: input.preferredTeacherId ?? null,
     tag: input.tag ?? "일반",
     lastSignedIn: new Date(),
   });
@@ -815,6 +821,7 @@ export async function getAllUsersStats() {
       teacherLevel: u.teacherLevel,
       teacherStatus: u.teacherStatus,
       teacherId: u.teacherId,
+      preferredTeacherId: u.preferredTeacherId,
       tag: u.tag,
       loginMethod: u.loginMethod,
       createdAt: u.createdAt,
@@ -1755,6 +1762,141 @@ export async function updateUserRole(userId: number, newRole: "user" | "teacher"
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await db.update(users).set({ role: newRole }).where(eq(users.id, userId));
+  return true;
+}
+
+export async function getApprovedTeachersForRecommendation(courseType?: CourseType) {
+  const db = await getDb();
+  if (!db) return [];
+  const teachers = await db.select().from(users).where(and(eq(users.role, "teacher"), eq(users.teacherStatus, "approved")));
+  return teachers
+    .map((teacher) => ({
+      id: teacher.id,
+      name: teacher.name || "이름 미설정 교사",
+      email: teacher.email,
+      teacherLevel: teacher.teacherLevel ?? 1,
+      courseMatch: courseType ? getCourseTypeFromUserTag(teacher.tag) === courseType : false,
+    }))
+    .sort((a, b) => Number(b.courseMatch) - Number(a.courseMatch) || b.teacherLevel - a.teacherLevel);
+}
+
+export async function changeLearnerTeacherRole(userId: number, newRole: "user" | "teacher") {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [target] = await db.select().from(users).where(eq(users.id, userId));
+  if (!target) throw new Error("사용자를 찾을 수 없습니다.");
+  if (target.role === "admin") throw new Error("관리자 계정은 역할 전환 대상이 아닙니다.");
+  await db.update(users).set({
+    role: newRole,
+    teacherStatus: "approved",
+    teacherLevel: target.teacherLevel ?? 1,
+    ...(newRole === "user" ? { teacherId: null } : {}),
+    updatedAt: new Date(),
+  }).where(eq(users.id, userId));
+  return true;
+}
+
+export async function adjustManagedUserLevel(userId: number, targetLevel: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [target] = await db.select().from(users).where(eq(users.id, userId));
+  if (!target) throw new Error("사용자를 찾을 수 없습니다.");
+  if (target.role === "admin") throw new Error("관리자 계정의 학습·교사 레벨은 조정할 수 없습니다.");
+  await db.update(users).set({ teacherLevel: targetLevel, updatedAt: new Date() }).where(eq(users.id, userId));
+  return { success: true, newLevel: targetLevel };
+}
+
+export async function createManagedAdminAccount(input: { openId: string; name: string; email: string; passwordHash: string }) {
+  const existing = await getUserByEmail(input.email);
+  if (existing) throw new Error("이미 사용 중인 이메일입니다.");
+  return createEmailUser({
+    openId: input.openId,
+    name: input.name,
+    email: input.email,
+    passwordHash: input.passwordHash,
+    loginMethod: "email",
+    emailVerifiedAt: new Date(),
+    role: "admin",
+    teacherLevel: 1,
+    teacherStatus: "approved",
+    tag: "관리자",
+  });
+}
+
+export async function getLearningGroupsWithMembers() {
+  const db = await getDb();
+  if (!db) return [];
+  const [groups, members, allUsers] = await Promise.all([
+    db.select().from(learningGroups).orderBy(desc(learningGroups.updatedAt)),
+    db.select().from(learningGroupMembers),
+    db.select().from(users),
+  ]);
+  const usersById = new Map(allUsers.map((user) => [user.id, user]));
+  return groups.map((group) => {
+    const groupMembers = members.filter((member) => member.groupId === group.id);
+    const teacher = group.teacherId ? usersById.get(group.teacherId) : null;
+    return {
+      ...group,
+      teacherName: teacher?.name || null,
+      teacherEmail: teacher?.email || null,
+      members: groupMembers.map((member) => {
+        const student = usersById.get(member.studentId);
+        return { ...member, studentName: student?.name || `학생 #${member.studentId}`, studentEmail: student?.email || null, courseLabel: student ? getCourseTag(getCourseTypeFromUserTag(student.tag)) : null };
+      }),
+    };
+  });
+}
+
+export async function saveLearningGroup(input: { groupId?: number; name: string; groupType: "class" | "group"; courseType?: CourseType | null; description?: string | null; teacherId?: number | null; isActive: number; createdBy: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  if (input.teacherId) {
+    const [teacher] = await db.select().from(users).where(eq(users.id, input.teacherId));
+    if (!teacher || teacher.role !== "teacher" || teacher.teacherStatus !== "approved") throw new Error("승인된 첨삭교사만 반·그룹 담당자로 지정할 수 있습니다.");
+  }
+  const values = { name: input.name, groupType: input.groupType, courseType: input.courseType ?? null, description: input.description ?? null, teacherId: input.teacherId ?? null, isActive: input.isActive, createdBy: input.createdBy, updatedAt: new Date() };
+  if (input.groupId) {
+    await db.update(learningGroups).set(values).where(eq(learningGroups.id, input.groupId));
+    const [updated] = await db.select().from(learningGroups).where(eq(learningGroups.id, input.groupId));
+    return updated;
+  }
+  const [inserted] = await db.insert(learningGroups).values(values);
+  const [created] = await db.select().from(learningGroups).where(eq(learningGroups.id, Number(inserted.insertId)));
+  return created;
+}
+
+export async function addLearningGroupMember(groupId: number, studentId: number, addedBy: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [[group], [student], existing] = await Promise.all([
+    db.select().from(learningGroups).where(eq(learningGroups.id, groupId)),
+    db.select().from(users).where(eq(users.id, studentId)),
+    db.select().from(learningGroupMembers).where(and(eq(learningGroupMembers.groupId, groupId), eq(learningGroupMembers.studentId, studentId))),
+  ]);
+  if (!group) throw new Error("반·그룹을 찾을 수 없습니다.");
+  if (!student || student.role !== "user") throw new Error("학습자만 반·그룹에 편성할 수 있습니다.");
+  if (existing) return existing;
+  const [inserted] = await db.insert(learningGroupMembers).values({ groupId, studentId, addedBy });
+  if (group.teacherId) await db.update(users).set({ teacherId: group.teacherId, updatedAt: new Date() }).where(eq(users.id, studentId));
+  const [member] = await db.select().from(learningGroupMembers).where(eq(learningGroupMembers.id, Number(inserted.insertId)));
+  return member;
+}
+
+export async function removeLearningGroupMember(groupId: number, studentId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.delete(learningGroupMembers).where(and(eq(learningGroupMembers.groupId, groupId), eq(learningGroupMembers.studentId, studentId)));
+  return true;
+}
+
+export async function assignStudentTeacher(studentId: number, teacherId: number | null) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  if (teacherId) {
+    const [teacher] = await db.select().from(users).where(eq(users.id, teacherId));
+    if (!teacher || teacher.role !== "teacher" || teacher.teacherStatus !== "approved") throw new Error("승인된 첨삭교사만 담당자로 지정할 수 있습니다.");
+  }
+  await db.update(users).set({ teacherId, updatedAt: new Date() }).where(eq(users.id, studentId));
   return true;
 }
 

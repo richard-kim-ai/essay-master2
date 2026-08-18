@@ -107,6 +107,17 @@ describe("appRouter", () => {
       const caller = appRouter.createCaller(createMockContext());
       await expect(caller.admin.getTeacherPermissionGrants()).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
+
+    it("일반 사용자의 별도 관리자 계정 생성과 반·그룹 조회를 차단한다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.admin.createAdminAccount({ name: "운영 관리자", email: "admin@example.com", password: "temporary-pass-123" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.admin.getLearningGroups()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("기존 계정을 관리자 역할로 변경하는 입력을 허용하지 않는다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: { ...createMockContext().user!, role: "admin" } as any }));
+      await expect(caller.admin.updateUserRole({ userId: 2, newRole: "admin" as any })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
   });
 
   describe("quiz", () => {

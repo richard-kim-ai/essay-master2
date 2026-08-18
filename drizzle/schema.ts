@@ -27,6 +27,7 @@ export const users = mysqlTable("users", {
   teacherLevel: int("teacherLevel").default(1), // 1: 주니어 첨삭교사, 2: 시니어 첨삭교사, 3: 수석 교사(커리큘럼/반 관리)
   teacherStatus: mysqlEnum("teacherStatus", ["pending", "approved", "rejected"]).default("approved").notNull(), // 교사 가입 승인 상태
   teacherId: int("teacherId"), // 학생이 배정된 담당 교사 ID
+  preferredTeacherId: int("preferredTeacherId"), // 학생 가입 시 선택한 추천 교사 ID (관리자 배정 전 희망값)
   adminNotes: text("adminNotes"),
   tag: varchar("tag", { length: 64 }).default("일반").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -69,6 +70,31 @@ export const parentStudentLinks = mysqlTable("parent_student_links", {
 
 export type ParentStudentLink = typeof parentStudentLinks.$inferSelect;
 export type InsertParentStudentLink = typeof parentStudentLinks.$inferInsert;
+
+// 학습자는 학급 또는 주제별 그룹에 소속될 수 있으며, 그룹마다 승인 교사를 한 명 지정합니다.
+export const learningGroups = mysqlTable("learning_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  groupType: mysqlEnum("groupType", ["class", "group"]).default("class").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]),
+  description: text("description"),
+  teacherId: int("teacherId"),
+  isActive: int("isActive").default(1).notNull(),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const learningGroupMembers = mysqlTable("learning_group_members", {
+  id: int("id").autoincrement().primaryKey(),
+  groupId: int("groupId").notNull(),
+  studentId: int("studentId").notNull(),
+  addedBy: int("addedBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type LearningGroup = typeof learningGroups.$inferSelect;
+export type LearningGroupMember = typeof learningGroupMembers.$inferSelect;
 
 // 관리자가 교사에게 부여하는 진도·수료증 권한입니다. 조직 전체 또는 특정 학생으로 범위를 제한합니다.
 export const teacherPermissionGrants = mysqlTable("teacher_permission_grants", {

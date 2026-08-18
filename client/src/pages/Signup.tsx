@@ -14,8 +14,10 @@ export default function Signup() {
   const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "" });
   const [accountType, setAccountType] = useState<"student" | "parent">("student");
   const [courseType, setCourseType] = useState<CourseType>("elementary");
+  const [preferredTeacherId, setPreferredTeacherId] = useState("");
   const [consents, setConsents] = useState<PolicyConsentValue[]>([]);
   const socialProviders = trpc.social.providers.useQuery();
+  const recommendedTeachers = trpc.auth.recommendedTeachers.useQuery({ courseType }, { enabled: accountType === "student" });
   const signupMutation = trpc.auth.signup.useMutation({
     onSuccess: () => {
       toast.success("인증 메일을 보냈습니다.");
@@ -35,7 +37,7 @@ export default function Signup() {
     if (formData.password.length < 8) return toast.error("비밀번호는 8자 이상이어야 합니다.");
     if (formData.password !== formData.confirmPassword) return toast.error("비밀번호가 일치하지 않습니다.");
     if (consents.length === 0) return toast.error("필수 문서를 확인하고 동의해주세요.");
-    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password, accountType, courseType: accountType === "student" ? courseType : undefined, consents });
+    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password, accountType, courseType: accountType === "student" ? courseType : undefined, preferredTeacherId: accountType === "student" && preferredTeacherId ? Number(preferredTeacherId) : undefined, consents });
   };
 
   return (
@@ -61,7 +63,7 @@ export default function Signup() {
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-emerald-800">학부모 계정은 연결된 학생의 학습 상황 확인과 코멘트 기능에 사용됩니다.</p>
             </div>
-            {accountType === "student" && <label className="block text-sm font-medium text-slate-700">학습 과정<select value={courseType} onChange={(event) => setCourseType(event.target.value as CourseType)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">로그인 후 선택한 과정의 커리큘럼과 레슨을 기본으로 안내합니다.</span></label>}
+            {accountType === "student" && <><label className="block text-sm font-medium text-slate-700">학습 과정<select value={courseType} onChange={(event) => { setCourseType(event.target.value as CourseType); setPreferredTeacherId(""); }} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">로그인 후 선택한 과정의 커리큘럼과 레슨을 기본으로 안내합니다.</span></label><label className="block text-sm font-medium text-slate-700">추천 교사 선택 <span className="font-normal text-slate-400">(선택)</span><select value={preferredTeacherId} onChange={(event) => setPreferredTeacherId(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2" disabled={recommendedTeachers.isLoading}><option value="">추천 교사를 선택하지 않음</option>{recommendedTeachers.data?.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name} · Level {teacher.teacherLevel}{teacher.courseMatch ? " · 선택 과정 추천" : ""}</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">희망 교사를 저장하며, 최종 담당 교사 배정은 관리자 편성 단계에서 확정됩니다.</span></label></>}
             <label className="block text-sm font-medium text-slate-700">이름<span className="relative mt-2 block"><User className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input name="name" value={formData.name} onChange={handleChange} placeholder="홍길동" className="pl-10" disabled={signupMutation.isPending} /></span></label>
             <label className="block text-sm font-medium text-slate-700">이메일<span className="relative mt-2 block"><Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="your@email.com" className="pl-10" disabled={signupMutation.isPending} /></span></label>
             <label className="block text-sm font-medium text-slate-700">비밀번호<span className="relative mt-2 block"><Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="password" name="password" value={formData.password} onChange={handleChange} placeholder="8자 이상" className="pl-10" disabled={signupMutation.isPending} /></span></label>
