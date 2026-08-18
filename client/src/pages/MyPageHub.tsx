@@ -58,10 +58,10 @@ export default function MyPageHub() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-7xl mx-auto space-y-5 p-4 md:p-6 lg:p-8">
+      <div className="mx-auto max-w-7xl space-y-4 p-3 sm:space-y-5 sm:p-5 lg:p-7">
         {/* Top Header Profile Banner */}
         <div
-          className="flex flex-col gap-4 rounded-2xl p-5 text-white shadow-lg md:flex-row md:items-center md:justify-between md:p-6"
+          className="flex flex-col gap-4 rounded-2xl p-4 text-white shadow-lg sm:p-5 md:flex-row md:items-center md:justify-between md:p-6"
           style={{ background: "linear-gradient(115deg, #312e81 0%, #1e3a8a 100%)", color: "#ffffff" }}
         >
           <div className="flex min-w-0 items-center gap-4">
@@ -82,8 +82,8 @@ export default function MyPageHub() {
               <h1 className="mt-1 truncate text-xl font-extrabold tracking-tight md:text-2xl">
                 {user?.name || "사용자"}님의 마이페이지
               </h1>
-              <p className="mt-0.5 truncate text-xs text-indigo-100 md:text-sm">
-                {user?.email} · 주간 학습 목표 및 핵심 학습 공간을 한눈에 관리하세요.
+              <p className="mt-0.5 text-xs leading-5 text-indigo-100 md:text-sm">
+                <span className="hidden md:inline">{user?.email} · </span>주간 목표와 핵심 학습 공간을 관리하세요.
               </p>
             </div>
           </div>
@@ -128,15 +128,15 @@ export default function MyPageHub() {
         {isSampleUser && <Card className="border-indigo-100 bg-indigo-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">샘플 학습 과정 설정</p><p className="mt-1 text-sm text-indigo-700">희망 과정을 고르면 해당 커리큘럼·뱃지·수료증 예시로 체험할 수 있습니다.</p></div><div className="flex gap-2"><select aria-label="샘플 학습 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as typeof sampleCourse; setSampleCourse(course); localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select><Button onClick={() => setLocation("/curriculum")} className="bg-indigo-600 text-white hover:bg-indigo-700">학습 시작</Button></div></CardContent></Card>}
 
         {/* Weekly Study Summary Mini Cards */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Card className="flex items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
               <Clock className="w-6 h-6" />
             </div>
             <div className="flex-1">
               <p className="text-xs text-slate-500 font-medium">이번 주 총 학습 시간</p>
               <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-xl font-extrabold text-slate-900">
+                <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
                   {weeklySummary?.studyTimeString || "3시간 45분"}
                 </p>
                 <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
@@ -145,14 +145,14 @@ export default function MyPageHub() {
               </div>
             </div>
           </Card>
-          <Card className="flex items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
+          <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
               <CheckCircle className="w-6 h-6" />
             </div>
             <div className="flex-1">
               <p className="text-xs text-slate-500 font-medium">워크북 기출 정답률</p>
               <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-xl font-extrabold text-slate-900">
+                <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
                   {weeklySummary?.accuracyRate ?? 85}%
                 </p>
                 <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
@@ -161,14 +161,14 @@ export default function MyPageHub() {
               </div>
             </div>
           </Card>
-          <Card className="flex items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
+          <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
               <Trophy className="w-6 h-6" />
             </div>
             <div className="flex-1">
               <p className="text-xs text-slate-500 font-medium">해낸 모듈 / 뱃지</p>
               <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-xl font-extrabold text-slate-900">
+                <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
                   {weeklySummary?.completedModules || 0}개 완료 / {visibleBadges.length}개 뱃지
                 </p>
                 <span className="text-[11px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
@@ -226,7 +226,7 @@ export default function MyPageHub() {
         </Card>
 
         {/* 3 Main Hub Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Card 1: Learning Dashboard */}
           <Card className="border-slate-200 shadow-sm hover:shadow-md transition-all">
             <CardHeader className="flex flex-row items-center justify-between pb-2 bg-slate-50/50 rounded-t-xl">
