@@ -57,6 +57,14 @@ describe("appRouter", () => {
 
       expect(Array.isArray(result)).toBe(true);
     });
+
+    it("이론 콘텐츠는 문제은행과 분리된 과정·레벨 기준 목록으로 조회한다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      const result = await caller.curriculum.getTheoryContent({ courseType: "middle_high", lessonLevel: 2 });
+      expect(result.length).toBeGreaterThan(0);
+      expect(result.every((item) => item.courseType === "middle_high" && item.lessonLevel === 2)).toBe(true);
+      expect(result.every((item) => "contentData" in item && !("toolType" in item))).toBe(true);
+    });
   });
 
   describe("difficulty operation preset", () => {
