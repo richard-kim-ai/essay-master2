@@ -29,6 +29,7 @@ import {
   curriculumWorkbookQuestions,
   curriculumWorkbookAnswers,
   workbookMistakes,
+  learningToolMistakes,
   workbookTeacherFeedback,
   appNotifications,
   policyDocuments,
@@ -57,6 +58,7 @@ import { invokeLLM, listLLMModels } from "./_core/llm";
 import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
 import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared/course";
 import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
+import { buildCourseQuizContent, buildCourseSummaryContent, isLegacyRepeatedLearningContent } from "./learningToolContent";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -2584,10 +2586,171 @@ export async function getQuestionBankList(courseType?: string, toolType?: string
 
 export async function getRandomQuestions(courseType: string, toolType: string, limit: number = 10) {
   const list = await getQuestionBankList(courseType, toolType);
-  const activeList = list.filter(q => q.isActive === 1);
+  const activeList = list.filter(q => q.isActive === 1 && !isLegacyRepeatedLearningContent(q.contentData));
   // 무작위 셔플 후 limit 개수만큼 반환
   const shuffled = [...activeList].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, limit);
+}
+
+export async function replaceLegacyLearningToolContent() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const questions = await db.select().from(questionBank);
+  let quizUpdated = 0;
+  let summaryUpdated = 0;
+
+  for (const question of questions) {
+    if (!isLegacyRepeatedLearningContent(question.contentData)) continue;
+    if (question.toolType !== "quiz" && question.toolType !== "summary") continue;
+    const courseType = question.courseType as CourseType;
+    const contentData = question.toolType === "quiz"
+      ? buildCourseQuizContent(courseType, question.title)
+      : buildCourseSummaryContent(courseType, question.title);
+    await db.update(questionBank)
+      .set({ contentData: JSON.stringify(contentData), updatedAt: new Date() })
+      .where(eq(questionBank.id, question.id));
+    if (question.toolType === "quiz") quizUpdated += 1;
+    else summaryUpdated += 1;
+  }
+
+  return { quizUpdated, summaryUpdated };
+}
+
+const THESIS_CRITERIA = ["clear", "arguable", "specific", "supportable", "relevant", "original", "balanced", "grammatical"] as const;
+type ThesisCriterionId = (typeof THESIS_CRITERIA)[number];
+type ThesisCriterionStatus = "pass" | "warn" | "fail";
+
+function fallbackThesisAnalysis(thesis: string) {
+  const hasClaimMarker = /(해야|필요하다|바람직하다|문제다|중요하다|줄여야|늘려야|금지|허용|강화|완화)/.test(thesis);
+  const isLongEnough = thesis.trim().length >= 25;
+  const statusFor = (id: ThesisCriterionId): ThesisCriterionStatus => {
+    if (id === "arguable" || id === "supportable") return hasClaimMarker ? "warn" : "fail";
+    return isLongEnough ? "warn" : "fail";
+  };
+  const items = THESIS_CRITERIA.map((id) => ({
+    id,
+    status: statusFor(id),
+    rationale: "AI 분석 응답을 준비하지 못해 문장 길이와 주장 표현을 기준으로 임시 점검했습니다.",
+    suggestion: "대상·주장·판단 기준을 한 문장에 더 구체적으로 넣어 다시 분석해 보세요.",
+  }));
+  const passWeight = items.reduce((total, item) => total + (item.status === "pass" ? 12.5 : item.status === "warn" ? 7 : 0), 0);
+  return {
+    score: Math.round(passWeight),
+    summary: "연결 상태 때문에 임시 점검 결과를 표시했습니다. 분석을 다시 실행하면 항목별 AI 피드백을 받을 수 있습니다.",
+    items,
+    recommendedThesis: "[대상]은/는 [구체적 문제]를 줄이기 위해 [판단 기준]에 따라 [실행 방안]을 마련해야 한다.",
+    source: "fallback" as const,
+  };
+}
+
+export async function generateTopicWizardGuide(input: {
+  step: 1 | 2 | 3 | 4;
+  courseType: CourseType;
+  category?: string;
+  topic?: string;
+  mainIdea?: string;
+  outline?: string;
+}) {
+  const stepNames = { 1: "카테고리 선택", 2: "주제 구체화", 3: "주제문 작성", 4: "개요 구성" } as const;
+  const response = await invokeLLM({
+    model: "gpt-5-mini",
+    messages: [
+      {
+        role: "system",
+        content: "당신은 한국어 논술 교사입니다. 학생이 스스로 쓰도록 돕는 짧고 구체적인 단계별 가이드를 제공하세요. 답을 그대로 강요하지 말고, 과정 수준에 맞는 한 가지 예시와 세 가지 점검 포인트를 제시하세요.",
+      },
+      {
+        role: "user",
+        content: `과정: ${getCourseTag(input.courseType)}\n현재 단계: ${stepNames[input.step]}\n카테고리: ${input.category || "미선택"}\n주제: ${input.topic || "미입력"}\n주제문: ${input.mainIdea || "미입력"}\n개요: ${input.outline || "미입력"}\n이 단계에서 학생이 다음 행동을 취할 수 있도록 안내해 주세요.`,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "topic_wizard_guide",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            headline: { type: "string" },
+            guidance: { type: "string" },
+            example: { type: "string" },
+            tips: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 3 },
+          },
+          required: ["headline", "guidance", "example", "tips"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+  const content = response.choices[0]?.message?.content;
+  if (typeof content !== "string") throw new Error("AI 가이드를 생성하지 못했습니다.");
+  return JSON.parse(content) as { headline: string; guidance: string; example: string; tips: string[] };
+}
+
+export async function analyzeThesisStatement(input: { thesis: string; courseType: CourseType; topic?: string }) {
+  try {
+    const response = await invokeLLM({
+      model: "gpt-5-mini",
+      messages: [
+        {
+          role: "system",
+          content: "당신은 한국어 논술 교사입니다. 아래 주제문을 교육적으로 평가하세요. 각 기준은 pass, warn, fail 중 하나로 판정합니다. 주제 정보가 없으면 관련성은 문장 자체의 주제 일관성만 평가하고 감점하지 마세요. 독창성은 사실 여부가 아니라 개인의 판단·관점의 구체성을 봅니다. 근거 없는 긍정 평가는 하지 말고, 문장 속 표현을 근거로 간결하게 조언하세요.",
+        },
+        {
+          role: "user",
+          content: `과정: ${getCourseTag(input.courseType)}\n연결된 주제: ${input.topic || "제시되지 않음"}\n평가할 주제문: ${input.thesis}`,
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "thesis_analysis",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              score: { type: "integer", minimum: 0, maximum: 100 },
+              summary: { type: "string" },
+              items: {
+                type: "array",
+                minItems: 8,
+                maxItems: 8,
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", enum: [...THESIS_CRITERIA] },
+                    status: { type: "string", enum: ["pass", "warn", "fail"] },
+                    rationale: { type: "string" },
+                    suggestion: { type: "string" },
+                  },
+                  required: ["id", "status", "rationale", "suggestion"],
+                  additionalProperties: false,
+                },
+              },
+              recommendedThesis: { type: "string" },
+            },
+            required: ["score", "summary", "items", "recommendedThesis"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+    const content = response.choices[0]?.message?.content;
+    if (typeof content !== "string") return fallbackThesisAnalysis(input.thesis);
+    const parsed = JSON.parse(content) as Omit<ReturnType<typeof fallbackThesisAnalysis>, "source">;
+    const byId = new Map(parsed.items.map((item) => [item.id, item]));
+    const items = THESIS_CRITERIA.map((id) => byId.get(id) ?? {
+      id,
+      status: "warn" as const,
+      rationale: "이 항목은 충분히 판정되지 않았습니다.",
+      suggestion: "관련 표현을 보완한 뒤 다시 분석해 보세요.",
+    });
+    return { ...parsed, items, score: Math.max(0, Math.min(100, Math.round(parsed.score))), source: "ai" as const };
+  } catch (error) {
+    console.warn("[Thesis analysis] Falling back to deterministic review", error);
+    return fallbackThesisAnalysis(input.thesis);
+  }
 }
 
 export async function ensureReorderingQuestionBankV2() {
@@ -3583,10 +3746,48 @@ export async function submitCurriculumWorkbookAnswer(userId: number, questionId:
   return { isCorrect, score, aiFeedback, evaluation };
 }
 
+export async function recordLearningToolMistake(input: {
+  userId: number;
+  questionBankId: number;
+  courseType: CourseType;
+  toolType: "quiz" | "reordering" | "summary";
+  userAnswer: string;
+  score: number;
+  aiFeedback: string;
+}) {
+  if (input.score >= 100) return { stored: false };
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.insert(learningToolMistakes).values({
+    userId: input.userId,
+    questionBankId: input.questionBankId,
+    courseType: input.courseType,
+    toolType: input.toolType,
+    userAnswer: input.userAnswer,
+    score: Math.max(0, Math.min(100, Math.round(input.score))),
+    aiFeedback: input.aiFeedback,
+  });
+  return { stored: true };
+}
+
 export async function getWorkbookMistakesByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(workbookMistakes).where(eq(workbookMistakes.userId, userId)).orderBy(desc(workbookMistakes.createdAt));
+  const [workbookRows, toolRows, questionRows] = await Promise.all([
+    db.select().from(workbookMistakes).where(eq(workbookMistakes.userId, userId)),
+    db.select().from(learningToolMistakes).where(eq(learningToolMistakes.userId, userId)),
+    db.select().from(questionBank),
+  ]);
+  const questionById = new Map(questionRows.map((question) => [question.id, question]));
+  return [
+    ...workbookRows.map((mistake) => ({ ...mistake, source: "workbook" as const, score: 0, toolType: "workbook", questionTitle: null })),
+    ...toolRows.map((mistake) => ({
+      ...mistake,
+      source: "learning_tool" as const,
+      questionId: mistake.questionBankId,
+      questionTitle: questionById.get(mistake.questionBankId)?.title ?? "학습 도구 문항",
+    })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 export async function addWorkbookTeacherFeedback(answerId: number, teacherId: number, comment: string, gradeScore: number) {
@@ -3697,6 +3898,13 @@ export async function removeWorkbookMistake(mistakeId: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
   await db.delete(workbookMistakes).where(and(eq(workbookMistakes.id, mistakeId), eq(workbookMistakes.userId, userId)));
+  return { success: true };
+}
+
+export async function removeLearningToolMistake(mistakeId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  await db.delete(learningToolMistakes).where(and(eq(learningToolMistakes.id, mistakeId), eq(learningToolMistakes.userId, userId)));
   return { success: true };
 }
 

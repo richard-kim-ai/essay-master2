@@ -149,7 +149,7 @@ export default function MistakeNotebook() {
               나만의 오답 노트 & 취약점 클리닉
             </h1>
             <p className="text-xs md:text-sm text-amber-100 mt-1">
-              워크북 기출문제 풀이 중 틀린 문항들을 모아 복습하고, 랜덤 퀴즈 모드로 다시 풀어보세요.
+              워크북과 AI 퀴즈·단락 재구성·요약 연습에서 보완이 필요한 결과를 모아 복습하고, 랜덤 퀴즈 모드로 다시 풀어보세요.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -200,7 +200,7 @@ export default function MistakeNotebook() {
                   랜덤 퀴즈 모드 ({quizIndex + 1} / {mistakes.length})
                 </span>
                 <CardTitle className="text-lg font-extrabold text-slate-900 mt-2">
-                  오답 복습 문제 #{currentMistake.id}
+                  {currentMistake.questionTitle || `오답 복습 문제 #${currentMistake.id}`}
                 </CardTitle>
               </div>
               <Button
@@ -294,14 +294,14 @@ export default function MistakeNotebook() {
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold px-2.5 py-1 bg-rose-100 text-rose-800 rounded-md">
-                          오답 기록 #{m.id}
+                          {m.source === "learning_tool" ? `${m.toolType === "quiz" ? "AI 문장 교정" : m.toolType === "reordering" ? "단락 재구성" : "요약 연습"} · ${m.score}점` : `워크북 오답 #${m.id}`}
                         </span>
                         <span className="text-xs text-slate-500">
                           {new Date(m.createdAt).toLocaleDateString()}
                         </span>
                       </div>
                       <CardTitle className="text-base font-bold text-slate-900 mt-2">
-                        제출 답안: {m.userAnswer}
+                        {m.questionTitle ? `${m.questionTitle} — ` : ""}제출 답안: {m.userAnswer}
                       </CardTitle>
                       <CardDescription className="text-slate-700 text-sm mt-1">
                         {m.aiFeedback}
@@ -312,7 +312,7 @@ export default function MistakeNotebook() {
                         size="sm"
                         variant="outline"
                         className="text-rose-700 border-rose-200 hover:bg-rose-100 gap-1"
-                        onClick={() => removeMutation.mutate({ mistakeId: m.id })}
+                        onClick={() => removeMutation.mutate({ mistakeId: m.id, source: m.source || "workbook" })}
                       >
                         <Trash2 className="w-4 h-4" /> 복습 완료 (삭제)
                       </Button>
