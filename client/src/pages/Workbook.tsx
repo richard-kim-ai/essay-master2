@@ -2,7 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
 import { Loader2, CheckCircle, HelpCircle, Send, Award, ListChecks, Lightbulb, Sparkles, ArrowRight } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -256,6 +256,7 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
 
 export default function Workbook() {
   const { isAuthenticated } = useAuth();
+  const utils = trpc.useUtils();
   const [, params] = useRoute("/workbook/:courseType/:level");
   const courseType = (params?.courseType as string) || "elementary";
   const level = params?.level ? parseInt(params.level) : 1;
@@ -278,9 +279,19 @@ export default function Workbook() {
     courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
     lessonLevel: level,
   }, { enabled: isAuthenticated && ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) });
+  const theoryContentIds = useMemo(() => theoryContent.flatMap((item) => "id" in item ? [item.id] : []), [theoryContent]);
+  const theoryProgressInput = useMemo(() => ({ theoryContentIds }), [theoryContentIds]);
+  const { data: theoryProgress = [] } = trpc.theoryContent.getMyProgress.useQuery(theoryProgressInput, { enabled: isAuthenticated && theoryContentIds.length > 0 });
 
   const submitAnswerMutation = trpc.curriculum.submitWorkbookAnswer.useMutation();
   const lessonGuideMutation = trpc.questionBank.lessonWritingGuide.useMutation();
+  const completeTheoryCheckMutation = trpc.theoryContent.completeCheck.useMutation({
+    onSuccess: async () => {
+      await utils.theoryContent.getMyProgress.invalidate();
+      toast.success("이론 레슨 확인문제 완료가 저장되었습니다.");
+    },
+    onError: (error) => toast.error(error.message || "완료 상태를 저장하지 못했습니다."),
+  });
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
@@ -302,6 +313,7 @@ export default function Workbook() {
     try { theory = JSON.parse(item.contentData) as TheoryLessonPayload; } catch { /* 안전한 설명형 fallback 사용 */ }
     return {
       id: "id" in item ? item.id : -(index + 1),
+      theoryContentId: "id" in item ? item.id : undefined,
       title: item.title,
       content: theory.core_concept || "이론 콘텐츠를 준비하고 있습니다.",
       example: `${theory.textbook_anchor?.kind || "교재 원리"}: ${theory.textbook_anchor?.text || "핵심 원리를 확인하세요."}\n${theory.textbook_similar_example?.label || "유사 예시"}: ${theory.textbook_similar_example?.text || "새 소재에 원리를 적용해 보세요."}`,
@@ -314,6 +326,8 @@ export default function Workbook() {
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
   const activeTheory = (lesson as { theory?: TheoryLessonPayload }).theory;
+  const activeTheoryContentId = (lesson as { theoryContentId?: number }).theoryContentId;
+  const isTheoryCheckCompleted = Boolean(activeTheoryContentId && theoryProgress.some((item) => item.theoryContentId === activeTheoryContentId));
 
   const handleLessonGuide = async () => {
     try {
@@ -414,7 +428,7 @@ export default function Workbook() {
                 {activeTheory && <div className="grid gap-3 border-t border-indigo-100 pt-4 md:grid-cols-2">
                   <div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div>
                   <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div>
-                  <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 md:col-span-2"><p className="text-xs font-bold text-amber-800">강의 중 확인</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">정답·피드백: {activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>
+                  <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">강의 중 확인</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">정답·피드백: {activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>{activeTheoryContentId && <Button size="sm" disabled={isTheoryCheckCompleted || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId: activeTheoryContentId })} className={isTheoryCheckCompleted ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : isTheoryCheckCompleted ? <><CheckCircle className="mr-1.5 h-4 w-4" />확인 완료</> : <><ListChecks className="mr-1.5 h-4 w-4" />확인문제 완료</>}</Button>}</div></div>
                   <p className="text-xs leading-5 text-slate-500 md:col-span-2">{activeTheory.source_boundary}</p>
                 </div>}
               </div>
