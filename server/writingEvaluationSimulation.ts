@@ -5,6 +5,8 @@ export interface StudentEssaySimulationSample {
   learner_id: string;
   essay_text: string;
   previous_score?: number | null;
+  human_score?: number | null;
+  score_source?: "human" | "ai" | "unknown";
   source?: "essay_submission" | "ai_auto_feedback" | "manual";
 }
 export interface StudentEssaySimulationRequest {
@@ -42,6 +44,8 @@ export function simulateEvaluationLearning(request: StudentEssaySimulationReques
       source: sample.source ?? "manual",
       preview: sample.essay_text.replace(/\s+/g, " ").trim().slice(0, 120),
       previous_score: sample.previous_score ?? null,
+      human_score: sample.human_score ?? null,
+      score_source: sample.score_source ?? "unknown",
       current_score: result.total_score,
       score_delta:
         typeof sample.previous_score === "number" ? result.total_score - sample.previous_score : null,
@@ -61,7 +65,7 @@ export function simulateEvaluationLearning(request: StudentEssaySimulationReques
   const recommendationCounts = countValues(evaluations.map((item) => item.next_theory_category));
 
   return {
-    engine_version: "1.0.0",
+    engine_version: "1.1",
     sample_count: evaluations.length,
     scored_count: scored.length,
     average_score: averageScore,
@@ -112,15 +116,17 @@ function countValues(values: string[]) {
 }
 
 function buildCalibrationCandidates(
-  evaluations: Array<{ sample_id: string; previous_score: number | null; current_score: number; score_delta: number | null }>
+  evaluations: Array<{ sample_id: string; previous_score: number | null; human_score: number | null; score_source: string; current_score: number; score_delta: number | null }>
 ) {
   return evaluations
-    .filter((item) => typeof item.score_delta === "number" && Math.abs(item.score_delta) >= 15)
+    .filter((item) => (typeof item.human_score === "number" && Math.abs(item.current_score - item.human_score) >= 10) || (item.human_score === null && typeof item.score_delta === "number" && Math.abs(item.score_delta) >= 15))
     .map((item) => ({
       sample_id: item.sample_id,
       previous_score: item.previous_score,
+      human_score: item.human_score,
+      score_source: item.score_source,
       current_score: item.current_score,
-      score_delta: item.score_delta,
-      reason: "기존 점수와 평가엔진 v1.0 점수 차이가 커서 교사 검토용 보정 후보입니다.",
+      score_delta: item.human_score === null ? item.score_delta : item.current_score - item.human_score,
+      reason: item.human_score === null ? "기존 점수와 평가엔진 v1.1 점수 차이가 커서 교사 검토용 보정 후보입니다." : "인간 평가 점수와 평가엔진 v1.1 점수 차이가 커서 보정 검토가 필요합니다.",
     }));
 }

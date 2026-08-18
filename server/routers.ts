@@ -45,6 +45,9 @@ const writingEvaluationMetadataInput = z.object({
   education_level: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
   difficulty: z.number().int().min(1).max(5),
   writing_type: z.enum(["ARGUMENTATIVE", "EXPLANATORY", "REFLECTIVE", "SUMMARY", "CREATIVE"]),
+  assessment_mode: z.enum(["FREE_WRITING", "ARGUMENTATIVE", "DBQ", "ANALYTICAL", "IB_PERSONAL_SOCIETY", "IB_SCIENCE"]).optional(),
+  rubric_profile: z.string().optional(),
+  subject: z.string().optional(),
 });
 
 const writingEvaluationTaskInput = z.object({
@@ -53,7 +56,18 @@ const writingEvaluationTaskInput = z.object({
     min_chars: z.number().int().min(0).optional(),
     max_chars: z.number().int().min(1).optional(),
     required_elements: z.array(z.string()).optional(),
+    required_source_ids: z.array(z.string()).optional(),
+    citation_required: z.boolean().optional(),
+    minimum_source_count: z.number().int().min(0).optional(),
   }).optional(),
+  assessment_mode: z.enum(["FREE_WRITING", "ARGUMENTATIVE", "DBQ", "ANALYTICAL", "IB_PERSONAL_SOCIETY", "IB_SCIENCE"]).optional(),
+  source_documents: z.array(z.object({
+    source_id: z.string().min(1),
+    title: z.string().optional(),
+    content: z.string().min(1),
+    author_or_origin: z.string().optional(),
+    perspective: z.string().optional(),
+  })).optional(),
 });
 
 const writingEvaluationInput = z.object({
@@ -62,6 +76,7 @@ const writingEvaluationInput = z.object({
   submission: z.object({
     learner_id: z.string().min(1),
     essay_text: z.string().min(1),
+    source_citations: z.array(z.object({ source_id: z.string().min(1), excerpt: z.string().optional() })).optional(),
   }),
   essay_submission_id: z.number().int().positive().optional(),
 });
@@ -74,6 +89,8 @@ const writingEvaluationSimulationInput = z.object({
     learner_id: z.string().min(1),
     essay_text: z.string().min(1),
     previous_score: z.number().nullable().optional(),
+    human_score: z.number().min(0).max(100).nullable().optional(),
+    score_source: z.enum(["human", "ai", "unknown"]).optional(),
     source: z.enum(["essay_submission", "ai_auto_feedback", "manual"]).optional(),
   })).min(1),
 });
@@ -769,6 +786,13 @@ export const appRouter = router({
     evaluateAndCorrect: protectedProcedure
       .input(writingEvaluationInput)
       .mutation(async ({ ctx, input }) => {
+        if (input.essay_submission_id) {
+          const essay = await db.getEssaySubmissionById(input.essay_submission_id);
+          if (!essay || essay.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "본인 글만 평가 기록에 연결할 수 있습니다." });
+        }
+        if (ctx.user.role !== "admin" && (await db.getTodayAIUsageCount(ctx.user.id)) >= 5) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 첨삭 횟수를 모두 사용했습니다." });
+        }
         const evaluation = evaluateWriting(input);
         const correction = await generateWritingCorrection(input, evaluation);
         const record = await db.createWritingEvaluationRecord({
@@ -801,6 +825,9 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const parent = await db.getWritingEvaluationRecordByIdForUser(input.record_id, ctx.user.id);
         if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "평가 기록을 찾을 수 없습니다." });
+        if (ctx.user.role !== "admin" && (await db.getTodayAIUsageCount(ctx.user.id)) >= 5) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 첨삭 횟수를 모두 사용했습니다." });
+        }
 
         const request = {
           metadata: JSON.parse(parent.metadataJson),
@@ -825,6 +852,7 @@ export const appRouter = router({
           decision: evaluation.decision,
           totalScore: evaluation.total_score,
         });
+        await db.logAIUsage(ctx.user.id, "writing_evaluation_v1_reevaluate", 0);
         return { evaluation, correction, record_id: record?.insertId ?? null, parent_record_id: parent.id };
       }),
 
@@ -850,7 +878,7 @@ export const appRouter = router({
 
         if (samples.length === 0) {
           return {
-            engine_version: "1.0.0",
+            engine_version: "1.1",
             sample_count: 0,
             scored_count: 0,
             average_score: 0,

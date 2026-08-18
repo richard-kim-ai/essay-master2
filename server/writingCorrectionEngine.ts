@@ -2,7 +2,7 @@ import { invokeLLM } from "./_core/llm";
 import type { WritingEvaluationResult, WritingEvaluationRequest } from "./writingEvaluationEngine";
 
 export interface WritingCorrectionResult {
-  correction_version: "1.0.0";
+  correction_version: "1.1";
   learner_level: WritingEvaluationRequest["metadata"]["education_level"];
   original_text: string;
   revised_text: string;
@@ -43,9 +43,12 @@ ${levelGuide}을 사용하세요. 학생의 생각과 목소리를 임의로 바
           original_text: request.submission.essay_text,
           evaluation: {
             total_score: evaluation.total_score,
+            rubric_profile: evaluation.rubric_profile,
             improvement_points: evaluation.improvement_points,
             error_patterns: evaluation.error_patterns,
             revision_steps: evaluation.feedback.revision_steps,
+            evidence_audit: evaluation.evidence_audit,
+            validation: evaluation.validation,
           },
           output_contract: {
             revised_text: "원문의 의도와 학생의 목소리를 유지한 전체 개선문",
@@ -70,7 +73,7 @@ ${levelGuide}을 사용하세요. 학생의 생각과 목소리를 임의로 바
     const content = extractTextContent(response);
     const parsed = JSON.parse(content) as Partial<WritingCorrectionResult>;
     return {
-      correction_version: "1.0.0",
+      correction_version: "1.1",
       learner_level: request.metadata.education_level,
       original_text: request.submission.essay_text,
       revised_text: parsed.revised_text?.trim() || request.submission.essay_text,
@@ -81,7 +84,7 @@ ${levelGuide}을 사용하세요. 학생의 생각과 목소리를 임의로 바
   } catch (error) {
     console.error("Failed to parse writing correction:", error);
     return {
-      correction_version: "1.0.0",
+      correction_version: "1.1",
       learner_level: request.metadata.education_level,
       original_text: request.submission.essay_text,
       revised_text: request.submission.essay_text,

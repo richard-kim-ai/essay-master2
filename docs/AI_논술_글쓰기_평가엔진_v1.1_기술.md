@@ -1,10 +1,10 @@
-# AI 논술·글쓰기 평가엔진 v1.0 기술 문서
+# AI 논술·글쓰기 평가엔진 v1.1 기술 문서
 
 ## 1. 설계 목적
 
-AI 논술·글쓰기 평가엔진 v1.0은 Essay Master의 기존 `논술의 기초` 교육 시스템과 `문제생성 Master Prompt`를 침범하지 않는 독립형 평가 모듈이다. 문제를 만드는 규칙과 글을 평가하는 규칙을 합치지 않고, 최소 메타데이터만 공유해 서비스 안에서 서로 충돌하지 않도록 설계한다.
+AI 논술·글쓰기 평가엔진 v1.1은 Essay Master의 기존 `논술의 기초` 교육 시스템과 `문제생성 Master Prompt`를 침범하지 않는 독립형 평가 모듈이다. 문제를 만드는 규칙과 글을 평가하는 규칙을 합치지 않고, 최소 메타데이터만 공유해 서비스 안에서 서로 충돌하지 않도록 설계한다.
 
-이 엔진은 학생 글을 단순 점수화하지 않는다. 학생 글의 논제 이해, 중심생각, 이유, 근거, 논리 전개, 반론 처리, 문단 구성, 문장 표현을 분리해 진단하고, 기존 학생 글 데이터를 추가해 평가 시뮬레이션 학습 자료로 재사용할 수 있게 한다.
+이 엔진은 학생 글을 단순 점수화하지 않는다. 학년·과제·교과에 맞는 루브릭 프로파일을 선택하고, 논제 이해, 중심생각, 이유, 근거, 논리 전개, 문서·출처 활용, 문단 구성, 문장 표현을 분리해 진단한다. 기존 학생 글 데이터는 인간 평가 점수와 함께 검증·보정 후보를 만드는 자료로 재사용한다.
 
 ## 2. 평가 표현 정책
 
@@ -30,11 +30,13 @@ AI 논술·글쓰기 평가엔진 v1.0은 Essay Master의 기존 `논술의 기�
 
         최소 공유 메타데이터만 전달
 
-[AI 논술·글쓰기 평가엔진 v1.0]
+[AI 논술·글쓰기 평가엔진 v1.1]
   - 평가 Master Prompt
   - 평가 competency
   - rubric/error-pattern/feedback 데이터
-  - 학생 글 시뮬레이션 학습 기능
+  - 학년·과제별 rubric profile
+  - 문서기반 과제와 출처 검증
+  - 인간 평가자 보정 후보와 공정성 검토
   - 평가 API/서비스 레이어
 ```
 
@@ -49,6 +51,9 @@ AI 논술·글쓰기 평가엔진 v1.0은 Essay Master의 기존 `논술의 기�
 | `writing_type` | 글 유형 | `ARGUMENTATIVE` |
 | `task_id` | 문제 ID | `QB-001` |
 | `prompt` | 학생에게 제시된 문제 | `스마트폰 사용 제한에 대해 논술하시오.` |
+| `assessment_mode` | 평가 모드 | `FREE_WRITING`, `DBQ`, `IB_SCIENCE` |
+| `source_documents` | 문서기반 과제의 자료 | 문서 ID, 본문, 출처, 관점 |
+| `source_citations` | 학생 답안의 자료 사용 | 인용한 문서 ID와 발췌 |
 
 문제생성 Master Prompt 전문, 평가 Master Prompt 전문, 내부 점수 가중치 원본은 서로 공유하지 않는다.
 
@@ -151,7 +156,7 @@ AI 논술·글쓰기 평가엔진 v1.0은 Essay Master의 기존 `논술의 기�
     "writing_type": "ARGUMENTATIVE"
   },
   "task": {
-    "prompt": "기존 학생 글 데이터를 평가엔진 v1.0으로 재평가한다."
+    "prompt": "기존 학생 글 데이터를 평가엔진 v1.1으로 재평가한다."
   },
   "samples": [
     {
@@ -172,8 +177,8 @@ AI 논술·글쓰기 평가엔진 v1.0은 Essay Master의 기존 `논술의 기�
 server/writingEvaluationEngine.ts
 server/writingEvaluationSimulation.ts
 server/writingCorrectionEngine.ts
-docs/AI_논술_글쓰기_평가엔진_v1.0_기술.md
-docs/evaluation-master-prompt-v1.md
+docs/AI_논술_글쓰기_평가엔진_v1.1_기술.md
+docs/evaluation-master-prompt-v1.1.md
 generated/evaluation-engine/
 ```
 

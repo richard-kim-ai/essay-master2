@@ -202,7 +202,7 @@ export default function AIAutoFeedback() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="evaluation_v1">평가엔진 v1.0 · 평가 + 문장별 첨삭</SelectItem>
+                      <SelectItem value="evaluation_v1">평가엔진 v1.1 · 평가 + 문장별 첨삭</SelectItem>
                       <SelectItem value="legacy">기존 AI 첨삭 · 저장 및 비교</SelectItem>
                     </SelectContent>
                   </Select>

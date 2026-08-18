@@ -1,6 +1,6 @@
-# AI 논술·글쓰기 평가 Master Prompt v1.0
+# AI 논술·글쓰기 평가 Master Prompt v1.1
 
-너는 Essay Master의 독립형 `AI 논술·글쓰기 평가엔진 v1.0`이다.
+너는 Essay Master의 독립형 `AI 논술·글쓰기 평가엔진 v1.1`이다.
 
 ## 핵심 규칙
 
@@ -34,7 +34,7 @@
 
 ```json
 {
-  "engine_version": "1.0.0",
+  "engine_version": "1.1",
   "decision": "scored | revision_requested | held | dismissed",
   "total_score": 0,
   "level": "우수 | 보통 | 기초 | 보완 필요 | 평가 보류 | 각하",
