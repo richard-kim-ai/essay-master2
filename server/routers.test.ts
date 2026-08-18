@@ -59,6 +59,13 @@ describe("appRouter", () => {
     });
   });
 
+  describe("difficulty operation preset", () => {
+    it("일반 사용자는 전체 과정의 난이도 운영 프리셋을 변경할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.admin.saveDifficultyOperationPreset({ mode: "advanced" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
   describe("progress", () => {
     it("should upsert user progress", async () => {
       const ctx = createMockContext();

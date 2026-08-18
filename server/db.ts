@@ -67,6 +67,93 @@ let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
 let memoryProgressId = 1;
 
+export type DifficultyOperationMode = "standard" | "advanced";
+export type DifficultyOperationPreset = {
+  mode: DifficultyOperationMode;
+  weights: { easy: number; medium: number; hard: number };
+  aiFeedbackDirective: string;
+  updatedAt?: string;
+};
+
+const DIFFICULTY_OPERATION_SETTING_KEY = "difficulty_operation_preset";
+const DIFFICULTY_OPERATION_PRESETS: Record<DifficultyOperationMode, DifficultyOperationPreset> = {
+  standard: {
+    mode: "standard",
+    weights: { easy: 40, medium: 40, hard: 20 },
+    aiFeedbackDirective: "표준 기준으로 핵심 주장·근거·구조를 우선 평가하고, 과정 수준에 맞는 보완 과제를 2~3개 제시합니다.",
+  },
+  advanced: {
+    mode: "advanced",
+    weights: { easy: 15, medium: 35, hard: 50 },
+    aiFeedbackDirective: "심화 기준으로 논증의 타당성, 근거의 구체성, 반론 검토, 표현의 정교함을 엄격히 평가하고 즉시 개선할 고난도 과제를 제시합니다.",
+  },
+};
+
+function shuffleItems<T>(items: T[]) {
+  return [...items].sort(() => Math.random() - 0.5);
+}
+
+export async function getDifficultyOperationPreset(): Promise<DifficultyOperationPreset> {
+  const db = await getDb();
+  if (!db) return DIFFICULTY_OPERATION_PRESETS.standard;
+  const [row] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
+  if (!row?.content) return DIFFICULTY_OPERATION_PRESET_FALLBACK();
+  try {
+    const parsed = JSON.parse(row.content) as Partial<DifficultyOperationPreset>;
+    if (parsed.mode === "standard" || parsed.mode === "advanced") {
+      return { ...DIFFICULTY_OPERATION_PRESETS[parsed.mode], updatedAt: row.updatedAt.toISOString() };
+    }
+  } catch { /* Use the standard preset when an old setting is malformed. */ }
+  return DIFFICULTY_OPERATION_PRESET_FALLBACK();
+}
+
+function DIFFICULTY_OPERATION_PRESET_FALLBACK(): DifficultyOperationPreset {
+  return DIFFICULTY_OPERATION_PRESETS.standard;
+}
+
+export async function saveDifficultyOperationPreset(mode: DifficultyOperationMode, adminId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const content = JSON.stringify({ mode });
+  const [existing] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
+  if (existing) {
+    await db.update(siteSettings).set({ content, updatedBy: adminId, updatedAt: new Date() }).where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
+  } else {
+    await db.insert(siteSettings).values({ settingKey: DIFFICULTY_OPERATION_SETTING_KEY, content, updatedBy: adminId });
+  }
+  return getDifficultyOperationPreset();
+}
+
+function selectQuestionsByDifficulty<T extends { difficulty: "easy" | "medium" | "hard" }>(items: T[], limit: number, preset: DifficultyOperationPreset) {
+  const pools = {
+    easy: shuffleItems(items.filter((item) => item.difficulty === "easy")),
+    medium: shuffleItems(items.filter((item) => item.difficulty === "medium")),
+    hard: shuffleItems(items.filter((item) => item.difficulty === "hard")),
+  };
+  const requested = Math.min(limit, items.length);
+  const difficulties = Object.keys(pools) as Array<keyof typeof pools>;
+  const quotas = Object.fromEntries(difficulties.map((difficulty) => [difficulty, Math.min(pools[difficulty].length, Math.floor((requested * preset.weights[difficulty]) / 100))])) as Record<keyof typeof pools, number>;
+  const preference = preset.mode === "advanced" ? ["hard", "medium", "easy"] as const : ["medium", "easy", "hard"] as const;
+  while (difficulties.reduce((total, difficulty) => total + quotas[difficulty], 0) < requested) {
+    const candidate = difficulties
+      .filter((difficulty) => quotas[difficulty] < pools[difficulty].length)
+      .sort((left, right) => {
+        const leftDeficit = (requested * preset.weights[left]) / 100 - quotas[left];
+        const rightDeficit = (requested * preset.weights[right]) / 100 - quotas[right];
+        if (rightDeficit !== leftDeficit) return rightDeficit - leftDeficit;
+        return preference.indexOf(left) - preference.indexOf(right);
+      })[0];
+    if (!candidate) break;
+    quotas[candidate] += 1;
+  }
+  const selections: T[] = [];
+  difficulties.forEach((difficulty) => {
+    selections.push(...pools[difficulty].splice(0, quotas[difficulty]));
+  });
+  const remainder = shuffleItems([...pools.easy, ...pools.medium, ...pools.hard]);
+  return shuffleItems([...selections, ...remainder]).slice(0, requested);
+}
+
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -2777,9 +2864,8 @@ export async function getQuestionBankList(courseType?: string, toolType?: string
 export async function getRandomQuestions(courseType: string, toolType: string, limit: number = 10) {
   const list = await getQuestionBankList(courseType, toolType);
   const activeList = list.filter(q => q.isActive === 1 && !isLegacyRepeatedLearningContent(q.contentData));
-  // 무작위 셔플 후 limit 개수만큼 반환
-  const shuffled = [...activeList].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, limit);
+  const preset = await getDifficultyOperationPreset();
+  return selectQuestionsByDifficulty(activeList, limit, preset);
 }
 
 export async function replaceLegacyLearningToolContent() {
@@ -3029,7 +3115,8 @@ export async function getReorderingPracticeSet(courseType: CourseType, limit: nu
   await ensureReorderingQuestionBankV2();
   const list = await getQuestionBankList(courseType, "reordering");
   const v2Items = list.filter((item) => item.isActive === 1 && item.contentData.includes('"reorderingVersion":"v2"'));
-  return [...v2Items].sort(() => Math.random() - 0.5).slice(0, Math.min(limit, v2Items.length));
+  const preset = await getDifficultyOperationPreset();
+  return selectQuestionsByDifficulty(v2Items, Math.min(limit, v2Items.length), preset);
 }
 
 export async function createQuestionBankItem(data: {
@@ -4547,7 +4634,8 @@ ${userAnswer}
 export async function getCurriculumDifficultyStats() {
   const db = await getDb();
   if (!db) return [];
-  const questions = await db.select().from(questionBank);
+  const allQuestions = await db.select().from(questionBank);
+  const questions = allQuestions.filter((question) => question.isActive === 1);
   const answers = await db.select().from(quizAnswer);
 
   const groups: Record<string, { courseType: string; total: number; easy: number; medium: number; hard: number; correctSum: number; attemptsSum: number }> = {
@@ -4575,8 +4663,90 @@ export async function getCurriculumDifficultyStats() {
 
   return Object.values(groups).map(g => ({
     ...g,
-    avgCorrectRate: g.attemptsSum > 0 ? Math.round((g.correctSum / g.attemptsSum) * 100) : 78, // 기본 기본값 보정
+    avgCorrectRate: g.attemptsSum > 0 ? Math.round((g.correctSum / g.attemptsSum) * 100) : 0,
+    hasAttemptData: g.attemptsSum > 0,
   }));
+}
+
+function fallbackDifficultyLearningGuide(input: {
+  courseType: CourseType;
+  preset: DifficultyOperationPreset;
+  courseAverage: number;
+  hasCourseAttempts: boolean;
+  personalAverage: number;
+  attemptCount: number;
+}) {
+  const recommendedDifficulty: "easy" | "medium" | "hard" = input.attemptCount === 0
+    ? (input.preset.mode === "advanced" ? "medium" : "easy")
+    : input.personalAverage < 60 ? "easy" : input.personalAverage < 80 ? "medium" : input.preset.mode === "advanced" ? "hard" : "medium";
+  const courseLabel = getCourseTag(input.courseType);
+  const basis = input.attemptCount === 0
+    ? "아직 개인 수행 기록이 충분하지 않아 과정 전체 통계와 현재 운영 프리셋을 기준으로 안내합니다."
+    : `최근 서버 검증 수행 ${input.attemptCount}회 평균 ${input.personalAverage}점을 반영했습니다.`;
+  return {
+    headline: `${courseLabel} ${recommendedDifficulty === "easy" ? "기초 다지기" : recommendedDifficulty === "medium" ? "핵심 논증 훈련" : "심화 논증 도전"}`,
+    summary: `${basis} ${input.hasCourseAttempts ? `과정 평균 정답률은 ${input.courseAverage}%입니다.` : "과정 전체 정답률은 누적 중입니다."}`,
+    recommendedDifficulty,
+    focus: recommendedDifficulty === "easy" ? "주장과 근거를 분리해 한 문장씩 정확히 쓰는 연습" : recommendedDifficulty === "medium" ? "근거의 연결과 반론 검토를 포함한 단락 구성" : "판단 기준을 비교하고 반론을 재구성하는 심화 논증",
+    nextAction: recommendedDifficulty === "easy" ? "초급 문항 3개를 차례로 풀고 해설의 주장·근거 표시를 비교하세요." : recommendedDifficulty === "medium" ? "중급 문항에서 근거 2개와 반론 1개를 개요에 적어 보세요." : "고급 문항에서 서로 다른 관점을 비교한 뒤 자신의 판단 기준을 한 문장으로 정리하세요.",
+    basis,
+    source: "fallback" as const,
+  };
+}
+
+export async function generateDifficultyLearningGuide(userId: number, courseType: CourseType) {
+  const db = await getDb();
+  const preset = await getDifficultyOperationPreset();
+  const stats = await getCurriculumDifficultyStats();
+  const courseStats = stats.find((item) => item.courseType === courseType);
+  const attempts = db ? await db.select().from(learningToolAttempts).where(and(eq(learningToolAttempts.userId, userId), eq(learningToolAttempts.courseType, courseType))) : [];
+  const recentAttempts = attempts.slice(-20);
+  const personalAverage = recentAttempts.length > 0 ? Math.round(recentAttempts.reduce((total, attempt) => total + attempt.score, 0) / recentAttempts.length) : 0;
+  const fallback = fallbackDifficultyLearningGuide({
+    courseType,
+    preset,
+    courseAverage: courseStats?.avgCorrectRate ?? 0,
+    hasCourseAttempts: Boolean(courseStats?.hasAttemptData),
+    personalAverage,
+    attemptCount: recentAttempts.length,
+  });
+  const enrichedFallback = { ...fallback, presetMode: preset.mode, courseStats, personalAverage, attemptCount: recentAttempts.length };
+  try {
+    const response = await invokeLLM({
+      model: "gpt-5-mini",
+      messages: [
+        { role: "system", content: "당신은 한국어 논술 학습 코치입니다. 학생의 점수를 단정적으로 평가하지 말고, 제공된 통계만 근거로 다음 한 단계의 학습 행동을 짧고 구체적으로 제안하세요. 개인정보를 언급하지 마세요." },
+        { role: "user", content: `과정: ${getCourseTag(courseType)}\n운영 프리셋: ${preset.mode}\n프리셋 안내: ${preset.aiFeedbackDirective}\n과정 활성 문항 분포: 초급 ${courseStats?.easy ?? 0}, 중급 ${courseStats?.medium ?? 0}, 고급 ${courseStats?.hard ?? 0}\n과정 평균 정답률: ${courseStats?.hasAttemptData ? `${courseStats.avgCorrectRate}%` : "데이터 없음"}\n학생 최근 검증 수행: ${recentAttempts.length}회\n학생 최근 평균 점수: ${recentAttempts.length ? `${personalAverage}점` : "데이터 없음"}\n이 학생에게 추천할 난이도와 한 단계 학습 가이드를 작성하세요.` },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "difficulty_learning_guide",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              headline: { type: "string", maxLength: 80 },
+              summary: { type: "string", maxLength: 220 },
+              recommendedDifficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+              focus: { type: "string", maxLength: 180 },
+              nextAction: { type: "string", maxLength: 220 },
+              basis: { type: "string", maxLength: 180 },
+            },
+            required: ["headline", "summary", "recommendedDifficulty", "focus", "nextAction", "basis"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+    const content = response.choices[0]?.message?.content;
+    if (typeof content !== "string") return enrichedFallback;
+    const guide = JSON.parse(content) as Omit<typeof fallback, "source">;
+    return { ...guide, source: "ai" as const, presetMode: preset.mode, courseStats, personalAverage, attemptCount: recentAttempts.length };
+  } catch (error) {
+    console.warn("[Difficulty learning guide] Falling back to deterministic guide", error);
+    return enrichedFallback;
+  }
 }
 
 export async function promoteUserLevel(userId: number, targetLevel: number) {
