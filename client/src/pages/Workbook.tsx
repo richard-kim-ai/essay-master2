@@ -270,15 +270,15 @@ export default function Workbook() {
   const [lessonGuide, setLessonGuide] = useState<LessonWritingGuide | null>(null);
 
   const progressMutation = trpc.progress.upsert.useMutation();
-  const { data: workbookQuestions = [], isLoading: qLoading } = trpc.curriculum.getWorkbookQuestions.useQuery({
-    courseType,
+  const { data: workbookLessonBundle, isLoading: lessonBundleLoading } = trpc.curriculum.getWorkbookLessonBundle.useQuery({
+    courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
     level,
     lessonIndex: currentLesson,
-  }, { enabled: isAuthenticated });
-  const { data: theoryContent = [], isLoading: theoryLoading } = trpc.curriculum.getTheoryContent.useQuery({
-    courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
-    lessonLevel: level,
   }, { enabled: isAuthenticated && ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) });
+  const workbookQuestions = workbookLessonBundle?.workbookQuestions ?? [];
+  const theoryContent = workbookLessonBundle?.theoryContent ?? [];
+  const qLoading = lessonBundleLoading;
+  const theoryLoading = lessonBundleLoading;
   const { data: dynamicCurriculum = [], isLoading: dynamicCurriculumLoading } = trpc.curriculum.getDynamicByType.useQuery(courseType as "elementary" | "middle_high" | "high_univ" | "general_adult", { enabled: isAuthenticated && ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) });
   const theoryContentIds = useMemo(() => theoryContent.flatMap((item) => "id" in item ? [item.id] : []), [theoryContent]);
   const theoryProgressInput = useMemo(() => ({ theoryContentIds }), [theoryContentIds]);
@@ -315,27 +315,20 @@ export default function Workbook() {
       },
     ],
   };
-  // 기본 교재의 제목·설명·순서는 고정합니다. 이론 콘텐츠는 별도 보충 영역에서만 보여 주므로 비동기 조회가 기본 교재를 덮어쓰지 않습니다.
-  const distinctTheoryContent = theoryContent.filter((item, index, items) =>
-    items.findIndex((candidate) => candidate.theoryCategory === item.theoryCategory) === index,
-  );
-  const theoryLessons = fallbackWorkbookData.lessons.map((fallbackLesson, index) => {
-    const item = distinctTheoryContent[index];
-    let theory: TheoryLessonPayload | undefined;
-    if (item) {
-      try { theory = JSON.parse(item.contentData) as TheoryLessonPayload; } catch { theory = undefined; }
-    }
-    return {
-      ...fallbackLesson,
-      theoryContentId: item && "id" in item ? item.id : undefined,
-      theory,
-    };
-  });
-  const workbookData = { title: fallbackWorkbookData.title, lessons: theoryLessons };
+  // 기본 교재의 제목·설명·순서는 고정합니다. 관리자가 저장한 연결 기준에 따라 추가 이론과 기출문제만 별도 보충 영역에 표시합니다.
+  const workbookData = { title: fallbackWorkbookData.title, lessons: fallbackWorkbookData.lessons };
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
-  const activeTheory = (lesson as { theory?: TheoryLessonPayload }).theory;
-  const activeTheoryContentId = (lesson as { theoryContentId?: number }).theoryContentId;
+  const activeTheoryEntries = theoryContent.flatMap((item) => {
+    if (!("id" in item)) return [];
+    try {
+      return [{ theoryContentId: item.id, theory: JSON.parse(item.contentData) as TheoryLessonPayload }];
+    } catch {
+      return [];
+    }
+  });
+  const activeTheory = activeTheoryEntries[0]?.theory;
+  const activeTheoryContentId = activeTheoryEntries[0]?.theoryContentId;
   const isTheoryCheckCompleted = Boolean(activeTheoryContentId && theoryProgress.some((item) => item.theoryContentId === activeTheoryContentId));
 
   const handleLessonGuide = async () => {
@@ -404,7 +397,7 @@ export default function Workbook() {
             </Button>
           </Link>
           <span className="px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-semibold rounded-full">
-            {courseType === "elementary" ? "초등 논술" : courseType === "middle_high" ? "중고등 논술" : courseType === "high_univ" ? "고등 / 대입" : "일반 / 직장인"} 워크북 기출 레슨
+            {courseType === "elementary" ? "초등 논술" : courseType === "middle_high" ? "중고등 논술" : courseType === "high_univ" ? "고등 / 대입" : "일반 / 직장인"} 워크북
           </span>
         </div>
 
@@ -423,7 +416,7 @@ export default function Workbook() {
                   onClick={() => { setCurrentLesson(idx); setLessonGuide(null); }}
                   className={currentLesson === idx ? "bg-indigo-600 text-white" : ""}
                 >
-                  Lesson {idx + 1}: {l.title} {completedLessons.includes(idx) ? "✓" : ""}
+                  레슨 {idx + 1}: {l.title} {completedLessons.includes(idx) ? "✓" : ""}
                 </Button>
               ))}
             </div>
@@ -439,33 +432,38 @@ export default function Workbook() {
 
               {activeTheory && <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{activeTheory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{activeTheory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{activeTheory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="grid gap-3 md:grid-cols-2"><div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div><div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>{activeTheoryContentId && <Button size="sm" disabled={isTheoryCheckCompleted || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId: activeTheoryContentId })} className={isTheoryCheckCompleted ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : isTheoryCheckCompleted ? <><CheckCircle className="mr-1.5 h-4 w-4" />확인 완료</> : <><ListChecks className="mr-1.5 h-4 w-4" />확인문제 완료</>}</Button>}</div></div></section>}
 
-            <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
+              {activeTheoryEntries.slice(1).map(({ theoryContentId, theory }) => {
+                const completed = theoryProgress.some((item) => item.theoryContentId === theoryContentId);
+                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : completed ? <><CheckCircle className="mr-1.5 h-4 w-4" />확인 완료</> : <><ListChecks className="mr-1.5 h-4 w-4" />확인 완료</>}</Button></div></div></section>;
+              })}
+
+              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex gap-3">
                   <div className="rounded-xl bg-violet-100 p-2.5 text-violet-700"><Sparkles className="h-5 w-5" /></div>
-                  <div><p className="font-bold text-slate-900">AI 레슨 코치: 생각 순서와 연습 예시</p><p className="mt-1 text-sm leading-6 text-slate-600">현재 개념을 답안에 적용하는 방법을 안내합니다. 아래 기출문제의 정답은 공개하지 않습니다.</p></div>
+                  <div><p className="font-bold text-slate-900">AI 학습 가이드</p><p className="mt-1 text-sm leading-6 text-slate-600">이번 레슨의 개념을 답안에 적용하는 방법을 안내합니다. 기출문제의 정답은 풀이 후에 확인할 수 있습니다.</p></div>
                 </div>
                 <Button size="sm" onClick={handleLessonGuide} disabled={lessonGuideMutation.isPending} className="shrink-0 bg-violet-700 text-white hover:bg-violet-800">
-                  {lessonGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />준비 중</> : <><Sparkles className="mr-2 h-4 w-4" />AI 가이드 받기</>}
+                  {lessonGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />준비 중</> : <><Sparkles className="mr-2 h-4 w-4" />학습 가이드 보기</>}
                 </Button>
               </div>
               {lessonGuide && <div className="mt-5 grid gap-4 border-t border-violet-200 pt-5 md:grid-cols-2">
                 <div className="space-y-3"><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">이번 레슨 목표</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.learningGoal}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">생각 순서</p><ol className="mt-2 space-y-2 text-sm leading-6 text-slate-700">{lessonGuide.thinkingSteps.map((item, index) => <li key={item} className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-200 text-xs font-bold text-violet-800">{index + 1}</span>{item}</li>)}</ol></div></div>
-                <div className="space-y-3"><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">문장 틀</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.sentenceFrame}</p></div><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">새 연습 예시</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.practiceExample}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">제출 전 셀프 체크</p><ul className="mt-2 space-y-1 text-sm leading-6 text-slate-700">{lessonGuide.selfCheck.map((item) => <li key={item}>• {item}</li>)}</ul></div></div>
+                <div className="space-y-3"><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">문장 틀</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.sentenceFrame}</p></div><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">새 연습 예시</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.practiceExample}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">제출 전 점검</p><ul className="mt-2 space-y-1 text-sm leading-6 text-slate-700">{lessonGuide.selfCheck.map((item) => <li key={item}>• {item}</li>)}</ul></div></div>
               </div>}
             </div>
 
             <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-3">
               <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. 개념 적용</p><p className="mt-1 text-sm text-slate-700">AI 가이드로 생각 순서를 확인한 뒤 기출문제를 풉니다.</p></div>
               <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">2. 주제와 주장 설계</p><Link href="/topic-wizard"><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제 설정 위저드 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
-              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">3. 주제문 검토</p><Link href="/thesis-checklist"><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">AI 주제문 체크 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">3. 주제문 검토</p><Link href="/thesis-checklist"><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제문 점검 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
             </div>
 
             {/* 고정 기출문제 3문항 섹션 */}
             <div className="space-y-6 pt-4 border-t border-slate-200">
               <div className="flex items-center justify-between">
                 <h4 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <Award className="w-5 h-5 text-indigo-600" /> 본 레슨 고정 기출문제 (3문항)
+                  <Award className="w-5 h-5 text-indigo-600" /> 이 레슨의 기출문제 ({workbookQuestions.length}문항)
                 </h4>
               </div>
 

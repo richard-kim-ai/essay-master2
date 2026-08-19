@@ -21,6 +21,7 @@ import {
   lessonTheoryContent,
   lessonTheoryDrafts,
   lessonTheoryProgress,
+  workbookLessonConnections,
   siteSettings,
   parentStudentLinks,
   userBadges,
@@ -3949,6 +3950,131 @@ export async function getCurriculumWorkbookQuestions(courseType: string, level: 
       eq(curriculumWorkbookQuestions.lessonIndex, lessonIndex)
     )
   );
+}
+
+type WorkbookConnectionCourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
+type WorkbookLessonConnectionInput = {
+  courseType: WorkbookConnectionCourseType;
+  lessonLevel: number;
+  lessonIndex: number;
+  connectionMode: "automatic" | "manual";
+  theoryContentIds: number[];
+  workbookQuestionIds: number[];
+};
+
+export function resolveWorkbookLessonConnection<TTheory extends { id: number }, TQuestion extends { id: number }>(input: {
+  connectionMode: "automatic" | "manual";
+  lessonIndex: number;
+  theoryContent: TTheory[];
+  workbookQuestions: TQuestion[];
+  theoryContentIds: number[];
+  workbookQuestionIds: number[];
+}) {
+  const theoryContent = input.connectionMode === "manual"
+    ? input.theoryContent.filter((item) => input.theoryContentIds.includes(item.id))
+    : input.theoryContent[input.lessonIndex] ? [input.theoryContent[input.lessonIndex]] : [];
+  const workbookQuestions = input.connectionMode === "manual"
+    ? input.workbookQuestions.filter((item) => input.workbookQuestionIds.includes(item.id))
+    : input.workbookQuestions;
+  return { theoryContent, workbookQuestions };
+}
+
+function normalizeSelectedIds(ids: number[]) {
+  return Array.from(new Set(ids.filter((id) => Number.isInteger(id) && id > 0)));
+}
+
+function parseSelectedIds(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? normalizeSelectedIds(parsed.filter((item): item is number => typeof item === "number")) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function getWorkbookLessonConnectionRecord(input: Pick<WorkbookLessonConnectionInput, "courseType" | "lessonLevel" | "lessonIndex">) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(workbookLessonConnections).where(and(
+    eq(workbookLessonConnections.courseType, input.courseType),
+    eq(workbookLessonConnections.lessonLevel, input.lessonLevel),
+    eq(workbookLessonConnections.lessonIndex, input.lessonIndex),
+  )).orderBy(desc(workbookLessonConnections.updatedAt));
+  return rows[0];
+}
+
+/** 관리자 설정 화면에 필요한 레슨별 후보 이론·기출문제와 현재 연결 기준을 제공한다. */
+export async function getWorkbookLessonConnectionOptions(input: Pick<WorkbookLessonConnectionInput, "courseType" | "lessonLevel" | "lessonIndex">) {
+  const [theoryContent, workbookQuestions, connection] = await Promise.all([
+    getLessonTheoryContentList({ courseType: input.courseType, lessonLevel: input.lessonLevel }),
+    getCurriculumWorkbookQuestions(input.courseType, input.lessonLevel, input.lessonIndex),
+    getWorkbookLessonConnectionRecord(input),
+  ]);
+  return {
+    theoryContent,
+    workbookQuestions,
+    connection: connection ? {
+      id: connection.id,
+      connectionMode: connection.connectionMode,
+      theoryContentIds: parseSelectedIds(connection.theoryContentIdsJson),
+      workbookQuestionIds: parseSelectedIds(connection.workbookQuestionIdsJson),
+      updatedAt: connection.updatedAt,
+    } : null,
+  };
+}
+
+/** 학습자 워크북은 자동 연결 기본값 또는 관리자가 직접 저장한 선택 목록만 표시한다. */
+export async function getWorkbookLessonBundle(input: Pick<WorkbookLessonConnectionInput, "courseType" | "lessonLevel" | "lessonIndex">) {
+  const options = await getWorkbookLessonConnectionOptions(input);
+  const mode = options.connection?.connectionMode ?? "automatic";
+  const selectedTheoryIds = options.connection?.theoryContentIds ?? [];
+  const selectedQuestionIds = options.connection?.workbookQuestionIds ?? [];
+  const selectableTheoryContent = options.theoryContent.filter((item): item is typeof item & { id: number } => "id" in item);
+  const selection = resolveWorkbookLessonConnection({
+    connectionMode: mode,
+    lessonIndex: input.lessonIndex,
+    theoryContent: selectableTheoryContent,
+    workbookQuestions: options.workbookQuestions,
+    theoryContentIds: selectedTheoryIds,
+    workbookQuestionIds: selectedQuestionIds,
+  });
+  return {
+    connectionMode: mode,
+    theoryContent: selection.theoryContent,
+    workbookQuestions: selection.workbookQuestions,
+  };
+}
+
+/** 관리자만 호출하는 레슨별 직접 연결 저장. 과정·레벨·레슨 후보 밖의 ID는 저장하지 않는다. */
+export async function saveWorkbookLessonConnection(adminId: number, input: WorkbookLessonConnectionInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not connected");
+  const theoryContentIds = normalizeSelectedIds(input.theoryContentIds);
+  const workbookQuestionIds = normalizeSelectedIds(input.workbookQuestionIds);
+  const options = await getWorkbookLessonConnectionOptions(input);
+  const validTheoryIds = new Set(options.theoryContent.flatMap((item) => "id" in item ? [item.id] : []));
+  const validQuestionIds = new Set(options.workbookQuestions.map((item) => item.id));
+  if (theoryContentIds.some((id) => !validTheoryIds.has(id))) throw new Error("선택한 추가 이론에 현재 과정 또는 레슨과 맞지 않는 항목이 포함되어 있습니다.");
+  if (workbookQuestionIds.some((id) => !validQuestionIds.has(id))) throw new Error("선택한 기출문제에 현재 과정 또는 레슨과 맞지 않는 항목이 포함되어 있습니다.");
+  if (input.connectionMode === "manual" && theoryContentIds.length === 0 && workbookQuestionIds.length === 0) throw new Error("직접 선택 기준에서는 추가 이론 또는 기출문제를 하나 이상 선택하세요.");
+  const values = {
+    connectionMode: input.connectionMode,
+    theoryContentIdsJson: JSON.stringify(theoryContentIds),
+    workbookQuestionIdsJson: JSON.stringify(workbookQuestionIds),
+    updatedByUserId: adminId,
+  } as const;
+  const existing = await getWorkbookLessonConnectionRecord(input);
+  if (existing) {
+    await db.update(workbookLessonConnections).set(values).where(eq(workbookLessonConnections.id, existing.id));
+  } else {
+    await db.insert(workbookLessonConnections).values({
+      courseType: input.courseType,
+      lessonLevel: input.lessonLevel,
+      lessonIndex: input.lessonIndex,
+      ...values,
+    });
+  }
+  return getWorkbookLessonConnectionOptions(input);
 }
 
 type SubjectiveEvaluation = {
