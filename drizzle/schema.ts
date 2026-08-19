@@ -669,6 +669,23 @@ export const lessonTheoryProgress = mysqlTable("lesson_theory_progress", {
 export type LessonTheoryProgress = typeof lessonTheoryProgress.$inferSelect;
 export type InsertLessonTheoryProgress = typeof lessonTheoryProgress.$inferInsert;
 
+// 관리자 지정 워크북 연결: 레슨별 추가 이론과 고정 기출문제를 자동 기준 또는 선택 목록으로 연결한다.
+export const workbookLessonConnections = mysqlTable("workbook_lesson_connections", {
+  id: int("id").autoincrement().primaryKey(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  lessonLevel: int("lessonLevel").notNull(),
+  lessonIndex: int("lessonIndex").notNull(),
+  connectionMode: mysqlEnum("connectionMode", ["automatic", "manual"]).default("automatic").notNull(),
+  theoryContentIdsJson: text("theoryContentIdsJson").notNull(),
+  workbookQuestionIdsJson: text("workbookQuestionIdsJson").notNull(),
+  updatedByUserId: int("updatedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type WorkbookLessonConnection = typeof workbookLessonConnections.$inferSelect;
+export type InsertWorkbookLessonConnection = typeof workbookLessonConnections.$inferInsert;
+
 // 학습도구 뱃지 테이블
 export const userBadges = mysqlTable("user_badges", {
   id: int("id").autoincrement().primaryKey(),

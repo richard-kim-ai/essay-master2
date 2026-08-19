@@ -639,6 +639,18 @@ export const appRouter = router({
       )
       .query(({ input }) => db.getCurriculumWorkbookQuestions(input.courseType, input.level, input.lessonIndex)),
 
+    getWorkbookLessonBundle: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        level: z.number().int().min(1).max(20),
+        lessonIndex: z.number().int().min(0).max(50),
+      }))
+      .query(({ input }) => db.getWorkbookLessonBundle({
+        courseType: input.courseType,
+        lessonLevel: input.level,
+        lessonIndex: input.lessonIndex,
+      })),
+
     submitWorkbookAnswer: protectedProcedure
       .input(
         z.object({
@@ -717,6 +729,25 @@ export const appRouter = router({
     setActive: adminProcedure
       .input(z.object({ id: z.number().int().positive(), isActive: z.boolean() }))
       .mutation(({ input }) => db.setTheoryContentActive(input.id, input.isActive)),
+
+    getLessonConnectionOptions: adminProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        lessonLevel: z.number().int().min(1).max(20),
+        lessonIndex: z.number().int().min(0).max(50),
+      }))
+      .query(({ input }) => db.getWorkbookLessonConnectionOptions(input)),
+
+    saveLessonConnection: adminProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        lessonLevel: z.number().int().min(1).max(20),
+        lessonIndex: z.number().int().min(0).max(50),
+        connectionMode: z.enum(["automatic", "manual"]),
+        theoryContentIds: z.array(z.number().int().positive()).max(20),
+        workbookQuestionIds: z.array(z.number().int().positive()).max(10),
+      }))
+      .mutation(({ ctx, input }) => db.saveWorkbookLessonConnection(ctx.user.id, input)),
 
     generatePreviews: adminProcedure
       .input(theoryGenerationInput)

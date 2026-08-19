@@ -41,6 +41,7 @@ import AdminCertificates from "@/pages/AdminCertificates";
 import AdminCurriculumManager from "@/pages/AdminCurriculumManager";
 import AdminQuestionBank from "@/pages/AdminQuestionBank";
 import AdminTheoryContent from "@/pages/AdminTheoryContent";
+import AdminLessonConnections from "@/pages/AdminLessonConnections";
 import AdminTermsManager from "@/pages/AdminTermsManager";
 import AdminAIGovernance from "@/pages/AdminAIGovernance";
 import AdminAcademicPermissions from "@/pages/AdminAcademicPermissions";
@@ -91,6 +92,13 @@ function Router() {
         {(params) => (
           <Layout>
             <AdminTheoryContent />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/lesson-connections"}>
+        {(params) => (
+          <Layout>
+            <AdminLessonConnections />
           </Layout>
         )}
       </Route>

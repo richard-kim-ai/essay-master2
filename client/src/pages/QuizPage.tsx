@@ -135,7 +135,7 @@ export default function QuizPage() {
       setDetailedFeedback(null);
     } else {
       setFinished(true);
-      const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} AI 퀴즈 마스터 뱃지`;
+      const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 문장 교정 마스터 뱃지`;
       try {
         await awardBadgeMutation.mutateAsync({ courseType, badgeType: "quiz", badgeName: bName });
         setEarnedBadgeName(bName);
@@ -211,7 +211,7 @@ export default function QuizPage() {
         <Card className="border-indigo-100 shadow-sm">
           <CardHeader>
             <div className="flex justify-between items-center text-sm font-semibold text-indigo-600 mb-2">
-              <span>AI 문장 교정 및 논증 퀴즈</span>
+              <span>문장 교정과 논증 연습</span>
               <span>문제 {currentIndex + 1} / {questions.length}</span>
             </div>
             <CardTitle className="text-xl font-bold text-slate-900">{currentQ.title}</CardTitle>
@@ -226,17 +226,17 @@ export default function QuizPage() {
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="font-bold text-slate-900">먼저 내 문장으로 고쳐 보기</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">제시문을 직접 다듬어 작성한 뒤, AI 비교 선택지를 열어 보세요.</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">제시문을 직접 다듬어 작성한 뒤, 비교 선택지로 자신의 문장을 살펴보세요.</p>
                 </div>
                 {optionsUnlocked && <span className="w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">작성 완료</span>}
               </div>
               <Textarea value={draftAnswer} disabled={submitted} onChange={(event) => { setDraftAnswer(event.target.value); setDetailedFeedback(null); if (optionsUnlocked) setOptionsUnlocked(false); }} placeholder="예: 불필요하게 반복된 표현을 줄이고, 핵심 주장이 선명하게 드러나도록 문장을 고쳐 보세요." className="mt-4 min-h-28 resize-y border-slate-300 bg-white text-slate-900 placeholder:text-slate-400" />
-              {!submitted && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end"><Button variant="outline" onClick={handleDetailedFeedback} disabled={draftAnswer.trim().length < 5 || detailedFeedbackMutation.isPending} className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"><Sparkles className="mr-2 h-4 w-4" />{detailedFeedbackMutation.isPending ? "피드백 분석 중" : "AI 맞춤 피드백 받기"}</Button><Button variant="outline" onClick={handleDraftComplete} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">작성 완료 · 선택지 비교하기</Button></div>}
+              {!submitted && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end"><Button variant="outline" onClick={handleDetailedFeedback} disabled={draftAnswer.trim().length < 5 || detailedFeedbackMutation.isPending} className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"><Sparkles className="mr-2 h-4 w-4" />{detailedFeedbackMutation.isPending ? "피드백 분석 중" : "맞춤 피드백 보기"}</Button><Button variant="outline" onClick={handleDraftComplete} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">작성 완료 후 선택지 보기</Button></div>}
               {detailedFeedback && <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 font-bold text-amber-950"><Sparkles className="h-4 w-4 text-amber-700" />내 문장 맞춤 피드백</div><span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-amber-800">종합 {detailedFeedback.overallScore}점</span></div><div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-white p-2 text-slate-700">경제성 <strong className="block text-slate-900">{detailedFeedback.economyScore}</strong></div><div className="rounded-lg bg-white p-2 text-slate-700">명료성 <strong className="block text-slate-900">{detailedFeedback.clarityScore}</strong></div><div className="rounded-lg bg-white p-2 text-slate-700">정확성 <strong className="block text-slate-900">{detailedFeedback.accuracyScore}</strong></div></div><p className="mt-3 text-sm leading-6 text-slate-800">{detailedFeedback.feedback}</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><p className="text-xs font-bold text-emerald-800">잘한 점</p><ul className="mt-1 space-y-1 text-sm text-slate-700">{detailedFeedback.strengths.map((item) => <li key={item}>• {item}</li>)}</ul></div><div><p className="text-xs font-bold text-rose-800">다음에 고칠 점</p><ul className="mt-1 space-y-1 text-sm text-slate-700">{detailedFeedback.improvements.map((item) => <li key={item}>• {item}</li>)}</ul></div></div><div className="mt-3 rounded-lg border border-amber-200 bg-white p-3"><p className="text-xs font-bold text-amber-800">개선 문장 예시</p><p className="mt-1 text-sm leading-6 text-slate-900">{detailedFeedback.revisedSentence}</p></div></section>}
             </section>
 
             {optionsUnlocked && <section className="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 sm:p-5">
-              <div><h3 className="font-bold text-slate-900">AI 비교 선택지</h3><p className="mt-1 text-sm leading-6 text-slate-600">내 문장과 비교한 뒤 가장 자연스럽고 정확한 교정문을 선택하세요.</p></div>
+              <div><h3 className="font-bold text-slate-900">비교 선택지</h3><p className="mt-1 text-sm leading-6 text-slate-600">내 문장과 비교한 뒤 가장 자연스럽고 정확한 교정문을 선택하세요.</p></div>
               {(parsedData.options || ["보기 1", "보기 2", "보기 3", "보기 4"]).map((opt: string, idx: number) => (
                 <button key={idx} disabled={submitted} onClick={() => setSelectedAnswer(opt)} className={`w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between ${selectedAnswer === opt ? "border-indigo-600 bg-white text-indigo-900 font-bold shadow-sm" : "border-slate-200 bg-white hover:border-indigo-300 text-slate-700"}`}>
                   <span>{opt}</span>{selectedAnswer === opt && <span className="w-3 h-3 rounded-full bg-indigo-600"></span>}

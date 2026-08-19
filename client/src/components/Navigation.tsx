@@ -51,8 +51,8 @@ const NAV_ITEMS: NavItem[] = [
       { label: "단락 재구성", href: "/paragraph-reordering", icon: FileText },
       { label: "요약 연습", href: "/summary-practice", icon: BookOpen },
       { label: "오답 노트", href: "/mistake-notebook", icon: BarChart3 },
-      { label: "주제 설정 위저드", href: "/topic-wizard", icon: BookOpen },
-      { label: "주제문 체크리스트", href: "/thesis-checklist", icon: FileText },
+      { label: "주제 설정", href: "/topic-wizard", icon: BookOpen },
+      { label: "주제문 점검", href: "/thesis-checklist", icon: FileText },
     ],
   },
 ];
