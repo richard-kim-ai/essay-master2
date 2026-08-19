@@ -97,9 +97,3 @@ TypeScript 기반 IELTS/general English writing grader다. OpenAI 또는 호환 
 4. UX 확장: IELTS/general writing rubrics and highlights
 
 이 repository는 위 네 단계를 한 엔진 안에서 모듈화한다.
-
-## 운영상 주의점
-
-장문 예시가 곧 정답처럼 작동하면 글쓰기 능력보다 분량과 형식 모방이 높은 점수를 받는다. 따라서 엔진은 길이 자체를 직접 보상하지 않고, 근거의 관련성·문단 기능·반론 처리·결론의 재구성 여부를 기준으로 점수를 나누어야 한다.
-
-패턴 답안 추론을 막기 위해 같은 문항에서 항상 같은 순서로 장점/단점/결론을 요구하지 않는다. 평가 결과에도 `questionRestatementScore`, 반복 표현, 근거 표지의 빈약함을 risk finding으로 남기고, 일정 기준 이상이면 사람 검수 큐로 보낸다.
