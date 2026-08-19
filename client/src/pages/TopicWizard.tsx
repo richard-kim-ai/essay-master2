@@ -35,6 +35,7 @@ export default function TopicWizard() {
 
   const update = (field: keyof TopicData, value: string) => setData((previous) => ({ ...previous, [field]: value }));
   const currentStep = STEP_COPY[step];
+  const inProgressPercent = Math.round(((step - 1) / 4) * 100);
 
   const validateCurrentStep = () => {
     const field: Record<Step, keyof TopicData> = { 1: "category", 2: "topic", 3: "mainIdea", 4: "outline" };
@@ -89,6 +90,7 @@ export default function TopicWizard() {
               <div className="flex gap-3"><div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700"><ClipboardCheck className="h-7 w-7" /></div><div><Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{courseLabel} 과정</Badge><h1 className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">주제 설정이 완료되었습니다</h1><p className="mt-2 text-sm leading-6 text-slate-600">작성한 내용을 한 화면에서 검토하고, 다음 글쓰기 단계에 사용할 수 있도록 복사하세요.</p></div></div>
               <Button onClick={copyResult} className="bg-emerald-700 hover:bg-emerald-800"><Copy className="mr-2 h-4 w-4" />결과 복사</Button>
             </div>
+            <div className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50 p-4"><div className="flex items-center justify-between text-sm font-semibold text-emerald-900"><span>주제 설정 진도</span><span>100%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-emerald-100"><div className="h-full w-full rounded-full bg-emerald-600" /></div></div>
           </Card>
           <div className="grid gap-4 sm:grid-cols-2">
             {([['카테고리', data.category], ['주제', data.topic], ['주제문', data.mainIdea], ['개요', data.outline]] as const).map(([label, value]) => <Card key={label} className="border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">{label}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-800">{value}</p></Card>)}
@@ -103,7 +105,7 @@ export default function TopicWizard() {
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8 sm:px-6 lg:px-8">
       <main className="mx-auto max-w-3xl">
         <header className="mb-6"><Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{courseLabel} 과정</Badge><h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">주제 설정 위저드</h1><p className="mt-2 text-base leading-7 text-slate-600">질문에 차례로 답하며 논술의 출발점인 주제·주제문·개요를 완성하세요.</p></header>
-        <Card className="mb-5 border-slate-200 bg-white p-5 shadow-sm"><div className="flex justify-between text-sm font-semibold text-slate-700"><span>단계 {step} / 4</span><span>{Math.round((step / 4) * 100)}%</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600 transition-[width] duration-200" style={{ width: `${(step / 4) * 100}%` }} /></div></Card>
+        <Card className="mb-5 border-slate-200 bg-white p-5 shadow-sm"><div className="flex justify-between text-sm font-semibold text-slate-700"><span>단계 {step} / 4</span><span>{inProgressPercent}%</span></div><p className="mt-1 text-xs text-slate-500">첫 선택 전에는 0%이며, 마지막 완료 결과에서 100%가 됩니다.</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600 transition-[width] duration-200" style={{ width: `${inProgressPercent}%` }} /></div></Card>
         <Card className="border-slate-200 bg-white p-5 shadow-sm sm:p-8">
           <h2 className="text-2xl font-bold text-slate-900">{`Step ${step}. ${currentStep.title}`}</h2><p className="mt-2 text-sm leading-6 text-slate-600">{currentStep.description}</p>
           {step === 1 && <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">{CATEGORIES.map((category) => <Button key={category} variant={data.category === category ? "default" : "outline"} onClick={() => update("category", category)} className={data.category === category ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800 hover:text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900"}>{category}</Button>)}</div>}

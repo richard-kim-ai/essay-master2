@@ -16,7 +16,17 @@ if (typeof window !== "undefined" && "serviceWorker" in navigator) {
   });
 }
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // 화면 왕복·포커스 전환마다 같은 DB 조회를 반복하지 않고, 변경 성공 시의 명시적 invalidate만 반영합니다.
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;

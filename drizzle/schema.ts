@@ -374,6 +374,25 @@ export const quizAnswer = mysqlTable("quiz_answer", {
 export type QuizAnswer = typeof quizAnswer.$inferSelect;
 export type InsertQuizAnswer = typeof quizAnswer.$inferInsert;
 
+// 학습자가 명시적으로 요청한 문장 맞춤 피드백을 재사용하여 동일 문장의 AI 재호출을 줄입니다.
+export const sentenceFeedbackCache = mysqlTable("sentence_feedback_cache", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  quizId: int("quizId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]).notNull(),
+  requestHash: varchar("requestHash", { length: 64 }).notNull().unique(),
+  sourceSentence: text("sourceSentence").notNull(),
+  studentSentence: text("studentSentence").notNull(),
+  feedbackJson: text("feedbackJson").notNull(),
+  modelId: varchar("modelId", { length: 128 }),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SentenceFeedbackCache = typeof sentenceFeedbackCache.$inferSelect;
+export type InsertSentenceFeedbackCache = typeof sentenceFeedbackCache.$inferInsert;
+
 // 서버가 검증한 학습 도구 수행 결과만 뱃지 수여 근거로 사용합니다.
 export const learningToolAttempts = mysqlTable("learning_tool_attempts", {
   id: int("id").autoincrement().primaryKey(),

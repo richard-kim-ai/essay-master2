@@ -82,6 +82,15 @@ describe("appRouter", () => {
     });
   });
 
+  describe("sentence feedback", () => {
+    it("관리자 계정은 학습자용 문장 맞춤 피드백 엔진을 호출할 수 없다", async () => {
+      const ctx = createMockContext();
+      ctx.user = { ...ctx.user!, role: "admin" };
+      const caller = appRouter.createCaller(ctx);
+      await expect(caller.quiz.getDetailedSentenceFeedback({ quizId: 1, studentSentence: "학생이 직접 고쳐 쓴 문장입니다." })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
   describe("difficulty operation preset", () => {
     it("일반 사용자는 전체 과정의 난이도 운영 프리셋을 변경할 수 없다", async () => {
       const caller = appRouter.createCaller(createMockContext());
