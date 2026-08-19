@@ -44,6 +44,39 @@ function parseCsvRows(text: string) {
   return rows;
 }
 
+const manualReviewChecks = [
+  { key: "answer_is_not_length_based", label: "정답이 길이로 드러나지 않음" },
+  { key: "answer_position_varied", label: "정답 위치 패턴 없음" },
+  { key: "distractors_are_plausible", label: "오답 선택지도 그럴듯함" },
+  { key: "single_best_answer_confirmed", label: "정답/평가기준이 하나로 명확함" },
+  { key: "no_pattern_guessing", label: "표현 패턴만으로 추론 불가" },
+  { key: "content_matches_theory", label: "이론·난이도·도구 목적 일치" },
+] as const;
+
+function parseContentData(contentData: string) {
+  try {
+    return JSON.parse(contentData);
+  } catch {
+    return {};
+  }
+}
+
+function stringifyContentData(content: any) {
+  return JSON.stringify(content, null, 2);
+}
+
+function itemReviewState(item: any) {
+  const content = parseContentData(item.contentData);
+  const checklist = content.human_review?.checklist || {};
+  const checkedCount = manualReviewChecks.filter(check => checklist[check.key] === true).length;
+  return {
+    content,
+    checklist,
+    checkedCount,
+    isComplete: content.human_review?.overall_passed === true && checkedCount === manualReviewChecks.length,
+  };
+}
+
 export default function AdminQuestionBank() {
   const { user } = useAuth();
   const [courseFilter, setCourseFilter] = useState<string>("all");
@@ -165,9 +198,9 @@ export default function AdminQuestionBank() {
 
   const handleApprovePreview = async () => {
     try {
-      const approvedItems = previewItems.filter(item => item.qaStatus !== "blocked");
+      const approvedItems = previewItems.filter(item => item.qaStatus !== "blocked" && itemReviewState(item).isComplete);
       if (approvedItems.length === 0) {
-        toast.error("승인 가능한 문항이 없습니다. QA 차단 사유를 수정한 뒤 다시 승인해주세요.");
+        toast.error("승인 가능한 문항이 없습니다. QA 차단 사유를 수정하고 수기 검수를 완료해주세요.");
         return;
       }
       await bulkCreateMutation.mutateAsync({ items: approvedItems });
@@ -184,8 +217,8 @@ export default function AdminQuestionBank() {
   const handleApprovePreviewItem = async (idx: number) => {
     try {
       const item = previewItems[idx];
-      if (!item || item.qaStatus === "blocked") {
-        toast.error("QA에서 차단된 문항입니다. 본문을 수정한 뒤 전체 승인 흐름으로 반영해주세요.");
+      if (!item || item.qaStatus === "blocked" || !itemReviewState(item).isComplete) {
+        toast.error("QA 통과와 수기 검수 완료가 필요합니다.");
         return;
       }
       await createMutation.mutateAsync(item);
@@ -198,6 +231,83 @@ export default function AdminQuestionBank() {
     } catch (err) {
       toast.error("선택 문항 승인 중 오류가 발생했습니다.");
     }
+  };
+
+  const updatePreviewItemContent = (idx: number, updater: (content: any) => any) => {
+    const updated = [...previewItems];
+    const current = parseContentData(updated[idx]?.contentData || "{}");
+    const nextContent = updater(current);
+    const nextIssues = (updated[idx]?.qaIssues || []).filter((issue: string) => issue !== "human_review_required");
+    updated[idx] = {
+      ...updated[idx],
+      contentData: stringifyContentData(nextContent),
+      qaIssues: nextIssues,
+      qaStatus: nextIssues.length === 0 ? "passed" : updated[idx]?.qaStatus,
+    };
+    setPreviewItems(updated);
+  };
+
+  const updateManualReviewCheck = (idx: number, key: string, checked: boolean) => {
+    updatePreviewItemContent(idx, content => {
+      const checklist = {
+        ...(content.human_review?.checklist || {}),
+        [key]: checked,
+      };
+      const overallPassed = manualReviewChecks.every(check => checklist[check.key] === true);
+      return {
+        ...content,
+        generation_origin: content.generation_origin || "ai_generated",
+        human_review: {
+          ...(content.human_review || {}),
+          status: overallPassed ? "passed" : "pending",
+          checklist,
+          overall_passed: overallPassed,
+          reviewed_at: overallPassed ? new Date().toISOString() : content.human_review?.reviewed_at,
+        },
+      };
+    });
+  };
+
+  const markItemManualReviewPassed = (idx: number) => {
+    updatePreviewItemContent(idx, content => {
+      const checklist = Object.fromEntries(manualReviewChecks.map(check => [check.key, true]));
+      return {
+        ...content,
+        generation_origin: content.generation_origin || "ai_generated",
+        human_review: {
+          ...(content.human_review || {}),
+          status: "passed",
+          checklist,
+          overall_passed: true,
+          reviewed_at: new Date().toISOString(),
+        },
+      };
+    });
+  };
+
+  const markAllManualReviewPassed = () => {
+    const checklist = Object.fromEntries(manualReviewChecks.map(check => [check.key, true]));
+    setPreviewItems(previewItems.map(item => {
+      const content = parseContentData(item.contentData || "{}");
+      const nextIssues = (item.qaIssues || []).filter((issue: string) => issue !== "human_review_required");
+      return {
+        ...item,
+        contentData: stringifyContentData({
+          ...content,
+          generation_origin: content.generation_origin || "ai_generated",
+          human_review: {
+            ...(content.human_review || {}),
+            status: "passed",
+            checklist,
+            overall_passed: true,
+            reviewed_at: new Date().toISOString(),
+          },
+        }),
+        qaIssues: nextIssues,
+        qaStatus: nextIssues.length === 0 ? "passed" : item.qaStatus,
+      };
+    }));
+    toast.success("전체 문항의 수기 검수 체크가 통과 처리되었습니다.");
   };
 
   const handleDownloadCSV = () => {
@@ -530,7 +640,10 @@ export default function AdminQuestionBank() {
             </DialogHeader>
 
             <div className="space-y-6 py-4">
-              {previewItems.map((item, idx) => (
+              {previewItems.map((item, idx) => {
+                const reviewState = itemReviewState(item);
+                const nonReviewIssues = (item.qaIssues || []).filter((issue: string) => issue !== "human_review_required");
+                return (
                 <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -539,6 +652,9 @@ export default function AdminQuestionBank() {
                       </span>
                       <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${item.qaStatus === "blocked" ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
                         {item.qaStatus === "blocked" ? "QA 차단" : "QA 통과"}
+                      </span>
+                      <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${reviewState.isComplete ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                        수기 {reviewState.checkedCount}/{manualReviewChecks.length}
                       </span>
                     </div>
                     <select
@@ -563,6 +679,44 @@ export default function AdminQuestionBank() {
                       차단 사유: {(item.qaIssues || []).join(", ") || "품질 기준 미달"}
                     </div>
                   )}
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-bold text-slate-800">사람 검수 체크리스트</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          자동 QA 통과 후, 패턴 추론·정답 길이·오답 품질을 직접 확인해야 저장됩니다.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => markItemManualReviewPassed(idx)}
+                        className="h-8 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                      >
+                        이 문항 전체 통과
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {manualReviewChecks.map(check => (
+                        <label key={check.key} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs font-medium text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={reviewState.checklist[check.key] === true}
+                            onChange={e => updateManualReviewCheck(idx, check.key, e.target.checked)}
+                            className="h-3.5 w-3.5 accent-indigo-600"
+                          />
+                          {check.label}
+                        </label>
+                      ))}
+                    </div>
+                    {nonReviewIssues.length > 0 && (
+                      <p className="text-[11px] font-medium text-rose-600">
+                        수기 검수 전에 자동 QA 차단 사유를 먼저 수정해야 합니다: {nonReviewIssues.join(", ")}
+                      </p>
+                    )}
+                  </div>
 
                   <div>
                     <label className="text-xs font-bold text-slate-700 mb-1 block">문항 제목</label>
@@ -599,7 +753,7 @@ export default function AdminQuestionBank() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={item.qaStatus === "blocked"}
+                      disabled={item.qaStatus === "blocked" || !reviewState.isComplete}
                       onClick={() => handleApprovePreviewItem(idx)}
                       className="h-8 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                     >
@@ -607,11 +761,15 @@ export default function AdminQuestionBank() {
                     </Button>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>취소</Button>
+              <Button variant="outline" onClick={markAllManualReviewPassed} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+                전체 수기검수 통과
+              </Button>
               <Button onClick={handleApprovePreview} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
                 <CheckCircle className="w-4 h-4" /> 검토 완료 및 문제은행 최종 승인 반영
               </Button>

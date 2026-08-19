@@ -32,9 +32,9 @@ function content(course: keyof typeof COURSE_MAP, tool_type: keyof typeof TOOL_T
     choices: tool_type === "QUIZ"
       ? [
           "공동 규칙은 편의와 학습권을 함께 고려해야 한다.",
-          "휴대전화는 언제나 금지해야 한다.",
-          "휴대전화는 언제나 허용해야 한다.",
-          "규칙은 중요하다는 생각이 든다.",
+          "공동 규칙은 사용 자유만 우선해 정해야 한다.",
+          "공동 규칙은 수업 통제만 기준으로 정해야 한다.",
+          "공동 규칙은 학생 의견 없이 빠르게 정해야 한다.",
         ]
       : [],
     correct_answer: "공동 규칙은 편의와 학습권을 함께 고려해야 한다.",
@@ -45,6 +45,19 @@ function content(course: keyof typeof COURSE_MAP, tool_type: keyof typeof TOOL_T
     evaluation_criteria: { 핵심보존: "주요 쟁점을 유지한다." },
     keywords: ["휴대전화", "학습권", "주제문"],
     estimated_time: 180,
+    generation_origin: "ai_generated",
+    human_review: {
+      status: "passed",
+      checklist: {
+        answer_is_not_length_based: true,
+        answer_position_varied: true,
+        distractors_are_plausible: true,
+        single_best_answer_confirmed: true,
+        no_pattern_guessing: true,
+        content_matches_theory: true,
+      },
+      overall_passed: true,
+    },
     ...overrides,
   };
 }
@@ -106,7 +119,7 @@ describe("question generation service", () => {
     )).rejects.toThrow();
   });
 
-  it("blocks placeholder, multiple-answer, and duplicate items in QA", () => {
+  it("blocks placeholder, multiple-answer, duplicate, missing review, and answer-pattern items in QA", () => {
     const validDto = {
       courseType: "middle_high" as const,
       toolType: "quiz",
@@ -134,6 +147,48 @@ describe("question generation service", () => {
     }).issues).toContain("quiz_single_answer_failed");
 
     expect(qaQuestionItem(validDto, [{ title: validDto.title, contentData: validDto.contentData }]).issues).toContain("duplicate_blocked");
+
+    expect(qaQuestionItem({
+      ...validDto,
+      contentData: JSON.stringify(content("MIDDLE_HIGH", "QUIZ", {
+        human_review: { status: "pending", checklist: {}, overall_passed: false },
+      })),
+    }).issues).toContain("human_review_required");
+
+    expect(qaQuestionItem({
+      ...validDto,
+      contentData: JSON.stringify(content("MIDDLE_HIGH", "QUIZ", {
+        choices: [
+          "휴대전화 금지",
+          "항상 허용",
+          "규칙은 필요",
+          "학교 안 휴대전화 사용 규칙은 정보 검색의 편의와 수업 집중이라는 학습권을 함께 고려해 정해야 한다.",
+        ],
+        correct_answer: "학교 안 휴대전화 사용 규칙은 정보 검색의 편의와 수업 집중이라는 학습권을 함께 고려해 정해야 한다.",
+      })),
+    }).issues).toContain("choice_length_bias");
+  });
+
+  it("blocks repeated correct-answer positions across a generated quiz batch", () => {
+    const mapped = mapGeneratedItemsToQuestionBank(
+      {
+        items: [1, 2, 3].map(index => ({
+          title: `휴대전화 사용 규칙 퀴즈 ${index}`,
+          contentData: content("MIDDLE_HIGH", "QUIZ", {
+            choices: [
+              "공동 규칙은 편의와 학습권을 함께 고려해야 한다.",
+              "휴대전화는 언제나 금지해야 한다.",
+              "휴대전화는 언제나 허용해야 한다.",
+              "규칙은 중요하다는 생각이 든다.",
+            ],
+            correct_answer: "공동 규칙은 편의와 학습권을 함께 고려해야 한다.",
+          }),
+        })),
+      },
+      { course: "MIDDLE_HIGH", tool_type: "QUIZ", theory_category: "A03", difficulty: 3, question_count: 3, topic: "AUTO" },
+    );
+
+    expect(mapped.every(item => item.qaIssues?.includes("answer_position_pattern"))).toBe(true);
   });
 
   it("resolves AUTO difficulty from recent correct-rate data or course defaults", () => {
@@ -158,4 +213,3 @@ describe("question generation service", () => {
     expect(adminSource).toContain("bulkCreateMutation");
   });
 });
-

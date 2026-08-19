@@ -213,13 +213,15 @@
 - [x] Vitest 단위 테스트 및 빌드 검증 완료
 
 ## 2026-08 추가 요청: 문제 생성 엔진 Master/User Prompt 분리 및 공통 generation service 구축
-- [x] `server/questionGeneration.ts`에 버전 관리 Master Prompt(`2026-08-18-taxonomy-a-f-v1`)와 짧은 구조화 User Prompt 조립 로직 구축
+- [x] `server/questionGeneration.ts`에 버전 관리 Master Prompt(`2026-08-19-taxonomy-a-f-human-review-v2`)와 짧은 구조화 User Prompt 조립 로직 구축
 - [x] 교육 이론 taxonomy A~F, 4개 과정, 5개 학습 도구, difficulty 1~5/AUTO, 난이도 metrics, QA 검증, 중복 방지, 적응형 난이도 규칙 구현
 - [x] 기존 `question_bank` CSV/DB 컬럼과 호환되도록 `easy|medium|hard` 컬럼은 유지하고 상세 난이도·metrics는 `contentData` JSON에 저장
 - [x] 관리자 AI 생성, CSV 대량 승인, 자동 난이도 조절 흐름이 동일한 generation service 및 QA 검증을 사용하도록 통합
 - [x] 관리자 화면에 과정/도구/이론/난이도/문항수/topic 선택, 생성→미리보기→수정→개별/일괄 승인 기능 연결
 - [x] JSON schema 파싱 실패, placeholder/복수정답/중복 차단, AUTO 난이도, CSV import/export 검증 테스트 추가
 - [x] `docs/question-bank-master-prompt.md`에 API 호출 예시, 환경/운영 흐름, 저장 DTO 매핑 문서화
+- [x] AI 생성 문항에 사람 검수 체크리스트(`human_review`)를 필수화하고 개별/일괄 수기검수 통과 후 저장되도록 승인 흐름 보강
+- [x] 객관식 정답 길이 편향, 선택지 길이 분산, 배치 내 정답 위치 반복 패턴을 자동 QA에서 차단하도록 개선
 
 ## 2026-08 추가 요청: 교재 연동 이론학습 콘텐츠 데이터 구축
 - [x] `question_bank`와 별개인 `lesson_theory_content` 스키마 및 `contentScope=THEORY_LESSON` 분리 구조 구축
@@ -229,3 +231,13 @@
 - [x] 워크북 화면이 이론학습 데이터를 우선 렌더링하고 기존 하드코딩 워크북은 fallback으로 유지하도록 연결
 - [x] 원격 DB 시드 반영 완료: 과정별 12개씩 총 48개
 - [x] TypeScript 타입 검사, 전체 Vitest 회귀 테스트, 프로덕션 빌드 검증 완료
+
+## 2026-08 추가 요청: AI 논술 평가 엔진 및 자동첨삭 모델 모듈화
+- [x] `essay-evaluation-engine` 별도 패키지 구조 생성 및 독립 TypeScript/Vitest 설정 구축
+- [x] 한국어 논술 기본 루브릭, 한국어 AES 8항목 루브릭, IELTS writing 루브릭을 공통 타입으로 정의
+- [x] rule baseline, LLM rubric provider, model server provider, self-consistency, calibration 모듈 구조 구현
+- [x] AIHub 글 평가 데이터 매핑/정규화 유틸리티와 raw data 미저장 운영 원칙 문서화
+- [x] 국내외 참고 모델(`korean-essay-rater`, LoRA/KoBERT/IELTS 계열 등)을 모델 레지스트리로 분리
+- [x] 장문 예시 의존, 패턴 답안 추론, 낮은 confidence, 모델 간 점수 충돌을 사람 검수 큐로 보내는 운영 검수 원칙 반영
+- [x] 연구 분석, 엔진 아키텍처, AIHub 데이터 적용 계획 문서화
+- [x] 독립 타입 검사 및 엔진 단위 테스트 통과

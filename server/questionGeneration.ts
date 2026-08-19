@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { invokeLLM } from "./_core/llm";
 
-export const QUESTION_BANK_MASTER_PROMPT_VERSION = "2026-08-18-taxonomy-a-f-v1";
+export const QUESTION_BANK_MASTER_PROMPT_VERSION = "2026-08-19-taxonomy-a-f-human-review-v2";
 
 export const COURSE_MAP = {
   ELEMENTARY: { db: "elementary", label: "초등", defaultDifficulty: 2 },
@@ -99,6 +99,15 @@ export type QuestionBankDTO = {
   duplicateScore?: number;
 };
 
+const HUMAN_REVIEW_ITEMS = [
+  "answer_is_not_length_based",
+  "answer_position_varied",
+  "distractors_are_plausible",
+  "single_best_answer_confirmed",
+  "no_pattern_guessing",
+  "content_matches_theory",
+] as const;
+
 export type AdaptiveStats = {
   courseType: string;
   toolType?: string;
@@ -126,6 +135,8 @@ The System/Master Prompt is the single source of truth. The User Prompt must be 
 6. Do not repeat the same pattern, passage, wrong answer, explanation, or topic with trivial substitutions.
 7. For debatable topics, evaluate writing principles and logical validity. Do not force one ideology as the only correct view.
 8. Avoid current-events facts whose truth may change.
+9. Quiz answers must not be inferable from superficial patterns. The correct choice must not always be the longest, most formal, most detailed, first, or last option.
+10. Within a batch, vary the correct-answer position and choice wording style. Distractors should be similar in length and specificity to the answer.
 
 ## Taxonomy A-F
 
@@ -192,6 +203,8 @@ Block internally and regenerate any item that:
 - contains placeholder wording or "문항 #", "보기 1: 올바른 문장 구조", "실전 학습 문항입니다".
 - has no real passage/question.
 - has multiple correct answers in a single-best quiz.
+- makes the correct answer noticeably longer, more specific, or more polished than all distractors.
+- repeats the correct-answer position across the generated batch.
 - lacks answer/scoring criteria or explanation.
 - has mismatched course/tool/theory/difficulty.
 - duplicates recent item topic, structure, or wording.
@@ -224,6 +237,20 @@ Return JSON object only, no markdown:
         "keywords": [],
         "estimated_time": 180,
         "quality_checks": {},
+        "generation_origin": "ai_generated",
+        "human_review": {
+          "status": "pending",
+          "checklist": {
+            "answer_is_not_length_based": false,
+            "answer_position_varied": false,
+            "distractors_are_plausible": false,
+            "single_best_answer_confirmed": false,
+            "no_pattern_guessing": false,
+            "content_matches_theory": false
+          },
+          "overall_passed": false,
+          "reviewer_note": ""
+        },
         "master_prompt_version": "${QUESTION_BANK_MASTER_PROMPT_VERSION}"
       }
     }
@@ -336,6 +363,7 @@ function normalizeContentData(input: unknown, request: GenerationRequest, resolv
     course,
     tool_type: tool,
     difficulty: Number((content as { difficulty?: unknown })?.difficulty ?? resolvedDifficulty),
+    generation_origin: (content as { generation_origin?: unknown })?.generation_origin ?? "ai_generated",
     master_prompt_version: QUESTION_BANK_MASTER_PROMPT_VERSION,
   };
 
@@ -373,6 +401,48 @@ function similarity(a: string, b: string) {
   return intersection / union;
 }
 
+function answerIndex(content: { choices?: unknown; correct_answer?: unknown }) {
+  if (!Array.isArray(content.choices) || typeof content.correct_answer !== "string") return -1;
+  return content.choices.findIndex((choice: unknown) => normalizeText(choice) === normalizeText(content.correct_answer));
+}
+
+function quizChoiceLengthIssues(content: { choices?: unknown; correct_answer?: unknown }) {
+  if (!Array.isArray(content.choices) || typeof content.correct_answer !== "string") return [];
+  const choices = content.choices.map(choice => String(choice ?? ""));
+  const index = answerIndex({ choices, correct_answer: content.correct_answer });
+  if (index < 0) return [];
+
+  const lengths = choices.map(choice => normalizeText(choice).length);
+  const correctLength = lengths[index];
+  const distractorLengths = lengths.filter((_, choiceIndex) => choiceIndex !== index);
+  const avgDistractorLength = distractorLengths.reduce((sum, value) => sum + value, 0) / Math.max(1, distractorLengths.length);
+  const maxDistractorLength = Math.max(0, ...distractorLengths);
+  const minDistractorLength = Math.min(...lengths);
+  const maxLength = Math.max(...lengths);
+  const issues: string[] = [];
+
+  if (correctLength === maxLength && correctLength >= avgDistractorLength * 1.35 && correctLength - maxDistractorLength >= 8) {
+    issues.push("choice_length_bias");
+  }
+  if (maxLength - minDistractorLength >= 45) {
+    issues.push("choice_length_variance_high");
+  }
+  return issues;
+}
+
+function hasHumanReviewPassed(content: {
+  generation_origin?: unknown;
+  human_review?: {
+    overall_passed?: unknown;
+    checklist?: Record<string, unknown>;
+  };
+}) {
+  if (content.generation_origin !== "ai_generated") return true;
+  const checklist = content.human_review?.checklist ?? {};
+  return content.human_review?.overall_passed === true
+    && HUMAN_REVIEW_ITEMS.every(item => checklist[item] === true);
+}
+
 export function qaQuestionItem(item: QuestionBankDTO, existingItems: Array<{ title: string; contentData: string }> = []) {
   const issues: string[] = [];
   const content = parseJsonObject(item.contentData);
@@ -400,7 +470,9 @@ export function qaQuestionItem(item: QuestionBankDTO, existingItems: Array<{ tit
   if (content.tool_type === "QUIZ" && content.correct_answer && Array.isArray(content.choices)) {
     const correctCount = content.choices.filter((choice: string) => normalizeText(choice) === normalizeText(content.correct_answer)).length;
     if (correctCount !== 1) issues.push("quiz_single_answer_failed");
+    issues.push(...quizChoiceLengthIssues(content));
   }
+  if (!hasHumanReviewPassed(content)) issues.push("human_review_required");
 
   const duplicateScore = Math.max(
     0,
@@ -431,8 +503,7 @@ export function mapGeneratedItemsToQuestionBank(
   const tool = normalizeToolType(request.tool_type);
   const resolvedDifficulty = resolveAdaptiveDifficulty(request, stats);
   const parsed = llmGenerationResponseSchema.parse(Array.isArray(raw) ? { items: raw } : raw);
-
-  return parsed.items.map(item => {
+  const mapped = parsed.items.map(item => {
     const contentData = normalizeContentData(item.contentData, request, resolvedDifficulty);
     const level = Number(contentData.difficulty);
     const dto: QuestionBankDTO = {
@@ -450,6 +521,26 @@ export function mapGeneratedItemsToQuestionBank(
       qaIssues: qa.issues,
       duplicateScore: qa.duplicateScore,
     };
+  });
+
+  const quizAnswerIndexes = mapped
+    .map(item => {
+      try {
+        return answerIndex(parseJsonObject(item.contentData));
+      } catch {
+        return -1;
+      }
+    })
+    .filter(index => index >= 0);
+
+  const hasBatchPositionPattern = quizAnswerIndexes.length >= 3 && new Set(quizAnswerIndexes).size === 1;
+  if (!hasBatchPositionPattern) return mapped;
+
+  return mapped.map(item => {
+    const content = parseJsonObject(item.contentData);
+    if (content.tool_type !== "QUIZ") return item;
+    const issues = Array.from(new Set([...(item.qaIssues ?? []), "answer_position_pattern"]));
+    return { ...item, qaStatus: "blocked" as const, qaIssues: issues };
   });
 }
 
