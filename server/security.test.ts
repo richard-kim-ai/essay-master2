@@ -10,6 +10,16 @@ describe("관리자 비공개 설정 보안", () => {
     expect(decryptSecret(encryptSecret(original))).toBe(original);
   });
 
+  it("같은 API 키도 매번 다른 암호문으로 저장하며 평문을 포함하지 않는다", () => {
+    const original = "evaluation-provider-test-key";
+    const first = encryptSecret(original);
+    const second = encryptSecret(original);
+    expect(first).not.toContain(original);
+    expect(second).not.toContain(original);
+    expect(first).not.toBe(second);
+    expect(first.split(".")).toHaveLength(3);
+  });
+
   it("잘못된 암호문을 거부한다", () => {
     expect(() => decryptSecret("invalid-value")).toThrow();
   });

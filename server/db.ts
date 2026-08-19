@@ -13,6 +13,11 @@ import {
   teacherFeedback,
   feedbackComment,
   aiAutoFeedback,
+  evaluationModelConfigs,
+  writingEvaluationRecords,
+  evaluationModelOperations,
+  evaluationReviewQueue,
+  evaluationAppeals,
   socialProviderConfig,
   appSecretConfig,
   pushSubscription,
@@ -953,6 +958,150 @@ export async function createAIAutoFeedback(input: {
 
   const [result] = await db.insert(aiAutoFeedback).values(input);
   return result;
+}
+
+// ========== Commercial Writing Evaluation Operations ==========
+
+export async function getActiveEvaluationModelConfig() {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [config] = await db.select().from(evaluationModelConfigs).where(eq(evaluationModelConfigs.isActive, 1)).orderBy(desc(evaluationModelConfigs.updatedAt)).limit(1);
+  return config;
+}
+
+export async function listEvaluationModelConfigs() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(evaluationModelConfigs).orderBy(desc(evaluationModelConfigs.updatedAt));
+}
+
+export async function saveEvaluationModelConfig(input: {
+  modelId: string;
+  endpoint: string;
+  allowedDomainsJson: string;
+  encryptedApiKey: string;
+  timeoutMs: number;
+  isActive: number;
+  createdBy: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  if (input.isActive === 1) await db.update(evaluationModelConfigs).set({ isActive: 0 });
+  const [result] = await db.insert(evaluationModelConfigs).values(input);
+  return result;
+}
+
+export async function createWritingEvaluationRecord(input: {
+  userId: number;
+  feedbackId?: number | null;
+  modelId: string;
+  correctionStatus: "completed" | "fallback" | "failed";
+  fallbackUsed: number;
+  providerError?: string | null;
+  latencyMs: number;
+  tokenUsage: number;
+  estimatedCostMicrousd: number;
+  confidence?: string | null;
+  heuristicOverallScore?: number | null;
+  modelOverallScore?: number | null;
+  sourceVerificationFailed?: number;
+  resultJson: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [result] = await db.insert(writingEvaluationRecords).values(input);
+  return result;
+}
+
+export async function getWritingEvaluationRecord(recordId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [record] = await db.select().from(writingEvaluationRecords).where(eq(writingEvaluationRecords.id, recordId)).limit(1);
+  return record;
+}
+
+export async function createEvaluationModelOperation(input: {
+  modelId: string;
+  status: "completed" | "fallback" | "failed";
+  latencyMs: number;
+  tokenUsage: number;
+  estimatedCostMicrousd: number;
+  errorSummary?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(evaluationModelOperations).values(input);
+}
+
+export async function getEvaluationModelOperationStats() {
+  const db = await getDb();
+  if (!db) return [];
+  const operations = await db.select().from(evaluationModelOperations);
+  const grouped = new Map<string, { modelId: string; requestCount: number; completedCount: number; fallbackCount: number; failedCount: number; totalLatency: number; totalTokens: number; estimatedCostMicrousd: number; latestError: string | null }>();
+  for (const operation of operations) {
+    const item = grouped.get(operation.modelId) || { modelId: operation.modelId, requestCount: 0, completedCount: 0, fallbackCount: 0, failedCount: 0, totalLatency: 0, totalTokens: 0, estimatedCostMicrousd: 0, latestError: null };
+    item.requestCount += 1;
+    item.totalLatency += operation.latencyMs || 0;
+    item.totalTokens += operation.tokenUsage || 0;
+    item.estimatedCostMicrousd += operation.estimatedCostMicrousd || 0;
+    if (operation.status === "completed") item.completedCount += 1;
+    if (operation.status === "fallback") item.fallbackCount += 1;
+    if (operation.status === "failed") item.failedCount += 1;
+    if (operation.errorSummary) item.latestError = operation.errorSummary;
+    grouped.set(operation.modelId, item);
+  }
+  return Array.from(grouped.values()).map((item) => ({ ...item, averageLatencyMs: item.requestCount ? Math.round(item.totalLatency / item.requestCount) : 0 }));
+}
+
+export async function createEvaluationReviewQueueItem(input: { evaluationRecordId: number; userId: number; reasonsJson: string }) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(evaluationReviewQueue).values(input);
+}
+
+export async function listEvaluationReviewQueue() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(evaluationReviewQueue).orderBy(desc(evaluationReviewQueue.createdAt));
+}
+
+export async function updateEvaluationReviewQueueItem(input: { id: number; status: "open" | "reviewing" | "resolved"; assignedAdminId?: number | null; resolutionNote?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(evaluationReviewQueue).where(eq(evaluationReviewQueue.id, input.id));
+  const { id, ...values } = input;
+  await db.update(evaluationReviewQueue).set({ ...values, resolvedAt: input.status === "resolved" ? new Date() : null }).where(eq(evaluationReviewQueue.id, id));
+  if (existing && existing.status !== "resolved" && input.status === "resolved") {
+    const detail = input.resolutionNote?.trim() || "담당자가 첨삭 결과를 검토했습니다. 학습 화면에서 결과를 다시 확인해 주세요.";
+    await db.insert(appNotifications).values({ userId: existing.userId, title: "AI 첨삭 인간 검수 완료", message: detail, category: "evaluation_review" });
+  }
+}
+
+export async function createEvaluationAppeal(input: { evaluationRecordId: number; userId: number; reason: string; requestedAction: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [result] = await db.insert(evaluationAppeals).values(input);
+  return result;
+}
+
+export async function listEvaluationAppeals(userId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return userId ? db.select().from(evaluationAppeals).where(eq(evaluationAppeals.userId, userId)).orderBy(desc(evaluationAppeals.createdAt)) : db.select().from(evaluationAppeals).orderBy(desc(evaluationAppeals.createdAt));
+}
+
+export async function updateEvaluationAppeal(input: { id: number; status: "submitted" | "under_review" | "accepted" | "rejected" | "resolved"; adminId: number; adminNote?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(evaluationAppeals).where(eq(evaluationAppeals.id, input.id));
+  const { id, ...values } = input;
+  await db.update(evaluationAppeals).set(values).where(eq(evaluationAppeals.id, id));
+  const finalStatuses = ["accepted", "rejected", "resolved"] as const;
+  if (existing && existing.status !== input.status && finalStatuses.includes(input.status as (typeof finalStatuses)[number])) {
+    const statusLabel = input.status === "accepted" ? "수용" : input.status === "rejected" ? "기각" : "처리 완료";
+    const detail = input.adminNote?.trim() || "관리자 검토가 완료되었습니다. 첨삭 결과와 안내 내용을 확인해 주세요.";
+    await db.insert(appNotifications).values({ userId: existing.userId, title: `AI 첨삭 이의제기 ${statusLabel}`, message: detail, category: "evaluation_review" });
+  }
 }
 
 // ========== AI Usage & Quota Functions ==========

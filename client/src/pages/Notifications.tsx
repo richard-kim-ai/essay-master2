@@ -2,16 +2,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Bell, CheckCircle2, MessageSquare, Filter } from "lucide-react";
+import { Bell, CheckCircle2, MessageSquare, Filter, ShieldCheck } from "lucide-react";
 import { useLocation } from "wouter";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { EvaluationReviewNotificationBanner } from "@/components/EvaluationReviewNotificationBanner";
 
 export default function Notifications() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
 
-  const [filterType, setFilterType] = useState<string>("all"); // 'all', 'unread', 'teacher_feedback', 'assignment', 'system'
+  const [filterType, setFilterType] = useState<string>("all"); // 'all', 'unread', 'teacher_feedback', 'assignment', 'evaluation_review', 'system'
 
   const { data: notifications = [], isLoading } = trpc.curriculum.getNotifications.useQuery();
   const markReadMutation = trpc.curriculum.markNotificationRead.useMutation({
@@ -56,6 +57,7 @@ export default function Notifications() {
     if (filterType !== "all") return n.category === filterType;
     return true;
   });
+  const evaluationReviewCount = notifications.filter((n: any) => n.category === "evaluation_review" && n.isRead === 0).length;
 
   return (
     <DashboardLayout>
@@ -69,7 +71,7 @@ export default function Notifications() {
               학습 알림 및 첨삭 소식함
             </h1>
             <p className="text-xs md:text-sm text-indigo-100 mt-1">
-              선생님 서술형 첨삭 완료 내역과 과제 마감, 공지사항을 필터링하여 모아보세요.
+              교사 첨삭, AI 첨삭 검수·이의제기 결과, 과제 마감과 공지사항을 필터링하여 모아보세요.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -87,6 +89,8 @@ export default function Notifications() {
             </Button>
           </div>
         </div>
+
+        {evaluationReviewCount > 0 && <EvaluationReviewNotificationBanner count={evaluationReviewCount} onView={() => setFilterType("evaluation_review")} />}
 
         {/* Filter Buttons & Mark All Read */}
         <div className="flex flex-wrap gap-2 items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
@@ -125,6 +129,14 @@ export default function Notifications() {
             >
               과제 마감
             </Button>
+            <Button
+              size="sm"
+              variant={filterType === "evaluation_review" ? "default" : "outline"}
+              onClick={() => setFilterType("evaluation_review")}
+              className={filterType === "evaluation_review" ? "bg-indigo-600 text-white" : "border-slate-200 text-slate-700"}
+            >
+              첨삭 검수
+            </Button>
           </div>
           <Button
             size="sm"
@@ -162,8 +174,8 @@ export default function Notifications() {
                 >
                   <CardHeader className="py-4 flex flex-row items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
-                        <MessageSquare className="w-5 h-5 text-indigo-600" />
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${n.category === "evaluation_review" ? "bg-amber-100" : "bg-indigo-100"}`}>
+                        {n.category === "evaluation_review" ? <ShieldCheck className="w-5 h-5 text-amber-700" /> : <MessageSquare className="w-5 h-5 text-indigo-600" />}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
