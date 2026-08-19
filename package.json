@@ -1,0 +1,25 @@
+{
+  "name": "@essay-master/evaluation-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Modular Korean-first essay evaluation engine with rubric, LLM, self-consistency, and model-server adapters.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "automated-essay-scoring",
+    "korean-writing",
+    "rubric",
+    "llm-evaluation",
+    "aihub"
+  ],
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "^2.1.4"
+  }
+}
