@@ -238,21 +238,9 @@ describe("appRouter", () => {
   });
 
   describe("quiz", () => {
-    it.skip("should create quiz answer", async () => {
-      const ctx = createMockContext();
-      const caller = appRouter.createCaller(ctx);
-
-      const result = await caller.quiz.create({
-        quizId: 1,
-        userAnswer: "test answer",
-        isCorrect: 1,
-        feedback: "Good answer",
-        economyScore: "85",
-        clarityScore: "90",
-        accuracyScore: "88",
-      });
-
-      expect(result).toBeDefined();
+    it("교사 계정은 현재 퀴즈 답안 제출 API를 호출할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any }));
+      await expect(caller.quiz.submitAnswer({ quizId: 1, userAnswer: "학생 답안 예시입니다." })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   });
 
@@ -274,18 +262,9 @@ describe("appRouter", () => {
       await expect(adminCaller.certificate.issue({ courseType: "elementary", level: 1, certificateType: "level_certificate" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
 
-    it.skip("should create certificate", async () => {
-      const ctx = createMockContext();
-      const caller = appRouter.createCaller(ctx);
-
-      const result = await caller.certificate.create({
-        courseType: "elementary",
-        level: 1,
-        certificateType: "level_certificate",
-      });
-
-      expect(result).toBeDefined();
-      expect(result.shareToken).toBeDefined();
+    it("인증되지 않은 요청은 수료증 발급 API에 접근할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null } as any));
+      await expect(caller.certificate.issue({ courseType: "elementary", level: 1, certificateType: "level_certificate" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
 
     it("should get user certificates", async () => {
@@ -322,79 +301,38 @@ describe("appRouter", () => {
   });
 
   describe("essaySubmission", () => {
-    it.skip("should create essay", async () => {
-      const ctx = createMockContext();
-      const caller = appRouter.createCaller(ctx);
-
-      const result = await caller.essaySubmission.create({
-        title: "Test Essay",
-        content: "Test content",
-        courseType: "elementary",
-        level: 1,
-        status: "draft",
-      });
-
-      expect(result).toBeDefined();
+    it("인증되지 않은 요청은 답안을 생성할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null } as any));
+      await expect(caller.essaySubmission.create({ title: "테스트 답안", content: "테스트 답안 본문", status: "draft" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
 
-    it.skip("should get user essays", async () => {
-      const ctx = createMockContext();
-      const caller = appRouter.createCaller(ctx);
-
-      const result = await caller.essaySubmission.getByUser();
-
-      expect(Array.isArray(result)).toBe(true);
+    it("인증되지 않은 요청은 자신의 답안 목록을 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null } as any));
+      await expect(caller.essaySubmission.getByUser()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
   });
 
   describe("teacherFeedback", () => {
-    it.skip("should create feedback", async () => {
-      const ctx = createMockContext();
-      const caller = appRouter.createCaller(ctx);
-
-      const result = await caller.teacherFeedback.create({
-        essayId: 1,
-        score: 85,
-        feedback: "Good work!",
-      });
-
-      expect(result).toBeDefined();
+    it("인증되지 않은 요청은 교사 첨삭을 생성할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null } as any));
+      await expect(caller.teacherFeedback.create({ essayId: 1, overallScore: 85, overallComment: "근거를 더 구체적으로 작성해 보세요." })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
 
-    it.skip("should get feedback by essay", async () => {
-      const ctx = createMockContext();
-      const caller = appRouter.createCaller(ctx);
-
-      const result = await caller.teacherFeedback.getByEssay({
-        essayId: 1,
-      });
-
-      expect(result).toBeDefined();
+    it("존재하지 않는 답안의 교사 첨삭 조회는 빈 결과를 반환한다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.teacherFeedback.getByEssay(0)).resolves.toBeUndefined();
     });
   });
 
   describe("aiAutoFeedback", () => {
-    it.skip("should create AI feedback", async () => {
-      const ctx = createMockContext();
-      const caller = appRouter.createCaller(ctx);
+    it("인증되지 않은 요청은 AI 첨삭을 생성할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null } as any));
+      await expect(caller.aiAutoFeedback.create({ essayTitle: "테스트 논술", essayContent: "AI 첨삭 권한 테스트를 위한 충분한 길이의 답안 내용입니다.", courseType: "elementary", level: 1 })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
 
-      const result = await caller.aiAutoFeedback.create({
-        essayTitle: "Test Essay",
-        essayContent: "Test essay content",
-        courseType: "elementary",
-        level: 1,
-      });
-
-      expect(result).toBeDefined();
-    }, { timeout: 30000 });
-
-    it.skip("should get user AI feedback", async () => {
-      const ctx = createMockContext();
-      const caller = appRouter.createCaller(ctx);
-
-      const result = await caller.aiAutoFeedback.getByUser();
-
-      expect(Array.isArray(result)).toBe(true);
+    it("인증되지 않은 요청은 개인 AI 첨삭 이력을 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null } as any));
+      await expect(caller.aiAutoFeedback.getByUser()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
   });
 });
