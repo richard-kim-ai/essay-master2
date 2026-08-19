@@ -279,6 +279,7 @@ export default function Workbook() {
     courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
     lessonLevel: level,
   }, { enabled: isAuthenticated && ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) });
+  const { data: dynamicCurriculum = [], isLoading: dynamicCurriculumLoading } = trpc.curriculum.getDynamicByType.useQuery(courseType as "elementary" | "middle_high" | "high_univ" | "general_adult", { enabled: isAuthenticated && ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) });
   const theoryContentIds = useMemo(() => theoryContent.flatMap((item) => "id" in item ? [item.id] : []), [theoryContent]);
   const theoryProgressInput = useMemo(() => ({ theoryContentIds }), [theoryContentIds]);
   const { data: theoryProgress = [] } = trpc.theoryContent.getMyProgress.useQuery(theoryProgressInput, { enabled: isAuthenticated && theoryContentIds.length > 0 });
@@ -297,19 +298,24 @@ export default function Workbook() {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
   }
 
+  const hasCanonicalWorkbook = Boolean(WORKBOOK_CONTENT[courseType]?.[level]);
+  if (!hasCanonicalWorkbook && dynamicCurriculumLoading) {
+    return <div className="min-h-screen bg-slate-50 px-4 py-16 text-center text-slate-600"><Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-indigo-600" />검수된 레슨 정보를 불러오는 중입니다.</div>;
+  }
+
+  const dynamicLevel = dynamicCurriculum.find((item) => item.level === level);
   const fallbackWorkbookData = WORKBOOK_CONTENT[courseType]?.[level] || {
-    title: `Level ${level}: 맞춤형 논술 실습`,
+    title: dynamicLevel?.title || `Level ${level}: 맞춤형 논술 실습`,
     lessons: [
       {
         id: 1,
-        title: "핵심 개념 정리",
-        content: "해당 과정의 핵심 개념을 학습하고 실전 기출문항에 적용해 봅니다.",
-        example: "예시 문항: 주제에 대한 논리적 찬반 근거 서술하기",
+        title: dynamicLevel?.title || "핵심 개념 정리",
+        content: dynamicLevel?.description || "해당 과정의 핵심 개념을 학습하고 실전 기출문항에 적용해 봅니다.",
+        example: Array.isArray(dynamicLevel?.topics) && dynamicLevel.topics.length > 0 ? `학습 주제: ${dynamicLevel.topics.join(" · ")}` : "예시 문항: 주제에 대한 논리적 찬반 근거 서술하기",
       },
     ],
   };
-  // 레슨 제목·순서는 검수된 과정 커리큘럼을 고정하고, 이론 콘텐츠는 각 레슨에 보강한다.
-  // 이전에는 비동기 응답 전체가 레슨 배열을 교체해 탭 제목과 이론 상자가 잠시 나타났다 바뀌었다.
+  // 기본 교재의 제목·설명·순서는 고정합니다. 이론 콘텐츠는 별도 보충 영역에서만 보여 주므로 비동기 조회가 기본 교재를 덮어쓰지 않습니다.
   const distinctTheoryContent = theoryContent.filter((item, index, items) =>
     items.findIndex((candidate) => candidate.theoryCategory === item.theoryCategory) === index,
   );
@@ -322,10 +328,6 @@ export default function Workbook() {
     return {
       ...fallbackLesson,
       theoryContentId: item && "id" in item ? item.id : undefined,
-      content: theory?.core_concept || fallbackLesson.content,
-      example: theory
-        ? `${theory.textbook_anchor?.kind || "교재 원리"}: ${theory.textbook_anchor?.text || "핵심 원리를 확인하세요."}\n${theory.textbook_similar_example?.label || "유사 예시"}: ${theory.textbook_similar_example?.text || "새 소재에 원리를 적용해 보세요."}`
-        : fallbackLesson.example,
       theory,
     };
   });
@@ -409,7 +411,7 @@ export default function Workbook() {
         <Card className="border-indigo-100 shadow-sm">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-slate-900">{workbookData.title}</CardTitle>
-            <CardDescription>{theoryLoading ? "검수된 레슨 주제를 유지한 채 교재 연동 이론 콘텐츠를 불러오고 있습니다." : theoryContent.length > 0 ? "교재 연동 이론 콘텐츠를 먼저 학습한 뒤, 고정 기출문제를 풀이합니다." : "과정별 맞춤 핵심 개념 학습 후, 고정 기출문제를 풀이하고 진도를 완료하세요."}</CardDescription>
+            <CardDescription>기본 교재 내용을 학습한 뒤, 추가 학습 내용과 기출문제로 실력을 다집니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex gap-2 border-b border-slate-200 pb-4 overflow-x-auto">
@@ -427,19 +429,15 @@ export default function Workbook() {
             </div>
 
               <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-6 space-y-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">레슨 이론 설명</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">기본 교재</p>
                 <h3 className="text-xl font-bold text-slate-900">{lesson.title}</h3>
                 <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
                 <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm font-medium text-indigo-900">
                   <p className="whitespace-pre-line">{lesson.example}</p>
                 </div>
-                {activeTheory && <div className="grid gap-3 border-t border-indigo-100 pt-4 md:grid-cols-2">
-                  <div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div>
-                  <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div>
-                  <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">강의 중 확인</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">정답·피드백: {activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>{activeTheoryContentId && <Button size="sm" disabled={isTheoryCheckCompleted || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId: activeTheoryContentId })} className={isTheoryCheckCompleted ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : isTheoryCheckCompleted ? <><CheckCircle className="mr-1.5 h-4 w-4" />확인 완료</> : <><ListChecks className="mr-1.5 h-4 w-4" />확인문제 완료</>}</Button>}</div></div>
-                  <p className="text-xs leading-5 text-slate-500 md:col-span-2">{activeTheory.source_boundary}</p>
-                </div>}
               </div>
+
+              {activeTheory && <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{activeTheory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{activeTheory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{activeTheory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="grid gap-3 md:grid-cols-2"><div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div><div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>{activeTheoryContentId && <Button size="sm" disabled={isTheoryCheckCompleted || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId: activeTheoryContentId })} className={isTheoryCheckCompleted ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : isTheoryCheckCompleted ? <><CheckCircle className="mr-1.5 h-4 w-4" />확인 완료</> : <><ListChecks className="mr-1.5 h-4 w-4" />확인문제 완료</>}</Button>}</div></div></section>}
 
             <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -469,7 +467,6 @@ export default function Workbook() {
                 <h4 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <Award className="w-5 h-5 text-indigo-600" /> 본 레슨 고정 기출문제 (3문항)
                 </h4>
-                <span className="text-xs text-slate-500 font-medium">학습도구와 분리된 커리큘럼 전용 기출 DB</span>
               </div>
 
               {qLoading ? (
