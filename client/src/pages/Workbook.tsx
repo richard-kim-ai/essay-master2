@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { buildToolPathWithWorkbookReturn, buildWorkbookReturnPath, getInitialWorkbookLesson } from "@/lib/workbookReturn";
 
 type SubjectiveCriterion = {
   key: "topicRelevance" | "claim" | "evidence" | "analysis" | "expression";
@@ -261,7 +262,7 @@ export default function Workbook() {
   const courseType = (params?.courseType as string) || "elementary";
   const level = params?.level ? parseInt(params.level) : 1;
 
-  const [currentLesson, setCurrentLesson] = useState(0);
+  const [currentLesson, setCurrentLesson] = useState(() => getInitialWorkbookLesson(window.location.search));
   const [completedLessons, setCompletedLessons] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -319,6 +320,9 @@ export default function Workbook() {
   const workbookData = { title: fallbackWorkbookData.title, lessons: fallbackWorkbookData.lessons };
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
+  const workbookReturnPath = buildWorkbookReturnPath(courseType, level, currentLesson);
+  const topicWizardPath = buildToolPathWithWorkbookReturn("/topic-wizard", workbookReturnPath);
+  const thesisChecklistPath = buildToolPathWithWorkbookReturn("/thesis-checklist", workbookReturnPath);
   const activeTheoryEntries = theoryContent.flatMap((item) => {
     if (!("id" in item)) return [];
     try {
@@ -455,8 +459,8 @@ export default function Workbook() {
 
             <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-3">
               <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. 개념 적용</p><p className="mt-1 text-sm text-slate-700">AI 가이드로 생각 순서를 확인한 뒤 기출문제를 풉니다.</p></div>
-              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">2. 주제와 주장 설계</p><Link href="/topic-wizard"><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제 설정 위저드 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
-              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">3. 주제문 검토</p><Link href="/thesis-checklist"><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제문 점검 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">2. 주제와 주장 설계</p><Link href={topicWizardPath}><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제 설정 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">3. 주제문 검토</p><Link href={thesisChecklistPath}><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제문 점검 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
             </div>
 
             {/* 고정 기출문제 3문항 섹션 */}
