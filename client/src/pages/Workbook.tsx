@@ -308,21 +308,28 @@ export default function Workbook() {
       },
     ],
   };
-  const theoryLessons = theoryContent.map((item, index) => {
-    let theory: TheoryLessonPayload = {};
-    try { theory = JSON.parse(item.contentData) as TheoryLessonPayload; } catch { /* 안전한 설명형 fallback 사용 */ }
+  // 레슨 제목·순서는 검수된 과정 커리큘럼을 고정하고, 이론 콘텐츠는 각 레슨에 보강한다.
+  // 이전에는 비동기 응답 전체가 레슨 배열을 교체해 탭 제목과 이론 상자가 잠시 나타났다 바뀌었다.
+  const distinctTheoryContent = theoryContent.filter((item, index, items) =>
+    items.findIndex((candidate) => candidate.theoryCategory === item.theoryCategory) === index,
+  );
+  const theoryLessons = fallbackWorkbookData.lessons.map((fallbackLesson, index) => {
+    const item = distinctTheoryContent[index];
+    let theory: TheoryLessonPayload | undefined;
+    if (item) {
+      try { theory = JSON.parse(item.contentData) as TheoryLessonPayload; } catch { theory = undefined; }
+    }
     return {
-      id: "id" in item ? item.id : -(index + 1),
-      theoryContentId: "id" in item ? item.id : undefined,
-      title: item.title,
-      content: theory.core_concept || "이론 콘텐츠를 준비하고 있습니다.",
-      example: `${theory.textbook_anchor?.kind || "교재 원리"}: ${theory.textbook_anchor?.text || "핵심 원리를 확인하세요."}\n${theory.textbook_similar_example?.label || "유사 예시"}: ${theory.textbook_similar_example?.text || "새 소재에 원리를 적용해 보세요."}`,
+      ...fallbackLesson,
+      theoryContentId: item && "id" in item ? item.id : undefined,
+      content: theory?.core_concept || fallbackLesson.content,
+      example: theory
+        ? `${theory.textbook_anchor?.kind || "교재 원리"}: ${theory.textbook_anchor?.text || "핵심 원리를 확인하세요."}\n${theory.textbook_similar_example?.label || "유사 예시"}: ${theory.textbook_similar_example?.text || "새 소재에 원리를 적용해 보세요."}`
+        : fallbackLesson.example,
       theory,
     };
   });
-  const workbookData = theoryLessons.length > 0
-    ? { title: `${fallbackWorkbookData.title} · 이론 학습`, lessons: theoryLessons }
-    : fallbackWorkbookData;
+  const workbookData = { title: fallbackWorkbookData.title, lessons: theoryLessons };
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
   const activeTheory = (lesson as { theory?: TheoryLessonPayload }).theory;
@@ -402,7 +409,7 @@ export default function Workbook() {
         <Card className="border-indigo-100 shadow-sm">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-slate-900">{workbookData.title}</CardTitle>
-            <CardDescription>{theoryLoading ? "과정별 이론 콘텐츠를 준비하고 있습니다." : theoryLessons.length > 0 ? "교재 연동 이론 콘텐츠를 먼저 학습한 뒤, 고정 기출문제를 풀이합니다." : "과정별 맞춤 핵심 개념 학습 후, 고정 기출문제를 풀이하고 진도를 완료하세요."}</CardDescription>
+            <CardDescription>{theoryLoading ? "검수된 레슨 주제를 유지한 채 교재 연동 이론 콘텐츠를 불러오고 있습니다." : theoryContent.length > 0 ? "교재 연동 이론 콘텐츠를 먼저 학습한 뒤, 고정 기출문제를 풀이합니다." : "과정별 맞춤 핵심 개념 학습 후, 고정 기출문제를 풀이하고 진도를 완료하세요."}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex gap-2 border-b border-slate-200 pb-4 overflow-x-auto">
@@ -420,6 +427,7 @@ export default function Workbook() {
             </div>
 
               <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-6 space-y-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">레슨 이론 설명</p>
                 <h3 className="text-xl font-bold text-slate-900">{lesson.title}</h3>
                 <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
                 <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm font-medium text-indigo-900">

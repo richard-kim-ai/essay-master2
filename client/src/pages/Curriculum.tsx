@@ -87,9 +87,15 @@ export default function Curriculum() {
 
   // 비로그인 방문자도 샘플 모드로 전체 커리큘럼을 바로 탐색할 수 있도록 허용
 
-  const curriculumList = dynamicCurriculum && dynamicCurriculum.length > 0
-    ? dynamicCurriculum
-    : CURRICULUM_DATA[courseType] || CURRICULUM_DATA["middle_high"];
+  const staticCurriculum = CURRICULUM_DATA[courseType] || CURRICULUM_DATA["middle_high"];
+  // 초등·중고등 과정의 레벨별 제목·학습 주제는 검수된 표준 커리큘럼을 항상 유지한다.
+  // DB의 운영 메타데이터(AI 요약·태그·식별자)만 병합해 비동기 조회 뒤 주제가 바뀌는 현상을 막는다.
+  const curriculumList = staticCurriculum.length > 0
+    ? staticCurriculum.map((canonical) => {
+      const managed = dynamicCurriculum?.find((item) => item.level === canonical.level);
+      return managed ? { ...managed, ...canonical, id: managed.id, aiSummary: managed.aiSummary, aiTags: managed.aiTags } : canonical;
+    })
+    : dynamicCurriculum && dynamicCurriculum.length > 0 ? dynamicCurriculum : CURRICULUM_DATA["middle_high"];
   const progressMap = new Map(
     progressData?.map((p) => [p.curriculumId, p]) || []
   );
