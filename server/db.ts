@@ -1068,8 +1068,13 @@ export async function listEvaluationReviewQueue() {
 export async function updateEvaluationReviewQueueItem(input: { id: number; status: "open" | "reviewing" | "resolved"; assignedAdminId?: number | null; resolutionNote?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(evaluationReviewQueue).where(eq(evaluationReviewQueue.id, input.id));
   const { id, ...values } = input;
   await db.update(evaluationReviewQueue).set({ ...values, resolvedAt: input.status === "resolved" ? new Date() : null }).where(eq(evaluationReviewQueue.id, id));
+  if (existing && existing.status !== "resolved" && input.status === "resolved") {
+    const detail = input.resolutionNote?.trim() || "담당자가 첨삭 결과를 검토했습니다. 학습 화면에서 결과를 다시 확인해 주세요.";
+    await db.insert(appNotifications).values({ userId: existing.userId, title: "AI 첨삭 인간 검수 완료", message: detail, category: "evaluation_review" });
+  }
 }
 
 export async function createEvaluationAppeal(input: { evaluationRecordId: number; userId: number; reason: string; requestedAction: string }) {
@@ -1088,8 +1093,15 @@ export async function listEvaluationAppeals(userId?: number) {
 export async function updateEvaluationAppeal(input: { id: number; status: "submitted" | "under_review" | "accepted" | "rejected" | "resolved"; adminId: number; adminNote?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(evaluationAppeals).where(eq(evaluationAppeals.id, input.id));
   const { id, ...values } = input;
   await db.update(evaluationAppeals).set(values).where(eq(evaluationAppeals.id, id));
+  const finalStatuses = ["accepted", "rejected", "resolved"] as const;
+  if (existing && existing.status !== input.status && finalStatuses.includes(input.status as (typeof finalStatuses)[number])) {
+    const statusLabel = input.status === "accepted" ? "수용" : input.status === "rejected" ? "기각" : "처리 완료";
+    const detail = input.adminNote?.trim() || "관리자 검토가 완료되었습니다. 첨삭 결과와 안내 내용을 확인해 주세요.";
+    await db.insert(appNotifications).values({ userId: existing.userId, title: `AI 첨삭 이의제기 ${statusLabel}`, message: detail, category: "evaluation_review" });
+  }
 }
 
 // ========== AI Usage & Quota Functions ==========
