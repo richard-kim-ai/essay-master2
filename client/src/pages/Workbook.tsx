@@ -8,6 +8,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { buildToolPathWithWorkbookReturn, buildWorkbookReturnPath, getInitialWorkbookLesson } from "@/lib/workbookReturn";
+import { getAccessibleLessonIndex } from "@/lib/learningFlow";
 
 type SubjectiveCriterion = {
   key: "topicRelevance" | "claim" | "evidence" | "analysis" | "expression";
@@ -269,6 +270,7 @@ export default function Workbook() {
   const [submittedResults, setSubmittedResults] = useState<Record<number, SubmittedWorkbookResult>>({});
   const [submittingQId, setSubmittingQId] = useState<number | null>(null);
   const [lessonGuide, setLessonGuide] = useState<LessonWritingGuide | null>(null);
+  const [recentlyCompletedTheoryId, setRecentlyCompletedTheoryId] = useState<number | null>(null);
 
   const progressMutation = trpc.progress.upsert.useMutation();
   const { data: workbookLessonBundle, isLoading: lessonBundleLoading } = trpc.curriculum.getWorkbookLessonBundle.useQuery({
@@ -288,8 +290,10 @@ export default function Workbook() {
   const submitAnswerMutation = trpc.curriculum.submitWorkbookAnswer.useMutation();
   const lessonGuideMutation = trpc.questionBank.lessonWritingGuide.useMutation();
   const completeTheoryCheckMutation = trpc.theoryContent.completeCheck.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (_, variables) => {
       await utils.theoryContent.getMyProgress.invalidate();
+      setRecentlyCompletedTheoryId(variables.theoryContentId);
+      window.setTimeout(() => setRecentlyCompletedTheoryId((current) => current === variables.theoryContentId ? null : current), 2400);
       toast.success("이론 레슨 학습 완료가 저장되었습니다.");
     },
     onError: (error) => toast.error(error.message || "완료 상태를 저장하지 못했습니다."),
@@ -320,6 +324,10 @@ export default function Workbook() {
   const workbookData = { title: fallbackWorkbookData.title, lessons: fallbackWorkbookData.lessons };
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
+  const moveToLesson = (requestedIndex: number) => {
+    setCurrentLesson(getAccessibleLessonIndex(requestedIndex, workbookData.lessons.length));
+    setLessonGuide(null);
+  };
   const workbookReturnPath = buildWorkbookReturnPath(courseType, level, currentLesson);
   const topicWizardPath = buildToolPathWithWorkbookReturn("/topic-wizard", workbookReturnPath);
   const thesisChecklistPath = buildToolPathWithWorkbookReturn("/thesis-checklist", workbookReturnPath);
@@ -417,7 +425,7 @@ export default function Workbook() {
                   key={l.id}
                   variant={currentLesson === idx ? "default" : "outline"}
                   size="sm"
-                  onClick={() => { setCurrentLesson(idx); setLessonGuide(null); }}
+                  onClick={() => moveToLesson(idx)}
                   className={currentLesson === idx ? "bg-indigo-600 text-white" : ""}
                 >
                   레슨 {idx + 1}: {l.title} {completedLessons.includes(idx) ? "✓" : ""}
@@ -434,11 +442,11 @@ export default function Workbook() {
                 </div>
               </div>
 
-              {activeTheory && <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{activeTheory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{activeTheory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{activeTheory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="grid gap-3 md:grid-cols-2"><div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div><div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>{activeTheoryContentId && <Button size="sm" disabled={isTheoryCheckCompleted || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId: activeTheoryContentId })} className={isTheoryCheckCompleted ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button>}</div></div></section>}
+              {activeTheory && <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{activeTheory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{activeTheory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{activeTheory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="grid gap-3 md:grid-cols-2"><div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div><div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>{activeTheoryContentId && <Button size="sm" disabled={isTheoryCheckCompleted || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId: activeTheoryContentId })} className={isTheoryCheckCompleted ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />저장 중</> : recentlyCompletedTheoryId === activeTheoryContentId ? <><CheckCircle className="mr-1.5 h-4 w-4 animate-bounce" />저장 완료</> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button>}</div>{recentlyCompletedTheoryId === activeTheoryContentId && <p className="mt-3 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">학습 완료가 저장되었습니다. 다음 레슨으로 이동하거나 계속 학습해 보세요.</p>}</div></section>}
 
               {activeTheoryEntries.slice(1).map(({ theoryContentId, theory }) => {
                 const completed = theoryProgress.some((item) => item.theoryContentId === theoryContentId);
-                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button></div></div></section>;
+                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />저장 중</> : recentlyCompletedTheoryId === theoryContentId ? <><CheckCircle className="mr-1.5 h-4 w-4 animate-bounce" />저장 완료</> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button></div>{recentlyCompletedTheoryId === theoryContentId && <p className="mt-3 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">학습 완료가 저장되었습니다. 다음 레슨으로 이동하거나 계속 학습해 보세요.</p>}</div></section>;
               })}
 
               <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
@@ -580,11 +588,12 @@ export default function Workbook() {
               )}
             </div>
 
+            <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-800">레슨은 순서와 관계없이 원하는 곳부터 선택해 학습할 수 있습니다.</p>
             <div className="flex items-center justify-between pt-6 border-t border-slate-200">
               <Button
                 variant="outline"
                 disabled={currentLesson === 0}
-                onClick={() => setCurrentLesson(currentLesson - 1)}
+                onClick={() => moveToLesson(currentLesson - 1)}
               >
                 이전 레슨
               </Button>
@@ -599,7 +608,7 @@ export default function Workbook() {
               <Button
                 variant="outline"
                 disabled={currentLesson === workbookData.lessons.length - 1}
-                onClick={() => setCurrentLesson(currentLesson + 1)}
+                onClick={() => moveToLesson(currentLesson + 1)}
               >
                 다음 레슨
               </Button>
