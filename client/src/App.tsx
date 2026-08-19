@@ -42,6 +42,7 @@ import AdminCurriculumManager from "@/pages/AdminCurriculumManager";
 import AdminQuestionBank from "@/pages/AdminQuestionBank";
 import AdminTheoryContent from "@/pages/AdminTheoryContent";
 import AdminLessonConnections from "@/pages/AdminLessonConnections";
+import AdminEvaluationModels from "@/pages/AdminEvaluationModels";
 import AdminTermsManager from "@/pages/AdminTermsManager";
 import AdminAIGovernance from "@/pages/AdminAIGovernance";
 import AdminAcademicPermissions from "@/pages/AdminAcademicPermissions";
@@ -85,6 +86,13 @@ function Router() {
         {(params) => (
           <Layout>
             <AdminQuestionBank />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/evaluation-models"}>
+        {(params) => (
+          <Layout>
+            <AdminEvaluationModels />
           </Layout>
         )}
       </Route>
