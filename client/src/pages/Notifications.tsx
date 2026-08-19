@@ -6,6 +6,7 @@ import { Bell, CheckCircle2, MessageSquare, Filter, ShieldCheck } from "lucide-r
 import { useLocation } from "wouter";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { EvaluationReviewNotificationBanner } from "@/components/EvaluationReviewNotificationBanner";
 
 export default function Notifications() {
   const [, setLocation] = useLocation();
@@ -56,6 +57,7 @@ export default function Notifications() {
     if (filterType !== "all") return n.category === filterType;
     return true;
   });
+  const evaluationReviewCount = notifications.filter((n: any) => n.category === "evaluation_review" && n.isRead === 0).length;
 
   return (
     <DashboardLayout>
@@ -87,6 +89,8 @@ export default function Notifications() {
             </Button>
           </div>
         </div>
+
+        {evaluationReviewCount > 0 && <EvaluationReviewNotificationBanner count={evaluationReviewCount} onView={() => setFilterType("evaluation_review")} />}
 
         {/* Filter Buttons & Mark All Read */}
         <div className="flex flex-wrap gap-2 items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
