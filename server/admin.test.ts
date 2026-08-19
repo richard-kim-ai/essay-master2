@@ -9,8 +9,29 @@ const curriculumDetailPath = new URL("../client/src/pages/CurriculumDetail.tsx",
 const curriculumPagePath = new URL("../client/src/pages/Curriculum.tsx", import.meta.url);
 const routersPath = new URL("./routers.ts", import.meta.url);
 const dbPath = new URL("./db.ts", import.meta.url);
+const evaluationAdminPath = new URL("../client/src/pages/AdminEvaluationModels.tsx", import.meta.url);
+const evaluationCorrectionPath = new URL("./writingCorrectionEngine.ts", import.meta.url);
 
 describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
+  it("외부 첨삭 모델 설정은 adminProcedure로만 노출되고 API 키 평문을 응답하지 않는다", () => {
+    const routersSource = readFileSync(routersPath, "utf8");
+    const dbSource = readFileSync(dbPath, "utf8");
+    expect(routersSource).toContain("evaluationModels: router({");
+    expect(routersSource).toContain("list: adminProcedure");
+    expect(routersSource).toContain("save: adminProcedure");
+    expect(routersSource).toContain("encryptedApiKey: _secret");
+    expect(dbSource).toContain("evaluationModelOperations");
+  });
+
+  it("상용 첨삭 화면이 문장별 비교와 이의제기 흐름을 제공한다", () => {
+    const feedbackSource = readFileSync(new URL("../client/src/pages/AIAutoFeedback.tsx", import.meta.url), "utf8");
+    const adminSource = readFileSync(evaluationAdminPath, "utf8");
+    const correctionSource = readFileSync(evaluationCorrectionPath, "utf8");
+    expect(feedbackSource).toContain("문장별 수정 비교");
+    expect(feedbackSource).toContain("이의제기 작성");
+    expect(adminSource).toContain("인간 검수 큐");
+    expect(correctionSource).toContain("correction_status");
+  });
   it("관리자 대시보드 페이지가 권한 확인 및 학습자 전체 분석을 포함한다", () => {
     const source = readFileSync(adminPagePath, "utf8");
     expect(source).toContain("관리자 전용 페이지");
