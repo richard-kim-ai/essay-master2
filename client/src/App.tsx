@@ -38,6 +38,7 @@ import AdminCurriculumManager from "@/pages/AdminCurriculumManager";
 import AdminQuestionBank from "@/pages/AdminQuestionBank";
 import AdminTermsManager from "@/pages/AdminTermsManager";
 import MasterAdminConsole from "@/pages/MasterAdminConsole";
+import AdminEvaluationModels from "./pages/AdminEvaluationModels";
 import ParentPortal from "@/pages/ParentPortal";
 import Layout from "./components/Layout";
 
@@ -92,6 +93,9 @@ function Router() {
             <SocialProviderSettings />
           </Layout>
         )}
+      </Route>
+      <Route path={"/admin/evaluation-models"}>
+        {(params) => (<Layout><AdminEvaluationModels /></Layout>)}
       </Route>
       <Route path={"/admin/terms"}>
         {(params) => (

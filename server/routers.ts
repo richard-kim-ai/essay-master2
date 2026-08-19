@@ -8,8 +8,10 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateEssay } from "./aiFeedback";
 import { evaluateWriting } from "./writingEvaluationEngine";
+import { evaluateWritingWithConfiguredModel } from "./configuredWritingEvaluation";
 import { buildSimulationSamplesFromStudentData, simulateEvaluationLearning } from "./writingEvaluationSimulation";
 import { generateWritingCorrection } from "./writingCorrectionEngine";
+import { getActiveCorrectionModel, getEvaluationModelProfiles, saveEvaluationModelProfiles, type EvaluationModelProfile } from "./evaluationModelRegistry";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -781,7 +783,10 @@ export const appRouter = router({
   writingEvaluationEngine: router({
     evaluate: protectedProcedure
       .input(writingEvaluationInput)
-      .mutation(({ input }) => evaluateWriting(input)),
+      .mutation(async ({ input }) => {
+        const result = await evaluateWritingWithConfiguredModel(input);
+        return { ...result, evaluation_model_id: result.modelId, evaluation_fallback: result.fallback };
+      }),
 
     evaluateAndCorrect: protectedProcedure
       .input(writingEvaluationInput)
@@ -793,12 +798,14 @@ export const appRouter = router({
         if (ctx.user.role !== "admin" && (await db.getTodayAIUsageCount(ctx.user.id)) >= 5) {
           throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 첨삭 횟수를 모두 사용했습니다." });
         }
-        const evaluation = evaluateWriting(input);
-        const correction = await generateWritingCorrection(input, evaluation);
+        const configuredEvaluation = await evaluateWritingWithConfiguredModel(input);
+        const evaluation = configuredEvaluation.evaluation;
+        const correctionModel = await getActiveCorrectionModel();
+        const correction = await generateWritingCorrection(input, evaluation, { model: correctionModel.model || undefined });
         const record = await db.createWritingEvaluationRecord({
           userId: ctx.user.id,
           essaySubmissionId: input.essay_submission_id,
-          metadataJson: JSON.stringify(input.metadata),
+          metadataJson: JSON.stringify({ ...input.metadata, evaluation_model_id: configuredEvaluation.modelId, evaluation_fallback: configuredEvaluation.fallback, correction_model_id: correctionModel.id }),
           taskJson: JSON.stringify(input.task),
           originalText: input.submission.essay_text,
           revisedText: correction.revised_text,
@@ -808,7 +815,7 @@ export const appRouter = router({
           totalScore: evaluation.total_score,
         });
         await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", 0);
-        return { evaluation, correction, record_id: record?.insertId ?? null };
+        return { evaluation, correction, evaluation_model_id: configuredEvaluation.modelId, correction_model_id: correctionModel.id, record_id: record?.insertId ?? null };
       }),
 
     history: protectedProcedure.query(({ ctx }) => db.getWritingEvaluationRecordsByUser(ctx.user.id)),
@@ -837,13 +844,15 @@ export const appRouter = router({
             essay_text: input.revised_text,
           },
         };
-        const evaluation = evaluateWriting(request);
-        const correction = await generateWritingCorrection(request, evaluation);
+        const configuredEvaluation = await evaluateWritingWithConfiguredModel(request);
+        const evaluation = configuredEvaluation.evaluation;
+        const correctionModel = await getActiveCorrectionModel();
+        const correction = await generateWritingCorrection(request, evaluation, { model: correctionModel.model || undefined });
         const record = await db.createWritingEvaluationRecord({
           userId: ctx.user.id,
           essaySubmissionId: parent.essaySubmissionId ?? undefined,
           parentRecordId: parent.id,
-          metadataJson: JSON.stringify(request.metadata),
+          metadataJson: JSON.stringify({ ...request.metadata, evaluation_model_id: configuredEvaluation.modelId, evaluation_fallback: configuredEvaluation.fallback, correction_model_id: correctionModel.id }),
           taskJson: JSON.stringify(request.task),
           originalText: input.revised_text,
           revisedText: correction.revised_text,
@@ -853,7 +862,7 @@ export const appRouter = router({
           totalScore: evaluation.total_score,
         });
         await db.logAIUsage(ctx.user.id, "writing_evaluation_v1_reevaluate", 0);
-        return { evaluation, correction, record_id: record?.insertId ?? null, parent_record_id: parent.id };
+        return { evaluation, correction, evaluation_model_id: configuredEvaluation.modelId, correction_model_id: correctionModel.id, record_id: record?.insertId ?? null, parent_record_id: parent.id };
       }),
 
     simulate: protectedProcedure
@@ -1092,6 +1101,17 @@ export const appRouter = router({
   }),
 
   admin: router({
+    getEvaluationModels: adminProcedure.query(async () => getEvaluationModelProfiles()),
+    updateEvaluationModels: adminProcedure
+      .input(z.object({
+        profiles: z.array(z.object({
+          id: z.string().trim().min(1).max(80), name: z.string().trim().min(1).max(120),
+          provider: z.enum(["rule", "openai", "openai_compatible", "vllm", "kobert", "lora", "custom"]),
+          purpose: z.enum(["evaluation", "correction", "both"]), model: z.string().max(255), endpoint: z.string().max(1000),
+          enabled: z.boolean(), priority: z.number().int().min(1).max(999), notes: z.string().max(1000), managed: z.boolean(),
+        })).min(1),
+      }))
+      .mutation(async ({ ctx, input }) => saveEvaluationModelProfiles(input.profiles as EvaluationModelProfile[], ctx.user.id)),
     getAnalytics: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });

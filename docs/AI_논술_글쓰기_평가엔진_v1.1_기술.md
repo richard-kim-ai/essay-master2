@@ -218,6 +218,36 @@ generated/evaluation-engine/
 | 주 타깃 | 초등부터 일반인까지 자기주도 학습자 | 교사·기관 중심 | 대입 논술 수험생 |
 | 핵심 가치 | 커리큘럼, 평가, 자유작문 첨삭, 게이미피케이션의 결합 | AI 자동 채점과 교사 검토 | 전문 교사의 유료 첨삭 |
 | 피드백 방식 | 즉시 AI 평가·첨삭과 재작성·재평가 | AI 채점 중심 | 사람 첨삭 중심 |
+
+## 10. 모델 적용 및 관리자 운영
+
+모델 코드는 문제생성 Master Prompt와 분리한다. 운영 엔진의 단일 진입점은 `server/writingEvaluationEngine.ts`와 `server/writingCorrectionEngine.ts`이며, 외부 한국어 AES·LoRA·IELTS 모델은 Provider 프로필로만 등록한다.
+
+모델 프로필은 기존 `site_settings`의 `writing_evaluation_models` 키에 저장한다. 원시 학습 데이터나 모델 가중치는 저장하지 않는다.
+
+관리자 화면: `/admin/evaluation-models`
+
+관리 항목:
+
+- 모델 활성화/비활성화
+- Provider 유형(`rule`, `openai`, `vllm`, `kobert`, `lora`, `custom`)
+- 평가·첨삭·공통 용도
+- 모델 식별자와 모델 서버 Endpoint
+- 우선순위
+- 운영 메모
+
+현재 실제 운영에 연결된 것은 규칙 기반 평가와 LLM 첨삭이다. Endpoint와 `evaluation` 또는 `both` 용도가 지정된 외부 모델은 평가 요청에서 우선순위에 따라 호출한다. 외부 모델이 시간 초과·오류·잘못된 응답을 반환하면 규칙 기반 평가로 자동 fallback하고, 결과에는 `evaluation_fallback: true`를 기록한다. 첨삭 요청은 활성화된 첨삭 모델 중 우선순위가 가장 높은 모델을 사용하고, 모델 식별자를 평가 이력의 `metadataJson.evaluation_model_id`와 `metadataJson.correction_model_id`에 기록한다.
+
+모델 서버 요청 형식은 `{ "request": <WritingEvaluationRequest>, "model": "<model-id>" }`이며, 응답은 `WritingEvaluationResult` 또는 `{ "evaluation": WritingEvaluationResult }` 형식이어야 한다.
+
+관리 API:
+
+| API | 권한 | 기능 |
+|---|---|---|
+| `admin.getEvaluationModels` | 관리자 | 모델 프로필 조회 |
+| `admin.updateEvaluationModels` | 관리자 | 모델 프로필 일괄 저장 |
+
+이 구조는 기존 문제생성 엔진의 규칙·프롬프트·승인 절차를 변경하지 않는다. 또한 메인 앱과 별도 `essay-evaluation-engine` 폴더를 동시에 실행하지 않아 평가 결과가 이중화되지 않도록 한다. 별도 폴더는 독립 저장소로 전환하기 전까지 연구·어댑터 보관 영역으로 취급한다.
 | 차별화 | 기존 학생 글 시뮬레이션, 성장 추적, 전 연령 루브릭 | 채점 워크플로우 | 대학별 기출과 사람의 깊은 코멘트 |
 
 자사의 직접 경쟁 포인트는 단순히 더 높은 점수를 제공하는 것이 아니라, `평가 → 첨삭 → 재작성 → 재평가 → 성장 기록`을 하나의 학습 루프로 제공하는 것이다. 기존 AI 첨삭 화면은 호환성을 유지하고, 신규 엔진의 `evaluateAndCorrect` API를 자유작문 전용 진입점으로 연결한다.

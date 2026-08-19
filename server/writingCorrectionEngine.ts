@@ -19,6 +19,7 @@ export interface WritingCorrectionResult {
 export async function generateWritingCorrection(
   request: WritingEvaluationRequest,
   evaluation: WritingEvaluationResult,
+  options: { model?: string } = {},
 ): Promise<WritingCorrectionResult> {
   const levelGuide = {
     elementary: "초등 학습자가 이해할 수 있는 쉬운 말과 짧은 설명",
@@ -67,6 +68,7 @@ ${levelGuide}을 사용하세요. 학생의 생각과 목소리를 임의로 바
       },
     ],
     responseFormat: { type: "json_object" },
+    ...(options.model ? { model: options.model } : {}),
   });
 
   try {

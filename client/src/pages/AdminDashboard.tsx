@@ -578,6 +578,16 @@ export default function AdminDashboard() {
             </div>
           </Link>
 
+          <Link href="/admin/evaluation-models">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <Settings className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">평가 모델 관리</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">모델 활성화 및 우선순위</span>
+            </div>
+          </Link>
+
           <Link href="/admin/social-providers">
             <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
               <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
