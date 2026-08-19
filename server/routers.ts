@@ -987,6 +987,18 @@ export const appRouter = router({
         return db.verifyAndSaveQuizAttempt(ctx.user.id, input.quizId, input.userAnswer, getCourseTypeFromUserTag(ctx.user.tag));
       }),
 
+    getDetailedSentenceFeedback: protectedProcedure
+      .input(z.object({ quizId: z.number().int().positive(), studentSentence: z.string().trim().min(5).max(1000) }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 문장 맞춤 피드백을 요청할 수 있습니다." });
+        return db.getDetailedSentenceFeedbackForQuiz({
+          userId: ctx.user.id,
+          quizId: input.quizId,
+          studentSentence: input.studentSentence,
+          expectedCourseType: getCourseTypeFromUserTag(ctx.user.tag),
+        });
+      }),
+
     getByUser: protectedProcedure.query(({ ctx }) =>
       db.getQuizAnswersByUser(ctx.user.id)
     ),

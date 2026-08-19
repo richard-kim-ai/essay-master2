@@ -5,6 +5,7 @@ import {
   curriculum,
   progress,
   quizAnswer,
+  sentenceFeedbackCache,
   certificate,
   certificateApprovalPolicies,
   certificateApprovalRequests,
@@ -67,6 +68,8 @@ import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQu
 import { generateQuestionBankItems, qaQuestionItem, type AdaptiveStats, type GenerationRequestInput } from "./questionGeneration";
 import { buildCourseQuizContent, buildCourseSummaryContent, isLegacyRepeatedLearningContent } from "./learningToolContent";
 import { buildTheoryLessonSeedItems, generateTheoryLessonDrafts, qaTheoryLessonCandidate, theoryLessonRequestSchema, type TheoryLessonDraftCandidate, type TheoryLessonRequestInput } from "./theoryLessonContent";
+import { generateDetailedSentenceFeedback } from "./sentenceFeedbackEngine";
+import { createRequestFingerprint, normalizeForFingerprint } from "./runtimeEfficiency";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
@@ -2954,6 +2957,62 @@ export async function verifyAndSaveQuizAttempt(userId: number, quizId: number, u
   });
   await recordLearningToolAttempt({ userId, questionBankId: quizId, courseType: question.courseType, toolType: "quiz", score: isCorrect ? 100 : 0 });
   return { isCorrect, score: isCorrect ? 100 : 0, feedback };
+}
+
+/**
+ * 학습자가 직접 요청한 문장 맞춤 피드백입니다. 동일 사용자·문항·문장은 24시간 동안
+ * 저장 결과를 재사용하여 LLM 호출과 비용을 줄입니다.
+ */
+export async function getDetailedSentenceFeedbackForQuiz(input: { userId: number; quizId: number; studentSentence: string; expectedCourseType: CourseType }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [question] = await db.select().from(questionBank).where(and(eq(questionBank.id, input.quizId), eq(questionBank.toolType, "quiz"), eq(questionBank.isActive, 1)));
+  if (!question) throw new Error("활성 퀴즈 문항을 찾을 수 없습니다.");
+  if (question.courseType !== input.expectedCourseType) throw new Error("가입한 과정의 문장 교정 피드백만 요청할 수 있습니다.");
+
+  let content: { sentence?: string; prompt?: string } = {};
+  try { content = JSON.parse(question.contentData); } catch { /* 제목을 안전한 fallback으로 사용 */ }
+  const sourceSentence = String(content.sentence || content.prompt || question.title).trim();
+  const studentSentence = normalizeForFingerprint(input.studentSentence);
+  if (studentSentence.length < 5 || studentSentence.length > 1000) throw new Error("피드백을 받으려면 5자 이상 1,000자 이하의 문장을 작성해주세요.");
+  const requestHash = createRequestFingerprint([input.userId, question.id, input.expectedCourseType, sourceSentence, studentSentence]);
+  const now = new Date();
+  const [cached] = await db.select().from(sentenceFeedbackCache).where(eq(sentenceFeedbackCache.requestHash, requestHash));
+  if (cached && cached.expiresAt > now) {
+    try {
+      return { feedback: JSON.parse(cached.feedbackJson), cacheHit: true, modelId: cached.modelId };
+    } catch {
+      // 손상된 캐시는 아래의 새 평가 결과로 덮어씁니다.
+    }
+  }
+
+  const generated = await generateDetailedSentenceFeedback({
+    courseType: input.expectedCourseType,
+    sourceSentence,
+    studentSentence,
+    questionTitle: question.title,
+  });
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await db.insert(sentenceFeedbackCache).values({
+    userId: input.userId,
+    quizId: question.id,
+    courseType: input.expectedCourseType,
+    requestHash,
+    sourceSentence,
+    studentSentence,
+    feedbackJson: JSON.stringify(generated.feedback),
+    modelId: generated.modelId,
+    expiresAt,
+  }).onDuplicateKeyUpdate({
+    set: {
+      sourceSentence,
+      studentSentence,
+      feedbackJson: JSON.stringify(generated.feedback),
+      modelId: generated.modelId,
+      expiresAt,
+    },
+  });
+  return { feedback: generated.feedback, cacheHit: generated.memoryCacheHit, modelId: generated.modelId };
 }
 
 export async function gradeAndRecordSummaryAttempt(userId: number, questionId: number, userAnswer: string, expectedCourseType?: CourseType) {

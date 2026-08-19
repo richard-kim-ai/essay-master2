@@ -302,6 +302,13 @@
       "when": 1787062828478,
       "tag": "0042_naive_johnny_blaze",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "5",
+      "when": 1787107556350,
+      "tag": "0043_fast_maddog",
+      "breakpoints": true
     }
   ]
 }

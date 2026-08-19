@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { BookOpen, Loader2, AlertCircle, CheckCircle, Award } from "lucide-react";
+import { BookOpen, Loader2, AlertCircle, CheckCircle, Award, Sparkles } from "lucide-react";
 import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -27,10 +27,21 @@ export default function QuizPage() {
   const [finished, setFinished] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
   const [earnedBadgeName, setEarnedBadgeName] = useState("");
+  const [detailedFeedback, setDetailedFeedback] = useState<{
+    overallScore: number; economyScore: number; clarityScore: number; accuracyScore: number;
+    strengths: string[]; improvements: string[]; feedback: string; revisedSentence: string;
+  } | null>(null);
 
   const submitMutation = trpc.quiz.submitAnswer.useMutation();
   const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
   const awardBadgeMutation = trpc.badges.award.useMutation();
+  const detailedFeedbackMutation = trpc.quiz.getDetailedSentenceFeedback.useMutation({
+    onSuccess: (result) => {
+      setDetailedFeedback(result.feedback);
+      toast.success(result.cacheHit ? "이전에 받은 맞춤 피드백을 다시 불러왔습니다." : "AI 맞춤 피드백을 준비했습니다.");
+    },
+    onError: (error) => toast.error(error.message || "AI 맞춤 피드백을 준비하지 못했습니다."),
+  });
   const utils = trpc.useUtils();
 
   useEffect(() => {
@@ -41,6 +52,7 @@ export default function QuizPage() {
     setSubmitted(false);
     setScore(0);
     setFinished(false);
+    setDetailedFeedback(null);
   }, [courseType]);
 
   if (!isAuthenticated) {
@@ -105,6 +117,14 @@ export default function QuizPage() {
     toast.success("작성한 문장을 바탕으로 선택지와 비교해 보세요.");
   };
 
+  const handleDetailedFeedback = () => {
+    if (draftAnswer.trim().length < 5 || !currentQ) {
+      toast.error("먼저 고친 문장을 한 문장 이상 작성해주세요.");
+      return;
+    }
+    detailedFeedbackMutation.mutate({ quizId: currentQ.id, studentSentence: draftAnswer.trim() });
+  };
+
   const handleNext = async () => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(i => i + 1);
@@ -112,6 +132,7 @@ export default function QuizPage() {
       setOptionsUnlocked(false);
       setSelectedAnswer("");
       setSubmitted(false);
+      setDetailedFeedback(null);
     } else {
       setFinished(true);
       const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} AI 퀴즈 마스터 뱃지`;
@@ -209,8 +230,9 @@ export default function QuizPage() {
                 </div>
                 {optionsUnlocked && <span className="w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">작성 완료</span>}
               </div>
-              <Textarea value={draftAnswer} disabled={submitted} onChange={(event) => { setDraftAnswer(event.target.value); if (optionsUnlocked) setOptionsUnlocked(false); }} placeholder="예: 불필요하게 반복된 표현을 줄이고, 핵심 주장이 선명하게 드러나도록 문장을 고쳐 보세요." className="mt-4 min-h-28 resize-y border-slate-300 bg-white text-slate-900 placeholder:text-slate-400" />
-              {!submitted && <div className="mt-3 flex justify-end"><Button variant="outline" onClick={handleDraftComplete} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">작성 완료 · 선택지 비교하기</Button></div>}
+              <Textarea value={draftAnswer} disabled={submitted} onChange={(event) => { setDraftAnswer(event.target.value); setDetailedFeedback(null); if (optionsUnlocked) setOptionsUnlocked(false); }} placeholder="예: 불필요하게 반복된 표현을 줄이고, 핵심 주장이 선명하게 드러나도록 문장을 고쳐 보세요." className="mt-4 min-h-28 resize-y border-slate-300 bg-white text-slate-900 placeholder:text-slate-400" />
+              {!submitted && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end"><Button variant="outline" onClick={handleDetailedFeedback} disabled={draftAnswer.trim().length < 5 || detailedFeedbackMutation.isPending} className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"><Sparkles className="mr-2 h-4 w-4" />{detailedFeedbackMutation.isPending ? "피드백 분석 중" : "AI 맞춤 피드백 받기"}</Button><Button variant="outline" onClick={handleDraftComplete} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">작성 완료 · 선택지 비교하기</Button></div>}
+              {detailedFeedback && <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 font-bold text-amber-950"><Sparkles className="h-4 w-4 text-amber-700" />내 문장 맞춤 피드백</div><span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-amber-800">종합 {detailedFeedback.overallScore}점</span></div><div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-white p-2 text-slate-700">경제성 <strong className="block text-slate-900">{detailedFeedback.economyScore}</strong></div><div className="rounded-lg bg-white p-2 text-slate-700">명료성 <strong className="block text-slate-900">{detailedFeedback.clarityScore}</strong></div><div className="rounded-lg bg-white p-2 text-slate-700">정확성 <strong className="block text-slate-900">{detailedFeedback.accuracyScore}</strong></div></div><p className="mt-3 text-sm leading-6 text-slate-800">{detailedFeedback.feedback}</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><p className="text-xs font-bold text-emerald-800">잘한 점</p><ul className="mt-1 space-y-1 text-sm text-slate-700">{detailedFeedback.strengths.map((item) => <li key={item}>• {item}</li>)}</ul></div><div><p className="text-xs font-bold text-rose-800">다음에 고칠 점</p><ul className="mt-1 space-y-1 text-sm text-slate-700">{detailedFeedback.improvements.map((item) => <li key={item}>• {item}</li>)}</ul></div></div><div className="mt-3 rounded-lg border border-amber-200 bg-white p-3"><p className="text-xs font-bold text-amber-800">개선 문장 예시</p><p className="mt-1 text-sm leading-6 text-slate-900">{detailedFeedback.revisedSentence}</p></div></section>}
             </section>
 
             {optionsUnlocked && <section className="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 sm:p-5">
