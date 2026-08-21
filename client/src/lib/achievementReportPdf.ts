@@ -111,7 +111,7 @@ export function getAchievementReportPdfFilename(date = new Date()) {
   return `EssayMaster_Achievement_Report_${date.toISOString().slice(0, 10)}.pdf`;
 }
 
-export function exportAchievementReportPdf(data: AchievementReportData) {
+export async function exportAchievementReportPdf(data: AchievementReportData) {
   const canvas = document.createElement("canvas");
   canvas.width = 1600;
   canvas.height = 1130;
@@ -139,6 +139,7 @@ export function exportAchievementReportPdf(data: AchievementReportData) {
   drawSkillChart(context, chartXs[2], chartY + 36, chartWidth, chartHeight - 50, data.skillData);
   context.fillStyle = "#94a3b8"; context.font = "500 13px sans-serif"; context.fillText("이 문서는 현재 학습 기록을 기준으로 생성된 개인 성취 요약입니다.", 76, 1054);
   context.textAlign = "right"; context.fillText("논술 마스터", 1524, 1054); context.textAlign = "left";
+  const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ orientation: "landscape", unit: "px", format: [canvas.width, canvas.height], hotfixes: ["px_scaling"] });
   pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, canvas.width, canvas.height);
   pdf.save(getAchievementReportPdfFilename());
