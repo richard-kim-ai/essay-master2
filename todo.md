@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Manus] 라우트 지연 로딩·PDF 동적 import·번들 시각화 구현 — 시작 2026-08-21 15:54
 
 ## 완료
 - [Manus] Claim 기록 보조 PR 생성 및 상태 확인 — 시작 2026-08-20 11:40, 완료 2026-08-20 12:16
@@ -530,3 +531,8 @@
 
 ## 2026-08 추가 요청: Claim 기록 보조 PR 생성
 - [x] PR #1 점검 Claim 완료 기록만 포함하는 문서 전용 보조 PR 생성 및 상태 확인
+
+## 2026-08 추가 요청: 라우트 지연 로딩·PDF 동적 import·번들 시각화
+- [ ] App 라우트 단위 React.lazy·Suspense 적용과 공통 로딩 상태 구현
+- [ ] 수료증·성취 리포트 PDF 생성 시점의 jspdf 동적 import 전환
+- [ ] rollup-plugin-visualizer 번들 분석 스크립트 구성과 빌드·타입·Vitest 검증
