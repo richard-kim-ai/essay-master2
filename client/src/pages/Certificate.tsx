@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download, FileImage, Share2, Link2, ExternalLink } from "lucide-react";
-import { jsPDF } from "jspdf";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
@@ -145,7 +144,7 @@ export default function Certificate() {
     return Boolean(eligibilityQuery.data?.levelEligibility?.find((item: any) => item.level === level)?.isEligible);
   };
 
-  const exportCertificate = (data: CertificateExportData, filename: string, format: "png" | "pdf") => {
+  const exportCertificate = async (data: CertificateExportData, filename: string, format: "png" | "pdf") => {
     try {
       const canvas = drawCertificateCanvas(data);
       const image = canvas.toDataURL("image/png");
@@ -158,6 +157,7 @@ export default function Certificate() {
         return;
       }
       const orientation = canvas.width >= canvas.height ? "landscape" : "portrait";
+      const { jsPDF } = await import("jspdf");
       const pdf = new jsPDF({ orientation, unit: "px", format: [canvas.width, canvas.height], hotfixes: ["px_scaling"] });
       pdf.addImage(image, "PNG", 0, 0, canvas.width, canvas.height);
       pdf.save(`${filename}.pdf`);
