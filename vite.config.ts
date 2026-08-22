@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "node:path";
+import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
@@ -150,7 +151,24 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const bundleVisualizer = process.env.ANALYZE_BUNDLE === "true"
+  ? visualizer({
+      filename: path.join(PROJECT_ROOT, "dist", "bundle-stats.html"),
+      template: "treemap",
+      gzipSize: true,
+      brotliSize: true,
+      open: false,
+    })
+  : undefined;
+
+const plugins = [
+  react(),
+  tailwindcss(),
+  jsxLocPlugin(),
+  vitePluginManusRuntime(),
+  vitePluginManusDebugCollector(),
+  ...(bundleVisualizer ? [bundleVisualizer] : []),
+];
 
 export default defineConfig({
   plugins,
