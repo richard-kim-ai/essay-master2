@@ -85,6 +85,7 @@ export default function AIAutoFeedback() {
         correctionStatus: (result as any).correction_status || "failed",
         fallbackUsed: Boolean((result as any).fallback_used),
         providerError: (result as any).provider_error || null,
+        correctionError: (result as any).provider_error || "",
         latencyMs: Number((result as any).latency_ms || 0),
         modelId: (result as any).model_id || "알 수 없음",
         reviewQueued: Boolean((result as any).reviewQueued),
