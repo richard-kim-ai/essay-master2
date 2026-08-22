@@ -79,9 +79,9 @@ const LEARNING_TOOLS = [
 ];
 
 const STATS = [
-  { number: "10,000+", label: "활용 학생" },
-  { number: "4.9/5", label: "평균 평점" },
-  { number: "95%", label: "만족도" },
+  { number: "가입자", label: "실사용자 계정 기준" },
+  { number: "제출글", label: "실제 첨삭 기록 기준" },
+  { number: "학습기록", label: "진도·수료 데이터 기준" },
 ];
 
 export default function Home() {
@@ -109,7 +109,7 @@ export default function Home() {
             <div className="space-y-8">
               <div className="space-y-4">
                 <Badge className="w-fit bg-blue-100 text-blue-700 px-4 py-2 font-semibold">
-                  ✨ 2026년 최고의 논술 학습 플랫폼
+                  ✨ 실사용자 학습 기록 기반 논술 플랫폼
                 </Badge>
                 <h1 className="text-5xl md:text-6xl font-bold text-gray-900 leading-tight">
                   논술 마스터와 함께
@@ -226,7 +226,7 @@ export default function Home() {
               논술 마스터의 특징
             </h2>
             <p className="text-xl text-gray-600">
-              학생들의 성공을 위해 설계된 종합 학습 플랫폼
+              실제 학습 기록과 첨삭 흐름을 기준으로 설계된 종합 학습 플랫폼
             </p>
           </div>
 
