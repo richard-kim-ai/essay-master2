@@ -1,6 +1,6 @@
 # 장시간 개발 작업의 Git 최신화와 변경 경계
 
-작업 시작 전에는 원본 작업 폴더를 수정하지 않고 `pnpm git:sync:check`로 Manus 체크포인트 원격(`origin`)과 협업 GitHub 원격(`user_github`)의 `main` 기준, 현재 미저장 변경, 원격 최신화 성공 여부를 함께 확인합니다. 이 검사는 둘 중 하나라도 선행 커밋이 있으면 실패하며 자동 병합·자동 재배치는 하지 않습니다.
+작업 시작 전에는 원본 작업 폴더를 수정하지 않고 `pnpm git:sync:check`로 현재 Manus 체크포인트 기준(`HEAD`)과 협업 GitHub 원격(`user_github/main`)의 선행 커밋, 현재 미저장 변경, GitHub 원격 최신화 성공 여부를 함께 확인합니다. Manus 체크포인트 원격(`origin`)은 터미널 자격 증명이 제공되지 않아 직접 fetch하지 않으며, 체크포인트 저장 도구가 갱신합니다. 이 검사는 현재 기준 또는 GitHub 기준 중 하나라도 선행 커밋이 있으면 실패하며 자동 병합·자동 재배치는 하지 않습니다.
 
 협업 기능 기준은 `user_github/main`이며, 해당 원격이 선행한 경우에는 전용 feature 브랜치에서 `git fetch user_github && git rebase user_github/main`으로 최신화합니다. 원본 Manus 작업 폴더의 `main`은 체크포인트·배포 원격인 `origin/main`을 추적하므로, 협업 변경을 반영한 뒤에는 체크포인트 저장으로 Manus origin을 갱신합니다. 두 원격이 어긋난 상태에서는 새 기능 구현이나 푸시를 시작하지 않고 먼저 충돌 범위를 보고합니다.
 
