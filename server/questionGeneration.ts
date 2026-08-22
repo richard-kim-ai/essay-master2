@@ -1,105 +1,10 @@
 import { z } from "zod";
 import { invokeLLM } from "./_core/llm";
 
-export const QUESTION_BANK_MASTER_PROMPT_VERSION = "2026-08-19-taxonomy-a-f-human-review-v2";
+export const QUESTION_BANK_MASTER_PROMPT_VERSION = "2026-08-18-taxonomy-a-f-v1";
 
-export const COURSE_MAP = {
-  ELEMENTARY: { db: "elementary", label: "초등", defaultDifficulty: 2 },
-  MIDDLE_HIGH: { db: "middle_high", label: "중고등", defaultDifficulty: 3 },
-  HIGH_ADMISSION: { db: "high_univ", label: "고등/대입", defaultDifficulty: 4 },
-  GENERAL_WORK: { db: "general_adult", label: "일반/직장인", defaultDifficulty: 3 },
-} as const;
-
-export const TOOL_TYPE_MAP = {
-  QUIZ: { db: "quiz", label: "AI 문장 퀴즈" },
-  PARAGRAPH_REORDERING: { db: "reordering", label: "단락 재구성" },
-  SUMMARY: { db: "summary", label: "요약 연습" },
-  TOPIC_WIZARD: { db: "topic_wizard", label: "주제 설정 위저드" },
-  CHECKLIST: { db: "thesis_checklist", label: "주제문 체크리스트" },
-} as const;
-
-const LEGACY_COURSE_TO_CANONICAL: Record<string, keyof typeof COURSE_MAP> = {
-  elementary: "ELEMENTARY",
-  middle_high: "MIDDLE_HIGH",
-  high_univ: "HIGH_ADMISSION",
-  general_adult: "GENERAL_WORK",
-};
-
-const LEGACY_TOOL_TO_CANONICAL: Record<string, keyof typeof TOOL_TYPE_MAP> = {
-  quiz: "QUIZ",
-  reordering: "PARAGRAPH_REORDERING",
-  paragraph_reordering: "PARAGRAPH_REORDERING",
-  summary: "SUMMARY",
-  topic_wizard: "TOPIC_WIZARD",
-  thesis_checklist: "CHECKLIST",
-  checklist: "CHECKLIST",
-};
-
-const difficultyMetricSchema = z.object({
-  vocabulary_complexity: z.number().int().min(1).max(5),
-  sentence_complexity: z.number().int().min(1).max(5),
-  information_density: z.number().int().min(1).max(5),
-  reasoning_depth: z.number().int().min(1).max(5),
-  error_complexity: z.number().int().min(1).max(5),
-  answer_ambiguity: z.number().int().min(1).max(5),
-  concept_integration: z.number().int().min(1).max(5),
-});
-
-const contentDataSchema = z.object({
-  course: z.enum(["ELEMENTARY", "MIDDLE_HIGH", "HIGH_ADMISSION", "GENERAL_WORK"]),
-  tool_type: z.enum(["QUIZ", "PARAGRAPH_REORDERING", "SUMMARY", "TOPIC_WIZARD", "CHECKLIST"]),
-  theory_category: z.string().min(1),
-  theory_subcategory: z.string().optional(),
-  difficulty: z.number().int().min(1).max(5),
-  difficulty_metrics: difficultyMetricSchema,
-  question: z.string().min(1),
-  passage: z.string().optional().default(""),
-  choices: z.array(z.string()).optional().default([]),
-  correct_answer: z.union([z.string(), z.array(z.string())]).optional(),
-  model_answer: z.string().optional(),
-  explanation: z.string().min(1),
-  wrong_answer_explanations: z.record(z.string(), z.string()).optional().default({}),
-  learning_objective: z.string().min(1),
-  evaluation_criteria: z.record(z.string(), z.unknown()).optional().default({}),
-  keywords: z.array(z.string()).optional().default([]),
-  estimated_time: z.number().int().positive().optional().default(180),
-}).passthrough();
-
-const generatedItemSchema = z.object({
-  title: z.string().min(3),
-  difficulty: z.enum(["easy", "medium", "hard"]).optional(),
-  contentData: z.union([z.string(), contentDataSchema]),
-}).passthrough();
-
-const llmGenerationResponseSchema = z.object({
-  items: z.array(generatedItemSchema).min(1),
-});
-
-export const generationRequestSchema = z.object({
-  course: z.string(),
-  tool_type: z.string(),
-  theory_category: z.string().default("AUTO"),
-  difficulty: z.union([z.literal("AUTO"), z.coerce.number().int().min(1).max(5)]).default("AUTO"),
-  question_count: z.coerce.number().int().min(1).max(20).default(3),
-  topic: z.string().trim().min(1).default("AUTO"),
-});
-
-export type GenerationRequestInput = z.input<typeof generationRequestSchema>;
-export type GenerationRequest = z.infer<typeof generationRequestSchema>;
-
-export type QuestionBankDTO = {
-  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
-  toolType: string;
-  title: string;
-  contentData: string;
-  difficulty: "easy" | "medium" | "hard";
-  isActive: number;
-  qaStatus?: "passed" | "blocked";
-  qaIssues?: string[];
-  duplicateScore?: number;
-};
-
-const HUMAN_REVIEW_ITEMS = [
+// 사람 검수 체크리스트: AI 생성 문항은 아래 6개 항목이 모두 통과되어야 question_bank에 저장된다. (local branch 고유 기능)
+export const HUMAN_REVIEW_ITEMS = [
   "answer_is_not_length_based",
   "answer_position_varied",
   "distractors_are_plausible",
@@ -108,299 +13,43 @@ const HUMAN_REVIEW_ITEMS = [
   "content_matches_theory",
 ] as const;
 
-export type AdaptiveStats = {
-  courseType: string;
-  toolType?: string;
-  correctRate?: number;
-  totalAttempts?: number;
-  weakTheoryCategories?: string[];
-};
+export const COURSE_MAP = {
+  ELEMENTARY: { db: "elementary", label: "초등 논술", defaultDifficulty: 2 },
+  MIDDLE_HIGH: { db: "middle_high", label: "중고등 논술", defaultDifficulty: 3 },
+  HIGH_ADMISSION: { db: "high_univ", label: "고등/대입 논술", defaultDifficulty: 4 },
+  GENERAL_WORK: { db: "general_adult", label: "일반/직장인 논술", defaultDifficulty: 3 },
+} as const;
+export const TOOL_TYPE_MAP = {
+  QUIZ: { db: "quiz", label: "AI 문장 교정 퀴즈" },
+  PARAGRAPH_REORDERING: { db: "reordering", label: "단락 재구성" },
+  SUMMARY: { db: "summary", label: "요약 연습" },
+  TOPIC_WIZARD: { db: "topic_wizard", label: "주제 설정 위저드" },
+  CHECKLIST: { db: "thesis_checklist", label: "주제문 체크리스트" },
+} as const;
+const legacyCourses: Record<string, keyof typeof COURSE_MAP> = { elementary: "ELEMENTARY", middle_high: "MIDDLE_HIGH", high_univ: "HIGH_ADMISSION", general_adult: "GENERAL_WORK" };
+const legacyTools: Record<string, keyof typeof TOOL_TYPE_MAP> = { quiz: "QUIZ", reordering: "PARAGRAPH_REORDERING", paragraph_reordering: "PARAGRAPH_REORDERING", summary: "SUMMARY", topic_wizard: "TOPIC_WIZARD", thesis_checklist: "CHECKLIST", checklist: "CHECKLIST" };
+const metricsSchema = z.object({ vocabulary_complexity: z.number().int().min(1).max(5), sentence_complexity: z.number().int().min(1).max(5), information_density: z.number().int().min(1).max(5), reasoning_depth: z.number().int().min(1).max(5), error_complexity: z.number().int().min(1).max(5), answer_ambiguity: z.number().int().min(1).max(5), concept_integration: z.number().int().min(1).max(5) });
 
-export const QUESTION_BANK_MASTER_PROMPT = `
-# Essay Master AI Question Bank MASTER PROMPT
+export const generationRequestSchema = z.object({
+  course: z.string().trim().min(1), tool_type: z.string().trim().min(1), theory_category: z.string().trim().min(1).default("AUTO"), difficulty: z.union([z.literal("AUTO"), z.coerce.number().int().min(1).max(5)]).default("AUTO"), question_count: z.coerce.number().int().min(1).max(20).default(3), topic: z.string().trim().min(1).default("AUTO"),
+});
+export type GenerationRequest = z.infer<typeof generationRequestSchema>;
+export type GenerationRequestInput = z.input<typeof generationRequestSchema>;
+export type AdaptiveStats = { courseType: string; correctRate?: number; totalAttempts?: number; weakTheoryCategories?: string[] };
+export type QuestionBankDTO = { courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"; toolType: "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist"; title: string; contentData: string; difficulty: "easy" | "medium" | "hard"; isActive: number; qaStatus?: "passed" | "blocked"; qaIssues?: string[]; duplicateScore?: number };
 
-Version: ${QUESTION_BANK_MASTER_PROMPT_VERSION}
+export const QUESTION_BANK_MASTER_PROMPT = `당신은 한국어 논술·글쓰기 전문 문항개발 AI다. 실제 학습자가 풀 수 있는 완전한 문항만 생성하며 placeholder, seed, 개발 테스트 문구, 제목만 있는 문항, 최신 사실의 진위를 정답으로 요구하는 문항, 사족과 반복을 금지한다. 과정은 ELEMENTARY(초등고학년/TOPIK3), MIDDLE_HIGH(중고등/TOPIK4), HIGH_ADMISSION(고등·대입/TOPIK5~6), GENERAL_WORK(일반·직장인/TOPIK6 실무형)이며, 난이도 1~5는 어휘·문장 구조·정보 밀도·추론·오류 복합성·정답 모호성·개념 결합으로 조절한다. theory_category를 실제로 평가한다. 모든 문항에는 question, explanation, learning_objective, difficulty_metrics 7개 값이 필요하다. QUIZ에는 4개 choices와 하나의 correct_answer, PARAGRAPH_REORDERING에는 paragraphs[{id,content,correctOrder}], SUMMARY에는 passage·keyPoints·model_answer, TOPIC_WIZARD에는 guidelines 3개와 sampleOutput, CHECKLIST에는 checklistItems 3개와 passingStandard를 포함한다. 객관식 정답은 길이·위치·문체·구체성만으로 추론할 수 없게 하고, 같은 묶음에서 정답 위치와 선택지 문장 길이·어조를 분산한다. JSON만 반환한다.`;
+export function loadQuestionBankMasterPrompt() { return QUESTION_BANK_MASTER_PROMPT; }
 
-You are a Korean essay-writing education item development AI. You create real, complete question-bank items for Essay Master based on the education theory from "논술의 기초".
+function course(input: string): keyof typeof COURSE_MAP { const upper = input.trim().toUpperCase(); if (upper in COURSE_MAP) return upper as keyof typeof COURSE_MAP; if (legacyCourses[input.trim()]) return legacyCourses[input.trim()]; throw new Error(`지원하지 않는 과정: ${input}`); }
+function tool(input: string): keyof typeof TOOL_TYPE_MAP { const upper = input.trim().toUpperCase(); if (upper in TOOL_TYPE_MAP) return upper as keyof typeof TOOL_TYPE_MAP; if (legacyTools[input.trim()]) return legacyTools[input.trim()]; throw new Error(`지원하지 않는 도구: ${input}`); }
+function clean(value: unknown, fallback = "") { return typeof value === "string" && value.trim() ? value.trim() : fallback; }
+function parse(raw: unknown): Record<string, any> { const text = typeof raw === "string" ? raw.replace(/```json/gi, "").replace(/```/g, "").trim() : JSON.stringify(raw ?? {}); return JSON.parse(text); }
+function normalizeText(value: unknown) { return String(value ?? "").replace(/\s+/g, " ").replace(/[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ]/g, "").trim().toLowerCase(); }
+function similarity(a: string, b: string) { const as = new Set(a.split(" ").filter(Boolean)); const bs = new Set(b.split(" ").filter(Boolean)); const aItems = Array.from(as); const bItems = Array.from(bs); return aItems.filter((token) => bs.has(token)).length / (new Set(aItems.concat(bItems)).size || 1); }
+function legacyDifficulty(level: number): "easy" | "medium" | "hard" { return level <= 2 ? "easy" : level === 3 ? "medium" : "hard"; }
 
-The System/Master Prompt is the single source of truth. The User Prompt must be short structured parameters only.
-
-## Core Rules
-
-1. Create only complete questions that real learners can solve.
-2. Never create placeholders, seed text, test samples, or title-only items.
-3. Every item must include a learning objective, answer or scoring criteria, explanation, and QA-ready metadata.
-4. Course, tool type, theory category, and difficulty are controlled independently.
-5. Difficulty is controlled by vocabulary, sentence structure, information density, reasoning depth, error complexity, answer ambiguity, and concept integration. Do not merely make text longer.
-6. Do not repeat the same pattern, passage, wrong answer, explanation, or topic with trivial substitutions.
-7. For debatable topics, evaluate writing principles and logical validity. Do not force one ideology as the only correct view.
-8. Avoid current-events facts whose truth may change.
-9. Quiz answers must not be inferable from superficial patterns. The correct choice must not always be the longest, most formal, most detailed, first, or last option.
-10. Within a batch, vary the correct-answer position and choice wording style. Distractors should be similar in length and specificity to the answer.
-
-## Taxonomy A-F
-
-A. Sentence Writing
-- A01 Economy: remove redundancy and wordiness.
-- A02 Avoid Repetition: remove or replace repeated words, phrases, particles, endings.
-- A03 Clarity: fix ambiguity, modifier scope, word order, vague expressions.
-- A04 Accuracy: subject-predicate agreement, connective agreement, honorifics, tense, particles, quotation, conjunction, passive overuse.
-
-B. Paragraph Writing
-- B01 Central idea, B02 topic sentence, B03 supporting sentence, B04 unity, B05 coherence/continuity, B06 development method.
-- Development methods: deductive, inductive, chronological, spatial, problem-cause-solution, claim-counterclaim-rebuttal.
-
-C. Summary
-- C01 Deletion, C02 superordinate substitution, C03 topic sentence selection, C04 topic sentence creation, C05 paragraph function analysis, C06 whole-structure grasp.
-
-D. Topic Setting
-- D01 tentative topic, D02 problem specification, D03 true topic, D04 researchability, D05 audience/purpose fit.
-
-E. Thesis Statement
-- E01 complete sentence, E02 concrete scope, E03 claim/stance, E04 arguability, E05 appropriate breadth.
-
-F. Logical Writing
-- F01 claim-evidence link, F02 comparison/contrast, F03 cause-effect, F04 counterargument handling, F05 conclusion and implication.
-
-## Courses
-
-- ELEMENTARY: upper elementary, TOPIK 3, short sentences, clear causal markers, gentle feedback.
-- MIDDLE_HIGH: middle/high school bridge, TOPIK 4, compound sentences, objective explanatory tone.
-- HIGH_ADMISSION: high school/admission, TOPIK 5-6, academic vocabulary, rigorous reasoning and source comparison.
-- GENERAL_WORK: adults/workers, TOPIK 6 practical, concise business/report style, alternatives and expected effects.
-
-## Tool Types
-
-- QUIZ: passage or sentence, four options, one best answer, plausible distractors, wrong-answer explanations.
-- PARAGRAPH_REORDERING: at least three sentence cards, objective ordering logic, correct order.
-- SUMMARY: complete passage, core topic, essential information, deletable details, model answer, rubric.
-- TOPIC_WIZARD: narrow a tentative topic into a true topic using scope, specificity, arguability, researchability.
-- CHECKLIST: evaluate or revise a thesis/plan with concrete checklist criteria and revision activity.
-
-## Difficulty 1-5
-
-- 1 Recognition: one concept, short sentence, one error, direct clue.
-- 2 Basic Application: one or two judgment factors, simple comparison and reason.
-- 3 Complex Application: two or three error/judgment factors, short paragraph, comparison/analysis.
-- 4 Analysis/Inference: paragraph level, higher density, infer central idea, choose best answer.
-- 5 Synthesis/Practice: complex passage, grammar+meaning+logic+structure judgment, realistic essay/work application.
-
-Each item must include difficulty_metrics with 1-5 integer values:
-vocabulary_complexity, sentence_complexity, information_density, reasoning_depth, error_complexity, answer_ambiguity, concept_integration.
-
-## Adaptive Difficulty
-
-When difficulty=AUTO:
-- If recent correct rate is 85% or higher, generate +1 level candidate.
-- 65-84%: keep current level.
-- 40-64%: keep or provide same-concept -1 support.
-- Under 40%: generate -1 level, focusing on one core concept.
-- If no learner data is present, use course default difficulty.
-
-## QA Before Output
-
-Block internally and regenerate any item that:
-- contains placeholder wording or "문항 #", "보기 1: 올바른 문장 구조", "실전 학습 문항입니다".
-- has no real passage/question.
-- has multiple correct answers in a single-best quiz.
-- makes the correct answer noticeably longer, more specific, or more polished than all distractors.
-- repeats the correct-answer position across the generated batch.
-- lacks answer/scoring criteria or explanation.
-- has mismatched course/tool/theory/difficulty.
-- duplicates recent item topic, structure, or wording.
-- has malformed JSON.
-
-## Required JSON Output
-
-Return JSON object only, no markdown:
-{
-  "items": [
-    {
-      "title": "문항 제목",
-      "difficulty": "easy|medium|hard",
-      "contentData": {
-        "course": "ELEMENTARY|MIDDLE_HIGH|HIGH_ADMISSION|GENERAL_WORK",
-        "tool_type": "QUIZ|PARAGRAPH_REORDERING|SUMMARY|TOPIC_WIZARD|CHECKLIST",
-        "theory_category": "A01|A02|...|F05 or Korean theory name",
-        "theory_subcategory": "세부 이론",
-        "difficulty": 1,
-        "difficulty_metrics": {},
-        "question": "학습자에게 보이는 지시문",
-        "passage": "문제 지문",
-        "choices": [],
-        "correct_answer": "정답 또는 핵심 기준",
-        "model_answer": "모범답안",
-        "explanation": "해설",
-        "wrong_answer_explanations": {},
-        "learning_objective": "학습 목표",
-        "evaluation_criteria": {},
-        "keywords": [],
-        "estimated_time": 180,
-        "quality_checks": {},
-        "generation_origin": "ai_generated",
-        "human_review": {
-          "status": "pending",
-          "checklist": {
-            "answer_is_not_length_based": false,
-            "answer_position_varied": false,
-            "distractors_are_plausible": false,
-            "single_best_answer_confirmed": false,
-            "no_pattern_guessing": false,
-            "content_matches_theory": false
-          },
-          "overall_passed": false,
-          "reviewer_note": ""
-        },
-        "master_prompt_version": "${QUESTION_BANK_MASTER_PROMPT_VERSION}"
-      }
-    }
-  ]
-}
-`;
-
-export function loadQuestionBankMasterPrompt() {
-  return QUESTION_BANK_MASTER_PROMPT;
-}
-
-function normalizeCourse(input: string): keyof typeof COURSE_MAP {
-  const key = input.trim().toUpperCase();
-  if (key in COURSE_MAP) return key as keyof typeof COURSE_MAP;
-  const legacy = LEGACY_COURSE_TO_CANONICAL[input.trim()];
-  if (legacy) return legacy;
-  throw new Error(`Unsupported course: ${input}`);
-}
-
-function normalizeToolType(input: string): keyof typeof TOOL_TYPE_MAP {
-  const key = input.trim().toUpperCase();
-  if (key in TOOL_TYPE_MAP) return key as keyof typeof TOOL_TYPE_MAP;
-  const legacy = LEGACY_TOOL_TO_CANONICAL[input.trim()];
-  if (legacy) return legacy;
-  throw new Error(`Unsupported tool_type: ${input}`);
-}
-
-function legacyDifficulty(level: number): "easy" | "medium" | "hard" {
-  if (level <= 2) return "easy";
-  if (level === 3) return "medium";
-  return "hard";
-}
-
-export function resolveAdaptiveDifficulty(request: GenerationRequest, stats: AdaptiveStats[] = []) {
-  if (request.difficulty !== "AUTO") return Number(request.difficulty);
-
-  const course = normalizeCourse(request.course);
-  const courseDb = COURSE_MAP[course].db;
-  const matching = stats.filter(s => s.courseType === courseDb);
-  const totalAttempts = matching.reduce((sum, s) => sum + (s.totalAttempts ?? 0), 0);
-  const weightedCorrect = matching.reduce((sum, s) => sum + (s.correctRate ?? 0) * (s.totalAttempts ?? 0), 0);
-  const base = COURSE_MAP[course].defaultDifficulty;
-
-  if (totalAttempts <= 0) return base;
-
-  const avg = weightedCorrect / totalAttempts;
-  if (avg >= 85) return Math.min(5, base + 1);
-  if (avg < 40) return Math.max(1, base - 1);
-  if (avg < 65) return Math.max(1, base - 1);
-  return base;
-}
-
-export function buildShortUserPrompt(input: GenerationRequestInput, stats: AdaptiveStats[] = []) {
-  const request = generationRequestSchema.parse(input);
-  const course = normalizeCourse(request.course);
-  const tool = normalizeToolType(request.tool_type);
-  const resolvedDifficulty = resolveAdaptiveDifficulty(request, stats);
-  const weakAreas = stats.flatMap(s => s.weakTheoryCategories ?? []).slice(0, 5);
-
-  return [
-    `course=${course}`,
-    `tool_type=${tool}`,
-    `theory_category=${request.theory_category}`,
-    `difficulty=${request.difficulty}`,
-    `resolved_difficulty=${resolvedDifficulty}`,
-    `question_count=${request.question_count}`,
-    `topic=${request.topic}`,
-    `adaptive_context=${weakAreas.length > 0 ? weakAreas.join("|") : "NONE"}`,
-  ].join(" / ");
-}
-
-const responseJsonSchema = {
-  name: "essay_master_question_generation",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      items: {
-        type: "array",
-        minItems: 1,
-        items: {
-          type: "object",
-          additionalProperties: true,
-          required: ["title", "contentData"],
-          properties: {
-            title: { type: "string" },
-            difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
-            contentData: { type: "object", additionalProperties: true },
-          },
-        },
-      },
-    },
-    required: ["items"],
-  },
-};
-
-function parseJsonObject(raw: unknown) {
-  const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
-  const clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
-  return JSON.parse(clean);
-}
-
-function normalizeContentData(input: unknown, request: GenerationRequest, resolvedDifficulty: number) {
-  const content = typeof input === "string" ? parseJsonObject(input) : input;
-  const course = normalizeCourse(request.course);
-  const tool = normalizeToolType(request.tool_type);
-  const merged = {
-    ...(content && typeof content === "object" ? content : {}),
-    course,
-    tool_type: tool,
-    difficulty: Number((content as { difficulty?: unknown })?.difficulty ?? resolvedDifficulty),
-    generation_origin: (content as { generation_origin?: unknown })?.generation_origin ?? "ai_generated",
-    master_prompt_version: QUESTION_BANK_MASTER_PROMPT_VERSION,
-  };
-
-  if (!merged.difficulty_metrics) {
-    merged.difficulty_metrics = {
-      vocabulary_complexity: resolvedDifficulty,
-      sentence_complexity: resolvedDifficulty,
-      information_density: resolvedDifficulty,
-      reasoning_depth: resolvedDifficulty,
-      error_complexity: resolvedDifficulty,
-      answer_ambiguity: Math.max(1, resolvedDifficulty - 1),
-      concept_integration: resolvedDifficulty,
-    };
-  }
-
-  return contentDataSchema.parse(merged);
-}
-
-function normalizeText(value: unknown) {
-  return String(value ?? "")
-    .replace(/\s+/g, " ")
-    .replace(/[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ]/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function similarity(a: string, b: string) {
-  if (!a || !b) return 0;
-  const as = new Set(a.split(" ").filter(Boolean));
-  const bs = new Set(b.split(" ").filter(Boolean));
-  const aTokens = Array.from(as);
-  const bTokens = Array.from(bs);
-  const intersection = aTokens.filter(token => bs.has(token)).length;
-  const union = new Set(aTokens.concat(bTokens)).size || 1;
-  return intersection / union;
-}
-
+// 정답 패턴 추측 방지 QA 함수 (local branch 고유 기능)
 function answerIndex(content: { choices?: unknown; correct_answer?: unknown }) {
   if (!Array.isArray(content.choices) || typeof content.correct_answer !== "string") return -1;
   return content.choices.findIndex((choice: unknown) => normalizeText(choice) === normalizeText(content.correct_answer));
@@ -408,14 +57,14 @@ function answerIndex(content: { choices?: unknown; correct_answer?: unknown }) {
 
 function quizChoiceLengthIssues(content: { choices?: unknown; correct_answer?: unknown }) {
   if (!Array.isArray(content.choices) || typeof content.correct_answer !== "string") return [];
-  const choices = content.choices.map(choice => String(choice ?? ""));
+  const choices = content.choices.map((choice: unknown) => String(choice ?? ""));
   const index = answerIndex({ choices, correct_answer: content.correct_answer });
   if (index < 0) return [];
 
-  const lengths = choices.map(choice => normalizeText(choice).length);
+  const lengths = choices.map((choice: string) => normalizeText(choice).length);
   const correctLength = lengths[index];
-  const distractorLengths = lengths.filter((_, choiceIndex) => choiceIndex !== index);
-  const avgDistractorLength = distractorLengths.reduce((sum, value) => sum + value, 0) / Math.max(1, distractorLengths.length);
+  const distractorLengths = lengths.filter((_: number, choiceIndex: number) => choiceIndex !== index);
+  const avgDistractorLength = distractorLengths.reduce((sum: number, value: number) => sum + value, 0) / Math.max(1, distractorLengths.length);
   const maxDistractorLength = Math.max(0, ...distractorLengths);
   const minDistractorLength = Math.min(...lengths);
   const maxLength = Math.max(...lengths);
@@ -440,127 +89,119 @@ function hasHumanReviewPassed(content: {
   if (content.generation_origin !== "ai_generated") return true;
   const checklist = content.human_review?.checklist ?? {};
   return content.human_review?.overall_passed === true
-    && HUMAN_REVIEW_ITEMS.every(item => checklist[item] === true);
+    && HUMAN_REVIEW_ITEMS.every((item) => checklist[item] === true);
+}
+function defaults(level: number) { return { vocabulary_complexity: level, sentence_complexity: level, information_density: level, reasoning_depth: level, error_complexity: level, answer_ambiguity: Math.max(1, level - 1), concept_integration: level }; }
+
+export function resolveAdaptiveDifficulty(request: GenerationRequest, stats: AdaptiveStats[] = []) {
+  if (request.difficulty !== "AUTO") return Number(request.difficulty);
+  const current = stats.filter((item) => item.courseType === COURSE_MAP[course(request.course)].db);
+  const attempts = current.reduce((sum, item) => sum + (item.totalAttempts ?? 0), 0);
+  const base = COURSE_MAP[course(request.course)].defaultDifficulty;
+  if (!attempts) return base;
+  const average = current.reduce((sum, item) => sum + (item.correctRate ?? 0) * (item.totalAttempts ?? 0), 0) / attempts;
+  return average >= 85 ? Math.min(5, base + 1) : average < 65 ? Math.max(1, base - 1) : base;
+}
+export function buildShortUserPrompt(input: GenerationRequestInput, stats: AdaptiveStats[] = []) { const request = generationRequestSchema.parse(input); return [`course=${course(request.course)}`, `tool_type=${tool(request.tool_type)}`, `theory_category=${request.theory_category}`, `difficulty=${request.difficulty}`, `resolved_difficulty=${resolveAdaptiveDifficulty(request, stats)}`, `question_count=${request.question_count}`, `topic=${request.topic}`, `adaptive_context=${stats.flatMap((item) => item.weakTheoryCategories ?? []).slice(0, 5).join("|") || "NONE"}`].join(" / "); }
+
+function normalizeContent(raw: unknown, request: GenerationRequest, level: number) {
+  const source = parse(raw); const targetTool = tool(request.tool_type); const targetCourse = course(request.course);
+  const choices = Array.isArray(source.choices) ? source.choices : Array.isArray(source.options) ? source.options : [];
+  const paragraphs = Array.isArray(source.paragraphs) ? source.paragraphs.map((item: any, index: number) => ({ id: clean(item?.id, `p${index + 1}`), content: clean(item?.content ?? item), correctOrder: Number(item?.correctOrder ?? index + 1) })) : [];
+  const resolvedLevel = Math.max(1, Math.min(5, Number(source.difficulty ?? level)));
+  const content = {
+    ...source, course: targetCourse, tool_type: targetTool, theory_category: clean(source.theory_category, request.theory_category), difficulty: resolvedLevel, difficulty_metrics: metricsSchema.parse(source.difficulty_metrics ?? defaults(resolvedLevel)),
+    question: clean(source.question, clean(source.prompt, clean(source.passage))), passage: clean(source.passage, targetTool === "SUMMARY" ? clean(source.prompt) : ""), explanation: clean(source.explanation), learning_objective: clean(source.learning_objective, `${request.theory_category} 학습 목표를 적용한다.`),
+    choices, correct_answer: source.correct_answer ?? source.answer ?? "", model_answer: clean(source.model_answer, clean(source.modelAnswer)), prompt: clean(source.prompt, targetTool === "SUMMARY" ? clean(source.passage) : clean(source.question)), options: choices, answer: clean(source.answer, typeof source.correct_answer === "string" ? source.correct_answer : ""), modelAnswer: clean(source.modelAnswer, clean(source.model_answer)),
+    paragraphs, keyPoints: Array.isArray(source.keyPoints) ? source.keyPoints : [], guidelines: Array.isArray(source.guidelines) ? source.guidelines : [], checklistItems: Array.isArray(source.checklistItems) ? source.checklistItems : [], master_prompt_version: QUESTION_BANK_MASTER_PROMPT_VERSION, generation_origin: (source as { generation_origin?: unknown })?.generation_origin ?? "ai_generated", human_review: (source as { human_review?: unknown })?.human_review,
+  };
+  if (!content.question || !content.explanation || !content.learning_objective) throw new Error("필수 문항 본문·해설·학습 목표가 없습니다.");
+  return content;
 }
 
-export function qaQuestionItem(item: QuestionBankDTO, existingItems: Array<{ title: string; contentData: string }> = []) {
-  const issues: string[] = [];
-  const content = parseJsonObject(item.contentData);
-  const rawText = `${item.title} ${content.question ?? ""} ${content.passage ?? ""} ${content.explanation ?? ""}`;
-  const text = normalizeText(rawText);
-  const blockedPatterns = [
-    "placeholder",
-    "seed",
-    "[ELEMENTARY]",
-    "[MIDDLE_HIGH]",
-    "[HIGH_ADMISSION]",
-    "[GENERAL_WORK]",
-    "심화 문제 #",
-    "문항 #",
-    "실전 학습 문항입니다",
-    "보기 1 올바른 문장 구조",
-    "샘플",
-  ];
-
-  if (blockedPatterns.some(pattern => rawText.toLowerCase().includes(pattern.toLowerCase()))) issues.push("placeholder_blocked");
-  if (!content.question && !content.passage) issues.push("missing_question_or_passage");
-  if (!content.explanation) issues.push("missing_explanation");
-  if (!content.correct_answer && !content.model_answer && !content.evaluation_criteria) issues.push("missing_answer_or_rubric");
-  if (content.tool_type === "QUIZ" && (!Array.isArray(content.choices) || content.choices.length !== 4)) issues.push("quiz_requires_four_choices");
-  if (content.tool_type === "QUIZ" && content.correct_answer && Array.isArray(content.choices)) {
-    const correctCount = content.choices.filter((choice: string) => normalizeText(choice) === normalizeText(content.correct_answer)).length;
-    if (correctCount !== 1) issues.push("quiz_single_answer_failed");
-    issues.push(...quizChoiceLengthIssues(content));
-  }
+export function qaQuestionItem(item: Pick<QuestionBankDTO, "courseType" | "toolType" | "title" | "contentData" | "difficulty" | "isActive">, existingItems: Array<{ title: string; contentData: string }> = []) {
+  const issues: string[] = []; let content: Record<string, any>;
+  try { content = parse(item.contentData); } catch { return { passed: false, issues: ["malformed_json"], duplicateScore: 0 }; }
+  const textSource = `${item.title} ${content.question ?? content.prompt ?? ""} ${content.passage ?? ""} ${content.explanation ?? ""}`;
+  if (["placeholder", "seed", "심화 문제 #", "문항 #", "실전 학습 문항입니다", "보기 1: 올바른 문장 구조"].some((value) => textSource.toLowerCase().includes(value.toLowerCase()))) issues.push("placeholder_blocked");
+  if (!clean(content.question, clean(content.prompt, clean(content.passage)))) issues.push("missing_question_or_passage");
+  if (!clean(content.explanation)) issues.push("missing_explanation");
+  if (!content.correct_answer && !content.answer && !content.model_answer && !content.modelAnswer && !content.evaluation_criteria) issues.push("missing_answer_or_rubric");
+  const type = tool(item.toolType); const choices = Array.isArray(content.choices) ? content.choices : content.options; const answer = content.correct_answer ?? content.answer;
+  if (type === "QUIZ" && (!Array.isArray(choices) || choices.length !== 4 || !answer || choices.filter((choice: unknown) => normalizeText(choice) === normalizeText(answer)).length !== 1)) issues.push("quiz_structure_failed");
+  if (type === "QUIZ" && Array.isArray(choices) && typeof answer === "string") issues.push(...quizChoiceLengthIssues({ choices, correct_answer: answer }));
   if (!hasHumanReviewPassed(content)) issues.push("human_review_required");
-
-  const duplicateScore = Math.max(
-    0,
-    ...existingItems.map(existing => {
-      let existingContent = "";
-      try {
-        const parsed = parseJsonObject(existing.contentData);
-        existingContent = `${parsed.question ?? ""} ${parsed.passage ?? ""}`;
-      } catch {
-        existingContent = existing.contentData;
-      }
-      return similarity(text, normalizeText(`${existing.title} ${existingContent}`));
-    }),
-  );
-  if (duplicateScore >= 0.72) issues.push("duplicate_blocked");
-
-  return { passed: issues.length === 0, issues, duplicateScore };
+  if (type === "PARAGRAPH_REORDERING") { const paragraphs = Array.isArray(content.paragraphs) ? content.paragraphs : []; const orders = paragraphs.map((paragraph: any) => Number(paragraph.correctOrder)); if (paragraphs.length < 3 || paragraphs.some((paragraph: any) => !clean(paragraph.id) || !clean(paragraph.content)) || new Set(orders).size !== paragraphs.length || orders.slice().sort((a: number, b: number) => a - b).some((value: number, index: number) => value !== index + 1)) issues.push("reordering_structure_failed"); }
+  if (type === "SUMMARY" && (!clean(content.passage, clean(content.prompt)) || !clean(content.model_answer, clean(content.modelAnswer)))) issues.push("summary_structure_failed");
+  if (type === "TOPIC_WIZARD" && (!Array.isArray(content.guidelines) || content.guidelines.length < 3)) issues.push("topic_wizard_structure_failed");
+  if (type === "CHECKLIST" && (!Array.isArray(content.checklistItems) || content.checklistItems.length < 3)) issues.push("checklist_structure_failed");
+  if (content.difficulty_metrics && !metricsSchema.safeParse(content.difficulty_metrics).success) issues.push("difficulty_metrics_failed");
+  const normalized = normalizeText(textSource); const duplicateScore = Math.max(0, ...existingItems.map((existing) => { try { const previous = parse(existing.contentData); return similarity(normalized, normalizeText(`${existing.title} ${previous.question ?? previous.prompt ?? ""} ${previous.passage ?? ""}`)); } catch { return similarity(normalized, normalizeText(`${existing.title} ${existing.contentData}`)); } }));
+  if (duplicateScore >= 0.72) issues.push("duplicate_blocked"); return { passed: issues.length === 0, issues, duplicateScore };
 }
 
-export function mapGeneratedItemsToQuestionBank(
-  raw: unknown,
-  input: GenerationRequestInput,
-  existingItems: Array<{ title: string; contentData: string }> = [],
-  stats: AdaptiveStats[] = [],
-) {
-  const request = generationRequestSchema.parse(input);
-  const course = normalizeCourse(request.course);
-  const tool = normalizeToolType(request.tool_type);
-  const resolvedDifficulty = resolveAdaptiveDifficulty(request, stats);
-  const parsed = llmGenerationResponseSchema.parse(Array.isArray(raw) ? { items: raw } : raw);
-  const mapped = parsed.items.map(item => {
-    const contentData = normalizeContentData(item.contentData, request, resolvedDifficulty);
-    const level = Number(contentData.difficulty);
-    const dto: QuestionBankDTO = {
-      courseType: COURSE_MAP[course].db,
-      toolType: TOOL_TYPE_MAP[tool].db,
-      title: item.title,
-      contentData: JSON.stringify(contentData),
-      difficulty: item.difficulty ?? legacyDifficulty(level),
-      isActive: 1,
-    };
-    const qa = qaQuestionItem(dto, existingItems);
-    return {
-      ...dto,
-      qaStatus: qa.passed ? "passed" : "blocked",
-      qaIssues: qa.issues,
-      duplicateScore: qa.duplicateScore,
-    };
-  });
+export function mapGeneratedItemsToQuestionBank(raw: unknown, input: GenerationRequestInput, existingItems: Array<{ title: string; contentData: string }> = [], stats: AdaptiveStats[] = []) {
+  const request = generationRequestSchema.parse(input); const parsed = z.object({ items: z.array(z.object({ title: z.string().trim().min(3), difficulty: z.enum(["easy", "medium", "hard"]).optional(), contentData: z.unknown() })).min(1) }).parse(Array.isArray(raw) ? { items: raw } : raw); const resolved = resolveAdaptiveDifficulty(request, stats); const result: QuestionBankDTO[] = [];
+  for (const source of parsed.items) { const content = normalizeContent(source.contentData, request, resolved); const dto: QuestionBankDTO = { courseType: COURSE_MAP[course(request.course)].db, toolType: TOOL_TYPE_MAP[tool(request.tool_type)].db, title: source.title, contentData: JSON.stringify(content), difficulty: source.difficulty ?? legacyDifficulty(content.difficulty), isActive: 1 }; const qa = qaQuestionItem(dto, existingItems.concat(result)); result.push({ ...dto, qaStatus: qa.passed ? "passed" : "blocked", qaIssues: qa.issues, duplicateScore: qa.duplicateScore }); }
 
-  const quizAnswerIndexes = mapped
-    .map(item => {
+  // 정답 위치 반복 패턴 차단: 같은 배치에서 생성된 QUIZ 문항들의 정답 위치가 전부 동일하면 차단한다. (local branch 고유 기능)
+  const quizAnswerIndexes = result
+    .filter((item) => item.toolType === "quiz")
+    .map((item) => {
       try {
-        return answerIndex(parseJsonObject(item.contentData));
+        const content = parse(item.contentData);
+        return answerIndex({ choices: content.choices, correct_answer: content.correct_answer });
       } catch {
         return -1;
       }
     })
-    .filter(index => index >= 0);
-
+    .filter((index) => index >= 0);
   const hasBatchPositionPattern = quizAnswerIndexes.length >= 3 && new Set(quizAnswerIndexes).size === 1;
-  if (!hasBatchPositionPattern) return mapped;
+  if (!hasBatchPositionPattern) return result;
 
-  return mapped.map(item => {
-    const content = parseJsonObject(item.contentData);
-    if (content.tool_type !== "QUIZ") return item;
+  return result.map((item) => {
+    if (item.toolType !== "quiz") return item;
     const issues = Array.from(new Set([...(item.qaIssues ?? []), "answer_position_pattern"]));
     return { ...item, qaStatus: "blocked" as const, qaIssues: issues };
   });
 }
 
-export async function generateQuestionBankItems(input: GenerationRequestInput, options: {
-  existingItems?: Array<{ title: string; contentData: string }>;
-  adaptiveStats?: AdaptiveStats[];
-  llm?: typeof invokeLLM;
-} = {}) {
+export async function generateQuestionBankItems(input: GenerationRequestInput, options: { existingItems?: Array<{ title: string; contentData: string }>; adaptiveStats?: AdaptiveStats[]; llm?: typeof invokeLLM } = {}) {
   const request = generationRequestSchema.parse(input);
-  const userPrompt = buildShortUserPrompt(request, options.adaptiveStats ?? []);
-  const llm = options.llm ?? invokeLLM;
-
-  const response = await llm({
+  const response = await (options.llm ?? invokeLLM)({
     messages: [
       { role: "system", content: loadQuestionBankMasterPrompt() },
-      { role: "user", content: userPrompt },
+      { role: "user", content: buildShortUserPrompt(request, options.adaptiveStats ?? []) },
     ],
-    responseFormat: { type: "json_schema", json_schema: responseJsonSchema },
+    responseFormat: {
+      type: "json_schema",
+      json_schema: {
+        name: "essay_master_question_generation",
+        strict: false,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["items"],
+          properties: {
+            items: {
+              type: "array",
+              minItems: 1,
+              maxItems: 20,
+              items: {
+                type: "object",
+                additionalProperties: true,
+                required: ["title", "contentData"],
+                properties: {
+                  title: { type: "string" },
+                  difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+                  contentData: { type: "object", additionalProperties: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   });
-  const content = response.choices?.[0]?.message?.content ?? "{}";
-  const parsed = parseJsonObject(content);
-  return mapGeneratedItemsToQuestionBank(parsed, request, options.existingItems ?? [], options.adaptiveStats ?? []);
+  const text = response.choices?.[0]?.message?.content; if (typeof text !== "string" || !text.trim()) throw new Error("AI 문항 생성 응답이 비어 있습니다."); return mapGeneratedItemsToQuestionBank(parse(text), request, options.existingItems ?? [], options.adaptiveStats ?? []);
 }

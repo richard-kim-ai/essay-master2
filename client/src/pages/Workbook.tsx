@@ -1,11 +1,64 @@
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
-import { Loader2, CheckCircle, BookOpen, Lightbulb, MessageSquare } from "lucide-react";
-import { useState } from "react";
+import { Loader2, CheckCircle, HelpCircle, Send, Award, ListChecks, Lightbulb, Sparkles, ArrowRight } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { buildToolPathWithWorkbookReturn, buildWorkbookReturnPath, getInitialWorkbookLesson } from "@/lib/workbookReturn";
+
+type SubjectiveCriterion = {
+  key: "topicRelevance" | "claim" | "evidence" | "analysis" | "expression";
+  label: string;
+  score: number;
+  maxScore: number;
+  quote: string;
+  explanation: string;
+};
+
+type SubjectiveEvaluation = {
+  status: "evaluated" | "insufficient";
+  verdict: "excellent" | "adequate" | "needs_revision" | "off_topic" | "insufficient";
+  score: number;
+  isOnTopic: boolean;
+  hasClearClaim: boolean;
+  validReasonCount: number;
+  hasComparativeAnalysis: boolean;
+  characterCount: number;
+  criteria: SubjectiveCriterion[];
+  summary: string;
+  priorityImprovements: string[];
+  missingRequirements: string[];
+};
+
+type SubmittedWorkbookResult = {
+  isCorrect: number;
+  score: number;
+  aiFeedback: string;
+  evaluation?: SubjectiveEvaluation | null;
+};
+
+type LessonWritingGuide = {
+  learningGoal: string;
+  thinkingSteps: string[];
+  sentenceFrame: string;
+  practiceExample: string;
+  selfCheck: string[];
+};
+
+type TheoryLessonPayload = {
+  core_concept?: string;
+  textbook_anchor?: { kind?: string; text?: string };
+  textbook_similar_example?: { label?: string; text?: string };
+  wrong_example?: string;
+  improved_example?: string;
+  in_lesson_check?: { question?: string; answer?: string };
+  answer_feedback?: string;
+  next_step?: string;
+  source_boundary?: string;
+};
 
 const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: { id: number; title: string; content: string; example: string }[] }>> = {
   elementary: {
@@ -47,6 +100,12 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
           content: "한 문단은 하나의 주제만 다루어야 합니다.",
           example: "좋은 예: 모든 문장이 '운동의 중요성'에 대해 이야기함",
         },
+        {
+          id: 3,
+          title: "문단과 문단의 연결",
+          content: "이어지는 문단은 접속어나 문맥을 통해 자연스럽게 연결되어야 합니다.",
+          example: "예: '따라서', '그러나', '게다가' 등의 접속사 활용",
+        },
       ],
     },
   },
@@ -66,6 +125,12 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
           content: "귀납법은 구체적 사례에서 일반적 결론으로, 연역법은 일반적 원리에서 구체적 결론으로 나아갑니다.",
           example: "귀납: 여러 사례 → 결론 / 연역: 일반 원리 → 구체적 적용",
         },
+        {
+          id: 3,
+          title: "타당성과 건전성",
+          content: "논증이 형식적으로 올바른지(타당성), 전제가 실제로 참인지(건전성)를 검토합니다.",
+          example: "예: 전제가 모두 참이고 결론이 필연적으로 도출되는가?",
+        },
       ],
     },
     2: {
@@ -76,6 +141,18 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
           title: "서론, 본론, 결론",
           content: "효과적인 논술은 명확한 구조를 가집니다.",
           example: "서론: 문제 제시 → 본론: 주장과 근거 → 결론: 종합 및 제안",
+        },
+        {
+          id: 2,
+          title: "반론 수용과 재반박",
+          content: "상대방의 예상 반론을 미리 수용하고 이를 논리적으로 재반박합니다.",
+          example: "예: '일각에서는 ~라고 주장하지만, 이는 ~측면을 간과한 것이다.'",
+        },
+        {
+          id: 3,
+          title: "비판적 독해",
+          content: "제시문의 숨겨진 전제와 논리적 허점을 간파하는 독해법입니다.",
+          example: "예: 권위의 오류, 성급한 일반화의 오류 파악하기",
         },
       ],
     },
@@ -90,6 +167,41 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
           content: "공통 주제에 대한 입장 차이를 비교하고 도표와 통계 자료를 해석하는 역량을 배양합니다.",
           example: "예시: 두 제시문의 개인주의 관점 비교 및 비판적 평가",
         },
+        {
+          id: 2,
+          title: "도표 및 통계 자료 해석",
+          content: "제시된 그래프와 표의 수치 변화 추이를 분석하여 논증의 근거로 활용합니다.",
+          example: "예시: 출산율 저하와 고령화 속도 지표 분석",
+        },
+        {
+          id: 3,
+          title: "수리·과학 논술 접근법",
+          content: "자연계열 논술에서 요구하는 수학적 모델링과 과학적 법칙 적용 능력을 다룹니다.",
+          example: "예시: 확률과 통계를 활용한 사회 현상 설명",
+        },
+      ],
+    },
+    2: {
+      title: "Level 2: 심화 논증과 대안 제시",
+      lessons: [
+        {
+          id: 1,
+          title: "철학적 딜레마와 윤리적 판단",
+          content: "공리주의와 의무론 등 윤리학적 딜레마 상황에서 최선의 대안을 도출합니다.",
+          example: "예시: 트롤리 딜레마와 자율주행차의 윤리적 알고리즘",
+        },
+        {
+          id: 2,
+          title: "경제·사회 이슈 융합 논술",
+          content: "시장 실패와 정부 실패, 글로벌 경제 불평등 문제를 통합적으로 고찰합니다.",
+          example: "예시: 기본소득 제도의 도입 찬반 논거 비교",
+        },
+        {
+          id: 3,
+          title: "최종 실전 답안 첨삭 훈련",
+          content: "대학별 출제 경향에 맞춘 실전 답안 작성 및 자가 검토 요령을 익힙니다.",
+          example: "예시: 1000자 분량의 완결된 논술문 작성",
+        },
       ],
     },
   },
@@ -103,89 +215,141 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
           content: "복잡한 업무 데이터를 간결하고 명확한 구조로 요약하여 의사결정자를 설득하는 글쓰기입니다.",
           example: "예시: 1페이지 기획서(One-page Proposal) 구조화 실습",
         },
+        {
+          id: 2,
+          title: "이메일 및 비즈니스 커뮤니케이션",
+          content: "상대방의 행동을 유도하는 명확하고 정중한 비즈니스 텍스트 작성법입니다.",
+          example: "예시: 협상 제안서 및 피드백 이메일 작성",
+        },
+        {
+          id: 3,
+          title: "보도자료 및 PR 글쓰기",
+          content: "기업의 핵심 메시지를 대중과 미디어에 효과적으로 전달하는 PR 문장술입니다.",
+          example: "예시: 신제품 출시 보도자료 구조 작성",
+        },
+      ],
+    },
+    2: {
+      title: "Level 2: 전략적 기획 및 논증",
+      lessons: [
+        {
+          id: 1,
+          title: "문제 해결적 사고와 논리 트리",
+          content: "MECE 원칙을 적용하여 문제의 원인을 구조화하고 해결책을 도출합니다.",
+          example: "예시: 로직 트리(Logic Tree)를 활용한 매출 부진 원인 분석",
+        },
+        {
+          id: 2,
+          title: "ESG 경영 전략 보고서",
+          content: "환경, 사회, 지배구조 요소를 비즈니스 전략에 접목하는 기획안을 작성합니다.",
+          example: "예시: 탄소 중립 달성을 위한 기업 내부 프로세스 개편안",
+        },
+        {
+          id: 3,
+          title: "경영자 프레젠테이션 스크립트",
+          content: "복잡한 비즈니스 전략을 청중에게 각인시키는 스피치 원고를 작성합니다.",
+          example: "예시: 투자 유치 피치 덱 스크립트 구성",
+        },
       ],
     },
   },
 };
 
-type WorkbookLesson = {
-  id: number;
-  title: string;
-  content: string;
-  example: string;
-  theoryCategory?: string;
-  theorySubcategory?: string;
-  textbookAnchor?: { kind?: string; text?: string };
-  wrongExample?: string;
-  improvedExample?: string;
-  checkQuestion?: string;
-  checkAnswer?: string;
-  answerFeedback?: string;
-  nextStep?: string;
-  sourceBoundary?: string;
-};
-
 export default function Workbook() {
   const { isAuthenticated } = useAuth();
+  const utils = trpc.useUtils();
   const [, params] = useRoute("/workbook/:courseType/:level");
   const courseType = (params?.courseType as string) || "elementary";
   const level = params?.level ? parseInt(params.level) : 1;
 
-  const [currentLesson, setCurrentLesson] = useState(0);
+  const [currentLesson, setCurrentLesson] = useState(() => getInitialWorkbookLesson(window.location.search));
   const [completedLessons, setCompletedLessons] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [submittedResults, setSubmittedResults] = useState<Record<number, SubmittedWorkbookResult>>({});
+  const [submittingQId, setSubmittingQId] = useState<number | null>(null);
+  const [lessonGuide, setLessonGuide] = useState<LessonWritingGuide | null>(null);
 
   const progressMutation = trpc.progress.upsert.useMutation();
-  const { data: theoryContent } = trpc.curriculum.getTheoryContent.useQuery(
-    { courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult", lessonLevel: level },
-    { enabled: isAuthenticated },
-  );
+  const { data: workbookLessonBundle, isLoading: lessonBundleLoading } = trpc.curriculum.getWorkbookLessonBundle.useQuery({
+    courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
+    level,
+    lessonIndex: currentLesson,
+  }, { enabled: isAuthenticated && ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) });
+  const workbookQuestions = workbookLessonBundle?.workbookQuestions ?? [];
+  const theoryContent = workbookLessonBundle?.theoryContent ?? [];
+  const qLoading = lessonBundleLoading;
+  const theoryLoading = lessonBundleLoading;
+  const { data: dynamicCurriculum = [], isLoading: dynamicCurriculumLoading } = trpc.curriculum.getDynamicByType.useQuery(courseType as "elementary" | "middle_high" | "high_univ" | "general_adult", { enabled: isAuthenticated && ["elementary", "middle_high", "high_univ", "general_adult"].includes(courseType) });
+  const theoryContentIds = useMemo(() => theoryContent.flatMap((item) => "id" in item ? [item.id] : []), [theoryContent]);
+  const theoryProgressInput = useMemo(() => ({ theoryContentIds }), [theoryContentIds]);
+  const { data: theoryProgress = [] } = trpc.theoryContent.getMyProgress.useQuery(theoryProgressInput, { enabled: isAuthenticated && theoryContentIds.length > 0 });
+
+  const submitAnswerMutation = trpc.curriculum.submitWorkbookAnswer.useMutation();
+  const lessonGuideMutation = trpc.questionBank.lessonWritingGuide.useMutation();
+  const completeTheoryCheckMutation = trpc.theoryContent.completeCheck.useMutation({
+    onSuccess: async () => {
+      await utils.theoryContent.getMyProgress.invalidate();
+      toast.success("이론 레슨 확인문제 완료가 저장되었습니다.");
+    },
+    onError: (error) => toast.error(error.message || "완료 상태를 저장하지 못했습니다."),
+  });
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
   }
 
-  const dbLessons: WorkbookLesson[] = (theoryContent || []).map((item: any, index: number) => {
-    let parsed: any = {};
-    try {
-      parsed = JSON.parse(item.contentData);
-    } catch {
-      parsed = {};
-    }
-    return {
-      id: item.id ?? index + 1,
-      title: item.title,
-      content: parsed.core_concept || "",
-      example: parsed.textbook_similar_example?.text || parsed.improved_example || "",
-      theoryCategory: item.theoryCategory,
-      theorySubcategory: item.theorySubcategory,
-      textbookAnchor: parsed.textbook_anchor,
-      wrongExample: parsed.wrong_example,
-      improvedExample: parsed.improved_example,
-      checkQuestion: parsed.in_lesson_check?.question,
-      checkAnswer: parsed.in_lesson_check?.answer,
-      answerFeedback: parsed.answer_feedback,
-      nextStep: parsed.next_step,
-      sourceBoundary: parsed.source_boundary,
-    };
-  });
+  const hasCanonicalWorkbook = Boolean(WORKBOOK_CONTENT[courseType]?.[level]);
+  if (!hasCanonicalWorkbook && dynamicCurriculumLoading) {
+    return <div className="min-h-screen bg-slate-50 px-4 py-16 text-center text-slate-600"><Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-indigo-600" />검수된 레슨 정보를 불러오는 중입니다.</div>;
+  }
 
-  const fallbackWorkbookData: { title: string; lessons: WorkbookLesson[] } = WORKBOOK_CONTENT[courseType]?.[level] || {
-    title: `Level ${level}: 맞춤형 논술 실습`,
+  const dynamicLevel = dynamicCurriculum.find((item) => item.level === level);
+  const fallbackWorkbookData = WORKBOOK_CONTENT[courseType]?.[level] || {
+    title: dynamicLevel?.title || `Level ${level}: 맞춤형 논술 실습`,
     lessons: [
       {
         id: 1,
-        title: "핵심 개념 정리",
-        content: "해당 과정의 핵심 개념을 학습하고 실전 논술 문항에 적용해 봅니다.",
-        example: "예시 문항: 주제에 대한 논리적 찬반 근거 서술하기",
+        title: dynamicLevel?.title || "핵심 개념 정리",
+        content: dynamicLevel?.description || "해당 과정의 핵심 개념을 학습하고 실전 기출문항에 적용해 봅니다.",
+        example: Array.isArray(dynamicLevel?.topics) && dynamicLevel.topics.length > 0 ? `학습 주제: ${dynamicLevel.topics.join(" · ")}` : "예시 문항: 주제에 대한 논리적 찬반 근거 서술하기",
       },
     ],
   };
-  const workbookData = dbLessons.length > 0
-    ? { title: `Level ${level}: 교재 연동 이론학습`, lessons: dbLessons }
-    : fallbackWorkbookData;
+  // 기본 교재의 제목·설명·순서는 고정합니다. 관리자가 저장한 연결 기준에 따라 추가 이론과 기출문제만 별도 보충 영역에 표시합니다.
+  const workbookData = { title: fallbackWorkbookData.title, lessons: fallbackWorkbookData.lessons };
 
   const lesson = workbookData.lessons[currentLesson] || workbookData.lessons[0];
+  const workbookReturnPath = buildWorkbookReturnPath(courseType, level, currentLesson);
+  const topicWizardPath = buildToolPathWithWorkbookReturn("/topic-wizard", workbookReturnPath);
+  const thesisChecklistPath = buildToolPathWithWorkbookReturn("/thesis-checklist", workbookReturnPath);
+  const activeTheoryEntries = theoryContent.flatMap((item) => {
+    if (!("id" in item)) return [];
+    try {
+      return [{ theoryContentId: item.id, theory: JSON.parse(item.contentData) as TheoryLessonPayload }];
+    } catch {
+      return [];
+    }
+  });
+  const activeTheory = activeTheoryEntries[0]?.theory;
+  const activeTheoryContentId = activeTheoryEntries[0]?.theoryContentId;
+  const isTheoryCheckCompleted = Boolean(activeTheoryContentId && theoryProgress.some((item) => item.theoryContentId === activeTheoryContentId));
+
+  const handleLessonGuide = async () => {
+    try {
+      const guide = await lessonGuideMutation.mutateAsync({
+        courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
+        level,
+        lessonIndex: currentLesson,
+        lessonTitle: lesson.title,
+        lessonContent: lesson.content,
+        lessonExample: lesson.example,
+      });
+      setLessonGuide(guide);
+    } catch (error: any) {
+      toast.error(error?.message || "AI 레슨 가이드를 불러오지 못했습니다.");
+    }
+  };
 
   const handleCompleteLesson = async () => {
     setLoading(true);
@@ -198,7 +362,7 @@ export default function Workbook() {
         completed: currentLesson === workbookData.lessons.length - 1 ? 1 : 0,
         score: Math.round(((completedLessons.length + 1) / workbookData.lessons.length) * 100),
       });
-      toast.success("학습 진도가 성공적으로 저장되었습니다.");
+      toast.success("레슨 학습 완료 및 진도가 성공적으로 저장되었습니다.");
     } catch (err: any) {
       toast.error(err.message || "진도 저장 중 오류가 발생했습니다.");
     } finally {
@@ -206,12 +370,33 @@ export default function Workbook() {
     }
   };
 
+  const handleSubmitQuestion = async (qId: number) => {
+    const ans = answers[qId];
+    if (!ans || !ans.trim()) {
+      toast.error("답안을 입력하거나 선택해주세요.");
+      return;
+    }
+    setSubmittingQId(qId);
+    try {
+      const res = await submitAnswerMutation.mutateAsync({
+        questionId: qId,
+        userAnswer: ans,
+      });
+      setSubmittedResults(prev => ({ ...prev, [qId]: res as SubmittedWorkbookResult }));
+      toast.success(res.evaluation?.status === "insufficient" ? "답안 보완 사항을 확인해주세요." : "근거 기반 AI 평가가 완료되었습니다.");
+    } catch (err: any) {
+      toast.error(err.message || "제출 중 오류가 발생했습니다.");
+    } finally {
+      setSubmittingQId(null);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <Link href="/curriculum">
-            <Button variant="ghost" className="gap-2 text-slate-600 pl-0">
+            <Button variant="ghost" className="gap-2 text-slate-600 pl-0 hover:text-indigo-700">
               ← 커리큘럼으로 돌아가기
             </Button>
           </Link>
@@ -223,7 +408,7 @@ export default function Workbook() {
         <Card className="border-indigo-100 shadow-sm">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-slate-900">{workbookData.title}</CardTitle>
-            <CardDescription>과정별 맞춤 핵심 개념과 예시를 학습하고 진도를 체크하세요.</CardDescription>
+            <CardDescription>기본 교재 내용을 학습한 뒤, 추가 학습 내용과 기출문제로 실력을 다집니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex gap-2 border-b border-slate-200 pb-4 overflow-x-auto">
@@ -232,59 +417,170 @@ export default function Workbook() {
                   key={l.id}
                   variant={currentLesson === idx ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setCurrentLesson(idx)}
+                  onClick={() => { setCurrentLesson(idx); setLessonGuide(null); }}
                   className={currentLesson === idx ? "bg-indigo-600 text-white" : ""}
                 >
-                  Lesson {idx + 1}: {l.title}
+                  레슨 {idx + 1}: {l.title} {completedLessons.includes(idx) ? "✓" : ""}
                 </Button>
               ))}
             </div>
 
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-6 space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-6 space-y-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">기본 교재</p>
                 <h3 className="text-xl font-bold text-slate-900">{lesson.title}</h3>
-                {lesson.theoryCategory && <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700">{lesson.theoryCategory} · {lesson.theorySubcategory}</span>}
-              </div>
-              <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
-              {lesson.textbookAnchor && (
-                <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm text-slate-700">
-                  <div className="mb-2 flex items-center gap-2 font-bold text-indigo-800"><BookOpen className="h-4 w-4" /> 교재 기준</div>
-                  <p className="leading-6"><span className="font-semibold">{lesson.textbookAnchor.kind}</span>: {lesson.textbookAnchor.text}</p>
-                </div>
-              )}
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-lg bg-white p-4 border border-rose-100 text-sm text-rose-900">
-                  <div className="mb-2 font-bold">잘못된 예</div>
-                  {lesson.wrongExample || lesson.example}
-                </div>
-                <div className="rounded-lg bg-white p-4 border border-emerald-100 text-sm text-emerald-900">
-                  <div className="mb-2 font-bold">개선 예 / 유사 예시</div>
-                  {lesson.improvedExample || lesson.example}
+                <p className="text-base text-slate-700 leading-relaxed">{lesson.content}</p>
+                <div className="rounded-lg bg-white p-4 border border-indigo-100 text-sm font-medium text-indigo-900">
+                  <p className="whitespace-pre-line">{lesson.example}</p>
                 </div>
               </div>
-              {lesson.checkQuestion && (
-                <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 text-sm text-amber-950">
-                  <div className="mb-2 flex items-center gap-2 font-bold"><MessageSquare className="h-4 w-4" /> 강의 중 확인문제</div>
-                  <p className="leading-6">{lesson.checkQuestion}</p>
-                  <details className="mt-3">
-                    <summary className="cursor-pointer font-semibold">정답과 해설 보기</summary>
-                    <div className="mt-2 space-y-1 leading-6">
-                      <p><span className="font-semibold">정답:</span> {lesson.checkAnswer}</p>
-                      <p>{lesson.answerFeedback}</p>
-                    </div>
-                  </details>
+
+              {activeTheory && <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{activeTheory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{activeTheory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{activeTheory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="grid gap-3 md:grid-cols-2"><div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div><div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{activeTheory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{activeTheory.in_lesson_check?.answer} {activeTheory.answer_feedback}</p></div>{activeTheoryContentId && <Button size="sm" disabled={isTheoryCheckCompleted || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId: activeTheoryContentId })} className={isTheoryCheckCompleted ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : isTheoryCheckCompleted ? <><CheckCircle className="mr-1.5 h-4 w-4" />확인 완료</> : <><ListChecks className="mr-1.5 h-4 w-4" />확인문제 완료</>}</Button>}</div></div></section>}
+
+              {activeTheoryEntries.slice(1).map(({ theoryContentId, theory }) => {
+                const completed = theoryProgress.some((item) => item.theoryContentId === theoryContentId);
+                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : completed ? <><CheckCircle className="mr-1.5 h-4 w-4" />확인 완료</> : <><ListChecks className="mr-1.5 h-4 w-4" />확인 완료</>}</Button></div></div></section>;
+              })}
+
+              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex gap-3">
+                  <div className="rounded-xl bg-violet-100 p-2.5 text-violet-700"><Sparkles className="h-5 w-5" /></div>
+                  <div><p className="font-bold text-slate-900">AI 학습 가이드</p><p className="mt-1 text-sm leading-6 text-slate-600">이번 레슨의 개념을 답안에 적용하는 방법을 안내합니다. 기출문제의 정답은 풀이 후에 확인할 수 있습니다.</p></div>
                 </div>
-              )}
-              {lesson.nextStep && (
-                <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
-                  <div className="mb-2 flex items-center gap-2 font-bold text-slate-900"><Lightbulb className="h-4 w-4 text-amber-500" /> 다음 단계</div>
-                  <p className="leading-6">{lesson.nextStep}</p>
-                </div>
-              )}
-              {lesson.sourceBoundary && <p className="text-xs leading-5 text-slate-500">{lesson.sourceBoundary}</p>}
+                <Button size="sm" onClick={handleLessonGuide} disabled={lessonGuideMutation.isPending} className="shrink-0 bg-violet-700 text-white hover:bg-violet-800">
+                  {lessonGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />준비 중</> : <><Sparkles className="mr-2 h-4 w-4" />학습 가이드 보기</>}
+                </Button>
+              </div>
+              {lessonGuide && <div className="mt-5 grid gap-4 border-t border-violet-200 pt-5 md:grid-cols-2">
+                <div className="space-y-3"><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">이번 레슨 목표</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.learningGoal}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">생각 순서</p><ol className="mt-2 space-y-2 text-sm leading-6 text-slate-700">{lessonGuide.thinkingSteps.map((item, index) => <li key={item} className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-200 text-xs font-bold text-violet-800">{index + 1}</span>{item}</li>)}</ol></div></div>
+                <div className="space-y-3"><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">문장 틀</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.sentenceFrame}</p></div><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">새 연습 예시</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.practiceExample}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">제출 전 점검</p><ul className="mt-2 space-y-1 text-sm leading-6 text-slate-700">{lessonGuide.selfCheck.map((item) => <li key={item}>• {item}</li>)}</ul></div></div>
+              </div>}
             </div>
 
-            <div className="flex items-center justify-between pt-4">
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-3">
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. 개념 적용</p><p className="mt-1 text-sm text-slate-700">AI 가이드로 생각 순서를 확인한 뒤 기출문제를 풉니다.</p></div>
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">2. 주제와 주장 설계</p><Link href={topicWizardPath}><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제 설정 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
+              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">3. 주제문 검토</p><Link href={thesisChecklistPath}><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제문 점검 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
+            </div>
+
+            {/* 고정 기출문제 3문항 섹션 */}
+            <div className="space-y-6 pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-between">
+                <h4 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Award className="w-5 h-5 text-indigo-600" /> 이 레슨의 기출문제 ({workbookQuestions.length}문항)
+                </h4>
+              </div>
+
+              {qLoading ? (
+                <div className="py-8 text-center text-slate-500 flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" /> 기출문제를 불러오는 중입니다...
+                </div>
+              ) : workbookQuestions.length === 0 ? (
+                <div className="py-8 text-center text-slate-500 text-sm">등록된 기출문제가 없습니다.</div>
+              ) : (
+                workbookQuestions.map((q: any, qIdx: number) => {
+                  const res = submittedResults[q.id];
+                  const choices = q.choicesJson ? JSON.parse(q.choicesJson) : [];
+                  return (
+                    <Card key={q.id} className="border-slate-200 bg-white shadow-sm">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md">
+                            기출문제 #{qIdx + 1} ({q.questionType === "objective" ? "객관식" : "서술형"})
+                          </span>
+                          {res && (
+                            <span className={`text-xs font-bold px-2.5 py-1 rounded-md ${res.isCorrect ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                              {q.questionType === "subjective" ? `평가 점수: ${res.score}/100점` : res.isCorrect ? "정답 (100점)" : `점수: ${res.score}점`}
+                            </span>
+                          )}
+                        </div>
+                        <CardTitle className="text-base font-bold text-slate-800 mt-2">{q.title}</CardTitle>
+                        <CardDescription className="text-slate-700 font-medium whitespace-pre-line mt-1">{q.prompt}</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4 pt-0">
+                        {q.questionType === "objective" ? (
+                          <div className="grid gap-2">
+                            {choices.map((choice: string, cIdx: number) => (
+                              <label
+                                key={cIdx}
+                                className={`flex items-center gap-3 p-3 rounded-xl border text-sm cursor-pointer transition-all ${
+                                  answers[q.id] === choice
+                                    ? "border-indigo-600 bg-indigo-50/60 font-semibold text-indigo-950"
+                                    : "border-slate-200 hover:bg-slate-50 text-slate-700"
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`question-${q.id}`}
+                                  value={choice}
+                                  checked={answers[q.id] === choice}
+                                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                                  className="text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <span>{choice}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <Textarea
+                            placeholder="제시된 주제에 대한 자신의 입장과 서로 다른 2개 이상의 근거를 300자 내외로 작성해 주세요."
+                            value={answers[q.id] || ""}
+                            onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                            className="min-h-[100px] text-sm"
+                          />
+                        )}
+
+                        <div className="flex items-center justify-between pt-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleSubmitQuestion(q.id)}
+                            disabled={submittingQId === q.id}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"
+                          >
+                            {submittingQId === q.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            정답 제출 및 AI 채점
+                          </Button>
+                        </div>
+
+                        {res && q.questionType === "subjective" && res.evaluation ? (
+                          <div className={`mt-3 space-y-4 rounded-xl border p-4 ${res.evaluation.verdict === "excellent" ? "border-emerald-200 bg-emerald-50" : res.evaluation.verdict === "adequate" ? "border-indigo-200 bg-indigo-50" : "border-amber-200 bg-amber-50"}`}>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="font-bold text-slate-900">AI 근거 기반 서술형 평가</p>
+                                <p className="mt-1 text-sm leading-6 text-slate-700">{res.evaluation.summary}</p>
+                              </div>
+                              <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700 shadow-sm">{res.evaluation.characterCount}자 · 근거 {res.evaluation.validReasonCount}개</span>
+                            </div>
+
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                              {res.evaluation.criteria.map((criterion) => (
+                                <div key={criterion.key} className="rounded-lg border border-white/80 bg-white/80 p-2.5">
+                                  <div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-slate-600">{criterion.label}</span><span className="text-sm font-extrabold text-slate-900">{criterion.score}<span className="text-[11px] font-medium text-slate-500">/{criterion.maxScore}</span></span></div>
+                                  <p className="mt-1.5 text-[11px] leading-4 text-slate-600">{criterion.explanation}</p>
+                                  <p className="mt-2 rounded bg-slate-50 px-1.5 py-1 text-[10px] leading-4 text-slate-500">근거 인용: {criterion.quote}</p>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <div className="rounded-lg border border-amber-200 bg-white/80 p-3"><p className="flex items-center gap-1.5 text-xs font-bold text-amber-900"><Lightbulb className="h-3.5 w-3.5" /> 다음 답안에서 우선 보완할 점</p><ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-slate-700">{res.evaluation.priorityImprovements.map((item, index) => <li key={index}>{item}</li>)}</ol></div>
+                              <div className="rounded-lg border border-slate-200 bg-white/80 p-3"><p className="flex items-center gap-1.5 text-xs font-bold text-slate-800"><ListChecks className="h-3.5 w-3.5" /> 평가 확인</p><ul className="mt-2 space-y-1 text-xs leading-5 text-slate-700"><li>{res.evaluation.isOnTopic ? "주제 적합성 확인" : "주제 적합성 부족"}</li><li>{res.evaluation.hasClearClaim ? "명확한 주장 확인" : "주장·입장 제시 필요"}</li><li>{res.evaluation.hasComparativeAnalysis ? "비교·분석 확인" : "비교·분석 보완 필요"}</li>{res.evaluation.missingRequirements.slice(0, 2).map((item, index) => <li key={index}>보완: {item}</li>)}</ul></div>
+                            </div>
+                          </div>
+                        ) : res ? (
+                          <div className={`p-4 rounded-xl border text-sm space-y-1 mt-3 ${res.isCorrect ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-amber-50 border-amber-200 text-amber-900"}`}>
+                            <p className="font-bold">{res.aiFeedback}</p>
+                            <p className="text-xs opacity-90">해설: {q.explanation}</p>
+                          </div>
+                        ) : null}
+                      </CardContent>
+                    </Card>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-6 border-t border-slate-200">
               <Button
                 variant="outline"
                 disabled={currentLesson === 0}

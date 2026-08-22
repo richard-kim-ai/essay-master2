@@ -19,6 +19,7 @@ import QuizPage from "./pages/QuizPage";
 import ParagraphReordering from "./pages/ParagraphReordering";
 import SummaryPractice from "./pages/SummaryPractice";
 import MistakeNotebook from "./pages/MistakeNotebook";
+import Notifications from "./pages/Notifications";
 import TopicWizard from "./pages/TopicWizard";
 import ThesisChecklist from "@/pages/ThesisChecklist";
 import OfflineEssays from "@/pages/OfflineEssays";
@@ -26,6 +27,9 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import TeacherSignup from "./pages/TeacherSignup";
 import TeacherMyPage from "./pages/TeacherMyPage";
+import TeacherWritingExamples from "./pages/TeacherWritingExamples";
+import AiGuideHistory from "./pages/AiGuideHistory";
+import WritingExampleLibrary from "./pages/WritingExampleLibrary";
 import MyPageHub from "./pages/MyPageHub";
 import VerifyEmail from "./pages/VerifyEmail";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -36,10 +40,15 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import AdminCertificates from "@/pages/AdminCertificates";
 import AdminCurriculumManager from "@/pages/AdminCurriculumManager";
 import AdminQuestionBank from "@/pages/AdminQuestionBank";
+import AdminTheoryContent from "@/pages/AdminTheoryContent";
+import AdminLessonConnections from "@/pages/AdminLessonConnections";
 import AdminTermsManager from "@/pages/AdminTermsManager";
+import AdminAIGovernance from "@/pages/AdminAIGovernance";
+import AdminAcademicPermissions from "@/pages/AdminAcademicPermissions";
 import MasterAdminConsole from "@/pages/MasterAdminConsole";
 import AdminEvaluationModels from "./pages/AdminEvaluationModels";
 import ParentPortal from "@/pages/ParentPortal";
+import StudentAssignments from "@/pages/StudentAssignments";
 import Layout from "./components/Layout";
 
 function Router() {
@@ -80,6 +89,20 @@ function Router() {
           </Layout>
         )}
       </Route>
+      <Route path={"/admin/theory-content"}>
+        {(params) => (
+          <Layout>
+            <AdminTheoryContent />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/lesson-connections"}>
+        {(params) => (
+          <Layout>
+            <AdminLessonConnections />
+          </Layout>
+        )}
+      </Route>
       <Route path={"/admin/student/:id"}>
         {(params) => (
           <Layout>
@@ -101,6 +124,20 @@ function Router() {
         {(params) => (
           <Layout>
             <AdminTermsManager />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/ai-governance"}>
+        {(params) => (
+          <Layout>
+            <AdminAIGovernance />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/admin/academic-permissions"}>
+        {(params) => (
+          <Layout>
+            <AdminAcademicPermissions />
           </Layout>
         )}
       </Route>
@@ -140,6 +177,13 @@ function Router() {
           </Layout>
         )}
       </Route>
+      <Route path={"/my-assignments"}>
+        {(params) => (
+          <Layout>
+            <StudentAssignments />
+          </Layout>
+        )}
+      </Route>
       <Route path={"/mypage"}>
         {(params) => (
           <Layout>
@@ -168,6 +212,13 @@ function Router() {
           </Layout>
         )}
       </Route>
+      <Route path={"/teacher/writing-examples"}>
+        {(params) => (
+          <Layout>
+            <TeacherWritingExamples />
+          </Layout>
+        )}
+      </Route>
       <Route path={"/ai-auto-feedback"}>
         {(params) => (
           <Layout>
@@ -193,6 +244,13 @@ function Router() {
         {(params) => (
           <Layout>
             <OfflineEssays />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/notifications"}>
+        {(params) => (
+          <Layout>
+            <Notifications />
           </Layout>
         )}
       </Route>
@@ -256,6 +314,20 @@ function Router() {
         {(params) => (
           <Layout>
             <ThesisChecklist />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/ai-guide-history"}>
+        {(params) => (
+          <Layout>
+            <AiGuideHistory />
+          </Layout>
+        )}
+      </Route>
+      <Route path={"/writing-examples"}>
+        {(params) => (
+          <Layout>
+            <WritingExampleLibrary />
           </Layout>
         )}
       </Route>

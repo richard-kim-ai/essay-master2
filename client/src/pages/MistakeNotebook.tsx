@@ -1,231 +1,369 @@
-import { useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
+import { BookOpen, AlertCircle, CheckCircle2, Sparkles, Trash2, ArrowRight, RefreshCcw, HelpCircle, Link2, Share2, Trophy } from "lucide-react";
+import { useLocation } from "wouter";
+import { useState } from "react";
 import { toast } from "sonner";
-import { Trash2, BookOpen, TrendingUp, Filter } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 
-interface MistakeNote {
-  id: string;
-  question: string;
-  userAnswer: string;
-  correctAnswer: string;
-  category: "grammar" | "logic" | "expression" | "structure";
-  date: string;
-  reviewCount: number;
-  importance: "high" | "medium" | "low";
-}
-
-const SAMPLE_MISTAKES: MistakeNote[] = [
-  {
-    id: "1",
-    question: "다음 문장을 더 명확하게 표현하시오: '학생들이 공부를 잘하기 위해서는 노력이 필요하다.'",
-    userAnswer: "학생들이 공부를 잘하려면 열심히 해야 한다.",
-    correctAnswer:
-      "학생들의 학업 성취를 위해서는 체계적인 학습 전략과 지속적인 노력이 필수적이다.",
-    category: "expression",
-    date: "2024-08-01",
-    reviewCount: 2,
-    importance: "high",
-  },
-  {
-    id: "2",
-    question: "다음 단락의 논리적 흐름을 평가하시오.",
-    userAnswer: "첫 번째 문장이 결론이고, 그 다음 근거가 나온다.",
-    correctAnswer: "먼저 주제를 제시한 후, 구체적인 근거를 제시하고, 마지막에 결론을 내려야 한다.",
-    category: "logic",
-    date: "2024-07-28",
-    reviewCount: 1,
-    importance: "high",
-  },
-  {
-    id: "3",
-    question: "다음 문장의 문법 오류를 찾으시오: '그는 책을 읽으며 공부하고 있는 중이다.'",
-    userAnswer: "오류가 없다.",
-    correctAnswer: "'읽으며'와 '있는 중이다'는 중복된 표현이다. '책을 읽고 있다' 또는 '책을 읽으며 공부한다'가 올바르다.",
-    category: "grammar",
-    date: "2024-07-25",
-    reviewCount: 3,
-    importance: "medium",
-  },
-];
-
-const CATEGORY_LABELS = {
-  grammar: "문법",
-  logic: "논리",
-  expression: "표현",
-  structure: "구조",
-};
-
-const IMPORTANCE_COLORS = {
-  high: "bg-red-100 text-red-700",
-  medium: "bg-yellow-100 text-yellow-700",
-  low: "bg-green-100 text-green-700",
+type QuizSessionResult = {
+  reviewed: number;
+  total: number;
+  completedAt: string;
 };
 
 export default function MistakeNotebook() {
-  const [mistakes, setMistakes] = useState<MistakeNote[]>(SAMPLE_MISTAKES);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
 
-  const filteredMistakes = mistakes.filter((mistake) => {
-    const matchesSearch =
-      mistake.question.includes(searchTerm) ||
-      mistake.userAnswer.includes(searchTerm);
-    const matchesCategory = !selectedCategory || mistake.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+  const { data: mistakes = [], isLoading: mistakesLoading } = trpc.curriculum.getMistakes.useQuery();
+  const { data: recommended = [], isLoading: recLoading } = trpc.curriculum.getRecommendedQuestions.useQuery();
+
+  const removeMutation = trpc.curriculum.removeMistake.useMutation({
+    onSuccess: () => {
+      toast.success("오답 노트에서 항목이 삭제되었습니다.");
+      utils.curriculum.getMistakes.invalidate();
+    },
   });
 
-  const deleteMistake = (id: string) => {
-    setMistakes(mistakes.filter((m) => m.id !== id));
-    toast.success("오답 노트가 삭제되었습니다.");
+  const awardBadgeMutation = trpc.curriculum.awardReviewKing.useMutation({
+    onSuccess: (data) => {
+      toast.success(`🎉 축하합니다! '${data.badgeName}' 뱃지를 획득하셨습니다!`);
+    },
+  });
+
+  // Quiz Mode State
+  const [isQuizMode, setIsQuizMode] = useState(false);
+  const [quizIndex, setQuizIndex] = useState(0);
+  const [quizAnswer, setQuizAnswer] = useState("");
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [quizResult, setQuizResult] = useState<QuizSessionResult | null>(null);
+  const [isSharingResult, setIsSharingResult] = useState(false);
+  const [sharedQuizResult] = useState<QuizSessionResult | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reviewed = Number(params.get("reviewed"));
+    const total = Number(params.get("total"));
+    const completedAt = params.get("completedAt");
+    if (!Number.isInteger(reviewed) || reviewed < 1 || !Number.isInteger(total) || total < reviewed || !completedAt || Number.isNaN(Date.parse(completedAt))) return null;
+    return { reviewed, total, completedAt };
+  });
+
+  const startQuizMode = () => {
+    if (mistakes.length === 0) {
+      toast.error("풀이할 오답 문항이 없습니다.");
+      return;
+    }
+    // Randomize or reset
+    setIsQuizMode(true);
+    setQuizIndex(0);
+    setQuizAnswer("");
+    setShowAnswer(false);
+    setQuizResult(null);
   };
 
-  const getCategoryStats = () => {
-    const stats: Record<string, number> = {};
-    mistakes.forEach((mistake) => {
-      stats[mistake.category] = (stats[mistake.category] || 0) + 1;
-    });
-    return stats;
+  const currentMistake = mistakes[quizIndex];
+  const displayedQuizResult = quizResult || sharedQuizResult;
+
+  const getQuizResultShareUrl = (result: QuizSessionResult) => {
+    const url = new URL(`${window.location.origin}/mistake-notebook`);
+    url.searchParams.set("reviewed", String(result.reviewed));
+    url.searchParams.set("total", String(result.total));
+    url.searchParams.set("completedAt", result.completedAt);
+    return url.toString();
   };
 
-  const stats = getCategoryStats();
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return copied;
+    }
+  };
+
+  const handleCopyQuizResultLink = async () => {
+    if (!quizResult) return;
+    const copied = await copyText(getQuizResultShareUrl(quizResult));
+    if (copied) toast.success("복습 결과 링크가 클립보드에 복사되었습니다.", { description: "친구나 선생님에게 붙여넣어 공유해 보세요." });
+    else toast.error("링크를 복사하지 못했습니다. 브라우저 권한을 확인해주세요.");
+  };
+
+  const handleShareQuizResult = async () => {
+    if (!quizResult) return;
+    setIsSharingResult(true);
+    const shareUrl = getQuizResultShareUrl(quizResult);
+    const shareTitle = "논술 마스터 오답 노트 퀴즈 결과";
+    const shareDescription = `오답 노트 퀴즈 ${quizResult.total}문항을 모두 복습했어요. 함께 다음 복습 계획을 세워보세요.`;
+    try {
+      if ((window as any).Kakao?.Share?.sendDefault) {
+        (window as any).Kakao.Share.sendDefault({
+          objectType: "feed",
+          content: {
+            title: shareTitle,
+            description: shareDescription,
+            imageUrl: "https://images.unsplash.com/photo-1455390582262-044cdead277a?w=800&auto=format&fit=crop&q=60",
+            link: { mobileWebUrl: shareUrl, webUrl: shareUrl },
+          },
+          buttons: [{ title: "복습 결과 확인", link: { mobileWebUrl: shareUrl, webUrl: shareUrl } }],
+        });
+        toast.success("카카오톡 공유 창을 열었습니다.");
+        return;
+      }
+      if (navigator.share) {
+        await navigator.share({ title: shareTitle, text: shareDescription, url: shareUrl });
+        toast.success("공유 메뉴를 열었습니다. 카카오톡을 선택해 전송하세요.");
+        return;
+      }
+      const copied = await copyText(shareUrl);
+      if (copied) toast.success("카카오톡에 붙여넣을 복습 결과 링크를 복사했습니다.");
+      else toast.error("공유 링크를 준비하지 못했습니다.");
+    } catch (error) {
+      if ((error as DOMException)?.name !== "AbortError") {
+        console.error(error);
+        toast.error("결과 공유 중 오류가 발생했습니다.");
+      }
+    } finally {
+      setIsSharingResult(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-100 p-6">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">📚 오답 노트</h1>
-          <p className="text-lg text-gray-600">
-            틀린 문제들을 자동으로 분류하여 관리하고, 반복 학습으로 실력을 향상시키세요.
-          </p>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <Card className="p-4 bg-white">
-            <p className="text-sm text-gray-600">전체 오답</p>
-            <p className="text-3xl font-bold text-orange-600">{mistakes.length}</p>
-          </Card>
-          {Object.entries(stats).map(([category, count]) => (
-            <Card key={category} className="p-4 bg-white">
-              <p className="text-sm text-gray-600">
-                {CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS]}
-              </p>
-              <p className="text-3xl font-bold text-blue-600">{count}</p>
-            </Card>
-          ))}
-        </div>
-
-        {/* Search & Filter */}
-        <Card className="p-4 mb-6 bg-white">
-          <div className="space-y-4">
-            <Input
-              placeholder="오답 검색..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full"
-            />
-            <div className="flex gap-2 flex-wrap">
+    <DashboardLayout>
+      <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-gradient-to-r from-amber-600 to-rose-700 text-white p-8 rounded-3xl shadow-xl">
+          <div>
+            <span className="px-3 py-1 bg-white/25 rounded-full text-xs font-bold text-white tracking-wide">
+              오답 복습 및 맞춤 추천
+            </span>
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight mt-2">
+              나만의 오답 노트 & 취약점 클리닉
+            </h1>
+            <p className="text-xs md:text-sm text-amber-100 mt-1">
+              워크북과 AI 퀴즈·단락 재구성·요약 연습에서 보완이 필요한 결과를 모아 복습하고, 랜덤 퀴즈 모드로 다시 풀어보세요.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {mistakes.length > 0 && !isQuizMode && (
               <Button
-                variant={selectedCategory === null ? "default" : "outline"}
-                onClick={() => setSelectedCategory(null)}
-                size="sm"
+                onClick={startQuizMode}
+                className="bg-amber-400 hover:bg-amber-50 text-slate-900 font-bold gap-2 shadow-md"
               >
-                전체
+                <RefreshCcw className="w-4 h-4" /> 오답 랜덤 퀴즈 모드 시작
               </Button>
-              {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+            )}
+            <Button
+              onClick={() => setLocation("/mypage")}
+              className="bg-white text-amber-900 hover:bg-amber-50 font-bold"
+            >
+              마이페이지 허브
+            </Button>
+          </div>
+        </div>
+
+        {displayedQuizResult && !isQuizMode && (
+          <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-sm overflow-hidden">
+            <CardContent className="p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 rounded-full bg-emerald-100 p-2.5 text-emerald-700"><Trophy className="w-5 h-5" /></div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">오답 노트 퀴즈 결과</p>
+                  <h2 className="mt-1 text-lg font-extrabold text-slate-900">{displayedQuizResult.reviewed}개 문항 복습을 완료했습니다.</h2>
+                  <p className="mt-1 text-sm text-slate-600">총 {displayedQuizResult.total}개 문항 · 완료 {new Date(displayedQuizResult.completedAt).toLocaleDateString("ko-KR")}</p>
+                </div>
+              </div>
+              {quizResult && (
+                <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+                  <Button variant="outline" onClick={handleCopyQuizResultLink} className="border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100 gap-1.5"><Link2 className="w-4 h-4" /> 링크 복사</Button>
+                  <Button onClick={handleShareQuizResult} disabled={isSharingResult} className="bg-yellow-400 text-slate-900 hover:bg-yellow-300 gap-1.5">{isSharingResult ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-700 border-t-transparent" /> : <Share2 className="w-4 h-4" />} 카카오톡 공유</Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 퀴즈 모드 진행 창 */}
+        {isQuizMode && currentMistake && (
+          <Card className="border-2 border-amber-300 bg-amber-50/40 shadow-lg">
+            <CardHeader className="bg-amber-100/60 rounded-t-xl pb-3 flex flex-row items-center justify-between">
+              <div>
+                <span className="text-xs font-bold px-2.5 py-1 bg-amber-600 text-white rounded-md">
+                  랜덤 퀴즈 모드 ({quizIndex + 1} / {mistakes.length})
+                </span>
+                <CardTitle className="text-lg font-extrabold text-slate-900 mt-2">
+                  {currentMistake.questionTitle || `오답 복습 문제 #${currentMistake.id}`}
+                </CardTitle>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsQuizMode(false)}
+                className="text-slate-700 border-amber-300 hover:bg-amber-100"
+              >
+                퀴즈 종료
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-6">
+              <div className="rounded-xl bg-white p-5 border border-amber-200 shadow-sm space-y-2">
+                <p className="text-xs font-semibold text-amber-800">이전에 제출했던 오답 및 피드백</p>
+                <p className="text-sm text-slate-700 font-medium">내 답안: "{currentMistake.userAnswer}"</p>
+                <p className="text-xs text-rose-700">AI 피드백: {currentMistake.aiFeedback}</p>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4 text-amber-700" /> 다시 올바른 정답이나 논증을 작성해보세요:
+                </label>
+                <Textarea
+                  placeholder="정답 및 해설을 참고하여 다시 서술해주세요..."
+                  value={quizAnswer}
+                  onChange={(e) => setQuizAnswer(e.target.value)}
+                  className="min-h-[100px] bg-white text-sm"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
                 <Button
-                  key={key}
-                  variant={selectedCategory === key ? "default" : "outline"}
-                  onClick={() => setSelectedCategory(key)}
-                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowAnswer(!showAnswer)}
+                  className="border-amber-300 text-amber-900 hover:bg-amber-100"
                 >
-                  {label}
+                  {showAnswer ? "해설 숨기기" : "정답 및 해설 보기"}
                 </Button>
+
+                <Button
+                  onClick={() => {
+                    toast.success("훌륭합니다! 오답 복습이 완료되었습니다.");
+                    if (quizIndex < mistakes.length - 1) {
+                      setQuizIndex(quizIndex + 1);
+                      setQuizAnswer("");
+                      setShowAnswer(false);
+                    } else {
+                      toast.success("모든 오답 퀴즈를 완벽하게 완료했습니다!");
+                      awardBadgeMutation.mutate();
+                      setQuizResult({ reviewed: mistakes.length, total: mistakes.length, completedAt: new Date().toISOString() });
+                      setIsQuizMode(false);
+                    }
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> 정답 제출 및 다음 문제
+                </Button>
+              </div>
+
+              {showAnswer && (
+                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-900 space-y-1">
+                  <p className="font-bold">💡 정답 해설 가이드</p>
+                  <p className="text-xs leading-relaxed">
+                    본 문제는 논리적 인과관계와 핵심 쟁점을 명확히 파악하는 것이 중요합니다. 위 오답 피드백과 비교하여 핵심 키워드가 포함되었는지 확인하세요.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 오답 노트 리스트 */}
+        {!isQuizMode && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-rose-600" /> 축적된 오답 문항 ({mistakes.length}개)
+            </h2>
+
+            {mistakesLoading ? (
+              <div className="py-12 text-center text-slate-500">오답 노트를 불러오는 중입니다...</div>
+            ) : mistakes.length === 0 ? (
+              <Card className="border-slate-200 bg-white shadow-sm p-12 text-center">
+                <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-slate-800">축적된 오답이 없습니다!</h3>
+                <p className="text-sm text-slate-600 mt-1">커리큘럼 워크북 문제를 풀고 학습 능력을 높여보세요.</p>
+              </Card>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {mistakes.map((m: any) => (
+                  <Card key={m.id} className="border-rose-100 bg-rose-50/30 shadow-sm flex flex-col justify-between">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold px-2.5 py-1 bg-rose-100 text-rose-800 rounded-md">
+                          {m.source === "learning_tool" ? `${m.toolType === "quiz" ? "AI 문장 교정" : m.toolType === "reordering" ? "단락 재구성" : "요약 연습"} · ${m.score}점` : `워크북 오답 #${m.id}`}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {new Date(m.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <CardTitle className="text-base font-bold text-slate-900 mt-2">
+                        {m.questionTitle ? `${m.questionTitle} — ` : ""}제출 답안: {m.userAnswer}
+                      </CardTitle>
+                      <CardDescription className="text-slate-700 text-sm mt-1">
+                        {m.aiFeedback}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="pt-0 flex items-center justify-end gap-2 border-t border-rose-100/50 pt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-rose-700 border-rose-200 hover:bg-rose-100 gap-1"
+                        onClick={() => removeMutation.mutate({ mistakeId: m.id, source: m.source || "workbook" })}
+                      >
+                        <Trash2 className="w-4 h-4" /> 복습 완료 (삭제)
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* AI 취약 영역 맞춤 문제 추천 */}
+        <div className="space-y-4 pt-6 border-t border-slate-200">
+          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-indigo-600" /> 취약 영역 맞춤 추천 기출문제
+          </h2>
+
+          {recLoading ? (
+            <div className="py-8 text-center text-slate-500">추천 문제를 분석 중입니다...</div>
+          ) : recommended.length === 0 ? (
+            <p className="text-sm text-slate-500">추천할 문제가 없습니다.</p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-3">
+              {recommended.map((q: any) => (
+                <Card key={q.id} className="border-indigo-100 bg-white shadow-sm flex flex-col justify-between">
+                  <CardHeader className="pb-3">
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md w-fit">
+                      {q.courseType} · Level {q.level}
+                    </span>
+                    <CardTitle className="text-base font-bold text-slate-900 mt-2 line-clamp-1">
+                      {q.title}
+                    </CardTitle>
+                    <CardDescription className="text-slate-600 text-xs line-clamp-2 mt-1">
+                      {q.prompt}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0 border-t border-slate-100 pt-3">
+                    <Button
+                      size="sm"
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-1"
+                      onClick={() => setLocation(`/workbook/${q.courseType}/${q.level}`)}
+                    >
+                      지금 풀러 가기 <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </CardContent>
+                </Card>
               ))}
             </div>
-          </div>
-        </Card>
-
-        {/* Mistakes List */}
-        <div className="space-y-4">
-          {filteredMistakes.length === 0 ? (
-            <Card className="p-12 text-center bg-white">
-              <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">오답 노트가 없습니다.</p>
-            </Card>
-          ) : (
-            filteredMistakes.map((mistake) => (
-              <Card
-                key={mistake.id}
-                className="p-6 bg-white hover:shadow-lg transition-shadow"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge className="bg-orange-100 text-orange-700">
-                        {CATEGORY_LABELS[mistake.category as keyof typeof CATEGORY_LABELS]}
-                      </Badge>
-                      <Badge className={IMPORTANCE_COLORS[mistake.importance]}>
-                        {mistake.importance === "high"
-                          ? "중요"
-                          : mistake.importance === "medium"
-                          ? "보통"
-                          : "낮음"}
-                      </Badge>
-                      <span className="text-xs text-gray-500">{mistake.date}</span>
-                    </div>
-                    <h3 className="font-semibold text-gray-900 mb-3">
-                      {mistake.question}
-                    </h3>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => deleteMistake(mistake.id)}
-                    className="text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-
-                {/* Comparison */}
-                <div className="grid md:grid-cols-2 gap-4 mb-4">
-                  <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                    <p className="text-xs text-red-700 font-semibold mb-2">❌ 내 답변</p>
-                    <p className="text-sm text-gray-700">{mistake.userAnswer}</p>
-                  </div>
-                  <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                    <p className="text-xs text-green-700 font-semibold mb-2">✅ 정답</p>
-                    <p className="text-sm text-gray-700">{mistake.correctAnswer}</p>
-                  </div>
-                </div>
-
-                {/* Review Stats */}
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <TrendingUp className="w-4 h-4" />
-                  <span>복습 횟수: {mistake.reviewCount}회</span>
-                </div>
-              </Card>
-            ))
           )}
         </div>
-
-        {/* Tips */}
-        <Card className="mt-8 p-6 bg-blue-50 border-blue-200">
-          <h4 className="font-semibold text-gray-900 mb-3">💡 오답 노트 활용 팁</h4>
-          <ul className="space-y-2 text-sm text-gray-700">
-            <li>• 같은 유형의 오답이 반복되면 해당 분야를 집중 학습하세요</li>
-            <li>• 중요도 높은 오답부터 우선적으로 복습하세요</li>
-            <li>• 정답과 내 답변을 비교하며 차이점을 분석하세요</li>
-            <li>• 주기적으로 복습하여 같은 실수를 반복하지 않도록 하세요</li>
-          </ul>
-        </Card>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }

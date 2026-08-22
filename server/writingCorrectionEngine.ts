@@ -3,6 +3,11 @@ import type { WritingEvaluationResult, WritingEvaluationRequest } from "./writin
 
 export interface WritingCorrectionResult {
   correction_version: "1.1";
+  correction_status: "completed" | "fallback" | "failed";
+  fallback_used: boolean;
+  provider_error?: string;
+  latency_ms: number;
+  model_id?: string;
   learner_level: WritingEvaluationRequest["metadata"]["education_level"];
   original_text: string;
   revised_text: string;
@@ -19,8 +24,9 @@ export interface WritingCorrectionResult {
 export async function generateWritingCorrection(
   request: WritingEvaluationRequest,
   evaluation: WritingEvaluationResult,
-  options: { model?: string } = {},
+  options: { model?: string; endpoint?: string; modelId?: string } = {},
 ): Promise<WritingCorrectionResult> {
+  const startedAt = Date.now();
   const levelGuide = {
     elementary: "초등 학습자가 이해할 수 있는 쉬운 말과 짧은 설명",
     middle_high: "중고등학생이 이해할 수 있는 구체적이고 교육적인 설명",
@@ -28,8 +34,7 @@ export async function generateWritingCorrection(
     general_adult: "성인 학습자가 실무에 적용할 수 있는 간결하고 명료한 설명",
   }[request.metadata.education_level];
 
-  const response = await invokeLLM({
-    messages: [
+  const messages = [
       {
         role: "system",
         content: `당신은 학생의 글을 존중하며 개선을 돕는 한국어 글쓰기 첨삭 전문가입니다.
@@ -66,16 +71,50 @@ ${levelGuide}을 사용하세요. 학생의 생각과 목소리를 임의로 바
           },
         }),
       },
-    ],
-    responseFormat: { type: "json_object" },
-    ...(options.model ? { model: options.model } : {}),
-  });
+    ];
+
+  let response: unknown;
+  try {
+    if (options.endpoint) {
+      const endpointUrl = new URL(options.endpoint);
+      if (endpointUrl.protocol !== "https:") throw new Error("첨삭 모델 Endpoint는 HTTPS만 사용할 수 있습니다.");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const remote = await fetch(endpointUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: options.model || undefined, messages, response_format: { type: "json_object" } }),
+          signal: controller.signal,
+        });
+        if (!remote.ok) throw new Error(`첨삭 모델이 ${remote.status} 상태를 반환했습니다.`);
+        response = await remote.json();
+      } finally {
+        clearTimeout(timeout);
+      }
+    } else {
+      response = await invokeLLM({ messages, responseFormat: { type: "json_object" }, ...(options.model ? { model: options.model } : {}) });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "첨삭 Provider 호출에 실패했습니다.";
+    return {
+      correction_version: "1.1", correction_status: "fallback", fallback_used: true, provider_error: message,
+      latency_ms: Date.now() - startedAt, model_id: options.modelId, learner_level: request.metadata.education_level,
+      original_text: request.submission.essay_text, revised_text: request.submission.essay_text, sentence_corrections: [],
+      learner_explanation: "첨삭 모델 연결이 원활하지 않아 원문을 보존했습니다. 잠시 후 다시 시도해 주세요.",
+      next_revision_task: evaluation.feedback.revision_steps[0] || "가장 중요한 보완 지점 한 가지를 골라 문단을 다시 써 보세요.",
+    };
+  }
 
   try {
     const content = extractTextContent(response);
     const parsed = JSON.parse(content) as Partial<WritingCorrectionResult>;
     return {
       correction_version: "1.1",
+      correction_status: "completed",
+      fallback_used: false,
+      latency_ms: Date.now() - startedAt,
+      model_id: options.modelId,
       learner_level: request.metadata.education_level,
       original_text: request.submission.essay_text,
       revised_text: parsed.revised_text?.trim() || request.submission.essay_text,
@@ -87,11 +126,16 @@ ${levelGuide}을 사용하세요. 학생의 생각과 목소리를 임의로 바
     console.error("Failed to parse writing correction:", error);
     return {
       correction_version: "1.1",
+      correction_status: "fallback",
+      fallback_used: true,
+      provider_error: "첨삭 모델 응답을 JSON으로 해석하지 못했습니다.",
+      latency_ms: Date.now() - startedAt,
+      model_id: options.modelId,
       learner_level: request.metadata.education_level,
       original_text: request.submission.essay_text,
       revised_text: request.submission.essay_text,
       sentence_corrections: [],
-      learner_explanation: evaluation.feedback.summary,
+      learner_explanation: "첨삭 모델 응답을 확인하지 못해 원문을 보존했습니다. 다시 시도해 주세요.",
       next_revision_task: evaluation.feedback.revision_steps[0] || "가장 중요한 보완 지점 한 가지를 골라 문단을 다시 써 보세요.",
     };
   }

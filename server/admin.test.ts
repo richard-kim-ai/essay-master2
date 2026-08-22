@@ -8,6 +8,7 @@ const curriculumManagerPath = new URL("../client/src/pages/AdminCurriculumManage
 const curriculumDetailPath = new URL("../client/src/pages/CurriculumDetail.tsx", import.meta.url);
 const curriculumPagePath = new URL("../client/src/pages/Curriculum.tsx", import.meta.url);
 const routersPath = new URL("./routers.ts", import.meta.url);
+const dbPath = new URL("./db.ts", import.meta.url);
 
 describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("관리자 대시보드 페이지가 권한 확인 및 학습자 전체 분석을 포함한다", () => {
@@ -45,6 +46,12 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("revokeCertificateAdmin");
     expect(source).toContain("deleteCurriculumCategoryAdmin");
     expect(source).toContain("ctx.user.role !== \"admin\"");
+  });
+
+  it("빈 반에도 첫 학생을 편성하고, 중복 편성만 건너뛴다", () => {
+    const source = readFileSync(dbPath, "utf8");
+    expect(source).toContain("if (existing.length > 0) return existing[0]");
+    expect(source).toContain("db.insert(learningGroupMembers).values({ groupId, studentId, addedBy })");
   });
 
   it("학생용 신규 과정 상세 페이지가 AI 태그와 샘플 PDF 다운로드를 제공한다", () => {
@@ -194,5 +201,143 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(managerSource).toContain("searchQuery");
     expect(managerSource).toContain("toggleCurriculumActiveAdmin");
     expect(managerSource).toContain("학생 화면 상세 미리보기");
+  });
+
+  it("문제은행 휴지통이 보관 기간 설정과 복구·영구 삭제 흐름을 제공한다", () => {
+    const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
+    const source = readFileSync(adminQBankPath, "utf8");
+    expect(source).toContain("자동 보관 기간");
+    expect(source).toContain("handleSaveRetentionDays");
+    expect(source).toContain("restoreFromTrash");
+    expect(source).toContain("permanentlyDeleteTrashItem");
+  });
+
+  it("문제은행 업로드 실패 CSV와 작업 이력 로그를 제공한다", () => {
+    const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
+    const routersSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const source = readFileSync(adminQBankPath, "utf8");
+    expect(source).toContain("실패 문항 CSV 다운로드");
+    expect(source).toContain("문항 작업 이력 로그");
+    expect(routersSource).toContain("maintenanceSettings:");
+    expect(routersSource).toContain("operationLogs:");
+  });
+
+  it("AI 문항 사전 검토가 구조화 JSON 응답 계약과 오류 전달을 사용한다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const adminQBankPath = new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url);
+    const pageSource = readFileSync(adminQBankPath, "utf8");
+    expect(dbSource).toContain("question_bank_preview");
+    expect(dbSource).toContain("responseFormat: {");
+    expect(dbSource).toContain("AI 문항 생성에 실패했습니다:");
+    expect(pageSource).toContain("AI 문항 생성에 실패했습니다.");
+  });
+
+  it("휴지통에서 다중 선택 복구·영구 삭제와 만료 임박 경고를 제공한다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const routersSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const pageSource = readFileSync(new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url), "utf8");
+    expect(dbSource).toContain("restoreQuestionBankTrashItems");
+    expect(dbSource).toContain("permanentlyDeleteQuestionBankTrashItems");
+    expect(routersSource).toContain("restoreManyFromTrash:");
+    expect(routersSource).toContain("permanentlyDeleteTrashItems:");
+    expect(pageSource).toContain("현재 휴지통 전체 선택");
+    expect(pageSource).toContain("자동 영구 삭제 대상");
+  });
+
+  it("작업 이력에 기간·처리자·작업 유형 필터와 현재 필터 CSV 내보내기가 있다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const pageSource = readFileSync(new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url), "utf8");
+    expect(dbSource).toContain("filters.actionType");
+    expect(dbSource).toContain("filters.actorName");
+    expect(dbSource).toContain("filters.startDate");
+    expect(pageSource).toContain("현재 필터 CSV 내보내기");
+    expect(pageSource).toContain("setLogQuickDateRange");
+  });
+
+  it("문제은행에서 현재 목록과 독립적으로 과정별 CSV 백업을 제공한다", () => {
+    const pageSource = readFileSync(new URL("../client/src/pages/AdminQuestionBank.tsx", import.meta.url), "utf8");
+    expect(pageSource).toContain("backupCourse");
+    expect(pageSource).toContain("backupQuestions");
+    expect(pageSource).toContain("handleDownloadCourseBackup");
+    expect(pageSource).toContain("과정별 백업");
+    expect(pageSource).toContain("현재 필터 CSV");
+  });
+
+  it("오답 노트 퀴즈 완료 결과를 링크와 카카오톡·모바일 공유로 제공한다", () => {
+    const pageSource = readFileSync(new URL("../client/src/pages/MistakeNotebook.tsx", import.meta.url), "utf8");
+    expect(pageSource).toContain("getQuizResultShareUrl");
+    expect(pageSource).toContain("handleCopyQuizResultLink");
+    expect(pageSource).toContain("Kakao?.Share?.sendDefault");
+    expect(pageSource).toContain("navigator.share");
+    expect(pageSource).toContain("카카오톡 공유");
+  });
+
+  it("서술형 워크북 답안을 길이 기반으로 채점하지 않고 주제·근거 기반 AI 루브릭으로 평가한다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const workbookSource = readFileSync(new URL("../client/src/pages/Workbook.tsx", import.meta.url), "utf8");
+    expect(dbSource).toContain("evaluateSubjectiveWorkbookAnswer");
+    expect(dbSource).toContain("topicRelevance");
+    expect(dbSource).toContain("reasonQuotes");
+    expect(dbSource).toContain("답안에서 확인 가능한 인용 근거가 없어");
+    expect(dbSource).not.toContain("score = userAnswer.length >= 20 ? 95");
+    expect(workbookSource).toContain("AI 근거 기반 서술형 평가");
+    expect(workbookSource).toContain("근거 인용:");
+    expect(workbookSource).toContain("다음 답안에서 우선 보완할 점");
+  });
+
+  it("교사별 AI 보조 봇의 프로필·승인 사례·초안 수정 이력과 가명처리 모델을 보관한다", () => {
+    const schemaSource = readFileSync(new URL("../drizzle/schema.ts", import.meta.url), "utf8");
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const apiDesignSource = readFileSync(new URL("../docs/teacher-ai-draft-api.md", import.meta.url), "utf8");
+    expect(schemaSource).toContain("teacher_ai_profiles");
+    expect(schemaSource).toContain("teacher_ai_style_examples");
+    expect(schemaSource).toContain("teacher_ai_drafts");
+    expect(schemaSource).toContain("teacher_ai_draft_revisions");
+    expect(dbSource).toContain("pseudonymizeLearningText");
+    expect(dbSource).toContain("approvalStatus");
+    expect(apiDesignSource).toContain("teacherAi.generateDraft");
+    expect(apiDesignSource).toContain("교사 승인 전 학생에게 공개되지 않는다");
+  });
+
+  it("교사만 배정 학생의 AI 초안을 생성·수정·승인 발송하고 학생에게는 최종본만 공개한다", () => {
+    const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+    const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const teacherPageSource = readFileSync(new URL("../client/src/pages/TeacherFeedback.tsx", import.meta.url), "utf8");
+    expect(dbSource).toContain("generateTeacherAiDraft");
+    expect(dbSource).toContain("saveTeacherAiDraftRevision");
+    expect(dbSource).toContain("approveTeacherAiDraft");
+    expect(dbSource).toContain("AI 첨삭 초안의 근거 인용을 검증하지 못했습니다.");
+    expect(routerSource).toContain("assertTeacherEssayAccess");
+    expect(routerSource).toContain("generateDraft:");
+    expect(routerSource).toContain("approveDraft:");
+    expect(routerSource).toContain("teacher-ai-approved-");
+    expect(teacherPageSource).toContain("AI 첨삭 초안 생성");
+    expect(teacherPageSource).toContain("교사 승인 후 학생에게 발송");
+    expect(teacherPageSource).toContain("저장된 교사 수정 이력");
+    expect(teacherPageSource).toContain("노란색 강조");
+  });
+
+  it("학생·학부모·첨삭교사 가입에 정책 전문 확인형 동의와 동의 원장을 요구한다", () => {
+    const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    const signupSource = readFileSync(new URL("../client/src/pages/Signup.tsx", import.meta.url), "utf8");
+    const teacherSignupSource = readFileSync(new URL("../client/src/pages/TeacherSignup.tsx", import.meta.url), "utf8");
+    const policySource = readFileSync(new URL("../client/src/components/PolicyConsentChecklist.tsx", import.meta.url), "utf8");
+    expect(routerSource).toContain("validateSignupConsents");
+    expect(routerSource).toContain("recordUserPolicyConsents");
+    expect(routerSource).toContain("accountType: z.enum([\"student\", \"parent\"])");
+    expect(signupSource).toContain("학부모 회원");
+    expect(teacherSignupSource).toContain("PolicyConsentChecklist");
+    expect(policySource).toContain("내용을 확인했습니다");
+    expect(policySource).toContain("AI 품질 개선 동의는 선택 사항");
+  });
+
+  it("인증 화면에서 마누스 계정 시작과 관리자 샘플 진입을 제공하지 않는다", () => {
+    const loginSource = readFileSync(new URL("../client/src/pages/Login.tsx", import.meta.url), "utf8");
+    const signupSource = readFileSync(new URL("../client/src/pages/Signup.tsx", import.meta.url), "utf8");
+    const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    expect(loginSource).not.toContain("Manus 계정으로");
+    expect(signupSource).not.toContain("Manus 계정으로");
+    expect(loginSource).not.toContain("관리자 샘플");
+    expect(routerSource).toContain("관리자 샘플 계정은 제공되지 않습니다.");
   });
 });
