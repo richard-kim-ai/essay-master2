@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "predev": "node scripts/auto-git-sync.mjs",
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "build:analyze": "ANALYZE_BUNDLE=true pnpm run build",
@@ -11,6 +12,7 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
+    "git:sync:auto": "node scripts/auto-git-sync.mjs",
     "git:sync:check": "node scripts/verify-git-sync.mjs",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",

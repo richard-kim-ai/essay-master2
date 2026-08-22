@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { evaluateAutoSyncDecision } from "../scripts/auto-git-sync.mjs";
 import { evaluateGitSync } from "../scripts/verify-git-sync.mjs";
 
 describe("Git 동기화 상호 검증", () => {
@@ -39,5 +40,40 @@ describe("Git 동기화 상호 검증", () => {
     expect(result.ok).toBe(false);
     expect(result.issues).toContain("협업 GitHub 원격(user_github)이 설정되어 있지 않습니다.");
     expect(result.issues).toContain("원격 최신화 실패: user_github");
+  });
+});
+
+describe("Git 자동 최신화 판단", () => {
+  it("원격만 앞서고 작업 트리가 깨끗하면 fast-forward를 허용한다", () => {
+    expect(evaluateAutoSyncDecision({
+      hasOrigin: true,
+      isWorktreeClean: true,
+      ahead: 0,
+      behind: 3,
+    })).toEqual({ ok: true, action: "fast_forward", issues: [] });
+  });
+
+  it("로컬 변경이 있는 상태에서 원격이 앞서면 자동 병합을 막는다", () => {
+    const result = evaluateAutoSyncDecision({
+      hasOrigin: true,
+      isWorktreeClean: false,
+      ahead: 0,
+      behind: 2,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.action).toBe("blocked_dirty");
+  });
+
+  it("로컬과 원격이 모두 앞선 분기 상태는 자동 병합하지 않는다", () => {
+    const result = evaluateAutoSyncDecision({
+      hasOrigin: true,
+      isWorktreeClean: true,
+      ahead: 4,
+      behind: 1,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.action).toBe("blocked_diverged");
   });
 });
