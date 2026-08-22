@@ -202,10 +202,10 @@ export default function Curriculum() {
                         </div>
                       )}
 
-                      {(item as { id?: number }).id && (courseType === "high_univ" || courseType === "general_adult") && <Link href={`/curriculum/${courseType}/${item.level}`}><Button variant="outline" className="mb-2 w-full gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">강의 상세 보기 · PDF 자료</Button></Link>}
-                      <Link href={isDynamicCourse ? `/curriculum/${courseType}/${item.level}` : `/workbook/${courseType}/${item.level}`}>
+                      {(item as { id?: number }).id && isDynamicCourse && <Link href={`/curriculum/${courseType}/${item.level}`}><Button variant="outline" className="mb-2 w-full gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">강의 상세 보기 · 생성 예문</Button></Link>}
+                      <Link href={`/workbook/${courseType}/${item.level}`}>
                         <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white">
-                          {isDynamicCourse ? "강의 열기" : isCompleted ? "다시 풀기" : "시작하기"}
+                          {isDynamicCourse ? "예문과 함께 강의 열기" : isCompleted ? "다시 풀기" : "시작하기"}
                         </Button>
                       </Link>
                     </CardContent>
