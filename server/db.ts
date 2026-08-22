@@ -73,7 +73,7 @@ import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared
 import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
 import { generateQuestionBankItems, qaQuestionItem, type AdaptiveStats, type GenerationRequestInput } from "./questionGeneration";
 import { buildCourseQuizContent, buildCourseSummaryContent, isLegacyRepeatedLearningContent } from "./learningToolContent";
-import { buildTheoryLessonSeedItems, generateTheoryLessonDrafts, qaTheoryLessonCandidate, theoryLessonRequestSchema, type TheoryLessonDraftCandidate, type TheoryLessonRequestInput } from "./theoryLessonContent";
+import { THEORY_LESSON_DATA_VERSION, buildTheoryLessonSeedItems, generateTheoryLessonDrafts, qaTheoryLessonCandidate, theoryLessonRequestSchema, type TheoryLessonDraftCandidate, type TheoryLessonRequestInput } from "./theoryLessonContent";
 import { generateDetailedSentenceFeedback } from "./sentenceFeedbackEngine";
 import { createRequestFingerprint, normalizeForFingerprint } from "./runtimeEfficiency";
 
@@ -475,14 +475,34 @@ export async function seedLessonTheoryContentIfNeeded() {
   const db = await getDb();
   if (!db) return;
   const existing = await db.select().from(lessonTheoryContent);
-  const existingKeys = new Set(existing.map((item) => `${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`));
-  const missing = buildTheoryLessonSeedItems().filter((item) => !existingKeys.has(`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`));
-  for (const item of missing) {
-    await db.insert(lessonTheoryContent).values({
-      contentScope: "THEORY_LESSON", courseType: item.courseType, lessonLevel: item.lessonLevel,
-      theoryCategory: item.theoryCategory, theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
+  const existingByKey = new Map(existing.map((item) => [`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`, item]));
+  for (const item of buildTheoryLessonSeedItems()) {
+    const existingItem = existingByKey.get(`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`);
+    if (!existingItem) {
+      await db.insert(lessonTheoryContent).values({
+        contentScope: "THEORY_LESSON", courseType: item.courseType, lessonLevel: item.lessonLevel,
+        theoryCategory: item.theoryCategory, theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
+        title: item.title, contentData: item.contentData, sourceNote: item.sourceNote, isActive: item.isActive,
+      });
+      continue;
+    }
+    if (!shouldRefreshSeedTheoryContent(existingItem, item)) continue;
+    await db.update(lessonTheoryContent).set({
+      theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
       title: item.title, contentData: item.contentData, sourceNote: item.sourceNote, isActive: item.isActive,
-    });
+      updatedAt: new Date(),
+    }).where(eq(lessonTheoryContent.id, existingItem.id));
+  }
+}
+
+function shouldRefreshSeedTheoryContent(existingItem: typeof lessonTheoryContent.$inferSelect, seedItem: ReturnType<typeof buildTheoryLessonSeedItems>[number]) {
+  if (existingItem.sourceNote !== seedItem.sourceNote) return false;
+  try {
+    const content = JSON.parse(existingItem.contentData) as { data_version?: string; lesson_passage?: unknown };
+    if (content.data_version !== THEORY_LESSON_DATA_VERSION) return true;
+    return ["high_univ", "general_adult"].includes(existingItem.courseType) && !content.lesson_passage;
+  } catch {
+    return true;
   }
 }
 
