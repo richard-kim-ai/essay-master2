@@ -1,7 +1,6 @@
 import React from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import InstallPrompt from "@/components/InstallPrompt";
 import Navigation from "@/components/Navigation";
 import OfflineStatus from "@/components/OfflineStatus";
@@ -121,18 +120,22 @@ export default function Home() {
               </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Button asChild className="h-12 w-full rounded-xl bg-indigo-700 px-5 text-base font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-800 sm:w-auto">
-                  <Link href={primaryAction.href}>
-                    {primaryAction.label}
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="h-12 w-full rounded-xl border-slate-200 bg-white/80 px-5 text-base font-bold text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 sm:w-auto">
-                  <Link href={secondaryAction.href}>
-                    {secondaryAction.label}
-                    <ChevronRight className="ml-1 h-4 w-4" />
-                  </Link>
-                </Button>
+                <Link
+                  href={primaryAction.href}
+                  data-home-cta="primary"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-indigo-700 px-5 text-base font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300 sm:w-auto"
+                >
+                  {primaryAction.label}
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+                <Link
+                  href={secondaryAction.href}
+                  data-home-cta="secondary"
+                  className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white/80 px-5 text-base font-bold text-slate-800 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-auto"
+                >
+                  {secondaryAction.label}
+                  <ChevronRight className="ml-1 h-4 w-4" />
+                </Link>
               </div>
               <p className="mt-3 text-sm text-slate-500">{primaryAction.description}</p>
             </div>
@@ -252,11 +255,13 @@ export default function Home() {
             <p className="text-sm font-bold tracking-[0.14em] text-indigo-700">START YOUR FIRST STEP</p>
             <h2 className="mt-3 text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">오늘의 한 문장부터 시작해 보세요.</h2>
             <p className="mt-4 text-lg leading-8 text-slate-600">과정을 선택하고, 첫 레슨에서 글쓰기의 기준을 세워 보세요.</p>
-            <Button asChild className="mt-8 h-12 rounded-xl bg-indigo-700 px-6 text-base font-bold text-white shadow-lg shadow-indigo-100 hover:bg-indigo-800">
-              <Link href={primaryAction.href}>
-                {primaryAction.label}<ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
+            <Link
+              href={primaryAction.href}
+              data-home-cta="final"
+              className="mt-8 inline-flex h-12 items-center justify-center rounded-xl bg-indigo-700 px-6 text-base font-bold text-white shadow-lg shadow-indigo-100 transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300"
+            >
+              {primaryAction.label}<ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
           </div>
         </section>
       </main>
