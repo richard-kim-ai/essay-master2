@@ -124,6 +124,7 @@ export default function Home() {
                   href={primaryAction.href}
                   data-home-cta="primary"
                   className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-indigo-700 px-5 text-base font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300 sm:w-auto"
+                  style={{ backgroundColor: "#4338ca", color: "#ffffff" }}
                 >
                   {primaryAction.label}
                   <ArrowRight className="ml-2 h-4 w-4" />
@@ -259,6 +260,7 @@ export default function Home() {
               href={primaryAction.href}
               data-home-cta="final"
               className="mt-8 inline-flex h-12 items-center justify-center rounded-xl bg-indigo-700 px-6 text-base font-bold text-white shadow-lg shadow-indigo-100 transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300"
+              style={{ backgroundColor: "#4338ca", color: "#ffffff" }}
             >
               {primaryAction.label}<ArrowRight className="ml-2 h-4 w-4" />
             </Link>
