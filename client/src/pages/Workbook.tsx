@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
-import { Loader2, CheckCircle, HelpCircle, Send, Award, ListChecks, Lightbulb, Sparkles, ArrowRight } from "lucide-react";
+import { Loader2, CheckCircle, HelpCircle, Send, Award, Sparkles, ArrowRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { buildToolPathWithWorkbookReturn, buildWorkbookReturnPath, getInitialWorkbookLesson } from "@/lib/workbookReturn";
 import { getAccessibleLessonIndex } from "@/lib/learningFlow";
+import { WorkbookQuestionCard } from "@/components/WorkbookQuestionCard";
 
 type SubjectiveCriterion = {
   key: "topicRelevance" | "claim" | "evidence" | "analysis" | "expression";
@@ -508,26 +509,11 @@ export default function Workbook() {
               ) : workbookQuestions.length === 0 ? (
                 <div className="py-8 text-center text-slate-500 text-sm">등록된 기출문제가 없습니다.</div>
               ) : (
-                workbookQuestions.map((q: any, qIdx: number) => {
+                workbookQuestions.map((q: any) => {
                   const res = submittedResults[q.id];
                   const choices = q.choicesJson ? JSON.parse(q.choicesJson) : [];
                   return (
-                    <Card key={q.id} className="border-slate-200 bg-white shadow-sm">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md">
-                            기출문제 #{qIdx + 1} ({q.questionType === "objective" ? "객관식" : "서술형"})
-                          </span>
-                          {res && (
-                            <span className={`text-xs font-bold px-2.5 py-1 rounded-md ${res.isCorrect ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                              {q.questionType === "subjective" ? `평가 점수: ${res.score}/100점` : res.isCorrect ? "정답 (100점)" : `점수: ${res.score}점`}
-                            </span>
-                          )}
-                        </div>
-                        <CardTitle className="text-base font-bold text-slate-800 mt-2">{q.title}</CardTitle>
-                        <CardDescription className="text-slate-700 font-medium whitespace-pre-line mt-1">{q.prompt}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4 pt-0">
+                    <WorkbookQuestionCard key={q.id} questionType={q.questionType} prompt={q.prompt} explanation={q.explanation} result={res}>
                         {q.questionType === "objective" ? (
                           <div className="grid gap-2">
                             {choices.map((choice: string, cIdx: number) => (
@@ -572,39 +558,7 @@ export default function Workbook() {
                           </Button>
                         </div>
 
-                        {res && q.questionType === "subjective" && res.evaluation ? (
-                          <div className={`mt-3 space-y-4 rounded-xl border p-4 ${res.evaluation.verdict === "excellent" ? "border-emerald-200 bg-emerald-50" : res.evaluation.verdict === "adequate" ? "border-indigo-200 bg-indigo-50" : "border-amber-200 bg-amber-50"}`}>
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <p className="font-bold text-slate-900">AI 근거 기반 서술형 평가</p>
-                                <p className="mt-1 text-sm leading-6 text-slate-700">{res.evaluation.summary}</p>
-                              </div>
-                              <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700 shadow-sm">{res.evaluation.characterCount}자 · 근거 {res.evaluation.validReasonCount}개</span>
-                            </div>
-
-                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                              {res.evaluation.criteria.map((criterion) => (
-                                <div key={criterion.key} className="rounded-lg border border-white/80 bg-white/80 p-2.5">
-                                  <div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-slate-600">{criterion.label}</span><span className="text-sm font-extrabold text-slate-900">{criterion.score}<span className="text-[11px] font-medium text-slate-500">/{criterion.maxScore}</span></span></div>
-                                  <p className="mt-1.5 text-[11px] leading-4 text-slate-600">{criterion.explanation}</p>
-                                  <p className="mt-2 rounded bg-slate-50 px-1.5 py-1 text-[10px] leading-4 text-slate-500">근거 인용: {criterion.quote}</p>
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <div className="rounded-lg border border-amber-200 bg-white/80 p-3"><p className="flex items-center gap-1.5 text-xs font-bold text-amber-900"><Lightbulb className="h-3.5 w-3.5" /> 다음 답안에서 우선 보완할 점</p><ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-slate-700">{res.evaluation.priorityImprovements.map((item, index) => <li key={index}>{item}</li>)}</ol></div>
-                              <div className="rounded-lg border border-slate-200 bg-white/80 p-3"><p className="flex items-center gap-1.5 text-xs font-bold text-slate-800"><ListChecks className="h-3.5 w-3.5" /> 평가 확인</p><ul className="mt-2 space-y-1 text-xs leading-5 text-slate-700"><li>{res.evaluation.isOnTopic ? "주제 적합성 확인" : "주제 적합성 부족"}</li><li>{res.evaluation.hasClearClaim ? "명확한 주장 확인" : "주장·입장 제시 필요"}</li><li>{res.evaluation.hasComparativeAnalysis ? "비교·분석 확인" : "비교·분석 보완 필요"}</li>{res.evaluation.missingRequirements.slice(0, 2).map((item, index) => <li key={index}>보완: {item}</li>)}</ul></div>
-                            </div>
-                          </div>
-                        ) : res ? (
-                          <div className={`p-4 rounded-xl border text-sm space-y-1 mt-3 ${res.isCorrect ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-amber-50 border-amber-200 text-amber-900"}`}>
-                            <p className="font-bold">{res.aiFeedback}</p>
-                            <p className="text-xs opacity-90">해설: {q.explanation}</p>
-                          </div>
-                        ) : null}
-                      </CardContent>
-                    </Card>
+                    </WorkbookQuestionCard>
                   );
                 })
               )}
