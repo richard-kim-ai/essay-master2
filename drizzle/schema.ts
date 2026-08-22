@@ -565,25 +565,91 @@ export const aiAutoFeedback = mysqlTable("ai_auto_feedback", {
 export type AIAutoFeedback = typeof aiAutoFeedback.$inferSelect;
 export type InsertAIAutoFeedback = typeof aiAutoFeedback.$inferInsert;
 
-// 독립 평가엔진 실행 및 재작성 이력 테이블
-export const writingEvaluationRecord = mysqlTable("writing_evaluation_record", {
+// 상용 첨삭 모델 운영 설정: API 키는 암호화된 값만 저장한다.
+export const evaluationModelConfigs = mysqlTable("evaluation_model_configs", {
+  id: int("id").autoincrement().primaryKey(),
+  modelId: varchar("modelId", { length: 160 }).notNull(),
+  endpoint: varchar("endpoint", { length: 1024 }).notNull(),
+  allowedDomainsJson: text("allowedDomainsJson").notNull(),
+  encryptedApiKey: text("encryptedApiKey").notNull(),
+  timeoutMs: int("timeoutMs").default(15000).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type EvaluationModelConfig = typeof evaluationModelConfigs.$inferSelect;
+export type InsertEvaluationModelConfig = typeof evaluationModelConfigs.$inferInsert;
+
+// 첨삭 실행 메타데이터·검수 및 이의제기의 기준이 되는 불변 기록이다.
+export const writingEvaluationRecords = mysqlTable("writing_evaluation_records", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
-  essaySubmissionId: int("essaySubmissionId"),
-  parentRecordId: int("parentRecordId"),
-  metadataJson: text("metadataJson").notNull(),
-  taskJson: text("taskJson").notNull(),
-  originalText: text("originalText").notNull(),
-  revisedText: text("revisedText"),
-  evaluationJson: text("evaluationJson").notNull(),
-  correctionJson: text("correctionJson"),
-  decision: varchar("decision", { length: 32 }).notNull(),
-  totalScore: int("totalScore").notNull(),
+  feedbackId: int("feedbackId"),
+  modelId: varchar("modelId", { length: 160 }).notNull(),
+  correctionStatus: mysqlEnum("correctionStatus", ["completed", "fallback", "failed"]).notNull(),
+  fallbackUsed: int("fallbackUsed").default(0).notNull(),
+  providerError: varchar("providerError", { length: 512 }),
+  latencyMs: int("latencyMs").default(0).notNull(),
+  tokenUsage: int("tokenUsage").default(0).notNull(),
+  estimatedCostMicrousd: int("estimatedCostMicrousd").default(0).notNull(),
+  confidence: decimal("confidence", { precision: 5, scale: 4 }),
+  heuristicOverallScore: int("heuristicOverallScore"),
+  modelOverallScore: int("modelOverallScore"),
+  sourceVerificationFailed: int("sourceVerificationFailed").default(0).notNull(),
+  resultJson: text("resultJson").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export type WritingEvaluationRecord = typeof writingEvaluationRecord.$inferSelect;
-export type InsertWritingEvaluationRecord = typeof writingEvaluationRecord.$inferInsert;
+export type WritingEvaluationRecord = typeof writingEvaluationRecords.$inferSelect;
+export type InsertWritingEvaluationRecord = typeof writingEvaluationRecords.$inferInsert;
+
+// 원문을 저장하지 않는 모델 운영 모니터링 로그다.
+export const evaluationModelOperations = mysqlTable("evaluation_model_operations", {
+  id: int("id").autoincrement().primaryKey(),
+  modelId: varchar("modelId", { length: 160 }).notNull(),
+  status: mysqlEnum("status", ["completed", "fallback", "failed"]).notNull(),
+  latencyMs: int("latencyMs").default(0).notNull(),
+  tokenUsage: int("tokenUsage").default(0).notNull(),
+  estimatedCostMicrousd: int("estimatedCostMicrousd").default(0).notNull(),
+  errorSummary: varchar("errorSummary", { length: 512 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type EvaluationModelOperation = typeof evaluationModelOperations.$inferSelect;
+export type InsertEvaluationModelOperation = typeof evaluationModelOperations.$inferInsert;
+
+export const evaluationReviewQueue = mysqlTable("evaluation_review_queue", {
+  id: int("id").autoincrement().primaryKey(),
+  evaluationRecordId: int("evaluationRecordId").notNull(),
+  userId: int("userId").notNull(),
+  reasonsJson: text("reasonsJson").notNull(),
+  status: mysqlEnum("status", ["open", "reviewing", "resolved"]).default("open").notNull(),
+  assignedAdminId: int("assignedAdminId"),
+  resolutionNote: text("resolutionNote"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+});
+
+export type EvaluationReviewQueueItem = typeof evaluationReviewQueue.$inferSelect;
+export type InsertEvaluationReviewQueueItem = typeof evaluationReviewQueue.$inferInsert;
+
+export const evaluationAppeals = mysqlTable("evaluation_appeals", {
+  id: int("id").autoincrement().primaryKey(),
+  evaluationRecordId: int("evaluationRecordId").notNull(),
+  userId: int("userId").notNull(),
+  reason: text("reason").notNull(),
+  requestedAction: varchar("requestedAction", { length: 64 }).notNull(),
+  status: mysqlEnum("status", ["submitted", "under_review", "accepted", "rejected", "resolved"]).default("submitted").notNull(),
+  adminId: int("adminId"),
+  adminNote: text("adminNote"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type EvaluationAppeal = typeof evaluationAppeals.$inferSelect;
+export type InsertEvaluationAppeal = typeof evaluationAppeals.$inferInsert;
 
 // AI 사용량 및 일일 쿼터 로그 테이블
 export const aiUsageLogs = mysqlTable("ai_usage_logs", {
@@ -630,8 +696,6 @@ export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
 export type DynamicCurriculum = typeof dynamicCurriculum.$inferSelect;
 export type InsertDynamicCurriculum = typeof dynamicCurriculum.$inferInsert;
 
-// 이론학습용 예시문 및 강의 중 확인문제 테이블
-// question_bank와 분리하여 랜덤 출제/평가용 문항과 충돌하지 않도록 한다.
 // 이론학습용 설명·교재식 예시·강의 중 확인문제 콘텐츠.
 // question_bank의 랜덤 출제·평가 문항과 절대 혼합하지 않는다.
 export const lessonTheoryContent = mysqlTable("lesson_theory_content", {

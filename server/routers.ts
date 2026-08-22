@@ -6,12 +6,10 @@ import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_
 import * as db from "./db";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { evaluateEssay } from "./aiFeedback";
-import { evaluateWriting } from "./writingEvaluationEngine";
-import { evaluateWritingWithConfiguredModel } from "./configuredWritingEvaluation";
-import { buildSimulationSamplesFromStudentData, simulateEvaluationLearning } from "./writingEvaluationSimulation";
-import { generateWritingCorrection } from "./writingCorrectionEngine";
-import { getActiveCorrectionModel, getEvaluationModelProfiles, saveEvaluationModelProfiles, type EvaluationModelProfile } from "./evaluationModelRegistry";
+import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
+import { normalizeAllowedDomains, validateExternalEvaluationEndpoint } from "./evaluationModelRegistry";
+import { getHumanEvaluationQualityMetrics } from "./evaluationMetrics";
+import { evaluateWritingHeuristic, getHumanReviewReasons } from "./writingCorrectionEngine";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -65,64 +63,6 @@ const theoryGenerationInput = z.object({
   content_count: z.coerce.number().int().min(1).max(6).default(3),
   example_mode: z.enum(["TEXTBOOK_SIMILAR", "TEXTBOOK_PLUS_NEW"]).default("TEXTBOOK_PLUS_NEW"),
   context: z.string().trim().min(2).max(500).default("AUTO"),
-});
-
-// 아래 4개는 독립형 AI 논술·글쓰기 평가엔진(local branch 고유 기능)의 입력 스키마입니다.
-const writingEvaluationMetadataInput = z.object({
-  task_id: z.string().optional(),
-  curriculum_code: z.string().min(1),
-  theory_category: z.string().min(1),
-  education_level: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
-  difficulty: z.number().int().min(1).max(5),
-  writing_type: z.enum(["ARGUMENTATIVE", "EXPLANATORY", "REFLECTIVE", "SUMMARY", "CREATIVE"]),
-  assessment_mode: z.enum(["FREE_WRITING", "ARGUMENTATIVE", "DBQ", "ANALYTICAL", "IB_PERSONAL_SOCIETY", "IB_SCIENCE"]).optional(),
-  rubric_profile: z.string().optional(),
-  subject: z.string().optional(),
-});
-
-const writingEvaluationTaskInput = z.object({
-  prompt: z.string().min(1),
-  constraints: z.object({
-    min_chars: z.number().int().min(0).optional(),
-    max_chars: z.number().int().min(1).optional(),
-    required_elements: z.array(z.string()).optional(),
-    required_source_ids: z.array(z.string()).optional(),
-    citation_required: z.boolean().optional(),
-    minimum_source_count: z.number().int().min(0).optional(),
-  }).optional(),
-  assessment_mode: z.enum(["FREE_WRITING", "ARGUMENTATIVE", "DBQ", "ANALYTICAL", "IB_PERSONAL_SOCIETY", "IB_SCIENCE"]).optional(),
-  source_documents: z.array(z.object({
-    source_id: z.string().min(1),
-    title: z.string().optional(),
-    content: z.string().min(1),
-    author_or_origin: z.string().optional(),
-    perspective: z.string().optional(),
-  })).optional(),
-});
-
-const writingEvaluationInput = z.object({
-  metadata: writingEvaluationMetadataInput,
-  task: writingEvaluationTaskInput,
-  submission: z.object({
-    learner_id: z.string().min(1),
-    essay_text: z.string().min(1),
-    source_citations: z.array(z.object({ source_id: z.string().min(1), excerpt: z.string().optional() })).optional(),
-  }),
-  essay_submission_id: z.number().int().positive().optional(),
-});
-
-const writingEvaluationSimulationInput = z.object({
-  metadata: writingEvaluationMetadataInput.omit({ task_id: true }),
-  task: writingEvaluationTaskInput,
-  samples: z.array(z.object({
-    sample_id: z.string().min(1),
-    learner_id: z.string().min(1),
-    essay_text: z.string().min(1),
-    previous_score: z.number().nullable().optional(),
-    human_score: z.number().min(0).max(100).nullable().optional(),
-    score_source: z.enum(["human", "ai", "unknown"]).optional(),
-    source: z.enum(["essay_submission", "ai_auto_feedback", "manual"]).optional(),
-  })).min(1),
 });
 
 function requestOrigin(req: { protocol: string; headers: Record<string, unknown> }) {
@@ -1104,7 +1044,7 @@ export const appRouter = router({
       db.getCertificatesByUser(ctx.user.id)
     ),
 
-    eligibility: protectedProcedure.query(({ ctx }) => db.getStudentCertificateEligibility(ctx.user.id)),
+    eligibility: protectedProcedure.query(({ ctx }) => db.getStudentCertificateEligibility(ctx.user.id, ctx.user)),
 
     getByShareToken: publicProcedure
       .input(z.string())
@@ -1302,178 +1242,48 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(
-        z.object({
-          essayTitle: z.string(),
-          essayContent: z.string(),
-          courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
-          level: z.number(),
-        })
-      )
+      .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), sourceVerificationFailed: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {
-        // 일일 쿼터 확인 (관리자는 무제한, 일반 학생은 일 5회 제한)
-        if (ctx.user.role !== "admin") {
-          const usageCount = await db.getTodayAIUsageCount(ctx.user.id);
-          if (usageCount >= 5) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요.",
-            });
-          }
-        }
-
-        // AI 피드백 생성
+        if (ctx.user.role !== "admin" && await db.getTodayAIUsageCount(ctx.user.id) >= 5) throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요." });
         const difficultyPreset = await db.getDifficultyOperationPreset();
-        const feedback = await evaluateEssay(input.essayContent, input.courseType, difficultyPreset.mode);
-
-        // 사용량 기록
-        await db.logAIUsage(ctx.user.id, "essay_feedback", 3000);
-
-        // 데이터베이스에 저장
-        return await db.createAIAutoFeedback({
-          userId: ctx.user.id,
-          essayTitle: input.essayTitle,
-          essayContent: input.essayContent,
-          courseType: input.courseType,
-          level: input.level,
-          overallComment: feedback.overallComment,
-          structureScore: feedback.structureScore,
-          logicScore: feedback.logicScore,
-          expressionScore: feedback.expressionScore,
-          overallScore: feedback.overallScore,
-          revisedEssay: feedback.revisedEssay,
-          suggestions: JSON.stringify(feedback.suggestions),
-          strengths: JSON.stringify(feedback.strengths),
-          weaknesses: JSON.stringify(feedback.weaknesses),
-        });
+        const request = { essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, difficultyMode: difficultyPreset.mode, sourceVerificationFailed: Boolean(input.sourceVerificationFailed) } as const;
+        const heuristic = evaluateWritingHeuristic(request);
+        const feedback = await evaluateConfiguredWriting(request, await db.getActiveEvaluationModelConfig());
+        await db.logAIUsage(ctx.user.id, "essay_feedback", feedback.token_usage);
+        await db.createEvaluationModelOperation({ modelId: feedback.model_id, status: feedback.correction_status, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, errorSummary: feedback.provider_error });
+        const savedFeedback = await db.createAIAutoFeedback({ userId: ctx.user.id, essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, overallComment: feedback.overallComment, structureScore: feedback.structureScore, logicScore: feedback.logicScore, expressionScore: feedback.expressionScore, overallScore: feedback.overallScore, revisedEssay: feedback.revisedEssay, suggestions: JSON.stringify(feedback.suggestions), strengths: JSON.stringify(feedback.strengths), weaknesses: JSON.stringify(feedback.weaknesses) });
+        const feedbackId = Number((savedFeedback as { insertId?: number }).insertId || 0) || null;
+        const record = await db.createWritingEvaluationRecord({ userId: ctx.user.id, feedbackId, modelId: feedback.model_id, correctionStatus: feedback.correction_status, fallbackUsed: feedback.fallback_used ? 1 : 0, providerError: feedback.provider_error, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, confidence: feedback.confidence.toFixed(4), heuristicOverallScore: heuristic.overallScore, modelOverallScore: feedback.overallScore, sourceVerificationFailed: input.sourceVerificationFailed ? 1 : 0, resultJson: JSON.stringify({ correction_status: feedback.correction_status, fallback_used: feedback.fallback_used, provider_error: feedback.provider_error, latency_ms: feedback.latency_ms, model_id: feedback.model_id, sentenceCorrections: feedback.sentenceCorrections }) });
+        const evaluationRecordId = Number((record as { insertId?: number }).insertId || 0);
+        const reviewReasons = getHumanReviewReasons(feedback, heuristic.overallScore, Boolean(input.sourceVerificationFailed));
+        if (reviewReasons.length && evaluationRecordId) await db.createEvaluationReviewQueueItem({ evaluationRecordId, userId: ctx.user.id, reasonsJson: JSON.stringify(reviewReasons) });
+        return { ...(savedFeedback as object), ...feedback, id: feedbackId, evaluationRecordId, reviewQueued: reviewReasons.length > 0 };
       }),
   }),
 
-  writingEvaluationEngine: router({
-    evaluate: protectedProcedure
-      .input(writingEvaluationInput)
-      .mutation(async ({ input }) => {
-        const result = await evaluateWritingWithConfiguredModel(input);
-        return { ...result, evaluation_model_id: result.modelId, evaluation_fallback: result.fallback };
-      }),
+  evaluationModels: router({
+    list: adminProcedure.query(async () => (await db.listEvaluationModelConfigs()).map(({ encryptedApiKey: _secret, ...config }) => config)),
+    save: adminProcedure.input(z.object({ modelId: z.string().trim().min(1).max(160), endpoint: z.string().url().max(1024), allowedDomains: z.array(z.string().trim().min(1).max(255)).min(1).max(20), apiKey: z.string().min(8).max(4096), timeoutMs: z.number().int().min(1000).max(30000).default(15000), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
+      const allowedDomains = normalizeAllowedDomains(input.allowedDomains);
+      const validation = validateExternalEvaluationEndpoint(input.endpoint, allowedDomains);
+      if (!validation.valid) throw new TRPCError({ code: "BAD_REQUEST", message: validation.message });
+      return db.saveEvaluationModelConfig({ modelId: input.modelId, endpoint: input.endpoint, allowedDomainsJson: JSON.stringify(allowedDomains), encryptedApiKey: encryptSecret(input.apiKey), timeoutMs: input.timeoutMs, isActive: input.isActive ? 1 : 0, createdBy: ctx.user.id });
+    }),
+    operationStats: adminProcedure.query(() => db.getEvaluationModelOperationStats()),
+    reviewQueue: adminProcedure.query(() => db.listEvaluationReviewQueue()),
+    updateReviewQueue: adminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["open", "reviewing", "resolved"]), resolutionNote: z.string().max(4000).nullable().optional() })).mutation(({ ctx, input }) => db.updateEvaluationReviewQueueItem({ ...input, assignedAdminId: ctx.user.id })),
+    humanQualityMetrics: adminProcedure.input(z.array(z.object({ humanScore: z.number().min(0).max(100), modelScore: z.number().min(0).max(100) })).max(10000)).query(({ input }) => getHumanEvaluationQualityMetrics(input)),
+  }),
 
-    evaluateAndCorrect: protectedProcedure
-      .input(writingEvaluationInput)
-      .mutation(async ({ ctx, input }) => {
-        if (input.essay_submission_id) {
-          const essay = await db.getEssaySubmissionById(input.essay_submission_id);
-          if (!essay || essay.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "본인 글만 평가 기록에 연결할 수 있습니다." });
-        }
-        if (ctx.user.role !== "admin" && (await db.getTodayAIUsageCount(ctx.user.id)) >= 5) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 첨삭 횟수를 모두 사용했습니다." });
-        }
-        const configuredEvaluation = await evaluateWritingWithConfiguredModel(input);
-        const evaluation = configuredEvaluation.evaluation;
-        const correctionModel = await getActiveCorrectionModel();
-        const correction = await generateWritingCorrection(input, evaluation, { model: correctionModel.model || undefined, endpoint: correctionModel.endpoint || undefined, modelId: correctionModel.id });
-        const record = await db.createWritingEvaluationRecord({
-          userId: ctx.user.id,
-          essaySubmissionId: input.essay_submission_id,
-          metadataJson: JSON.stringify({ ...input.metadata, evaluation_model_id: configuredEvaluation.modelId, evaluation_fallback: configuredEvaluation.fallback, correction_model_id: correctionModel.id, correction_status: correction.correction_status, correction_fallback: correction.fallback_used, correction_latency_ms: correction.latency_ms, correction_provider_error: correction.provider_error ?? null }),
-          taskJson: JSON.stringify(input.task),
-          originalText: input.submission.essay_text,
-          revisedText: correction.revised_text,
-          evaluationJson: JSON.stringify(evaluation),
-          correctionJson: JSON.stringify(correction),
-          decision: evaluation.decision,
-          totalScore: evaluation.total_score,
-        });
-        await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", 0);
-        return { evaluation, correction, evaluation_model_id: configuredEvaluation.modelId, correction_model_id: correctionModel.id, record_id: record?.insertId ?? null };
-      }),
-
-    history: protectedProcedure.query(({ ctx }) => db.getWritingEvaluationRecordsByUser(ctx.user.id)),
-
-    getById: protectedProcedure
-      .input(z.number().int().positive())
-      .query(({ ctx, input }) => db.getWritingEvaluationRecordByIdForUser(input, ctx.user.id)),
-
-    reevaluate: protectedProcedure
-      .input(z.object({
-        record_id: z.number().int().positive(),
-        revised_text: z.string().trim().min(1),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        const parent = await db.getWritingEvaluationRecordByIdForUser(input.record_id, ctx.user.id);
-        if (!parent) throw new TRPCError({ code: "NOT_FOUND", message: "평가 기록을 찾을 수 없습니다." });
-        if (ctx.user.role !== "admin" && (await db.getTodayAIUsageCount(ctx.user.id)) >= 5) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 첨삭 횟수를 모두 사용했습니다." });
-        }
-
-        const request = {
-          metadata: JSON.parse(parent.metadataJson),
-          task: JSON.parse(parent.taskJson),
-          submission: {
-            learner_id: String(ctx.user.id),
-            essay_text: input.revised_text,
-          },
-        };
-        const configuredEvaluation = await evaluateWritingWithConfiguredModel(request);
-        const evaluation = configuredEvaluation.evaluation;
-        const correctionModel = await getActiveCorrectionModel();
-        const correction = await generateWritingCorrection(request, evaluation, { model: correctionModel.model || undefined, endpoint: correctionModel.endpoint || undefined, modelId: correctionModel.id });
-        const record = await db.createWritingEvaluationRecord({
-          userId: ctx.user.id,
-          essaySubmissionId: parent.essaySubmissionId ?? undefined,
-          parentRecordId: parent.id,
-          metadataJson: JSON.stringify({ ...request.metadata, evaluation_model_id: configuredEvaluation.modelId, evaluation_fallback: configuredEvaluation.fallback, correction_model_id: correctionModel.id, correction_status: correction.correction_status, correction_fallback: correction.fallback_used, correction_latency_ms: correction.latency_ms, correction_provider_error: correction.provider_error ?? null }),
-          taskJson: JSON.stringify(request.task),
-          originalText: input.revised_text,
-          revisedText: correction.revised_text,
-          evaluationJson: JSON.stringify(evaluation),
-          correctionJson: JSON.stringify(correction),
-          decision: evaluation.decision,
-          totalScore: evaluation.total_score,
-        });
-        await db.logAIUsage(ctx.user.id, "writing_evaluation_v1_reevaluate", 0);
-        return { evaluation, correction, evaluation_model_id: configuredEvaluation.modelId, correction_model_id: correctionModel.id, record_id: record?.insertId ?? null, parent_record_id: parent.id };
-      }),
-
-    simulate: protectedProcedure
-      .input(writingEvaluationSimulationInput)
-      .mutation(({ input }) => simulateEvaluationLearning(input)),
-
-    simulateMyEssays: protectedProcedure
-      .input(
-        z.object({
-          metadata: writingEvaluationMetadataInput.omit({ task_id: true }),
-          task: writingEvaluationTaskInput,
-          limit: z.number().int().min(1).max(50).default(20),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        const essaySubmissions = await db.getEssaySubmissionsByUser(ctx.user.id);
-        const aiFeedbacks = await db.getAIAutoFeedbackByUser(ctx.user.id);
-        const samples = buildSimulationSamplesFromStudentData({
-          essaySubmissions: essaySubmissions.slice(0, input.limit),
-          aiFeedbacks: aiFeedbacks.slice(0, input.limit),
-        }).slice(0, input.limit);
-
-        if (samples.length === 0) {
-          return {
-            engine_version: "1.1",
-            sample_count: 0,
-            scored_count: 0,
-            average_score: 0,
-            decision_counts: {},
-            recurring_error_patterns: [],
-            next_learning_distribution: [],
-            calibration_candidates: [],
-            evaluations: [],
-          };
-        }
-
-        return simulateEvaluationLearning({
-          metadata: input.metadata,
-          task: input.task,
-          samples,
-        });
-      }),
+  evaluationAppeals: router({
+    create: protectedProcedure.input(z.object({ evaluationRecordId: z.number().int().positive(), reason: z.string().trim().min(10).max(4000), requestedAction: z.enum(["recheck"]) })).mutation(async ({ ctx, input }) => {
+      const record = await db.getWritingEvaluationRecord(input.evaluationRecordId);
+      if (!record || record.userId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "이의제기를 제출할 평가 기록을 찾을 수 없습니다." });
+      return db.createEvaluationAppeal({ ...input, userId: ctx.user.id });
+    }),
+    mine: protectedProcedure.query(({ ctx }) => db.listEvaluationAppeals(ctx.user.id)),
+    list: adminProcedure.query(() => db.listEvaluationAppeals()),
+    update: adminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["submitted", "under_review", "accepted", "rejected", "resolved"]), adminNote: z.string().max(4000).nullable().optional() })).mutation(({ ctx, input }) => db.updateEvaluationAppeal({ ...input, adminId: ctx.user.id })),
   }),
 
   badges: router({
@@ -1824,27 +1634,13 @@ export const appRouter = router({
       .input(questionGenerationInput)
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.previewGeneratedQuestionBankItems({
-          course: input.course ?? input.courseType ?? "MIDDLE_HIGH",
-          tool_type: input.tool_type ?? input.toolType ?? "SUMMARY",
-          theory_category: input.theory_category,
-          difficulty: input.difficulty,
-          question_count: input.question_count ?? input.count ?? 3,
-          topic: input.topic,
-        });
+        return db.previewGeneratedQuestionBankItems({ course: input.course ?? input.courseType!, tool_type: input.tool_type ?? input.toolType!, theory_category: input.theory_category, difficulty: input.difficulty, question_count: input.question_count ?? input.count ?? 3, topic: input.topic });
       }),
     previewAiQuestions: protectedProcedure
       .input(questionGenerationInput)
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.previewGeneratedQuestionBankItems({
-          course: input.course ?? input.courseType ?? "MIDDLE_HIGH",
-          tool_type: input.tool_type ?? input.toolType ?? "SUMMARY",
-          theory_category: input.theory_category,
-          difficulty: input.difficulty,
-          question_count: input.question_count ?? input.count ?? 3,
-          topic: input.topic,
-        });
+        return db.previewGeneratedQuestionBankItems({ course: input.course ?? input.courseType!, tool_type: input.tool_type ?? input.toolType!, theory_category: input.theory_category, difficulty: input.difficulty, question_count: input.question_count ?? input.count ?? 3, topic: input.topic });
       }),
     promoteUser: protectedProcedure
       .input(z.object({ userId: z.number(), targetLevel: z.number() }))
@@ -1860,18 +1656,6 @@ export const appRouter = router({
   }),
 
   admin: router({
-    getWritingReviewQueue: adminProcedure.query(async () => db.getWritingEvaluationReviewQueue()),
-    getEvaluationModels: adminProcedure.query(async () => getEvaluationModelProfiles()),
-    updateEvaluationModels: adminProcedure
-      .input(z.object({
-        profiles: z.array(z.object({
-          id: z.string().trim().min(1).max(80), name: z.string().trim().min(1).max(120),
-          provider: z.enum(["rule", "openai", "openai_compatible", "vllm", "kobert", "lora", "custom"]),
-          purpose: z.enum(["evaluation", "correction", "both"]), model: z.string().max(255), endpoint: z.string().max(1000),
-          enabled: z.boolean(), priority: z.number().int().min(1).max(999), notes: z.string().max(1000), managed: z.boolean(),
-        })).min(1),
-      }))
-      .mutation(async ({ ctx, input }) => saveEvaluationModelProfiles(input.profiles as EvaluationModelProfile[], ctx.user.id)),
     getTeacherPermissionGrants: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
       return db.getTeacherPermissionGrants();
