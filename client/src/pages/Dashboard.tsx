@@ -8,7 +8,6 @@ import { Link } from "wouter";
 import { toast } from "sonner";
 import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight, Sparkles, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { exportAchievementReportPdf } from "@/lib/achievementReportPdf";
 import {
   LineChart,
   Line,
@@ -278,34 +277,33 @@ export default function Dashboard() {
   const activeCourseCard = displayCards[0] || allCourseCards[0];
   const visibleCertificates = certificates.filter((certificate: any) => isSampleMode || certificate.courseType === activeCourseType);
   const visibleBadges = earnedBadges.filter((badge: any) => isSampleMode || badge.courseType === activeCourseType);
-  const handleExportAchievementReport = () => {
+  const handleExportAchievementReport = async () => {
     setIsReportExporting(true);
-    window.setTimeout(() => {
-      try {
-        exportAchievementReportPdf({
-          learnerName: effectiveUser.name || "학습자",
-          courseLabel: getCourseTitleLabel(activeCourseType),
-          courseProgress: activeCourseCard?.progress.percent || 0,
-          completedLevels: activeCourseCard?.progress.completedCount || 0,
-          totalLevels: activeCourseCard?.progress.total || 0,
-          overallProgress: overallProgressPercent,
-          averageScore: avgScore,
-          quizCorrectRate: correctRate,
-          learningDays,
-          certificates: visibleCertificates,
-          badges: visibleBadges,
-          progressData: compactProgressChartData,
-          growthData,
-          skillData,
-        });
-        toast.success("성취 요약 리포트 PDF를 저장했습니다.");
-      } catch (error) {
-        console.error(error);
-        toast.error("성취 요약 리포트 PDF를 저장하지 못했습니다.");
-      } finally {
-        setIsReportExporting(false);
-      }
-    }, 50);
+    try {
+      const { exportAchievementReportPdf } = await import("@/lib/achievementReportPdf");
+      await exportAchievementReportPdf({
+        learnerName: effectiveUser.name || "학습자",
+        courseLabel: getCourseTitleLabel(activeCourseType),
+        courseProgress: activeCourseCard?.progress.percent || 0,
+        completedLevels: activeCourseCard?.progress.completedCount || 0,
+        totalLevels: activeCourseCard?.progress.total || 0,
+        overallProgress: overallProgressPercent,
+        averageScore: avgScore,
+        quizCorrectRate: correctRate,
+        learningDays,
+        certificates: visibleCertificates,
+        badges: visibleBadges,
+        progressData: compactProgressChartData,
+        growthData,
+        skillData,
+      });
+      toast.success("성취 요약 리포트 PDF를 저장했습니다.");
+    } catch (error) {
+      console.error(error);
+      toast.error("성취 요약 리포트 PDF를 저장하지 못했습니다.");
+    } finally {
+      setIsReportExporting(false);
+    }
   };
 
   return (
