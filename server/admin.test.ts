@@ -75,17 +75,23 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("db.insert(learningGroupMembers).values({ groupId, studentId, addedBy })");
   });
 
-  it("학생용 신규 과정 상세 페이지가 AI 태그와 샘플 PDF 다운로드를 제공한다", () => {
+  it("학생용 신규 과정 상세 페이지가 AI 태그·생성 예문·샘플 PDF 다운로드를 제공한다", () => {
     const source = readFileSync(curriculumDetailPath, "utf8");
     expect(source).toContain("getDynamicByType.useQuery");
+    expect(source).toContain("getWorkbookLessonBundle.useQuery");
+    expect(source).toContain("parseCurriculumTheoryExample");
+    expect(source).toContain("예문으로 확인하기");
+    expect(source).toContain("예문과 함께 워크북 열기");
     expect(source).toContain("item.samplePdfUrl");
     expect(source).toContain("PDF 다운로드");
     expect(source).toContain("item.aiTags");
   });
 
-  it("학생용 커리큘럼 카드가 신규 과정의 상세 페이지와 자동 태그를 연결한다", () => {
+  it("학생용 커리큘럼 카드가 신규 과정의 상세·예문 워크북과 자동 태그를 연결한다", () => {
     const source = readFileSync(curriculumPagePath, "utf8");
-    expect(source).toContain("강의 상세 보기 · PDF 자료");
+    expect(source).toContain("강의 상세 보기 · 생성 예문");
+    expect(source).toContain("예문과 함께 강의 열기");
+    expect(source).toContain("/workbook/${courseType}/${item.level}");
     expect(source).toContain("aiTags");
     expect(source).toContain("isDynamicCourse");
   });
