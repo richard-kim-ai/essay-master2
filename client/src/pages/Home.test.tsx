@@ -74,8 +74,8 @@ describe("Home CTA accessibility", () => {
     });
 
     const accountLink = container.querySelector<HTMLAnchorElement>('a[href="/login"]:not([data-slot="button"])');
-    const primaryCta = container.querySelector<HTMLAnchorElement>('a[data-slot="button"][href="/curriculum"]');
-    const secondaryCta = container.querySelector<HTMLAnchorElement>('a[data-slot="button"][href="/login"]');
+    const primaryCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="primary"][href="/curriculum"]');
+    const secondaryCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="secondary"][href="/login"]');
     const exploreCoursesLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('a[href="/curriculum"]')).find(
       (link) => !link.hasAttribute("data-slot") && link.textContent?.includes("전체 과정 보기"),
     );
