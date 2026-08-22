@@ -544,7 +544,7 @@ export default function AdminDashboard() {
             <Sliders className="w-5 h-5 text-indigo-600" /> 관리자 전용 운영 카테고리 및 도구
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            수료증, 커리큘럼, 이론 레슨, 문제은행, 총괄 콘솔 및 약관 설정을 한눈에 관리할 수 있습니다.
+            수료증, 커리큘럼, 이론 레슨, 문제은행, 첨삭 모델, 총괄 콘솔 및 약관 설정을 한눈에 관리할 수 있습니다.
           </p>
         </div>
 
@@ -586,6 +586,16 @@ export default function AdminDashboard() {
               </div>
               <span className="font-bold text-slate-800 text-xs">이론 콘텐츠</span>
               <span className="text-[10px] text-slate-400 mt-0.5">편집 및 AI 승인</span>
+            </div>
+          </Link>
+
+          <Link href="/admin/evaluation-models">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <Sliders className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">첨삭 모델 운영</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">검수 및 이의제기</span>
             </div>
           </Link>
 

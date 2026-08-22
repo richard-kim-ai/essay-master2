@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
-import { BookOpen, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { BookOpen, Loader2, CheckCircle, AlertCircle, Clock3, ShieldAlert, ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -18,9 +18,8 @@ export default function AIAutoFeedback() {
   const [content, setContent] = useState("");
   const [feedback, setFeedback] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [feedbackMode, setFeedbackMode] = useState<"legacy" | "evaluation_v1">("evaluation_v1");
-  const [evaluationRecordId, setEvaluationRecordId] = useState<number | null>(null);
-  const [revisionText, setRevisionText] = useState("");
+  const [appealReason, setAppealReason] = useState("");
+  const [showAppealForm, setShowAppealForm] = useState(false);
 
   const { data: quota, refetch: refetchQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -35,8 +34,14 @@ export default function AIAutoFeedback() {
       }
     },
   });
-  const evaluateAndCorrectMutation = trpc.writingEvaluationEngine.evaluateAndCorrect.useMutation();
-  const reevaluateMutation = trpc.writingEvaluationEngine.reevaluate.useMutation();
+  const appealMutation = trpc.evaluationAppeals.create.useMutation({
+    onSuccess: () => {
+      setAppealReason("");
+      setShowAppealForm(false);
+      toast.success("이의제기가 접수되었습니다. 관리자 검수 후 상태를 알려드립니다.");
+    },
+    onError: (error) => toast.error(error.message || "이의제기를 접수하지 못했습니다."),
+  });
 
   if (!isAuthenticated) {
     return <div className="text-center py-12">로그인이 필요합니다.</div>;
@@ -50,72 +55,43 @@ export default function AIAutoFeedback() {
 
     setLoading(true);
     try {
-      const result = feedbackMode === "evaluation_v1"
-        ? await evaluateAndCorrectMutation.mutateAsync({
-            metadata: {
-              curriculum_code: "FREE_WRITING",
-              theory_category: "free_writing",
-              education_level: courseType,
-              difficulty: parseInt(level),
-              writing_type: "ARGUMENTATIVE",
-            },
-            task: { prompt: title || "자유작문" },
-            submission: { learner_id: String(user?.id ?? "anonymous"), essay_text: content },
-          })
-        : await createFeedbackMutation.mutateAsync({
-            essayTitle: title,
-            essayContent: content,
-            courseType,
-            level: parseInt(level),
-          });
+      const result = await createFeedbackMutation.mutateAsync({
+        essayTitle: title,
+        essayContent: content,
+        courseType,
+        level: parseInt(level),
+      });
 
       // 피드백 데이터 파싱
       if (!result) return;
-      const feedbackData = feedbackMode === "evaluation_v1"
-        ? (() => {
-            const evaluation = (result as any).evaluation;
-            const correction = (result as any).correction;
-            const scoreFor = (names: string[]) => {
-              const dimension = evaluation.dimension_scores?.find((item: any) => names.includes(item.dimension));
-              return dimension ? Math.round((dimension.score / dimension.max_score) * 100) : evaluation.total_score;
-            };
-            return {
-              revisedEssay: correction.revised_text || content,
-              structureScore: scoreFor(["구성·문단"]),
-              logicScore: scoreFor(["주장·논증", "연결·일관성"]),
-              expressionScore: scoreFor(["표현·언어규범"]),
-              overallScore: evaluation.total_score || 0,
-              strengths: evaluation.strengths || [],
-              weaknesses: evaluation.improvement_points || [],
-              suggestions: evaluation.feedback?.revision_steps || [],
-              overallComment: correction.learner_explanation || evaluation.feedback?.summary || "",
-              sentenceCorrections: correction.sentence_corrections || [],
-              correctionStatus: correction.correction_status || "completed",
-              correctionError: correction.provider_error || "",
-            };
-          })()
-        : {
-            feedbackId: (result as any).id,
-            revisedEssay: (result as any).revisedEssay || content,
-            structureScore: (result as any).structureScore || 0,
-            logicScore: (result as any).logicScore || 0,
-            expressionScore: (result as any).expressionScore || 0,
-            overallScore: (result as any).overallScore || 0,
-            strengths: (result as any).strengths ? JSON.parse((result as any).strengths) : [],
-            weaknesses: (result as any).weaknesses ? JSON.parse((result as any).weaknesses) : [],
-            suggestions: (result as any).suggestions ? JSON.parse((result as any).suggestions) : [],
-            overallComment: (result as any).overallComment || "",
-          };
+      const toList = (value: unknown) => {
+        if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+        if (typeof value !== "string") return [];
+        try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; }
+      };
+      const feedbackData = {
+        feedbackId: (result as any).id,
+        evaluationRecordId: (result as any).evaluationRecordId,
+        revisedEssay: (result as any).revisedEssay || content,
+        structureScore: (result as any).structureScore || 0,
+        logicScore: (result as any).logicScore || 0,
+        expressionScore: (result as any).expressionScore || 0,
+        overallScore: (result as any).overallScore || 0,
+        strengths: toList((result as any).strengths),
+        weaknesses: toList((result as any).weaknesses),
+        suggestions: toList((result as any).suggestions),
+        overallComment: (result as any).overallComment || "",
+        sentenceCorrections: Array.isArray((result as any).sentenceCorrections) ? (result as any).sentenceCorrections : [],
+        correctionStatus: (result as any).correction_status || "failed",
+        fallbackUsed: Boolean((result as any).fallback_used),
+        providerError: (result as any).provider_error || null,
+        latencyMs: Number((result as any).latency_ms || 0),
+        modelId: (result as any).model_id || "알 수 없음",
+        reviewQueued: Boolean((result as any).reviewQueued),
+      };
 
-      if (feedbackMode === "evaluation_v1") {
-        setEvaluationRecordId((result as any).record_id ?? null);
-        setRevisionText((result as any).correction?.revised_text || content);
-      } else {
-        setEvaluationRecordId(null);
-        setRevisionText("");
-      }
       setFeedback(feedbackData);
-      toast[feedbackData.correctionStatus === "completed" ? "success" : "warning"](feedbackData.correctionStatus === "completed" ? "AI 첨삭이 완료되었습니다!" : "첨삭 모델 응답이 불안정해 원문을 보존했습니다.");
+      toast.success("AI 첨삭이 완료되었습니다!");
     } catch (error) {
       console.error("Error generating feedback:", error);
       toast.error("첨삭 중 오류가 발생했습니다.");
@@ -198,22 +174,6 @@ export default function AIAutoFeedback() {
                 {/* Course Type */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    첨삭 모드
-                  </label>
-                  <Select value={feedbackMode} onValueChange={(value: "legacy" | "evaluation_v1") => setFeedbackMode(value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="evaluation_v1">평가엔진 v1.1 · 평가 + 문장별 첨삭</SelectItem>
-                      <SelectItem value="legacy">기존 AI 첨삭 · 저장 및 비교</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Course Type */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     과정 선택
                   </label>
                   <Select value={courseType} onValueChange={(value: any) => setCourseType(value)}>
@@ -223,6 +183,8 @@ export default function AIAutoFeedback() {
                     <SelectContent>
                       <SelectItem value="elementary">초등 과정</SelectItem>
                       <SelectItem value="middle_high">중고등 과정</SelectItem>
+                      <SelectItem value="high_univ">고등/대입 과정</SelectItem>
+                      <SelectItem value="general_adult">일반/직장인 과정</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -337,6 +299,17 @@ export default function AIAutoFeedback() {
               <>
                 {feedback.feedbackId && <Link href={`/ai-feedback-compare/${feedback.feedbackId}`}><Button variant="outline" className="w-full gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">원본 답안과 AI 첨삭 답안 나란히 비교하기</Button></Link>}
 
+                <Card className={feedback.correctionStatus === "completed" ? "border-emerald-200 bg-emerald-50/40" : feedback.correctionStatus === "fallback" ? "border-amber-200 bg-amber-50/50" : "border-rose-200 bg-rose-50/50"}>
+                  <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-bold text-slate-900">첨삭 처리 상태: {feedback.correctionStatus === "completed" ? "완료" : feedback.correctionStatus === "fallback" ? "원문 보존 폴백" : "처리 실패"}</p>
+                      <p className="mt-1 text-xs text-slate-600">모델 {feedback.modelId} · 처리 시간 {feedback.latencyMs}ms</p>
+                      {feedback.providerError && <p className="mt-2 text-xs font-medium text-amber-800">모델 응답을 사용할 수 없어 안전한 기본 점검 결과를 제공했습니다. 사유: {feedback.providerError}</p>}
+                    </div>
+                    {feedback.reviewQueued && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> 인간 검수 대상</span>}
+                  </CardContent>
+                </Card>
+
                 {/* Score Summary */}
                 <Card>
                   <CardHeader>
@@ -378,24 +351,21 @@ export default function AIAutoFeedback() {
                   </CardContent>
                 </Card>
 
-                {/* Strengths */}
-                {feedbackMode === "evaluation_v1" && feedback.sentenceCorrections?.length > 0 && (
-                  <Card>
-                    <CardHeader><CardTitle>문장별 원문·수정문 비교</CardTitle><CardDescription>수정 이유를 확인한 뒤 자신의 표현으로 다시 작성해 보세요.</CardDescription></CardHeader>
-                    <CardContent className="space-y-4">
-                      {feedback.sentenceCorrections.map((item: any, index: number) => (
-                        <div key={index} className="rounded-lg border border-slate-200 p-4 text-sm">
-                          <div className="grid gap-3 md:grid-cols-2"><div><p className="mb-1 font-semibold text-slate-500">원문</p><p className="rounded bg-rose-50 p-3 text-slate-700">{item.original}</p></div><div><p className="mb-1 font-semibold text-slate-500">수정문</p><p className="rounded bg-emerald-50 p-3 text-slate-700">{item.revised}</p></div></div>
-                          <p className="mt-3 text-slate-600"><span className="font-semibold">수정 이유:</span> {item.reason}</p>
-                          {item.competency && <p className="mt-1 text-xs text-indigo-600">평가 competency: {item.competency}</p>}
-                        </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                )}
-                {feedbackMode === "evaluation_v1" && feedback.correctionStatus !== "completed" && (
-                  <Card className="border-amber-200 bg-amber-50"><CardContent className="py-4 text-sm text-amber-900">첨삭 상태: {feedback.correctionStatus === "fallback" ? "fallback - 원문 보존" : "실패"}{feedback.correctionError ? ` · ${feedback.correctionError}` : ""}</CardContent></Card>
-                )}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>문장별 수정 비교</CardTitle>
+                    <CardDescription>원문과 수정 제안, 수정 이유와 연결된 역량을 문장별로 확인하세요.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {feedback.sentenceCorrections.length ? feedback.sentenceCorrections.map((item: any, index: number) => (
+                      <div key={`${item.original}-${index}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="mb-3 flex flex-wrap items-center gap-2"><span className={`rounded-full px-2 py-1 text-xs font-bold ${item.status === "changed" ? "bg-indigo-100 text-indigo-800" : item.status === "needs_review" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"}`}>{item.status === "changed" ? "수정 제안" : item.status === "needs_review" ? "검수 필요" : "원문 유지"}</span><span className="text-xs font-semibold text-slate-500">{item.competency === "structure" ? "구조" : item.competency === "logic" ? "논리" : item.competency === "accuracy" ? "정확성" : item.competency === "economy" ? "경제성" : "표현"}</span></div>
+                        <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr]"><div className="rounded-lg bg-rose-50 p-3"><p className="text-xs font-bold text-rose-700">원문</p><p className="mt-1 text-sm leading-6 text-slate-800">{item.original}</p></div><ArrowRight className="hidden h-5 w-5 self-center text-slate-400 md:block" /><div className="rounded-lg bg-emerald-50 p-3"><p className="text-xs font-bold text-emerald-700">수정문</p><p className="mt-1 text-sm leading-6 text-slate-800">{item.revised}</p></div></div>
+                        <p className="mt-3 text-sm leading-6 text-slate-600"><span className="font-semibold text-slate-900">수정 이유:</span> {item.reason}</p>
+                      </div>
+                    )) : <p className="rounded-lg border border-dashed border-slate-200 p-4 text-sm text-slate-500">문장별 비교 결과를 생성하지 못했습니다. 종합 피드백을 참고해 주세요.</p>}
+                  </CardContent>
+                </Card>
 
                 {/* Strengths */}
                 {feedback.strengths && feedback.strengths.length > 0 && (
@@ -460,52 +430,6 @@ export default function AIAutoFeedback() {
                   </Card>
                 )}
 
-                {feedbackMode === "evaluation_v1" && evaluationRecordId && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>재작성 후 재평가</CardTitle>
-                      <CardDescription>AI 개선문을 그대로 제출하지 말고, 자신의 생각과 표현으로 다시 고쳐 보세요.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <Textarea
-                        value={revisionText}
-                        onChange={(event) => setRevisionText(event.target.value)}
-                        rows={8}
-                        className="resize-none"
-                      />
-                      <Button
-                        className="w-full bg-emerald-600 hover:bg-emerald-700"
-                        disabled={reevaluateMutation.isPending || !revisionText.trim()}
-                        onClick={async () => {
-                          try {
-                            const result = await reevaluateMutation.mutateAsync({
-                              record_id: evaluationRecordId,
-                              revised_text: revisionText,
-                            });
-                            const next = result.evaluation;
-                            setEvaluationRecordId(result.record_id ?? evaluationRecordId);
-                            setRevisionText(result.correction.revised_text || revisionText);
-                            setFeedback((current: any) => ({
-                              ...current,
-                              revisedEssay: result.correction.revised_text || revisionText,
-                              overallScore: next.total_score,
-                              strengths: next.strengths,
-                              weaknesses: next.improvement_points,
-                              suggestions: next.feedback.revision_steps,
-                              overallComment: result.correction.learner_explanation,
-                            }));
-                            toast.success("재평가가 완료되었습니다!");
-                          } catch {
-                            toast.error("재평가 중 오류가 발생했습니다.");
-                          }
-                        }}
-                      >
-                        {reevaluateMutation.isPending ? "재평가 중..." : "수정한 글 다시 평가하기"}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                )}
-
                 {/* Overall Comment */}
                 {feedback.overallComment && (
                   <Card>
@@ -519,6 +443,8 @@ export default function AIAutoFeedback() {
                     </CardContent>
                   </Card>
                 )}
+
+                {feedback.evaluationRecordId && <Card className="border-slate-200"><CardHeader><CardTitle className="text-base">평가 결과 이의제기</CardTitle><CardDescription>평가 설명이 충분하지 않거나 재검토가 필요하면 사유를 남겨 주세요. 제출 기록과 관리자 처리 이력은 보존됩니다.</CardDescription></CardHeader><CardContent className="space-y-3">{showAppealForm ? <><Textarea value={appealReason} onChange={(event) => setAppealReason(event.target.value)} placeholder="재검토가 필요한 이유를 10자 이상 입력하세요." rows={3} /><div className="flex gap-2"><Button size="sm" disabled={appealReason.trim().length < 10 || appealMutation.isPending} onClick={() => appealMutation.mutate({ evaluationRecordId: feedback.evaluationRecordId, reason: appealReason, requestedAction: "recheck" })}>{appealMutation.isPending ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />접수 중</> : "재검토 요청 제출"}</Button><Button size="sm" variant="outline" onClick={() => setShowAppealForm(false)}>취소</Button></div></> : <Button size="sm" variant="outline" onClick={() => setShowAppealForm(true)}>이의제기 작성</Button>}</CardContent></Card>}
               </>
             ) : (
               <Card>

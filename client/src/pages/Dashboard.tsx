@@ -8,6 +8,7 @@ import { Link } from "wouter";
 import { toast } from "sonner";
 import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight, Sparkles, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { exportAchievementReportPdf } from "@/lib/achievementReportPdf";
 import {
   LineChart,
   Line,
@@ -136,6 +137,9 @@ export default function Dashboard() {
   const { data: quizData } = trpc.quiz.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+  const { data: certificates = [] } = trpc.certificate.getUserCertificates.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: earnedBadges = [] } = trpc.badges.getByUser.useQuery(undefined, { enabled: isAuthenticated });
+  const [isReportExporting, setIsReportExporting] = useState(false);
   const { data: weeklyUsageData } = trpc.aiAutoFeedback.getWeeklyUsage.useQuery(undefined, {
     enabled: isAuthenticated,
   });
@@ -265,6 +269,44 @@ export default function Dashboard() {
     quizStats.total > 0
       ? Math.round((quizStats.correct / quizStats.total) * 100)
       : 0;
+  const overallProgressPercent = totalProgress > 0 ? Math.round((completedProgress / totalProgress) * 100) : 0;
+  const learningDays = new Set((progressData || []).map((item: any) => {
+    const timestamp = item.updatedAt || item.createdAt;
+    const date = timestamp ? new Date(timestamp) : null;
+    return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : null;
+  }).filter(Boolean)).size;
+  const activeCourseCard = displayCards[0] || allCourseCards[0];
+  const visibleCertificates = certificates.filter((certificate: any) => isSampleMode || certificate.courseType === activeCourseType);
+  const visibleBadges = earnedBadges.filter((badge: any) => isSampleMode || badge.courseType === activeCourseType);
+  const handleExportAchievementReport = () => {
+    setIsReportExporting(true);
+    window.setTimeout(() => {
+      try {
+        exportAchievementReportPdf({
+          learnerName: effectiveUser.name || "학습자",
+          courseLabel: getCourseTitleLabel(activeCourseType),
+          courseProgress: activeCourseCard?.progress.percent || 0,
+          completedLevels: activeCourseCard?.progress.completedCount || 0,
+          totalLevels: activeCourseCard?.progress.total || 0,
+          overallProgress: overallProgressPercent,
+          averageScore: avgScore,
+          quizCorrectRate: correctRate,
+          learningDays,
+          certificates: visibleCertificates,
+          badges: visibleBadges,
+          progressData: compactProgressChartData,
+          growthData,
+          skillData,
+        });
+        toast.success("성취 요약 리포트 PDF를 저장했습니다.");
+      } catch (error) {
+        console.error(error);
+        toast.error("성취 요약 리포트 PDF를 저장하지 못했습니다.");
+      } finally {
+        setIsReportExporting(false);
+      }
+    }, 50);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50/70 py-6 sm:py-8">
@@ -349,9 +391,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-extrabold text-indigo-600 sm:text-3xl">
-                {totalProgress > 0
-                  ? Math.round((completedProgress / totalProgress) * 100)
-                  : 0}
+                {overallProgressPercent}
                 %
               </div>
               <p className="text-xs text-gray-500 mt-2">
@@ -393,7 +433,7 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-extrabold text-purple-600 sm:text-3xl">12</div>
+              <div className="text-2xl font-extrabold text-purple-600 sm:text-3xl">{learningDays}</div>
               <p className="text-xs text-gray-500 mt-2">일</p>
             </CardContent>
           </Card>
@@ -466,11 +506,10 @@ export default function Dashboard() {
                     size="sm"
                     variant="outline"
                     className="text-xs h-8 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
-                    onClick={() => {
-                      window.print();
-                    }}
+                    onClick={handleExportAchievementReport}
+                    disabled={isReportExporting}
                   >
-                    PDF 저장/인쇄
+                    {isReportExporting ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />PDF 생성 중</> : "PDF 저장"}
                   </Button>
                 </div>
               </div>

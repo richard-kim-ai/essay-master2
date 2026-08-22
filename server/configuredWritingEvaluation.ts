@@ -1,44 +1,26 @@
-import { evaluateWriting, type WritingEvaluationRequest, type WritingEvaluationResult } from "./writingEvaluationEngine";
-import { getActiveEvaluationModel, type EvaluationModelProfile } from "./evaluationModelRegistry";
+import { decryptSecret } from "./security";
+import { evaluateWritingHeuristic, evaluateWritingWithExternalModel, type WritingCorrectionRequest } from "./writingCorrectionEngine";
 
-type ConfiguredEvaluation = {
-  evaluation: WritingEvaluationResult;
+export type StoredEvaluationModelConfig = {
   modelId: string;
-  fallback: boolean;
+  endpoint: string;
+  allowedDomainsJson: string;
+  encryptedApiKey: string;
+  timeoutMs: number;
+  isActive: number;
 };
 
-function looksLikeEvaluation(value: unknown): value is WritingEvaluationResult {
-  const item = value as Partial<WritingEvaluationResult> | null;
-  return Boolean(item && item.engine_version === "1.1" && typeof item.total_score === "number" && Array.isArray(item.dimension_scores) && item.validation);
-}
-
-async function evaluateWithRemoteModel(request: WritingEvaluationRequest, model: EvaluationModelProfile): Promise<WritingEvaluationResult> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
-  try {
-    const response = await fetch(model.endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(model.model ? { "X-Evaluation-Model": model.model } : {}) },
-      body: JSON.stringify({ request, model: model.model || undefined }),
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`Evaluation model returned ${response.status}`);
-    const payload = await response.json() as { evaluation?: unknown } | unknown;
-    const evaluation = payload && typeof payload === "object" && "evaluation" in payload ? payload.evaluation : payload;
-    if (!looksLikeEvaluation(evaluation)) throw new Error("Evaluation model returned an invalid result");
-    return evaluation;
-  } finally {
-    clearTimeout(timeout);
+export async function evaluateConfiguredWriting(request: WritingCorrectionRequest, config?: StoredEvaluationModelConfig | null) {
+  if (!config || config.isActive !== 1) {
+    const fallback = evaluateWritingHeuristic(request);
+    return { ...fallback, provider_error: "NO_ACTIVE_EVALUATION_MODEL", model_id: "heuristic" };
   }
-}
-
-export async function evaluateWritingWithConfiguredModel(request: WritingEvaluationRequest): Promise<ConfiguredEvaluation> {
-  const model = await getActiveEvaluationModel();
-  if (!model) return { evaluation: evaluateWriting(request), modelId: "rule-baseline", fallback: false };
   try {
-    return { evaluation: await evaluateWithRemoteModel(request, model), modelId: model.id, fallback: false };
+    const allowedDomains = JSON.parse(config.allowedDomainsJson);
+    if (!Array.isArray(allowedDomains)) throw new Error("INVALID_ALLOWED_DOMAINS");
+    return await evaluateWritingWithExternalModel(request, { modelId: config.modelId, endpoint: config.endpoint, allowedDomains: allowedDomains.filter((value): value is string => typeof value === "string"), apiKey: decryptSecret(config.encryptedApiKey), timeoutMs: config.timeoutMs });
   } catch (error) {
-    console.warn(`[writing-evaluation] ${model.id} failed; using rule baseline`, error);
-    return { evaluation: evaluateWriting(request), modelId: "rule-baseline", fallback: true };
+    const fallback = evaluateWritingHeuristic(request);
+    return { ...fallback, provider_error: error instanceof Error ? error.message.slice(0, 500) : "MODEL_CONFIGURATION_ERROR", model_id: config.modelId };
   }
 }
