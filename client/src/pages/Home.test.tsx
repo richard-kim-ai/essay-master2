@@ -42,13 +42,22 @@ describe("Home CTA accessibility", () => {
     } as ReturnType<typeof useAuth>);
   });
 
-  it("renders the visitor CTAs as focusable anchors without a nested button", () => {
+  it("renders the restored visitor hero as a focusable single CTA without a nested button or unverified metrics", () => {
     const html = renderToStaticMarkup(<Home />);
 
     expect(html).toContain('href="/curriculum"');
-    expect(html).toContain('href="/login"');
+    expect(html).toContain("논술 마스터와 함께");
+    expect(html).toContain("글쓰기 실력 UP");
+    expect(html).toContain("AI 실시간 첨삭");
+    expect(html).toContain("전문 교사 피드백");
+    expect(html).toContain("맞춤형 학습 경로");
+    expect(html).toContain("진도 추적 대시보드");
+    expect(html).toContain("지금 시작하기");
     expect(html).toContain("focus-visible:ring-");
     expect(html).not.toMatch(/<a[^>]*>\s*<button/i);
+    expect(html).not.toContain("10,000+");
+    expect(html).not.toContain("4.9/5");
+    expect(html).not.toContain("95%");
   });
 
   it("uses the relevant authenticated destination for the primary CTA", () => {
@@ -73,9 +82,7 @@ describe("Home CTA accessibility", () => {
       root.render(<Home />);
     });
 
-    const accountLink = container.querySelector<HTMLAnchorElement>('a[href="/login"]:not([data-slot="button"])');
     const primaryCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="primary"][href="/curriculum"]');
-    const secondaryCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="secondary"][href="/login"]');
     const exploreCoursesLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('a[href="/curriculum"]')).find(
       (link) => !link.hasAttribute("data-slot") && link.textContent?.includes("전체 과정 보기"),
     );
@@ -83,7 +90,7 @@ describe("Home CTA accessibility", () => {
       container.querySelector<HTMLAnchorElement>(`a[href="${href}"]`),
     );
 
-    if (!accountLink || !primaryCta || !secondaryCta || !exploreCoursesLink || learningCardLinks.some((link) => !link)) {
+    if (!primaryCta || !exploreCoursesLink || learningCardLinks.some((link) => !link)) {
       throw new Error("메인 페이지의 키보드 탐색 대상 링크를 찾을 수 없습니다.");
     }
 
@@ -96,9 +103,7 @@ describe("Home CTA accessibility", () => {
 
     const user = userEvent.setup();
     const expectedFocusSequence = [
-      accountLink,
       primaryCta,
-      secondaryCta,
       exploreCoursesLink,
       ...learningCardLinks,
     ];
