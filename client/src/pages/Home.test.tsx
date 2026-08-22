@@ -60,16 +60,24 @@ describe("Home CTA accessibility", () => {
     expect(html).not.toContain("95%");
   });
 
-  it("uses the relevant authenticated destination for the primary CTA", () => {
+  it.each([
+    { label: "비로그인", isAuthenticated: false, role: undefined, href: "/curriculum" },
+    { label: "관리자", isAuthenticated: true, role: "admin", href: "/admin" },
+    { label: "교사", isAuthenticated: true, role: "teacher", href: "/teacher-mypage" },
+    { label: "학습자", isAuthenticated: true, role: "user", href: "/mypage" },
+  ])("keeps the $label CTA destination while all main CTAs use the common start label", ({ isAuthenticated, role, href }) => {
     mockUseAuth.mockReturnValue({
-      user: { role: "admin" },
-      isAuthenticated: true,
+      user: role ? { role } : null,
+      isAuthenticated,
     } as ReturnType<typeof useAuth>);
 
     const html = renderToStaticMarkup(<Home />);
 
-    expect(html).toContain('href="/admin"');
-    expect(html).toContain("운영 현황 보기");
+    expect(html).toContain(`href="${href}"`);
+    expect(html.match(/지금 시작하기/g)).toHaveLength(3);
+    expect(html).not.toContain("운영 현황 보기");
+    expect(html).not.toContain("지도 학생 보기");
+    expect(html).not.toContain("내 학습 이어가기");
     expect(html).not.toContain("로그인 / 회원가입");
   });
 

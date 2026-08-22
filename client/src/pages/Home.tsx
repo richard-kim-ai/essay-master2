@@ -88,7 +88,7 @@ const HERO_VALUE_CARDS = [
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const primaryAction = getHomePrimaryAction(isAuthenticated, user?.role);
-  const primaryActionLabel = isAuthenticated ? primaryAction.label : "지금 시작하기";
+  const primaryActionLabel = "지금 시작하기";
 
   return (
     <div className="min-h-screen bg-[#fbfcff] text-slate-950">
@@ -190,7 +190,7 @@ export default function Home() {
             <h2 className="mt-4 text-3xl font-black leading-tight tracking-[-0.035em]">한 번의 답보다,
               <br />다음에 더 잘 쓰는 힘을 만듭니다.</h2>
             <Link href={primaryAction.href} className="mt-8 inline-flex items-center font-bold text-white underline decoration-indigo-300 underline-offset-4 hover:decoration-white">
-              {primaryAction.label}<ArrowRight className="ml-2 h-4 w-4" />
+              {primaryActionLabel}<ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </div>
           <div className="grid content-center gap-4 sm:grid-cols-3">
@@ -214,7 +214,7 @@ export default function Home() {
               className="mt-8 inline-flex h-12 items-center justify-center rounded-xl bg-indigo-700 px-6 text-base font-bold text-white shadow-lg shadow-indigo-100 transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300"
               style={{ backgroundColor: "#4338ca", color: "#ffffff" }}
             >
-              {primaryAction.label}<ArrowRight className="ml-2 h-4 w-4" />
+              {primaryActionLabel}<ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </div>
         </section>
