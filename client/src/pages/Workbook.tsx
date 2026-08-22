@@ -57,6 +57,15 @@ type TheoryLessonPayload = {
   wrong_example?: string;
   improved_example?: string;
   in_lesson_check?: { question?: string; answer?: string };
+  lesson_passage?: {
+    label?: string;
+    source_type?: string;
+    text?: string;
+    tasks?: string[];
+    model_answer?: string;
+    feedback?: string;
+  };
+  lecture_practice_items?: Array<{ question?: string; answer?: string; explanation?: string }>;
   answer_feedback?: string;
   next_step?: string;
   source_boundary?: string;
@@ -257,6 +266,52 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
   },
 };
 
+function TheoryPassageBlock({ theory }: { theory: TheoryLessonPayload }) {
+  if (!theory.lesson_passage?.text) return null;
+  const passage = theory.lesson_passage;
+  return (
+    <div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <p className="font-semibold text-slate-900">{passage.label || "강의 지문"}</p>
+        {passage.source_type && <p className="text-xs font-semibold text-violet-700">{passage.source_type}</p>}
+      </div>
+      <p className="mt-3 whitespace-pre-line">{passage.text}</p>
+      {Array.isArray(passage.tasks) && passage.tasks.length > 0 && (
+        <div className="mt-4 border-t border-violet-100 pt-3">
+          <p className="text-xs font-bold text-violet-800">수업 중 과제</p>
+          <ul className="mt-2 space-y-1">
+            {passage.tasks.map((task) => <li key={task}>• {task}</li>)}
+          </ul>
+        </div>
+      )}
+      {(passage.model_answer || passage.feedback) && (
+        <div className="mt-4 rounded-lg bg-violet-50 p-3">
+          {passage.model_answer && <p><span className="font-semibold text-slate-900">예시 답안: </span>{passage.model_answer}</p>}
+          {passage.feedback && <p className="mt-2 text-slate-600"><span className="font-semibold text-slate-900">피드백: </span>{passage.feedback}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TheoryPracticeBlock({ theory }: { theory: TheoryLessonPayload }) {
+  if (!Array.isArray(theory.lecture_practice_items) || theory.lecture_practice_items.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-sky-100 bg-sky-50/60 p-4 text-sm leading-6 text-slate-700">
+      <p className="text-xs font-bold text-sky-800">강의 중 확인문항</p>
+      <div className="mt-3 space-y-3">
+        {theory.lecture_practice_items.map((item, index) => (
+          <div key={`${item.question}-${index}`} className="border-t border-sky-100 pt-3 first:border-t-0 first:pt-0">
+            <p className="font-semibold text-slate-900">{index + 1}. {item.question}</p>
+            {item.answer && <p className="mt-1"><span className="font-semibold">정답: </span>{item.answer}</p>}
+            {item.explanation && <p className="mt-1 text-slate-600">{item.explanation}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Workbook() {
   const { isAuthenticated } = useAuth();
   const utils = trpc.useUtils();
@@ -453,6 +508,8 @@ export default function Workbook() {
                     <p className="mt-3 font-semibold text-slate-900">적용 예시</p>
                     <p className="mt-1">{activeTheory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p>
                   </div>
+                  <TheoryPassageBlock theory={activeTheory} />
+                  <TheoryPracticeBlock theory={activeTheory} />
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div>
                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div>
@@ -469,7 +526,7 @@ export default function Workbook() {
 
               {activeTheoryEntries.slice(1).map(({ theoryContentId, theory }) => {
                 const completed = theoryProgress.some((item) => item.theoryContentId === theoryContentId);
-                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />저장 중</> : recentlyCompletedTheoryId === theoryContentId ? <><CheckCircle className="mr-1.5 h-4 w-4 animate-bounce" />저장 완료</> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button></div>{recentlyCompletedTheoryId === theoryContentId && <p className="mt-3 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">학습 완료가 저장되었습니다. 다음 레슨으로 이동하거나 계속 학습해 보세요.</p>}</div></section>;
+                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><TheoryPassageBlock theory={theory} /><TheoryPracticeBlock theory={theory} /><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />저장 중</> : recentlyCompletedTheoryId === theoryContentId ? <><CheckCircle className="mr-1.5 h-4 w-4 animate-bounce" />저장 완료</> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button></div>{recentlyCompletedTheoryId === theoryContentId && <p className="mt-3 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">학습 완료가 저장되었습니다. 다음 레슨으로 이동하거나 계속 학습해 보세요.</p>}</div></section>;
               })}
 
               <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
