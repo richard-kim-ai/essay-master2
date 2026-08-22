@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# git pre-push 훅: origin/main보다 많이 뒤처진 상태로 push하려는 것을 방지하는 안전장치
+#
+# 설치 방법 (essay-master 저장소 루트에서):
+#   cp scripts/git-hooks/pre-push .git/hooks/pre-push
+#   chmod +x .git/hooks/pre-push
+#
+# 동작: push 직전에 origin/main 대비 몇 커밋 뒤처져 있는지 확인하고,
+#       임계치(기본 5개) 이상 뒤처져 있으면 push를 막고 먼저 fetch/rebase를 요구합니다.
+#       (이번 사고처럼 55커밋 차이가 난 상태로 그냥 merge/push 해버리는 상황을 방지)
+
+THRESHOLD=5
+
+git fetch origin --quiet 2>/dev/null
+
+behind=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+
+if [[ "$behind" -ge "$THRESHOLD" ]]; then
+  echo ""
+  echo "🛑 push 중단: local이 origin/main보다 ${behind}개 커밋 뒤처져 있습니다 (임계치: ${THRESHOLD})."
+  echo "   먼저 아래를 실행해 최신 상태를 확인/반영하세요:"
+  echo ""
+  echo "     git log --oneline HEAD..origin/main"
+  echo "     git rebase origin/main   # 또는 git merge origin/main"
+  echo ""
+  echo "   그래도 지금 push를 강행하려면:"
+  echo "     git push --no-verify"
+  echo ""
+  exit 1
+fi
+
+exit 0

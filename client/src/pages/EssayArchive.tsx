@@ -9,6 +9,25 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { BookOpen, Search, Play, Star, Sparkles, ArrowRight, Bookmark, Calendar, CheckCircle, Layers } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { formatLearningCourse, formatLearningDifficulty, formatLearningTool } from "@/lib/learningLabels";
+
+function getArchiveLearningSummary(contentData: unknown) {
+  if (!contentData) return "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
+  let source = contentData;
+  if (typeof contentData === "string") {
+    try {
+      source = JSON.parse(contentData);
+    } catch {
+      return contentData.replace(/[{}["]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 140) || "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
+    }
+  }
+  if (typeof source !== "object" || source === null) return "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
+  const data = source as Record<string, unknown>;
+  const candidates = [data.prompt, data.description, data.question, data.passage, data.originalText, data.theme, data.topic]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (candidates.length > 0) return candidates[0].replace(/\s+/g, " ").trim().slice(0, 140);
+  return "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
+}
 
 export default function EssayArchive() {
   const { user } = useAuth();
@@ -240,10 +259,10 @@ export default function EssayArchive() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
                       <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full uppercase">
-                        {q.toolType}
+                        {formatLearningTool(q.toolType)}
                       </span>
                       <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${q.difficulty === "hard" ? "bg-rose-100 text-rose-700" : q.difficulty === "medium" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                        {q.difficulty}
+                        {formatLearningDifficulty(q.difficulty)}
                       </span>
                     </div>
                     <button
@@ -262,9 +281,10 @@ export default function EssayArchive() {
                     <span>•</span>
                     <span>정답률: <strong className="text-indigo-600">{q.correctRate}%</strong></span>
                   </div>
-                  <p className="text-xs text-slate-600 line-clamp-3 bg-slate-50 p-3 rounded-xl border border-slate-100 font-mono">
-                    {q.contentData}
-                  </p>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                    <p className="mb-1 text-[11px] font-bold text-indigo-700">학습 포인트</p>
+                    <p className="line-clamp-3 text-xs leading-5 text-slate-600">{getArchiveLearningSummary(q.contentData)}</p>
+                  </div>
                   <div className="flex gap-2 pt-2">
                     <Button
                       onClick={(e) => {
@@ -313,7 +333,7 @@ export default function EssayArchive() {
                     {item.slot ? (
                       <div>
                         <h4 className="font-bold text-slate-900 text-sm">{item.slot.title}</h4>
-                        <span className="text-xs text-slate-500 uppercase font-semibold">{item.slot.courseType} • {item.slot.toolType}</span>
+                        <span className="text-xs text-slate-500 font-semibold">{formatLearningCourse(item.slot.courseType)} · {formatLearningTool(item.slot.toolType)}</span>
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400 italic">배정된 북마크 문항이 없습니다. 아카이브에서 별표를 눌러 추가해보세요!</span>
@@ -370,8 +390,8 @@ export default function EssayArchive() {
                     <div key={sq.id} className="p-4 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-1.5 mb-1">
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-semibold rounded uppercase">{sq.toolType}</span>
-                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded">{sq.difficulty}</span>
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-semibold rounded">{formatLearningTool(sq.toolType)}</span>
+                          <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded">{formatLearningDifficulty(sq.difficulty)}</span>
                         </div>
                         <h6 className="font-bold text-slate-900 text-xs">{sq.title}</h6>
                       </div>

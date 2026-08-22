@@ -30,6 +30,7 @@ import {
   Check,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { NotificationPopover } from "@/components/NotificationPopover";
 
 interface NavItem {
   label: string;
@@ -50,8 +51,8 @@ const NAV_ITEMS: NavItem[] = [
       { label: "단락 재구성", href: "/paragraph-reordering", icon: FileText },
       { label: "요약 연습", href: "/summary-practice", icon: BookOpen },
       { label: "오답 노트", href: "/mistake-notebook", icon: BarChart3 },
-      { label: "주제 설정 위저드", href: "/topic-wizard", icon: BookOpen },
-      { label: "주제문 체크리스트", href: "/thesis-checklist", icon: FileText },
+      { label: "주제 설정", href: "/topic-wizard", icon: BookOpen },
+      { label: "주제문 점검", href: "/thesis-checklist", icon: FileText },
     ],
   },
 ];
@@ -65,6 +66,16 @@ export default function Navigation() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(user?.name || "");
   const [editAvatar, setEditAvatar] = useState(user?.avatarUrl || "");
+  const sampleLoginMutation = trpc.auth.loginWithEmail.useMutation({
+    onSuccess: async () => {
+      await refresh?.();
+      window.location.href = "/dashboard";
+    },
+    onError: () => {
+      toast.error("샘플 체험 계정으로 로그인하지 못했습니다. 로그인 화면에서 다시 시도해주세요.");
+      window.location.href = "/login";
+    },
+  });
 
   const updateProfileMutation = trpc.auth.updateProfile.useMutation({
     onSuccess: () => {
@@ -193,30 +204,17 @@ export default function Navigation() {
                   size="sm"
                   variant="outline"
                   className="bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-bold gap-1"
-                  onClick={async () => {
-                    try {
-                      const res = await fetch("/api/trpc/auth.loginWithEmail", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ json: { email: "student@sample.com", password: "sample1234" } }),
-                      });
-                      if (res.ok) {
-                        window.location.href = "/dashboard";
-                      } else {
-                        window.location.href = "/login";
-                      }
-                    } catch {
-                      window.location.href = "/login";
-                    }
-                  }}
+                  disabled={sampleLoginMutation.isPending}
+                  onClick={() => sampleLoginMutation.mutate({ email: "student@sample.com", password: "sample1234" })}
                 >
-                  ✨ 샘플 모드 체험
+                  {sampleLoginMutation.isPending ? "샘플 준비 중..." : "✨ 샘플 모드 체험"}
                 </Button>
               </div>
             )}
 
             {isAuthenticated ? (
               <>
+                <NotificationPopover />
                 {/* Desktop User Menu */}
                 <div className="hidden md:block">
                   <DropdownMenu>
@@ -375,6 +373,12 @@ export default function Navigation() {
                               <span>관리자 운영 콘솔 (대시보드)</span>
                             </DropdownMenuItem>
                           </Link>
+                          <Link href="/admin/ai-governance">
+                            <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-700">
+                              <Zap className="w-4 h-4 mr-2" />
+                              <span>교사 AI 보조 봇 운영</span>
+                            </DropdownMenuItem>
+                          </Link>
                         </>
                       )}
                       <DropdownMenuSeparator />
@@ -408,7 +412,7 @@ export default function Navigation() {
                       {/* Mobile MyPage / Account Submenu Section */}
                       <div className="border-b border-gray-200 pb-3 mb-2">
                         <p className="px-4 text-xs font-bold text-blue-600 uppercase mb-2">마이페이지 & 개인 기록</p>
-                        <Link href="/dashboard">
+                        <Link href="/dashboard-detail">
                           <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
                             <BarChart3 className="w-4 h-4 text-blue-600" />
                             <span>학습 대시보드</span>
@@ -499,6 +503,12 @@ export default function Navigation() {
                             <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 bg-indigo-50 hover:bg-indigo-100 font-semibold">
                               <Settings className="w-4 h-4 text-indigo-600" />
                               <span>관리자 운영 콘솔 (대시보드)</span>
+                            </button>
+                          </Link>
+                          <Link href="/admin/ai-governance">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-indigo-50 font-semibold">
+                              <Zap className="w-4 h-4 text-indigo-600" />
+                              <span>교사 AI 보조 봇 운영</span>
                             </button>
                           </Link>
                         </div>

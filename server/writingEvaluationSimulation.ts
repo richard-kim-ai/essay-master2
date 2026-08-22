@@ -1,4 +1,5 @@
 import { evaluateWriting, type EducationLevel, type WritingEvaluationRequest, type WritingType } from "./writingEvaluationEngine";
+import { pearsonCorrelation, quadraticWeightedKappa, recallAtThreshold } from "./evaluationMetrics";
 
 export interface StudentEssaySimulationSample {
   sample_id: string;
@@ -63,6 +64,9 @@ export function simulateEvaluationLearning(request: StudentEssaySimulationReques
     : 0;
   const patternCounts = countValues(evaluations.flatMap((item) => item.top_error_patterns));
   const recommendationCounts = countValues(evaluations.map((item) => item.next_theory_category));
+  const humanCompared = evaluations.filter((item) => typeof item.human_score === "number");
+  const actual = humanCompared.map((item) => item.human_score as number);
+  const predicted = humanCompared.map((item) => item.current_score);
 
   return {
     engine_version: "1.1",
@@ -78,6 +82,13 @@ export function simulateEvaluationLearning(request: StudentEssaySimulationReques
       .sort((a, b) => b[1] - a[1])
       .map(([theory_category, count]) => ({ theory_category, count })),
     calibration_candidates: buildCalibrationCandidates(evaluations),
+    quality_metrics: {
+      sample_count: humanCompared.length,
+      quadratic_weighted_kappa: quadraticWeightedKappa(actual, predicted),
+      pearson_correlation: pearsonCorrelation(actual, predicted),
+      recall_at_60: recallAtThreshold(actual, predicted, 60),
+      note: humanCompared.length < 30 ? "인간 채점 표본이 30개 미만이라 운영 기준으로 사용하지 마세요." : "인간 채점 데이터 기준 비교 지표입니다.",
+    },
     evaluations,
   };
 }

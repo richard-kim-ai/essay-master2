@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateWriting, getRubricProfile, type WritingEvaluationRequest } from "./writingEvaluationEngine";
+import { pearsonCorrelation, quadraticWeightedKappa, recallAtThreshold } from "./evaluationMetrics";
 
 const baseRequest = (overrides: Partial<WritingEvaluationRequest> = {}): WritingEvaluationRequest => ({
   metadata: {
@@ -22,6 +23,11 @@ const baseRequest = (overrides: Partial<WritingEvaluationRequest> = {}): Writing
 });
 
 describe("writingEvaluationEngine v1.1", () => {
+  it("calculates human-score quality metrics", () => {
+    expect(pearsonCorrelation([20, 50, 80], [20, 55, 75])).toBeGreaterThan(0.9);
+    expect(quadraticWeightedKappa([20, 50, 80], [20, 55, 75])).toBeGreaterThan(0.9);
+    expect(recallAtThreshold([40, 70, 90], [50, 80, 55], 60)).toBe(0.5);
+  });
   it("selects age-appropriate rubric weights", () => {
     expect(getRubricProfile(baseRequest({ metadata: { education_level: "elementary" } })).id).toBe("ELEMENTARY_40_30_30");
     expect(getRubricProfile(baseRequest({ metadata: { education_level: "middle_high" } })).dimensions.map((item) => item.max_score)).toEqual([20, 30, 30, 20]);

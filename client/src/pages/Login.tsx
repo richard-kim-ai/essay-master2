@@ -5,7 +5,6 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Mail, Lock, ArrowRight, BookOpen } from "lucide-react";
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { TermsAndPrivacyModal } from "@/components/TermsAndPrivacyModal";
 
@@ -102,10 +101,6 @@ export default function Login() {
           </div>
 
           <div className="space-y-3">
-            <Button onClick={() => startLogin()} variant="outline" className="w-full border-2 border-blue-600 text-blue-600 hover:bg-blue-50">
-              Manus 계정으로 로그인
-            </Button>
-            
             <div className="rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 p-3.5 border border-indigo-100 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
@@ -113,8 +108,8 @@ export default function Login() {
                 </span>
                 <span className="text-[10px] bg-indigo-200/60 text-indigo-800 px-2 py-0.5 rounded-full font-semibold">로그인 없이 전체 체험</span>
               </div>
-              <p className="text-[11px] text-slate-600">아이디 입력 없이 샘플 권한으로 즉시 로그인하여 커리큘럼, 대시보드, 퀴즈, 수료증 및 관리자 콘솔을 탐색해보세요.</p>
-              <div className="grid grid-cols-3 gap-2 pt-1">
+              <p className="text-[11px] text-slate-600">아이디 입력 없이 학생 또는 교사 샘플 권한으로 커리큘럼, 대시보드, 퀴즈와 수료증을 체험해보세요.</p>
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <Button
                   size="sm"
                   type="button"
@@ -138,18 +133,6 @@ export default function Login() {
                   }}
                 >
                   👩‍🏫 교사 샘플
-                </Button>
-                <Button
-                  size="sm"
-                  type="button"
-                  className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] h-8 px-1"
-                  onClick={() => {
-                    setEmail("admin@sample.com");
-                    setPassword("sample1234");
-                    loginMutation.mutate({ email: "admin@sample.com", password: "sample1234" });
-                  }}
-                >
-                  👑 관리자 샘플
                 </Button>
               </div>
             </div>

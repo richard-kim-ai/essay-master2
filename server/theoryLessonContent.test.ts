@@ -1,54 +1,40 @@
 import { describe, expect, it } from "vitest";
-import {
-  THEORY_LESSON_CONTENT_SCOPE,
-  THEORY_LESSON_MASTER_PROMPT,
-  THEORY_LESSON_SEED_ITEM_COUNT,
-  buildTheoryLessonSeedItems,
-  buildTheoryLessonUserPrompt,
-  theoryLessonRequestSchema,
-} from "./theoryLessonContent";
+import { THEORY_LESSON_CONTENT_SCOPE, THEORY_LESSON_MASTER_PROMPT, buildTheoryLessonSeedItems, buildTheoryLessonUserPrompt, qaTheoryLessonCandidate, theoryLessonRequestSchema } from "./theoryLessonContent";
 
-describe("theory lesson content generator", () => {
-  it("builds a short user prompt separated from the master prompt", () => {
-    const prompt = buildTheoryLessonUserPrompt({
-      course: "MIDDLE_HIGH",
-      theory_category: "C01",
-      theory_subcategory: "삭제",
-      lesson_level: 2,
-      content_count: 5,
-      example_mode: "TEXTBOOK_PLUS_NEW",
-      context: "AUTO",
-    });
-
-    expect(prompt).toContain("course=MIDDLE_HIGH");
-    expect(prompt).toContain("content_scope=THEORY_LESSON");
-    expect(prompt.length).toBeLessThan(220);
-    expect(THEORY_LESSON_MASTER_PROMPT).toContain("This generator is not the question-bank generator");
-  });
-
-  it("validates generator request parameters", () => {
-    expect(() => theoryLessonRequestSchema.parse({
-      course: "MIDDLE_HIGH",
-      theory_category: "C01",
-      lesson_level: 6,
-    })).toThrow();
-  });
-
-  it("creates separated seed coverage for every course and core theory area", () => {
+describe("lesson_theory_content 기본 이론 데이터", () => {
+  it("4개 과정과 4개 핵심 이론 단원으로 16개 콘텐츠를 제공한다", () => {
     const items = buildTheoryLessonSeedItems();
-    const courses = new Set(items.map((item) => item.courseType));
-    const categories = new Set(items.map((item) => item.theoryCategory));
+    expect(items).toHaveLength(16);
+    for (const courseType of ["elementary", "middle_high", "high_univ", "general_adult"]) {
+      expect(items.filter((item) => item.courseType === courseType)).toHaveLength(4);
+    }
+    expect(new Set(items.map((item) => `${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`)).size).toBe(16);
+  });
 
-    expect(items).toHaveLength(THEORY_LESSON_SEED_ITEM_COUNT);
-    expect(courses).toEqual(new Set(["elementary", "middle_high", "high_univ", "general_adult"]));
-    expect(categories).toEqual(new Set(["A01", "A02", "A03", "A04-01", "A04-05", "B01", "B04", "B07", "C01", "C02", "C04", "D03"]));
-
-    for (const item of items) {
+  it("모든 콘텐츠를 THEORY_LESSON 범위로 명시하고 question_bank 평가 문항을 포함하지 않는다", () => {
+    for (const item of buildTheoryLessonSeedItems()) {
       const content = JSON.parse(item.contentData);
       expect(content.content_scope).toBe(THEORY_LESSON_CONTENT_SCOPE);
-      expect(content.textbook_anchor.text.length).toBeLessThanOrEqual(80);
-      expect(content.textbook_similar_example.label).toBe("유사 예시");
-      expect(item.contentData).not.toContain("question_bank");
+      expect(content.core_concept).toBeTruthy();
+      expect(content.textbook_anchor?.text).toBeTruthy();
+      expect(content.in_lesson_check?.question).toBeTruthy();
+      expect(content).not.toHaveProperty("toolType");
+      expect(content).not.toHaveProperty("correct_answer");
     }
+  });
+
+  it("이론 생성용 짧은 입력은 과정·분류·레슨 범위만 포함하며 유효하지 않은 요청을 차단한다", () => {
+    const prompt = buildTheoryLessonUserPrompt({ course: "MIDDLE_HIGH", theory_category: "C01", lesson_level: 2, content_count: 3 });
+    expect(prompt).toContain("course=MIDDLE_HIGH");
+    expect(prompt).toContain("content_scope=THEORY_LESSON");
+    expect(() => theoryLessonRequestSchema.parse({ course: "MIDDLE_HIGH", theory_category: "", lesson_level: 0 })).toThrow();
+    expect(THEORY_LESSON_MASTER_PROMPT).toContain("question_bank의 랜덤 평가 문항이 아니라");
+  });
+
+  it("AI 이론 초안은 필수 구조·교재와 유사 예시 경계·개선 예의 차이를 QA한다", () => {
+    const [seed] = buildTheoryLessonSeedItems();
+    expect(qaTheoryLessonCandidate({ ...seed, qaIssues: [] })).toEqual([]);
+    const invalid = qaTheoryLessonCandidate({ ...seed, title: "test", contentData: JSON.stringify({ core_concept: "짧음" }), qaIssues: [] });
+    expect(invalid.length).toBeGreaterThan(0);
   });
 });

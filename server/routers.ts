@@ -24,22 +24,50 @@ import {
   sendVerificationEmail,
   verifyPassword,
 } from "./email";
+import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
+import type { CourseType } from "@shared/course";
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 const questionGenerationInput = z.object({
-  course: z.string().optional(),
-  tool_type: z.string().optional(),
-  courseType: z.string().optional(),
-  toolType: z.string().optional(),
-  theory_category: z.string().default("AUTO"),
+  course: z.string().trim().min(1).optional(),
+  courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
+  tool_type: z.string().trim().min(1).optional(),
+  toolType: z.enum(["quiz", "reordering", "summary", "topic_wizard", "thesis_checklist"]).optional(),
+  theory_category: z.string().trim().min(1).default("AUTO"),
   difficulty: z.union([z.literal("AUTO"), z.coerce.number().int().min(1).max(5)]).default("AUTO"),
-  count: z.number().int().min(1).max(20).optional(),
-  question_count: z.number().int().min(1).max(20).optional(),
+  question_count: z.coerce.number().int().min(1).max(20).optional(),
+  count: z.coerce.number().int().min(1).max(20).optional(),
   topic: z.string().trim().min(1).default("AUTO"),
+}).superRefine((value, ctx) => {
+  if (!value.course && !value.courseType) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "생성할 과정이 필요합니다.", path: ["course"] });
+  if (!value.tool_type && !value.toolType) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "생성할 학습 도구가 필요합니다.", path: ["tool_type"] });
 });
 
+const theoryContentWriteInput = z.object({
+  courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+  lessonLevel: z.coerce.number().int().min(1).max(5),
+  theoryCategory: z.string().trim().min(2).max(32),
+  theorySubcategory: z.string().trim().min(2).max(128),
+  exampleMode: z.enum(["TEXTBOOK_SIMILAR", "TEXTBOOK_PLUS_NEW"]),
+  title: z.string().trim().min(4).max(255),
+  contentData: z.string().trim().min(20),
+  sourceNote: z.string().trim().min(2).max(255).optional(),
+  isActive: z.coerce.number().int().min(0).max(1).optional(),
+});
+
+const theoryGenerationInput = z.object({
+  course: z.enum(["ELEMENTARY", "MIDDLE_HIGH", "HIGH_ADMISSION", "GENERAL_WORK"]),
+  theory_category: z.string().trim().min(2).max(32),
+  theory_subcategory: z.string().trim().min(2).max(128).default("AUTO"),
+  lesson_level: z.coerce.number().int().min(1).max(5),
+  content_count: z.coerce.number().int().min(1).max(6).default(3),
+  example_mode: z.enum(["TEXTBOOK_SIMILAR", "TEXTBOOK_PLUS_NEW"]).default("TEXTBOOK_PLUS_NEW"),
+  context: z.string().trim().min(2).max(500).default("AUTO"),
+});
+
+// 아래 4개는 독립형 AI 논술·글쓰기 평가엔진(local branch 고유 기능)의 입력 스키마입니다.
 const writingEvaluationMetadataInput = z.object({
   task_id: z.string().optional(),
   curriculum_code: z.string().min(1),
@@ -117,8 +145,171 @@ async function sendUserVerificationEmail(
   });
 }
 
+const signupConsentSchema = z.object({
+  policyKey: z.string().min(1).max(80),
+  policyVersion: z.string().min(1).max(32),
+  accepted: z.boolean(),
+});
+
+function consentTypeForPolicy(policyKey: string): "required_service" | "optional_ai_learning" | "teacher_ai_style" | "guardian_authorization" {
+  if (policyKey === "ai_learning_consent") return "optional_ai_learning";
+  if (policyKey === "teacher_ai_code") return "teacher_ai_style";
+  return "required_service";
+}
+
+async function validateSignupConsents(
+  role: "student" | "parent" | "teacher",
+  consents: Array<z.infer<typeof signupConsentSchema>>,
+) {
+  const documents = await db.getActivePolicyDocuments(role);
+  const consentMap = new Map(consents.map((consent) => [consent.policyKey, consent]));
+  for (const document of documents.filter((document) => document.isRequired === 1)) {
+    const consent = consentMap.get(document.policyKey);
+    if (!consent?.accepted || consent.policyVersion !== document.version) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `필수 동의 문서(${document.title})를 확인하고 동의해주세요.` });
+    }
+  }
+  return documents
+    .filter((document) => {
+      const consent = consentMap.get(document.policyKey);
+      return Boolean(consent?.accepted && consent.policyVersion === document.version);
+    })
+    .map((document) => ({
+      policyKey: document.policyKey,
+      policyVersion: document.version,
+      consentType: consentTypeForPolicy(document.policyKey),
+      accepted: true,
+    }));
+}
+
+async function assertTeacherEssayAccess(user: { id: number; role: string; teacherStatus?: string | null }, essayId: number) {
+  const essay = await db.getEssaySubmissionById(essayId);
+  if (!essay) throw new TRPCError({ code: "NOT_FOUND", message: "논술 제출물을 찾을 수 없습니다." });
+  if (user.role === "admin") return essay;
+  if (user.role !== "teacher" || user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+  const student = await db.getUserById(essay.userId);
+  if (!student || student.teacherId !== user.id) throw new TRPCError({ code: "FORBIDDEN", message: "배정된 학생의 제출물만 처리할 수 있습니다." });
+  return essay;
+}
+
 export const appRouter = router({
   system: systemRouter,
+  policy: router({
+    forSignup: publicProcedure
+      .input(z.object({ accountType: z.enum(["student", "parent", "teacher"]) }))
+      .query(async ({ input }) => db.getActivePolicyDocuments(input.accountType)),
+    myConsents: protectedProcedure.query(async ({ ctx }) => db.getUserPolicyConsents(ctx.user.id)),
+    requestDataAction: protectedProcedure
+      .input(z.object({ requestType: z.enum(["access", "correction", "withdraw_ai_learning", "delete_learning_data"]), requestNote: z.string().max(2000).optional() }))
+      .mutation(async ({ ctx, input }) => db.createDataProcessingRequest(ctx.user.id, input.requestType, input.requestNote)),
+  }),
+  teacherAi: router({
+    myProfile: protectedProcedure.query(async ({ ctx }) => db.getTeacherAiProfile(ctx.user.id)),
+    saveMyProfile: protectedProcedure
+      .input(z.object({
+        displayName: z.string().min(2).max(100),
+        tone: z.enum(["encouraging", "balanced", "direct"]),
+        feedbackFocus: z.string().min(2).max(160),
+        styleInstruction: z.string().max(4000).optional(),
+        forbiddenPhrases: z.array(z.string().max(120)).max(30).optional(),
+        rubricWeights: z.record(z.string(), z.number().min(0).max(100)).optional(),
+        isEnabled: z.boolean(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.upsertTeacherAiProfile({ teacherId: ctx.user.id, ...input });
+      }),
+    myStyleExamples: protectedProcedure.query(async ({ ctx }) => db.listTeacherAiStyleExamples(ctx.user.id)),
+    createStyleExample: protectedProcedure
+      .input(z.object({ sourceFeedbackId: z.number().optional(), purpose: z.enum(["style_reference", "quality_evaluation", "training_candidate"]), sourceText: z.string().min(20).max(12000), approvedFeedback: z.string().min(20).max(12000), tags: z.string().max(255).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.createTeacherAiStyleExample({ teacherId: ctx.user.id, ...input });
+      }),
+    updateStyleExampleStatus: protectedProcedure
+      .input(z.object({ exampleId: z.number(), status: z.enum(["draft", "teacher_approved", "admin_approved", "rejected", "withdrawn"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.updateTeacherAiStyleExampleStatus(input.exampleId, input.status);
+      }),
+    draftsForEssay: protectedProcedure
+      .input(z.object({ essayId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await assertTeacherEssayAccess(ctx.user, input.essayId);
+        return db.getTeacherAiDraftsByEssay(input.essayId);
+      }),
+    revisionsForDraft: protectedProcedure
+      .input(z.object({ draftId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const draft = await db.getTeacherAiDraftById(input.draftId);
+        if (!draft) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertTeacherEssayAccess(ctx.user, draft.essayId);
+        return db.getTeacherAiDraftRevisions(input.draftId);
+      }),
+    generateDraft: protectedProcedure
+      .input(z.object({ essayId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await assertTeacherEssayAccess(ctx.user, input.essayId);
+        const profileTeacherId = ctx.user.role === "admin" ? ctx.user.id : ctx.user.id;
+        return db.generateTeacherAiDraft(input.essayId, profileTeacherId);
+      }),
+    saveDraftRevision: protectedProcedure
+      .input(z.object({ draftId: z.number(), revisedComment: z.string().trim().min(20).max(12000), changeSummary: z.string().trim().max(1000).optional(), learningApproval: z.enum(["pending", "approved", "rejected", "withdrawn"]).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const draft = await db.getTeacherAiDraftById(input.draftId);
+        if (!draft) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertTeacherEssayAccess(ctx.user, draft.essayId);
+        if (ctx.user.role !== "admin" && draft.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "작성 교사만 수정 이력을 저장할 수 있습니다." });
+        return db.saveTeacherAiDraftRevision({ draftId: input.draftId, editorId: ctx.user.id, revisedComment: input.revisedComment, changeSummary: input.changeSummary, learningApproval: input.learningApproval });
+      }),
+    approveDraft: protectedProcedure
+      .input(z.object({ draftId: z.number(), finalComment: z.string().trim().min(20).max(12000) }))
+      .mutation(async ({ ctx, input }) => {
+        const draft = await db.getTeacherAiDraftById(input.draftId);
+        if (!draft) throw new TRPCError({ code: "NOT_FOUND" });
+        await assertTeacherEssayAccess(ctx.user, draft.essayId);
+        if (ctx.user.role !== "admin" && draft.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "작성 교사만 최종 발송할 수 있습니다." });
+        const result = await db.approveTeacherAiDraft({ draftId: input.draftId, teacherId: draft.teacherId, finalComment: input.finalComment });
+        const essay = await db.getEssaySubmissionById(draft.essayId);
+        if (essay) void sendPushToUser(essay.userId, { title: "교사 승인 첨삭이 도착했어요", body: `${essay.title}의 최종 첨삭을 확인해보세요.`, url: `/teacher-feedback/${essay.id}`, tag: `teacher-ai-approved-${draft.id}` });
+        return result;
+      }),
+  }),
+  aiGovernance: router({
+    overview: adminProcedure.query(async () => {
+      const [profiles, styleExamples, userStats, policies, consentAudit, dataRequests] = await Promise.all([
+        db.getTeacherAiProfiles(),
+        db.listTeacherAiStyleExamples(),
+        db.getAllUsersStats(),
+        db.getActivePolicyDocuments(),
+        db.getPolicyConsentAudit(),
+        db.getDataProcessingRequests(),
+      ]);
+      return {
+        profiles,
+        styleExamples,
+        policies,
+        consentAudit,
+        dataRequests,
+        teachers: userStats.users.filter((user) => user.role === "teacher" && user.teacherStatus === "approved"),
+      };
+    }),
+    saveProfile: adminProcedure
+      .input(z.object({
+        teacherId: z.number(),
+        displayName: z.string().min(2).max(100),
+        tone: z.enum(["encouraging", "balanced", "direct"]),
+        feedbackFocus: z.string().min(2).max(160),
+        styleInstruction: z.string().max(4000).optional(),
+        forbiddenPhrases: z.array(z.string().max(120)).max(30).optional(),
+        rubricWeights: z.record(z.string(), z.number().min(0).max(100)).optional(),
+        isEnabled: z.boolean(),
+      }))
+      .mutation(async ({ input }) => db.upsertTeacherAiProfile(input)),
+    updateStyleExampleStatus: adminProcedure
+      .input(z.object({ exampleId: z.number(), status: z.enum(["draft", "teacher_approved", "admin_approved", "rejected", "withdrawn"]) }))
+      .mutation(async ({ input }) => db.updateTeacherAiStyleExampleStatus(input.exampleId, input.status)),
+  }),
   auth: router({
     me: publicProcedure.query(({ ctx }) => {
       if (!ctx.user) return null;
@@ -130,6 +321,9 @@ export const appRouter = router({
       } = ctx.user;
       return safeUser;
     }),
+    recommendedTeachers: publicProcedure
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]) }))
+      .query(async ({ input }) => db.getApprovedTeachersForRecommendation(input.courseType)),
 
     signup: publicProcedure
       .input(
@@ -137,9 +331,23 @@ export const appRouter = router({
           name: z.string().trim().min(2).max(80),
           email: z.string().trim().email().transform((value) => value.toLowerCase()),
           password: z.string().min(8).max(128),
+          accountType: z.enum(["student", "parent"]).default("student"),
+          courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
+          preferredTeacherId: z.number().int().positive().optional(),
+          consents: z.array(signupConsentSchema).min(1),
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        const approvedConsents = await validateSignupConsents(input.accountType, input.consents);
+        if (input.accountType === "student" && !input.courseType) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "학생 회원은 학습 과정을 선택해야 합니다." });
+        }
+        if (input.preferredTeacherId) {
+          const availableTeachers = await db.getApprovedTeachersForRecommendation(input.courseType);
+          if (!availableTeachers.some((teacher) => teacher.id === input.preferredTeacherId)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "선택한 추천 교사를 찾을 수 없습니다." });
+          }
+        }
         const existing = await db.getUserByEmail(input.email);
         const token = createVerificationToken();
         const tokenHash = hashVerificationToken(token);
@@ -151,10 +359,13 @@ export const appRouter = router({
           }
 
           await db.updateVerificationToken(existing.id, tokenHash, expiresAt);
+          await db.recordUserPolicyConsents(existing.id, approvedConsents);
           await sendUserVerificationEmail(ctx.req, existing, token);
           return { requiresVerification: true } as const;
         }
 
+        const defaultAiTutor = input.accountType === "student" && !input.preferredTeacherId ? await db.getDefaultAiTutor() : null;
+        const selectedTeacherId = input.accountType === "student" ? (input.preferredTeacherId ?? defaultAiTutor?.id ?? null) : null;
         const user = await db.createEmailUser({
           openId: `email_${nanoid(40)}`,
           name: input.name,
@@ -163,9 +374,13 @@ export const appRouter = router({
           passwordHash: hashPassword(input.password),
           verificationTokenHash: tokenHash,
           verificationTokenExpiresAt: expiresAt,
+          tag: input.accountType === "parent" ? "학부모" : getCourseTag(input.courseType!),
+          teacherId: selectedTeacherId,
+          preferredTeacherId: selectedTeacherId,
         });
 
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "회원가입에 실패했습니다." });
+        await db.recordUserPolicyConsents(user.id, approvedConsents);
         await sendUserVerificationEmail(ctx.req, user, token);
         return { requiresVerification: true } as const;
       }),
@@ -177,9 +392,11 @@ export const appRouter = router({
           email: z.string().trim().email().transform((value) => value.toLowerCase()),
           password: z.string().min(8).max(128),
           teacherLevel: z.number().int().min(1).max(3).default(1),
+          consents: z.array(signupConsentSchema).min(1),
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        const approvedConsents = await validateSignupConsents("teacher", input.consents);
         const existing = await db.getUserByEmail(input.email);
         const token = createVerificationToken();
         const tokenHash = hashVerificationToken(token);
@@ -190,6 +407,7 @@ export const appRouter = router({
             throw new TRPCError({ code: "CONFLICT", message: "이미 가입된 이메일입니다." });
           }
           await db.updateVerificationToken(existing.id, tokenHash, expiresAt);
+          await db.recordUserPolicyConsents(existing.id, approvedConsents);
           await sendUserVerificationEmail(ctx.req, existing, token);
           return { requiresVerification: true } as const;
         }
@@ -204,9 +422,11 @@ export const appRouter = router({
           verificationTokenExpiresAt: expiresAt,
           role: "teacher",
           teacherLevel: input.teacherLevel,
+          tag: "첨삭교사",
         });
 
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "교사회원 가입에 실패했습니다." });
+        await db.recordUserPolicyConsents(user.id, approvedConsents);
         await sendUserVerificationEmail(ctx.req, user, token);
         return { requiresVerification: true } as const;
       }),
@@ -269,12 +489,15 @@ export const appRouter = router({
     loginWithEmail: publicProcedure
       .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
+        if (input.email === "admin@sample.com") {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "관리자 샘플 계정은 제공되지 않습니다." });
+        }
         let user = await db.getUserByEmail(input.email);
         
         // 만약 샘플 계정으로 로그인 시도 시 DB에 없으면 자동 생성 후 로그인 처리
         if (!user && input.email.endsWith("@sample.com")) {
-          const sampleRole = input.email.startsWith("teacher") ? "teacher" : input.email.startsWith("admin") ? "admin" : "user";
-          const sampleName = sampleRole === "admin" ? "총괄 관리자(샘플)" : sampleRole === "teacher" ? "김선생(샘플교사)" : "이학생(샘플학생)";
+          const sampleRole = input.email.startsWith("teacher") ? "teacher" : "user";
+          const sampleName = sampleRole === "teacher" ? "김선생(샘플교사)" : "이학생(샘플학생)";
           user = await db.createEmailUser({
             openId: `sample_${nanoid(20)}`,
             name: sampleName,
@@ -457,17 +680,161 @@ export const appRouter = router({
       .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
       .query(({ input }) => db.getDynamicCurriculumByType(input)),
 
-    getById: protectedProcedure
-      .input(z.number())
-      .query(({ input }) => db.getCurriculumById(input)),
-
     getTheoryContent: protectedProcedure
       .input(z.object({
         courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
         lessonLevel: z.number().int().min(1).max(5).optional(),
-        theoryCategory: z.string().optional(),
+        theoryCategory: z.string().trim().min(1).max(32).optional(),
       }))
       .query(({ input }) => db.getLessonTheoryContentList(input)),
+
+    getById: protectedProcedure
+      .input(z.number())
+      .query(({ input }) => db.getCurriculumById(input)),
+
+    getWorkbookQuestions: protectedProcedure
+      .input(
+        z.object({
+          courseType: z.string(),
+          level: z.number(),
+          lessonIndex: z.number(),
+        })
+      )
+      .query(({ input }) => db.getCurriculumWorkbookQuestions(input.courseType, input.level, input.lessonIndex)),
+
+    getWorkbookLessonBundle: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        level: z.number().int().min(1).max(20),
+        lessonIndex: z.number().int().min(0).max(50),
+      }))
+      .query(({ input }) => db.getWorkbookLessonBundle({
+        courseType: input.courseType,
+        lessonLevel: input.level,
+        lessonIndex: input.lessonIndex,
+      })),
+
+    submitWorkbookAnswer: protectedProcedure
+      .input(
+        z.object({
+          questionId: z.number(),
+          userAnswer: z.string(),
+        })
+      )
+      .mutation(({ ctx, input }) => db.submitCurriculumWorkbookAnswer(ctx.user.id, input.questionId, input.userAnswer)),
+
+    getMistakes: protectedProcedure.query(({ ctx }) => db.getWorkbookMistakesByUser(ctx.user.id)),
+
+    addTeacherFeedback: protectedProcedure
+      .input(
+        z.object({
+          answerId: z.number(),
+          comment: z.string(),
+          gradeScore: z.number(),
+        })
+      )
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "admin" && ctx.user.role !== "user" && ctx.user.teacherStatus !== "approved") {
+          throw new Error("교사 권한이 필요합니다.");
+        }
+        return db.addWorkbookTeacherFeedback(input.answerId, ctx.user.id, input.comment, input.gradeScore);
+      }),
+
+    getStats: protectedProcedure.query(({ ctx }) => db.getWorkbookStatsByUser(ctx.user.id)),
+
+    removeMistake: protectedProcedure
+      .input(z.object({ mistakeId: z.number(), source: z.enum(["workbook", "learning_tool"]).default("workbook") }))
+      .mutation(({ ctx, input }) => input.source === "learning_tool"
+        ? db.removeLearningToolMistake(input.mistakeId, ctx.user.id)
+        : db.removeWorkbookMistake(input.mistakeId, ctx.user.id)),
+
+    getRecommendedQuestions: protectedProcedure.query(({ ctx }) => db.getRecommendedQuestionsForUser(ctx.user.id)),
+
+    getNotifications: protectedProcedure.query(({ ctx }) => db.getNotificationsByUser(ctx.user.id)),
+
+    markNotificationRead: protectedProcedure
+      .input(z.object({ notificationId: z.number() }))
+      .mutation(({ ctx, input }) => db.markNotificationAsRead(input.notificationId, ctx.user.id)),
+
+    markAllNotificationsRead: protectedProcedure.mutation(({ ctx }) => db.markAllNotificationsAsRead(ctx.user.id)),
+
+    getUserBadges: protectedProcedure.query(({ ctx }) => db.getUserBadgesByUser(ctx.user.id)),
+
+    getWeeklySummary: protectedProcedure.query(({ ctx }) => db.getWeeklyStudySummary(ctx.user.id)),
+
+    awardReviewKing: protectedProcedure.mutation(({ ctx }) => db.awardReviewKingBadge(ctx.user.id)),
+
+    getPushPrefs: protectedProcedure.query(({ ctx }) => db.getUserPushPreferences(ctx.user.id)),
+
+    updatePushPrefs: protectedProcedure.input(z.object({
+      teacherFeedback: z.boolean(),
+      assignmentDeadline: z.boolean(),
+      notice: z.boolean(),
+    })).mutation(({ ctx, input }) => db.updateUserPushPreferences(ctx.user.id, input)),
+  }),
+
+  // ========== Theory lesson content routes ==========
+  theoryContent: router({
+    list: adminProcedure
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(), status: z.enum(["all", "active", "inactive"]).optional() }).optional())
+      .query(({ input }) => db.getTheoryContentAdminList(input)),
+
+    listDrafts: adminProcedure
+      .input(z.object({ status: z.enum(["preview", "approved", "rejected"]).optional() }).optional())
+      .query(({ input }) => db.getTheoryDrafts(input)),
+
+    create: adminProcedure.input(theoryContentWriteInput).mutation(({ input }) => db.createTheoryContent(input)),
+
+    update: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), data: theoryContentWriteInput }))
+      .mutation(({ input }) => db.updateTheoryContent(input.id, input.data)),
+
+    setActive: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), isActive: z.boolean() }))
+      .mutation(({ input }) => db.setTheoryContentActive(input.id, input.isActive)),
+
+    getLessonConnectionOptions: adminProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        lessonLevel: z.number().int().min(1).max(20),
+        lessonIndex: z.number().int().min(0).max(50),
+      }))
+      .query(({ input }) => db.getWorkbookLessonConnectionOptions(input)),
+
+    saveLessonConnection: adminProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        lessonLevel: z.number().int().min(1).max(20),
+        lessonIndex: z.number().int().min(0).max(50),
+        connectionMode: z.enum(["automatic", "manual"]),
+        theoryContentIds: z.array(z.number().int().positive()).max(20),
+        workbookQuestionIds: z.array(z.number().int().positive()).max(10),
+      }))
+      .mutation(({ ctx, input }) => db.saveWorkbookLessonConnection(ctx.user.id, input)),
+
+    generatePreviews: adminProcedure
+      .input(theoryGenerationInput)
+      .mutation(({ ctx, input }) => db.generateTheoryContentPreviews(ctx.user.id, input)),
+
+    updateDraft: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), data: theoryContentWriteInput }))
+      .mutation(({ input }) => db.updateTheoryDraft(input.id, input.data)),
+
+    approveDraft: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => db.approveTheoryDraft(input.id, ctx.user.id)),
+
+    rejectDraft: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => db.rejectTheoryDraft(input.id, ctx.user.id)),
+
+    getMyProgress: protectedProcedure
+      .input(z.object({ theoryContentIds: z.array(z.number().int().positive()).max(30).optional() }).optional())
+      .query(({ ctx, input }) => db.getTheoryProgressByUser(ctx.user.id, input?.theoryContentIds)),
+
+    completeCheck: protectedProcedure
+      .input(z.object({ theoryContentId: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => db.completeTheoryCheck(ctx.user.id, input.theoryContentId)),
   }),
 
   // ========== Progress Routes ==========
@@ -502,32 +869,229 @@ export const appRouter = router({
       ),
   }),
 
+  student: router({
+    myAssignments: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 배정 과제를 확인할 수 있습니다." });
+      return db.getStudentClassAssignments(ctx.user.id);
+    }),
+    submitAssignment: protectedProcedure
+      .input(z.object({ assignmentId: z.number().int().positive(), content: z.string().trim().min(20).max(20000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 과제를 제출할 수 있습니다." });
+        try {
+          return await db.submitStudentClassAssignment(ctx.user.id, input.assignmentId, input.content);
+        } catch (error: any) {
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제를 제출할 수 없습니다." });
+        }
+      }),
+  }),
+
+  learningResources: router({
+    myLessonGuideHistory: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 AI 가이드 이력을 조회할 수 있습니다." });
+      return db.getAiLessonGuideHistoriesByUser(ctx.user.id);
+    }),
+    publishedWritingExamples: protectedProcedure
+      .input(z.object({ search: z.string().trim().max(120).optional(), skillTag: z.string().trim().max(80).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 예시문 라이브러리를 조회할 수 있습니다." });
+        return db.getPublishedWritingExamples({ courseType: getCourseTypeFromUserTag(ctx.user.tag), search: input?.search, skillTag: input?.skillTag });
+      }),
+  }),
+
+  teacherOperations: router({
+    myPermissionGrants: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      }
+      const grants = await db.getTeacherPermissionGrants();
+      return grants.filter((grant) => grant.teacherId === ctx.user.id && grant.isActive === 1);
+    }),
+    managedStudents: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      }
+      return db.getManagedStudentsForTeacher(ctx.user.id);
+    }),
+    classDashboard: protectedProcedure
+      .input(z.object({ attendanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.getTeacherClassDashboard(ctx.user.id, input.attendanceDate);
+      }),
+    recordAttendance: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive(), studentId: z.number().int().positive(), attendanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), status: z.enum(["present", "late", "absent", "excused"]), note: z.string().trim().max(500).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try { return await db.recordClassAttendance(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "출결 기록 권한이 없습니다." }); }
+      }),
+    publishClassAnnouncement: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive(), title: z.string().trim().min(2).max(255), content: z.string().trim().min(2).max(5000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try { return await db.publishClassAnnouncement(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "공지 발송 권한이 없습니다." }); }
+      }),
+    createClassAssignment: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive(), title: z.string().trim().min(2).max(255), instructions: z.string().trim().min(2).max(5000), dueAt: z.date().nullable().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try { return await db.createClassAssignment(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제 배정 권한이 없습니다." }); }
+      }),
+    feedbackTemplates: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.listTeacherFeedbackTemplates(ctx.user.id);
+    }),
+    saveFeedbackTemplate: protectedProcedure
+      .input(z.object({ templateId: z.number().int().positive().optional(), title: z.string().trim().min(2).max(120), content: z.string().trim().min(2).max(5000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.saveTeacherFeedbackTemplate(ctx.user.id, input);
+      }),
+    deleteFeedbackTemplate: protectedProcedure
+      .input(z.object({ templateId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.deleteTeacherFeedbackTemplate(ctx.user.id, input.templateId);
+      }),
+    monthlyAssignmentStats: protectedProcedure
+      .input(z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.getTeacherMonthlyAssignmentStats(ctx.user.id, input.month);
+      }),
+    assignmentNotificationStats: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.getTeacherAssignmentNotificationStats(ctx.user.id);
+    }),
+    assignmentReminderHistory: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.getTeacherAssignmentReminderHistory(ctx.user.id);
+    }),
+    classAssignmentSubmissions: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.getTeacherClassAssignmentSubmissions(ctx.user.id);
+    }),
+    approvedWritingExamples: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+      return db.getTeacherApprovedWritingExamples(ctx.user.id);
+    }),
+    publishWritingExample: protectedProcedure
+      .input(z.object({
+        sourceSubmissionId: z.number().int().positive(),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        title: z.string().trim().min(2).max(255),
+        topic: z.string().trim().min(2).max(255),
+        skillTags: z.string().trim().max(255).optional(),
+        anonymizedContent: z.string().trim().min(30).max(20000),
+        teacherNote: z.string().trim().max(3000).optional(),
+        confirmAnonymized: z.literal(true),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.createApprovedWritingExample(ctx.user.id, input);
+      }),
+    withdrawWritingExample: protectedProcedure
+      .input(z.object({ exampleId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.withdrawApprovedWritingExample(ctx.user.id, input.exampleId);
+      }),
+    reviewClassAssignmentSubmission: protectedProcedure
+      .input(z.object({ submissionId: z.number().int().positive(), score: z.number().int().min(0).max(100), teacherComment: z.string().trim().min(2).max(5000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try {
+          return await db.reviewStudentClassAssignment(ctx.user.id, input.submissionId, input);
+        } catch (error: any) {
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제를 채점할 수 없습니다." });
+        }
+      }),
+    classAssignmentAiFeedback: protectedProcedure
+      .input(z.object({ submissionId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        const submissions = await db.getTeacherClassAssignmentSubmissions(ctx.user.id);
+        if (!submissions.some((submission) => submission.id === input.submissionId)) throw new TRPCError({ code: "FORBIDDEN", message: "담당 반 학생의 제출물만 조회할 수 있습니다." });
+        return db.getClassAssignmentAiFeedbacks(input.submissionId);
+      }),
+    generateClassAssignmentAiFeedback: protectedProcedure
+      .input(z.object({ submissionId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        try {
+          return await db.generateClassAssignmentAiFeedback(ctx.user.id, input.submissionId);
+        } catch (error: any) {
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "AI 1차 첨삭을 생성할 수 없습니다." });
+        }
+      }),
+    notifyUpcomingAssignmentStudents: protectedProcedure
+      .input(z.object({ hoursAhead: z.number().int().min(24).max(168).default(72) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        return db.notifyUpcomingAssignmentStudents(ctx.user.id, input.hoursAhead);
+      }),
+    updateStudentProgress: protectedProcedure
+      .input(z.object({ studentId: z.number(), curriculumId: z.number(), score: z.number().min(0).max(100), completed: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved" || !(await db.canTeacherManageStudent(ctx.user.id, input.studentId, "progress"))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생의 진도 관리 권한이 없습니다." });
+        }
+        return db.upsertProgress({ userId: input.studentId, curriculumId: input.curriculumId, score: input.score, completed: input.completed ? 1 : 0, completedAt: input.completed ? new Date() : null });
+      }),
+    requestCertificateApproval: protectedProcedure
+      .input(z.object({ studentId: z.number(), level: z.number().int().min(1).max(20).optional(), certificateType: z.enum(["level_certificate", "graduation_certificate"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved" || !(await db.canTeacherManageStudent(ctx.user.id, input.studentId, "certificate"))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생의 수료증 요청 권한이 없습니다." });
+        }
+        const eligibility = await db.getStudentCertificateEligibility(input.studentId);
+        const grants = await db.getTeacherPermissionGrants();
+        const applicableGrant = grants.find((grant) => grant.teacherId === ctx.user.id && grant.isActive === 1 && (grant.scopeType === "organization" || grant.studentId === input.studentId));
+        return db.createCertificateApprovalRequest({
+          studentId: input.studentId,
+          courseType: eligibility.courseType,
+          level: input.level,
+          certificateType: input.certificateType,
+          requestedBy: ctx.user.id,
+          requestScope: applicableGrant?.scopeType || "student",
+          evidenceCompletionRate: eligibility.completionRate,
+          evidenceAverageScore: eligibility.averageScore,
+        });
+      }),
+    reviewCertificateRequest: protectedProcedure
+      .input(z.object({ requestId: z.number(), note: z.string().trim().max(1000).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN" });
+        return db.reviewCertificateApprovalRequestByTeacher(input.requestId, ctx.user.id, input.note);
+      }),
+    certificateRequests: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN" });
+      const requests = await db.getCertificateApprovalRequests();
+      const permissions = await Promise.all(requests.map((request) => db.canTeacherManageStudent(ctx.user.id, request.studentId, "certificate")));
+      return requests.filter((_, index) => permissions[index]);
+    }),
+  }),
+
   // ========== Quiz Routes ==========
   quiz: router({
     submitAnswer: protectedProcedure
-      .input(
-        z.object({
-          quizId: z.number(),
-          userAnswer: z.string(),
-          isCorrect: z.number(),
-          feedback: z.string().optional(),
-          economyScore: z.string().optional(),
-          clarityScore: z.string().optional(),
-          accuracyScore: z.string().optional(),
-        })
-      )
-      .mutation(({ ctx, input }) =>
-        db.saveQuizAnswer({
+      .input(z.object({ quizId: z.number().int().positive(), userAnswer: z.string().trim().min(1).max(4000) }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 퀴즈 결과를 저장할 수 있습니다." });
+        return db.verifyAndSaveQuizAttempt(ctx.user.id, input.quizId, input.userAnswer, getCourseTypeFromUserTag(ctx.user.tag));
+      }),
+
+    getDetailedSentenceFeedback: protectedProcedure
+      .input(z.object({ quizId: z.number().int().positive(), studentSentence: z.string().trim().min(5).max(1000) }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 문장 맞춤 피드백을 요청할 수 있습니다." });
+        return db.getDetailedSentenceFeedbackForQuiz({
           userId: ctx.user.id,
           quizId: input.quizId,
-          userAnswer: input.userAnswer,
-          isCorrect: input.isCorrect,
-          feedback: input.feedback ?? undefined,
-          economyScore: input.economyScore ?? undefined,
-          clarityScore: input.clarityScore ?? undefined,
-          accuracyScore: input.accuracyScore ?? undefined,
-        })
-      ),
+          studentSentence: input.studentSentence,
+          expectedCourseType: getCourseTypeFromUserTag(ctx.user.tag),
+        });
+      }),
 
     getByUser: protectedProcedure.query(({ ctx }) =>
       db.getQuizAnswersByUser(ctx.user.id)
@@ -539,6 +1103,8 @@ export const appRouter = router({
     getUserCertificates: protectedProcedure.query(({ ctx }) =>
       db.getCertificatesByUser(ctx.user.id)
     ),
+
+    eligibility: protectedProcedure.query(({ ctx }) => db.getStudentCertificateEligibility(ctx.user.id)),
 
     getByShareToken: publicProcedure
       .input(z.string())
@@ -556,16 +1122,21 @@ export const appRouter = router({
           pdfUrl: z.string().optional(),
         })
       )
-      .mutation(({ ctx, input }) =>
-        db.issueCertificate({
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 수료증을 신청할 수 있습니다." });
+        try {
+          return await db.issueCertificate({
           userId: ctx.user.id,
           courseType: input.courseType,
           level: input.level,
           certificateType: input.certificateType,
           shareToken: nanoid(),
           pdfUrl: input.pdfUrl,
-        })
-      ),
+          });
+        } catch (error: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "수료증 발급 조건을 확인할 수 없습니다." });
+        }
+      }),
   }),
 
   // ========== Essay Submission Routes ==========
@@ -752,10 +1323,8 @@ export const appRouter = router({
         }
 
         // AI 피드백 생성
-        const feedback = await evaluateEssay(
-          input.essayContent,
-          input.courseType
-        );
+        const difficultyPreset = await db.getDifficultyOperationPreset();
+        const feedback = await evaluateEssay(input.essayContent, input.courseType, difficultyPreset.mode);
 
         // 사용량 기록
         await db.logAIUsage(ctx.user.id, "essay_feedback", 3000);
@@ -801,11 +1370,11 @@ export const appRouter = router({
         const configuredEvaluation = await evaluateWritingWithConfiguredModel(input);
         const evaluation = configuredEvaluation.evaluation;
         const correctionModel = await getActiveCorrectionModel();
-        const correction = await generateWritingCorrection(input, evaluation, { model: correctionModel.model || undefined });
+        const correction = await generateWritingCorrection(input, evaluation, { model: correctionModel.model || undefined, endpoint: correctionModel.endpoint || undefined, modelId: correctionModel.id });
         const record = await db.createWritingEvaluationRecord({
           userId: ctx.user.id,
           essaySubmissionId: input.essay_submission_id,
-          metadataJson: JSON.stringify({ ...input.metadata, evaluation_model_id: configuredEvaluation.modelId, evaluation_fallback: configuredEvaluation.fallback, correction_model_id: correctionModel.id }),
+          metadataJson: JSON.stringify({ ...input.metadata, evaluation_model_id: configuredEvaluation.modelId, evaluation_fallback: configuredEvaluation.fallback, correction_model_id: correctionModel.id, correction_status: correction.correction_status, correction_fallback: correction.fallback_used, correction_latency_ms: correction.latency_ms, correction_provider_error: correction.provider_error ?? null }),
           taskJson: JSON.stringify(input.task),
           originalText: input.submission.essay_text,
           revisedText: correction.revised_text,
@@ -847,12 +1416,12 @@ export const appRouter = router({
         const configuredEvaluation = await evaluateWritingWithConfiguredModel(request);
         const evaluation = configuredEvaluation.evaluation;
         const correctionModel = await getActiveCorrectionModel();
-        const correction = await generateWritingCorrection(request, evaluation, { model: correctionModel.model || undefined });
+        const correction = await generateWritingCorrection(request, evaluation, { model: correctionModel.model || undefined, endpoint: correctionModel.endpoint || undefined, modelId: correctionModel.id });
         const record = await db.createWritingEvaluationRecord({
           userId: ctx.user.id,
           essaySubmissionId: parent.essaySubmissionId ?? undefined,
           parentRecordId: parent.id,
-          metadataJson: JSON.stringify({ ...request.metadata, evaluation_model_id: configuredEvaluation.modelId, evaluation_fallback: configuredEvaluation.fallback, correction_model_id: correctionModel.id }),
+          metadataJson: JSON.stringify({ ...request.metadata, evaluation_model_id: configuredEvaluation.modelId, evaluation_fallback: configuredEvaluation.fallback, correction_model_id: correctionModel.id, correction_status: correction.correction_status, correction_fallback: correction.fallback_used, correction_latency_ms: correction.latency_ms, correction_provider_error: correction.provider_error ?? null }),
           taskJson: JSON.stringify(request.task),
           originalText: input.revised_text,
           revisedText: correction.revised_text,
@@ -914,6 +1483,15 @@ export const appRouter = router({
     award: protectedProcedure
       .input(z.object({ courseType: z.string(), badgeType: z.string(), badgeName: z.string() }))
       .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 학습 뱃지를 획득할 수 있습니다." });
+        if (input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 학습 도구를 완료해야 해당 과정 뱃지를 획득할 수 있습니다." });
+        }
+        if (!(["quiz", "summary", "reordering_10_session"] as const).includes(input.badgeType as "quiz" | "summary" | "reordering_10_session")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "검증 가능한 학습 도구 뱃지만 수여할 수 있습니다." });
+        }
+        const eligibility = await db.getLearningToolBadgeEligibility(ctx.user.id, input.courseType as CourseType, input.badgeType as "quiz" | "summary" | "reordering_10_session");
+        if (!eligibility.eligible) throw new TRPCError({ code: "FORBIDDEN", message: eligibility.message });
         return await db.awardBadge(ctx.user.id, input.courseType, input.badgeType, input.badgeName);
       }),
   }),
@@ -922,14 +1500,90 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ courseType: z.string().optional(), toolType: z.string().optional() }))
       .query(async ({ input }) => {
-        await db.seedQuestionBankIfNeeded();
         return await db.getQuestionBankList(input.courseType, input.toolType);
       }),
     random: protectedProcedure
       .input(z.object({ courseType: z.string(), toolType: z.string(), limit: z.number().default(10) }))
       .query(async ({ input }) => {
-        await db.seedQuestionBankIfNeeded();
         return await db.getRandomQuestions(input.courseType, input.toolType, input.limit);
+      }),
+    reorderingPractice: protectedProcedure
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), limit: z.number().int().min(1).max(10).default(10) }))
+      .query(async ({ input }) => {
+        return await db.getReorderingPracticeSet(input.courseType, input.limit);
+      }),
+    reorderingSubmit: protectedProcedure
+      .input(z.object({ questionId: z.number().int().positive(), orderedParagraphIds: z.array(z.string().min(1)).min(3).max(12) }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 단락 재구성 결과를 저장할 수 있습니다." });
+        return db.verifyAndRecordReorderingAttempt(ctx.user.id, input.questionId, input.orderedParagraphIds, getCourseTypeFromUserTag(ctx.user.tag));
+      }),
+    difficultyLearningGuide: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 맞춤 학습 가이드를 받을 수 있습니다." });
+        return db.generateDifficultyLearningGuide(ctx.user.id, getCourseTypeFromUserTag(ctx.user.tag));
+      }),
+    recordMistake: protectedProcedure
+      .input(z.object({
+        questionBankId: z.number().int().positive(),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        toolType: z.enum(["quiz", "reordering", "summary"]),
+        userAnswer: z.string().min(1).max(8000),
+        score: z.number().min(0).max(100),
+        aiFeedback: z.string().min(1).max(6000),
+      }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role !== "user") {
+          return { stored: true, skipped: true, reason: "관리자·교사 점검 결과는 학습자 오답 노트에 저장하지 않습니다." };
+        }
+        if (input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 학습 도구 결과만 저장할 수 있습니다." });
+        }
+        return db.recordLearningToolMistake({ userId: ctx.user.id, ...input });
+      }),
+    topicWizardGuide: protectedProcedure
+      .input(z.object({
+        step: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        category: z.string().max(100).optional(),
+        topic: z.string().max(500).optional(),
+        mainIdea: z.string().max(1200).optional(),
+        outline: z.string().max(4000).optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 AI 가이드만 이용할 수 있습니다." });
+        }
+        return db.generateTopicWizardGuide(input);
+      }),
+    lessonWritingGuide: protectedProcedure
+      .input(z.object({
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        level: z.number().int().min(1).max(20),
+        lessonIndex: z.number().int().min(0).max(50),
+        lessonTitle: z.string().min(2).max(300),
+        lessonContent: z.string().min(2).max(3000),
+        lessonExample: z.string().min(2).max(3000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 AI 레슨 가이드만 이용할 수 있습니다." });
+        }
+        const guide = await db.generateLessonWritingGuide(input);
+        const history = await db.saveAiLessonGuideHistory({ userId: ctx.user.id, ...input, guide });
+        return { ...guide, historyId: history?.id ?? null };
+      }),
+    analyzeThesis: protectedProcedure
+      .input(z.object({
+        thesis: z.string().trim().min(10).max(1200),
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
+        topic: z.string().max(500).optional(),
+      }))
+      .mutation(({ ctx, input }) => {
+        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 주제문 분석만 이용할 수 있습니다." });
+        }
+        return db.analyzeThesisStatement(input);
       }),
     create: protectedProcedure
       .input(z.object({
@@ -958,32 +1612,136 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         const { id, ...data } = input;
+        if (data.title !== undefined || data.contentData !== undefined || data.courseType !== undefined || data.toolType !== undefined || data.difficulty !== undefined) {
+          const existing = (await db.getQuestionBankList()).find((item) => item.id === id);
+          if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "수정할 문항을 찾을 수 없습니다." });
+          await db.assertQuestionBankItemQuality({ ...existing, ...data, id });
+        }
         return await db.updateQuestionBankItem(id, data);
       }),
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await db.deleteQuestionBankItem(input.id);
+        return await db.deleteQuestionBankItem(input.id, ctx.user.id, ctx.user.name || "관리자");
       }),
     bulkCreate: protectedProcedure
       .input(z.object({
         items: z.array(z.object({
+          id: z.number().optional(),
           courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
           toolType: z.string(),
           title: z.string(),
           contentData: z.string(),
           difficulty: z.enum(["easy", "medium", "hard"]).optional(),
           isActive: z.number().optional(),
-        }))
+        })),
+        upsert: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        let created = 0;
+        let updated = 0;
+        let failed = 0;
+        const failures: Array<{ id?: number; title: string; courseType: string; toolType: string; reason: string }> = [];
+        const acceptedItems: Array<{ title: string; contentData: string }> = [];
         for (const item of input.items) {
-          await db.assertQuestionBankItemQuality(item);
-          await db.createQuestionBankItem(item);
+          try {
+            await db.assertQuestionBankItemQuality(item, acceptedItems);
+            if (input.upsert) {
+              const result = await db.upsertQuestionBankItem(item);
+              if (result.action === "updated") updated += 1;
+              else created += 1;
+            } else {
+              await db.createQuestionBankItem(item);
+              created += 1;
+            }
+            acceptedItems.push({ title: item.title, contentData: item.contentData });
+          } catch (error) {
+            failed += 1;
+            failures.push({
+              id: item.id,
+              title: item.title,
+              courseType: item.courseType,
+              toolType: item.toolType,
+              reason: error instanceof Error ? error.message : "서버 반영 중 알 수 없는 오류가 발생했습니다.",
+            });
+          }
         }
-        return { success: true, count: input.items.length };
+        return { success: failed === 0, count: input.items.length, created, updated, failed, failures };
+      }),
+
+    deleteMany: protectedProcedure
+      .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.deleteQuestionBankItems(input.ids, ctx.user.id, ctx.user.name || "관리자");
+      }),
+
+    listTrash: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await db.getQuestionBankTrash();
+    }),
+
+    restoreFromTrash: protectedProcedure
+      .input(z.object({ trashId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.restoreQuestionBankTrashItem(input.trashId, ctx.user.id, ctx.user.name || "관리자");
+      }),
+
+    permanentlyDeleteTrashItem: protectedProcedure
+      .input(z.object({ trashId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.permanentlyDeleteQuestionBankTrashItem(input.trashId, ctx.user.id, ctx.user.name || "관리자");
+      }),
+
+    restoreManyFromTrash: protectedProcedure
+      .input(z.object({ trashIds: z.array(z.number().int().positive()).min(1).max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.restoreQuestionBankTrashItems(input.trashIds, ctx.user.id, ctx.user.name || "관리자");
+      }),
+
+    permanentlyDeleteTrashItems: protectedProcedure
+      .input(z.object({ trashIds: z.array(z.number().int().positive()).min(1).max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.permanentlyDeleteQuestionBankTrashItems(input.trashIds, ctx.user.id, ctx.user.name || "관리자");
+      }),
+
+    maintenanceSettings: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await db.getQuestionBankMaintenanceSettings();
+    }),
+
+    updateMaintenanceSettings: protectedProcedure
+      .input(z.object({ retentionDays: z.number().int().min(1).max(365) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.updateQuestionBankMaintenanceSettings(input.retentionDays, ctx.user.id);
+      }),
+
+    operationLogs: protectedProcedure
+      .input(z.object({
+        limit: z.number().int().min(1).max(500).default(200),
+        actionType: z.enum(["moved_to_trash", "restored", "permanently_deleted", "auto_purged"]).optional(),
+        actorName: z.string().trim().min(1).max(100).optional(),
+        startDate: z.date().optional(),
+        endDate: z.date().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await db.getQuestionBankOperationLogs(input);
+      }),
+
+    deleteByCourse: protectedProcedure
+      .input(z.object({ courseType: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const courseQuestions = await db.getQuestionBankList(input.courseType);
+        return await db.deleteQuestionBankItems(courseQuestions.map((question) => question.id), ctx.user.id, ctx.user.name || "관리자");
       }),
     stats: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
@@ -1055,7 +1813,8 @@ export const appRouter = router({
     gradeEssay: protectedProcedure
       .input(z.object({ questionId: z.number(), userAnswer: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        return await db.gradeEssayWithAi(input.questionId, input.userAnswer);
+        if (ctx.user.role !== "user") return await db.gradeEssayWithAi(input.questionId, input.userAnswer);
+        return await db.gradeAndRecordSummaryAttempt(ctx.user.id, input.questionId, input.userAnswer, getCourseTypeFromUserTag(ctx.user.tag));
       }),
     curriculumDifficultyStats: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
@@ -1101,6 +1860,7 @@ export const appRouter = router({
   }),
 
   admin: router({
+    getWritingReviewQueue: adminProcedure.query(async () => db.getWritingEvaluationReviewQueue()),
     getEvaluationModels: adminProcedure.query(async () => getEvaluationModelProfiles()),
     updateEvaluationModels: adminProcedure
       .input(z.object({
@@ -1112,6 +1872,55 @@ export const appRouter = router({
         })).min(1),
       }))
       .mutation(async ({ ctx, input }) => saveEvaluationModelProfiles(input.profiles as EvaluationModelProfile[], ctx.user.id)),
+    getTeacherPermissionGrants: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return db.getTeacherPermissionGrants();
+    }),
+    saveTeacherPermissionGrant: protectedProcedure
+      .input(z.object({
+        grantId: z.number().optional(),
+        teacherId: z.number(),
+        scopeType: z.enum(["organization", "student"]),
+        organizationName: z.string().trim().min(2).max(160).optional(),
+        studentId: z.number().optional(),
+        canManageProgress: z.boolean(),
+        canRequestCertificate: z.boolean(),
+        isActive: z.boolean(),
+      }).superRefine((value, issue) => {
+        if (value.scopeType === "organization" && !value.organizationName) issue.addIssue({ code: z.ZodIssueCode.custom, message: "조직 단위에는 조직 또는 학급 이름이 필요합니다.", path: ["organizationName"] });
+        if (value.scopeType === "student" && !value.studentId) issue.addIssue({ code: z.ZodIssueCode.custom, message: "학생 단위에는 대상 학생 선택이 필요합니다.", path: ["studentId"] });
+        if (!value.canManageProgress && !value.canRequestCertificate) issue.addIssue({ code: z.ZodIssueCode.custom, message: "최소 하나의 관리 권한을 선택해야 합니다.", path: ["canManageProgress"] });
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.saveTeacherPermissionGrant({ ...input, organizationName: input.organizationName ?? null, studentId: input.studentId ?? null, canManageProgress: input.canManageProgress ? 1 : 0, canRequestCertificate: input.canRequestCertificate ? 1 : 0, isActive: input.isActive ? 1 : 0, grantedBy: ctx.user.id });
+      }),
+    setTeacherPermissionGrantActive: protectedProcedure
+      .input(z.object({ grantId: z.number(), isActive: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.setTeacherPermissionGrantActive(input.grantId, input.isActive ? 1 : 0);
+      }),
+    getCertificateApprovalPolicies: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return db.getCertificateApprovalPolicies();
+    }),
+    saveCertificateApprovalPolicy: protectedProcedure
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), teacherReviewRequired: z.boolean(), adminApprovalRequired: z.boolean(), minimumCompletionRate: z.number().int().min(0).max(100), minimumAverageScore: z.number().int().min(0).max(100), isActive: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.saveCertificateApprovalPolicy({ ...input, teacherReviewRequired: input.teacherReviewRequired ? 1 : 0, adminApprovalRequired: input.adminApprovalRequired ? 1 : 0, isActive: input.isActive ? 1 : 0, updatedBy: ctx.user.id });
+      }),
+    getCertificateApprovalRequests: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return db.getCertificateApprovalRequests();
+    }),
+    resolveCertificateApprovalRequest: protectedProcedure
+      .input(z.object({ requestId: z.number(), approved: z.boolean(), note: z.string().trim().max(1000).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.resolveCertificateApprovalRequestByAdmin({ requestId: input.requestId, adminId: ctx.user.id, approved: input.approved, note: input.note });
+      }),
     getAnalytics: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
@@ -1156,7 +1965,7 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        await db.updateTeacherStatus(input.userId, input.teacherStatus);
+        await db.updateTeacherStatus(input.userId, input.teacherStatus, undefined, ctx.user.id);
         return { success: true } as const;
       }),
     getAllCertificatesAdmin: protectedProcedure
@@ -1179,15 +1988,19 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
         const shareToken = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        return await db.adminIssueCertificate({
-          userId: input.userId,
-          courseType: input.courseType,
-          level: input.level,
-          certificateType: input.certificateType,
-          shareToken,
-          issuedBy: ctx.user.id,
-          issueReason: input.issueReason,
-        });
+        try {
+          return await db.adminIssueCertificate({
+            userId: input.userId,
+            courseType: input.courseType,
+            level: input.level,
+            certificateType: input.certificateType,
+            shareToken,
+            issuedBy: ctx.user.id,
+            issueReason: input.issueReason,
+          });
+        } catch (error: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "수료증 발급 조건을 확인할 수 없습니다." });
+        }
       }),
     revokeCertificateAdmin: protectedProcedure
       .input(z.object({ certificateId: z.number(), reason: z.string().trim().min(2).max(500) }))
@@ -1312,6 +2125,17 @@ export const appRouter = router({
         }
         return await db.getAdminOperationsDashboardStats();
       }),
+    getDifficultyOperationPreset: protectedProcedure
+      .query(async ({ ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.getDifficultyOperationPreset();
+      }),
+    saveDifficultyOperationPreset: protectedProcedure
+      .input(z.object({ mode: z.enum(["standard", "advanced"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.saveDifficultyOperationPreset(input.mode, ctx.user.id);
+      }),
     getSiteSettingAdmin: publicProcedure
       .input(z.object({ settingKey: z.string() }))
       .query(async ({ input }) => {
@@ -1334,13 +2158,59 @@ export const appRouter = router({
         return stats?.users ?? [];
       }),
     updateUserRole: protectedProcedure
-      .input(z.object({ userId: z.number(), newRole: z.enum(["user", "teacher", "admin"]) }))
+      .input(z.object({ userId: z.number(), newRole: z.enum(["user", "teacher"]) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        await db.updateUserRole(input.userId, input.newRole);
+        await db.changeLearnerTeacherRole(input.userId, input.newRole, ctx.user.id);
         return true;
+      }),
+    createAdminAccount: protectedProcedure
+      .input(z.object({ name: z.string().trim().min(2).max(80), email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(10).max(128) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.createManagedAdminAccount({ openId: `admin_${nanoid(40)}`, name: input.name, email: input.email, passwordHash: hashPassword(input.password), actorId: ctx.user.id });
+      }),
+    adjustUserLevel: protectedProcedure
+      .input(z.object({ userId: z.number().int().positive(), targetLevel: z.number().int().min(1).max(10) }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.adjustManagedUserLevel(input.userId, input.targetLevel, ctx.user.id);
+      }),
+    getLearningGroups: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return db.getLearningGroupsWithMembers();
+    }),
+    saveLearningGroup: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive().optional(), name: z.string().trim().min(2).max(160), groupType: z.enum(["class", "group"]), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).nullable().optional(), description: z.string().max(2000).nullable().optional(), teacherId: z.number().int().positive().nullable().optional(), isActive: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.saveLearningGroup({ ...input, isActive: input.isActive ? 1 : 0, createdBy: ctx.user.id });
+      }),
+    addLearningGroupMember: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive(), studentId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.addLearningGroupMember(input.groupId, input.studentId, ctx.user.id);
+      }),
+    removeLearningGroupMember: protectedProcedure
+      .input(z.object({ groupId: z.number().int().positive(), studentId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.removeLearningGroupMember(input.groupId, input.studentId);
+      }),
+    assignStudentTeacher: protectedProcedure
+      .input(z.object({ studentId: z.number().int().positive(), teacherId: z.number().int().positive().nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.assignStudentTeacher(input.studentId, input.teacherId, ctx.user.id);
+      }),
+    getAuditLogs: protectedProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(200).default(100) }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.getAdminAuditLogs(input?.limit ?? 100);
       }),
     approveTeacher: protectedProcedure
       .input(z.object({ userId: z.number(), teacherLevel: z.number().optional() }))
@@ -1348,7 +2218,7 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        await db.updateTeacherStatus(input.userId, "approved", input.teacherLevel);
+        await db.updateTeacherStatus(input.userId, "approved", input.teacherLevel, ctx.user.id);
         return true;
       }),
   }),

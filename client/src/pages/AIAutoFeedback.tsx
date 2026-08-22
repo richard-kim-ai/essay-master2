@@ -89,6 +89,9 @@ export default function AIAutoFeedback() {
               weaknesses: evaluation.improvement_points || [],
               suggestions: evaluation.feedback?.revision_steps || [],
               overallComment: correction.learner_explanation || evaluation.feedback?.summary || "",
+              sentenceCorrections: correction.sentence_corrections || [],
+              correctionStatus: correction.correction_status || "completed",
+              correctionError: correction.provider_error || "",
             };
           })()
         : {
@@ -112,7 +115,7 @@ export default function AIAutoFeedback() {
         setRevisionText("");
       }
       setFeedback(feedbackData);
-      toast.success("AI 첨삭이 완료되었습니다!");
+      toast[feedbackData.correctionStatus === "completed" ? "success" : "warning"](feedbackData.correctionStatus === "completed" ? "AI 첨삭이 완료되었습니다!" : "첨삭 모델 응답이 불안정해 원문을 보존했습니다.");
     } catch (error) {
       console.error("Error generating feedback:", error);
       toast.error("첨삭 중 오류가 발생했습니다.");
@@ -374,6 +377,25 @@ export default function AIAutoFeedback() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Strengths */}
+                {feedbackMode === "evaluation_v1" && feedback.sentenceCorrections?.length > 0 && (
+                  <Card>
+                    <CardHeader><CardTitle>문장별 원문·수정문 비교</CardTitle><CardDescription>수정 이유를 확인한 뒤 자신의 표현으로 다시 작성해 보세요.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                      {feedback.sentenceCorrections.map((item: any, index: number) => (
+                        <div key={index} className="rounded-lg border border-slate-200 p-4 text-sm">
+                          <div className="grid gap-3 md:grid-cols-2"><div><p className="mb-1 font-semibold text-slate-500">원문</p><p className="rounded bg-rose-50 p-3 text-slate-700">{item.original}</p></div><div><p className="mb-1 font-semibold text-slate-500">수정문</p><p className="rounded bg-emerald-50 p-3 text-slate-700">{item.revised}</p></div></div>
+                          <p className="mt-3 text-slate-600"><span className="font-semibold">수정 이유:</span> {item.reason}</p>
+                          {item.competency && <p className="mt-1 text-xs text-indigo-600">평가 competency: {item.competency}</p>}
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
+                {feedbackMode === "evaluation_v1" && feedback.correctionStatus !== "completed" && (
+                  <Card className="border-amber-200 bg-amber-50"><CardContent className="py-4 text-sm text-amber-900">첨삭 상태: {feedback.correctionStatus === "fallback" ? "fallback - 원문 보존" : "실패"}{feedback.correctionError ? ` · ${feedback.correctionError}` : ""}</CardContent></Card>
+                )}
 
                 {/* Strengths */}
                 {feedback.strengths && feedback.strengths.length > 0 && (

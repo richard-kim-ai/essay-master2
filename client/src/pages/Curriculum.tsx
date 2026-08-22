@@ -6,8 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { BookOpen, Lock } from "lucide-react";
-
-type CourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
+import { getCourseTypeFromUserTag, type CourseType } from "@shared/course";
+import { ADMIN_PREVIEW_COURSES, readAdminPreviewCourse, saveAdminPreviewCourse } from "@/lib/adminPreviewCourse";
 
 const CURRICULUM_DATA = {
   elementary: [
@@ -68,8 +68,15 @@ const CURRICULUM_DATA = {
 
 export default function Curriculum() {
   const { user, isAuthenticated } = useAuth();
-  const userCourse = (user?.tag === "초등" ? "elementary" : user?.tag === "고등/대입" ? "high_univ" : user?.tag === "일반/직장인" ? "general_adult" : "middle_high") as CourseType;
-  const [courseType] = React.useState<CourseType>(userCourse);
+  const userCourse = getCourseTypeFromUserTag(user?.tag);
+  const isSampleUser = Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
+  const isAdminPreview = user?.role === "admin";
+  const [sampleCourse, setSampleCourse] = React.useState<CourseType>(() => {
+    const stored = localStorage.getItem("essaymaster-sample-course");
+    return ["elementary", "middle_high", "high_univ", "general_adult"].includes(stored || "") ? stored as CourseType : "elementary";
+  });
+  const [adminPreviewCourse, setAdminPreviewCourse] = React.useState<CourseType>(() => readAdminPreviewCourse());
+  const courseType = isSampleUser ? sampleCourse : isAdminPreview ? adminPreviewCourse : userCourse;
 
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
@@ -80,9 +87,15 @@ export default function Curriculum() {
 
   // 비로그인 방문자도 샘플 모드로 전체 커리큘럼을 바로 탐색할 수 있도록 허용
 
-  const curriculumList = dynamicCurriculum && dynamicCurriculum.length > 0
-    ? dynamicCurriculum
-    : CURRICULUM_DATA[courseType] || CURRICULUM_DATA["middle_high"];
+  const staticCurriculum = CURRICULUM_DATA[courseType] || CURRICULUM_DATA["middle_high"];
+  // 초등·중고등 과정의 레벨별 제목·학습 주제는 검수된 표준 커리큘럼을 항상 유지한다.
+  // DB의 운영 메타데이터(AI 요약·태그·식별자)만 병합해 비동기 조회 뒤 주제가 바뀌는 현상을 막는다.
+  const curriculumList = staticCurriculum.length > 0
+    ? staticCurriculum.map((canonical) => {
+      const managed = dynamicCurriculum?.find((item) => item.level === canonical.level);
+      return managed ? { ...managed, ...canonical, id: managed.id, aiSummary: managed.aiSummary, aiTags: managed.aiTags } : canonical;
+    })
+    : dynamicCurriculum && dynamicCurriculum.length > 0 ? dynamicCurriculum : CURRICULUM_DATA["middle_high"];
   const progressMap = new Map(
     progressData?.map((p) => [p.curriculumId, p]) || []
   );
@@ -101,11 +114,12 @@ export default function Curriculum() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div>
             <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-bold rounded-full uppercase">
-              회원 맞춤 과정
+              {isSampleUser ? "샘플 맞춤 과정" : isAdminPreview ? "관리자 탐색 미리보기" : "회원 맞춤 과정"}
             </span>
             <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 mt-1">{courseNames[courseType]}</h1>
-            <p className="text-sm text-slate-600 mt-1">회원가입 시 선택하신 과정에 최적화된 단계별 학습 레슨과 실전 논술 훈련을 제공합니다.</p>
+            <p className="text-sm text-slate-600 mt-1">{isSampleUser ? "샘플에서 선택한 과정의 단계별 레슨을 체험하세요. 회원가입 후 학습 기록을 이어갈 수 있습니다." : isAdminPreview ? "선택한 과정의 커리큘럼·워크북·학습 도구를 운영 점검용으로 탐색합니다. 학습자 진도에는 영향을 주지 않습니다." : "회원가입 시 선택하신 과정에 최적화된 단계별 학습 레슨과 실전 논술 훈련을 제공합니다."}</p>
           </div>
+          {(isSampleUser || isAdminPreview) && <select aria-label={isAdminPreview ? "관리자 탐색 커리큘럼 과정" : "샘플 커리큘럼 과정"} value={isAdminPreview ? adminPreviewCourse : sampleCourse} onChange={(event) => { const course = event.target.value as CourseType; if (isAdminPreview) { setAdminPreviewCourse(course); saveAdminPreviewCourse(course); } else { setSampleCourse(course); localStorage.setItem("essaymaster-sample-course", course); } }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900">{ADMIN_PREVIEW_COURSES.map((course) => <option key={course.value} value={course.value}>{course.label}</option>)}</select>}
         </div>
 
         <div className="mt-6">
@@ -204,4 +218,3 @@ export default function Curriculum() {
     </div>
   );
 }
-

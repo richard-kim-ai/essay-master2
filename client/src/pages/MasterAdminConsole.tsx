@@ -1,600 +1,82 @@
-import { useState, useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { useMemo, useState } from "react";
+import { Link } from "wouter";
+import { ArrowLeft, GraduationCap, Plus, Search, ShieldCheck, UserCog, UserPlus, UsersRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { ShieldAlert, UserCheck, UserX, Search, ArrowLeft, Users, UserCog, CheckCircle, Shield, BarChart3, TrendingUp, Activity, PieChart, ShieldCheck } from "lucide-react";
-import { Link } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { COURSE_OPTIONS, getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared/course";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+const LEVELS = Array.from({ length: 10 }, (_, index) => index + 1);
 
 export default function MasterAdminConsole() {
+  const { user, loading: authLoading } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [searchQuery, setSearchQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<"week" | "month" | "all">("week");
-
-  const { data: usersList, isLoading, refetch } = trpc.admin.getAllUsersMasterAdmin.useQuery();
-  const { data: analyticsData } = trpc.admin.getAnalytics.useQuery();
+  const [roleFilter, setRoleFilter] = useState<"all" | "user" | "teacher" | "admin">("all");
+  const [createAdminOpen, setCreateAdminOpen] = useState(false);
+  const [adminForm, setAdminForm] = useState({ name: "", email: "", password: "" });
+  const [groupForm, setGroupForm] = useState<{ name: string; groupType: "class" | "group"; courseType: CourseType; teacherId: string; description: string }>({ name: "", groupType: "class", courseType: "elementary", teacherId: "", description: "" });
+  const [memberDrafts, setMemberDrafts] = useState<Record<number, string>>({});
   const utils = trpc.useUtils();
+  const { data: usersList = [], isLoading, refetch } = trpc.admin.getAllUsersMasterAdmin.useQuery(undefined, { enabled: isAdmin });
+  const { data: groups = [], isLoading: groupsLoading } = trpc.admin.getLearningGroups.useQuery(undefined, { enabled: isAdmin });
+  const { data: auditLogs = [], isLoading: auditLoading } = trpc.admin.getAuditLogs.useQuery({ limit: 100 }, { enabled: isAdmin });
 
-  const updateUserRoleMutation = trpc.admin.updateUserRole.useMutation({
-    onSuccess: () => {
-      toast.success("사용자 권한이 성공적으로 변경되었습니다.");
-      refetch();
-      utils.admin.getAnalytics.invalidate();
-    },
-    onError: (err) => {
-      toast.error(err.message || "권한 변경 중 오류가 발생했습니다.");
-    },
-  });
+  const refreshManagement = async () => {
+    await Promise.all([refetch(), utils.admin.getLearningGroups.invalidate(), utils.admin.getAuditLogs.invalidate(), utils.admin.getAnalytics.invalidate()]);
+  };
+  const roleMutation = trpc.admin.updateUserRole.useMutation({ onSuccess: async () => { toast.success("학생·교사 역할을 변경했습니다."); await refreshManagement(); }, onError: (error) => toast.error(error.message) });
+  const levelMutation = trpc.admin.adjustUserLevel.useMutation({ onSuccess: async () => { toast.success("레벨을 조정했습니다."); await refreshManagement(); }, onError: (error) => toast.error(error.message) });
+  const approveTeacher = trpc.admin.approveTeacher.useMutation({ onSuccess: async () => { toast.success("교사 승인을 완료했습니다."); await refreshManagement(); }, onError: (error) => toast.error(error.message) });
+  const assignTeacher = trpc.admin.assignStudentTeacher.useMutation({ onSuccess: async () => { toast.success("담당 교사를 지정했습니다."); await refreshManagement(); }, onError: (error) => toast.error(error.message) });
+  const createAdmin = trpc.admin.createAdminAccount.useMutation({ onSuccess: async () => { toast.success("별도 관리자 계정을 만들었습니다."); setCreateAdminOpen(false); setAdminForm({ name: "", email: "", password: "" }); await refreshManagement(); }, onError: (error) => toast.error(error.message) });
+  const saveGroup = trpc.admin.saveLearningGroup.useMutation({ onSuccess: async () => { toast.success("반·그룹 정보를 저장했습니다."); setGroupForm({ name: "", groupType: "class", courseType: "elementary", teacherId: "", description: "" }); await refreshManagement(); }, onError: (error) => toast.error(error.message) });
+  const addMember = trpc.admin.addLearningGroupMember.useMutation({ onSuccess: async () => { toast.success("학습자를 반·그룹에 편성했습니다."); await refreshManagement(); }, onError: (error) => toast.error(error.message) });
+  const removeMember = trpc.admin.removeLearningGroupMember.useMutation({ onSuccess: async () => { toast.success("학습자 편성을 해제했습니다."); await refreshManagement(); }, onError: (error) => toast.error(error.message) });
 
-  const [teacherApprovalModalOpen, setTeacherApprovalModalOpen] = useState(false);
-  const [targetTeacherId, setTargetTeacherId] = useState<number | null>(null);
-  const [selectedTeacherLevel, setSelectedTeacherLevel] = useState<number>(1);
+  const students = useMemo(() => usersList.filter((user) => user.role === "user"), [usersList]);
+  const teachers = useMemo(() => usersList.filter((user) => user.role === "teacher" && user.teacherStatus === "approved"), [usersList]);
+  const pendingTeachers = useMemo(() => usersList.filter((user) => user.role === "teacher" && user.teacherStatus === "pending"), [usersList]);
+  const usersById = useMemo(() => new Map(usersList.map((user) => [user.id, user])), [usersList]);
+  const visibleUsers = useMemo(() => usersList.filter((user) => {
+    const keyword = searchQuery.trim().toLowerCase();
+    const matchesKeyword = !keyword || (user.name || "").toLowerCase().includes(keyword) || (user.email || "").toLowerCase().includes(keyword);
+    return matchesKeyword && (roleFilter === "all" || user.role === roleFilter);
+  }), [usersList, searchQuery, roleFilter]);
 
-  const approveTeacherMutation = trpc.admin.approveTeacher.useMutation({
-    onSuccess: () => {
-      toast.success("교사 회원 승인 및 권한 레벨 설정이 완료되었습니다.");
-      setTeacherApprovalModalOpen(false);
-      refetch();
-    },
-    onError: (err) => {
-      toast.error(err.message || "교사 승인 중 오류가 발생했습니다.");
-    },
-  });
+  const submitAdminAccount = () => {
+    if (!adminForm.name || !adminForm.email || !adminForm.password) return toast.error("이름, 이메일, 임시 비밀번호를 모두 입력해주세요.");
+    createAdmin.mutate(adminForm);
+  };
+  const submitGroup = () => {
+    if (!groupForm.name.trim()) return toast.error("반·그룹 이름을 입력해주세요.");
+    saveGroup.mutate({ name: groupForm.name.trim(), groupType: groupForm.groupType, courseType: groupForm.courseType, teacherId: groupForm.teacherId ? Number(groupForm.teacherId) : null, description: groupForm.description || null, isActive: true });
+  };
 
-  // 전체 사용자 권한 일괄 조정 모달 state
-  const [bulkModalOpen, setBulkModalOpen] = useState(false);
-  const [bulkTargetRole, setBulkTargetRole] = useState<"user" | "teacher" | "admin">("user");
-  const [bulkTargetLevel, setBulkTargetLevel] = useState<number>(1);
-  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+  if (authLoading) return <div className="min-h-screen p-12 text-center text-slate-600">관리자 권한을 확인하는 중입니다...</div>;
+  if (!isAdmin) return <div className="mx-auto max-w-xl px-4 py-20 text-center"><ShieldCheck className="mx-auto h-11 w-11 text-slate-400" /><h1 className="mt-4 text-xl font-bold text-slate-900">관리자 전용 회원 관리</h1><p className="mt-2 text-sm text-slate-600">학생·교사·관리자 계정과 반 편성은 관리자 계정으로만 관리할 수 있습니다.</p><Link href="/login"><Button className="mt-6 bg-slate-900 hover:bg-slate-800">관리자 로그인</Button></Link></div>;
 
-  const promoteUserMutation = trpc.questionBank.promoteUser.useMutation({
-    onSuccess: () => {
-      toast.success("학습자 레벨 승급이 승인되었습니다.");
-      refetch();
-    },
-    onError: (err) => {
-      toast.error(err.message || "승급 처리 중 오류가 발생했습니다.");
-    },
-  });
+  return <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
+    <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><Link href="/admin"><Button variant="ghost" size="sm" className="-ml-3 gap-1 text-slate-600"><ArrowLeft className="h-4 w-4" />운영 대시보드</Button></Link><h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">회원·관리자·반 관리</h1><p className="mt-1 text-sm text-slate-600">학생과 교사 역할을 전환하고, 레벨·담당 교사·반 편성을 안전하게 관리합니다.</p></div><Button className="gap-2 bg-slate-900 hover:bg-slate-800" onClick={() => setCreateAdminOpen(true)}><ShieldCheck className="h-4 w-4" />별도 관리자 계정 생성</Button></header>
 
-  const filteredUsers = useMemo(() => {
-    if (!usersList) return [];
-    return usersList.filter((u) => {
-      const nameMatch = (u.name || "").toLowerCase().includes(searchQuery.toLowerCase());
-      const emailMatch = (u.email || "").toLowerCase().includes(searchQuery.toLowerCase());
-      if (searchQuery && !nameMatch && !emailMatch) return false;
+    <section className="grid gap-4 sm:grid-cols-3"><MetricCard label="학습자" value={students.length} icon={<GraduationCap className="h-6 w-6" />} tone="emerald" /><MetricCard label="승인 교사" value={teachers.length} icon={<UserCog className="h-6 w-6" />} tone="indigo" /><MetricCard label="승인 대기 교사" value={pendingTeachers.length} icon={<UserPlus className="h-6 w-6" />} tone="amber" /></section>
 
-      if (roleFilter !== "all" && u.role !== roleFilter) return false;
-      if (statusFilter !== "all") {
-        if (statusFilter === "approved" && u.teacherStatus !== "approved") return false;
-        if (statusFilter === "pending" && u.teacherStatus !== "pending") return false;
-      }
-      return true;
-    });
-  }, [usersList, searchQuery, roleFilter, statusFilter]);
+    <Tabs defaultValue="members" className="space-y-5"><TabsList className="grid h-auto w-full grid-cols-3 bg-slate-100 p-1 sm:w-[620px]"><TabsTrigger value="members">회원·권한 관리</TabsTrigger><TabsTrigger value="groups">반·그룹·담당 교사</TabsTrigger><TabsTrigger value="audit">감사 로그</TabsTrigger></TabsList>
+      <TabsContent value="members"><Card><CardHeader className="gap-4"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><CardTitle>회원 및 권한 통합 관리</CardTitle><CardDescription className="mt-1">관리자는 역할 전환 대상이 아니며, 학생과 교사만 상호 전환 및 레벨 상·하향 조정이 가능합니다.</CardDescription></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{visibleUsers.length}명 표시</span></div><div className="flex flex-col gap-2 sm:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><Input className="pl-9" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="이름 또는 이메일 검색" /></div><select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as typeof roleFilter)}><option value="all">전체 계정</option><option value="user">학습자</option><option value="teacher">교사</option><option value="admin">관리자</option></select></div></CardHeader><CardContent><div className="overflow-x-auto"><table className="w-full min-w-[940px] text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-3">이름 / 이메일</th><th className="px-4 py-3">계정 유형</th><th className="px-4 py-3">레벨</th><th className="px-4 py-3">담당·추천 교사</th><th className="px-4 py-3 text-right">관리 작업</th></tr></thead><tbody className="divide-y divide-slate-100">{isLoading ? <tr><td colSpan={5} className="py-12 text-center text-slate-500">계정을 불러오는 중입니다...</td></tr> : visibleUsers.map((user) => { const assigned = user.teacherId ? usersById.get(user.teacherId) : null; const preferred = user.preferredTeacherId ? usersById.get(user.preferredTeacherId) : null; const isAdmin = user.role === "admin"; return <tr key={user.id} className="hover:bg-slate-50/70"><td className="px-4 py-4"><p className="font-semibold text-slate-900">{user.name || `사용자 #${user.id}`}</p><p className="mt-0.5 text-xs text-slate-500">{user.email || "이메일 없음"}</p></td><td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isAdmin ? "bg-slate-200 text-slate-700" : user.role === "teacher" ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700"}`}>{isAdmin ? "관리자 계정" : user.role === "teacher" ? `첨삭 교사 · ${user.teacherStatus === "approved" ? "승인" : "대기"}` : "학습자"}</span></td><td className="px-4 py-4">{isAdmin ? <span className="text-xs text-slate-400">관리자 고정</span> : <select className="h-8 rounded border border-slate-200 bg-white px-2 text-xs" value={user.teacherLevel || 1} onChange={(event) => levelMutation.mutate({ userId: user.id, targetLevel: Number(event.target.value) })}>{LEVELS.map((level) => <option key={level} value={level}>Lv.{level}</option>)}</select>}</td><td className="px-4 py-4">{user.role === "user" ? <div className="space-y-1"><select className="h-8 max-w-[190px] rounded border border-slate-200 bg-white px-2 text-xs" value={user.teacherId || ""} onChange={(event) => assignTeacher.mutate({ studentId: user.id, teacherId: event.target.value ? Number(event.target.value) : null })}><option value="">담당 교사 미지정</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.email}</option>)}</select>{preferred && <p className="text-[11px] text-indigo-600">희망: {preferred.name || preferred.email}</p>}{assigned && <p className="text-[11px] text-slate-500">현재: {assigned.name || assigned.email}</p>}</div> : <span className="text-xs text-slate-400">-</span>}</td><td className="px-4 py-4 text-right"><div className="flex justify-end gap-2">{user.role === "teacher" && user.teacherStatus === "pending" && <Button size="sm" className="h-8 bg-emerald-600 text-xs hover:bg-emerald-700" onClick={() => approveTeacher.mutate({ userId: user.id, teacherLevel: user.teacherLevel || 1 })}>교사 승인</Button>}{!isAdmin && <Button size="sm" variant="outline" className="h-8 text-xs" disabled={roleMutation.isPending} onClick={() => roleMutation.mutate({ userId: user.id, newRole: user.role === "user" ? "teacher" : "user" })}>{user.role === "user" ? "교사로 전환" : "학생으로 전환"}</Button>}{isAdmin && <span className="self-center text-xs font-medium text-slate-400">별도 생성 계정</span>}</div></td></tr>; })}</tbody></table></div></CardContent></Card></TabsContent>
+      <TabsContent value="groups" className="space-y-5"><Card><CardHeader><CardTitle>새 반·그룹 만들기</CardTitle><CardDescription>반 담당 교사를 지정한 뒤 학습자를 편성하면 해당 학생의 담당 교사도 함께 연결됩니다.</CardDescription></CardHeader><CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-5"><Input value={groupForm.name} onChange={(event) => setGroupForm((current) => ({ ...current, name: event.target.value }))} placeholder="예: 중등 A반" /><select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={groupForm.groupType} onChange={(event) => setGroupForm((current) => ({ ...current, groupType: event.target.value as "class" | "group" }))}><option value="class">반</option><option value="group">학습 그룹</option></select><select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={groupForm.courseType} onChange={(event) => setGroupForm((current) => ({ ...current, courseType: event.target.value as CourseType }))}>{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label}</option>)}</select><select className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={groupForm.teacherId} onChange={(event) => setGroupForm((current) => ({ ...current, teacherId: event.target.value }))}><option value="">담당 교사 미지정</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.email} · Lv.{teacher.teacherLevel || 1}</option>)}</select><Button className="gap-2 bg-indigo-700 hover:bg-indigo-800" onClick={submitGroup} disabled={saveGroup.isPending}><Plus className="h-4 w-4" />반·그룹 생성</Button><Input className="md:col-span-2 lg:col-span-5" value={groupForm.description} onChange={(event) => setGroupForm((current) => ({ ...current, description: event.target.value }))} placeholder="선택: 운영 메모 또는 학습 목표" /></CardContent></Card><div className="grid gap-4 lg:grid-cols-2">{groupsLoading ? <p className="col-span-2 py-10 text-center text-sm text-slate-500">반·그룹을 불러오는 중입니다...</p> : groups.length === 0 ? <Card className="lg:col-span-2"><CardContent className="py-12 text-center text-sm text-slate-500">아직 편성된 반·그룹이 없습니다.</CardContent></Card> : groups.map((group) => { const availableStudents = students.filter((student) => !group.members.some((member) => member.studentId === student.id)); return <Card key={group.id}><CardHeader className="pb-3"><div className="flex items-start justify-between gap-3"><div><CardTitle className="text-base">{group.name}</CardTitle><CardDescription className="mt-1">{group.groupType === "class" ? "반" : "학습 그룹"} · {group.courseType ? getCourseTag(group.courseType) : "과정 공통"} · {group.teacherName || "담당 교사 미지정"}</CardDescription></div><span className={`rounded-full px-2 py-1 text-[11px] font-bold ${group.isActive === 1 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{group.isActive === 1 ? "운영 중" : "비활성"}</span></div></CardHeader><CardContent className="space-y-3"><div className="flex gap-2"><select className="h-9 min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 text-xs" value={memberDrafts[group.id] || ""} onChange={(event) => setMemberDrafts((current) => ({ ...current, [group.id]: event.target.value }))}><option value="">편성할 학습자 선택</option>{availableStudents.map((student) => <option key={student.id} value={student.id}>{student.name || student.email} · {getCourseTag(getCourseTypeFromUserTag(student.tag))}</option>)}</select><Button size="sm" variant="outline" disabled={!memberDrafts[group.id] || addMember.isPending} onClick={() => addMember.mutate({ groupId: group.id, studentId: Number(memberDrafts[group.id]) })}>편성</Button></div><div className="flex flex-wrap gap-2">{group.members.length === 0 ? <span className="text-xs text-slate-400">편성된 학습자가 없습니다.</span> : group.members.map((member) => <span key={member.id} className="inline-flex items-center gap-1 rounded-full bg-slate-100 py-1 pl-2.5 pr-1 text-xs text-slate-700">{member.studentName}<button aria-label={`${member.studentName} 편성 해제`} className="rounded-full p-0.5 hover:bg-slate-200" onClick={() => removeMember.mutate({ groupId: group.id, studentId: member.studentId })}><X className="h-3 w-3" /></button></span>)}</div></CardContent></Card>; })}</div></TabsContent>
+      <TabsContent value="audit"><Card><CardHeader><CardTitle>관리자 계정·권한 감사 로그</CardTitle><CardDescription>관리자 계정 생성, 학생·교사 역할 변경, 레벨 조정, 담당 교사 지정 기록을 최신순으로 보관합니다.</CardDescription></CardHeader><CardContent><div className="overflow-x-auto"><table className="min-w-[760px] w-full text-left text-sm"><thead className="border-y border-slate-100 bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-3">일시</th><th className="px-4 py-3">처리 관리자</th><th className="px-4 py-3">작업</th><th className="px-4 py-3">대상</th><th className="px-4 py-3">상세</th></tr></thead><tbody className="divide-y divide-slate-100">{auditLoading ? <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">감사 로그를 불러오는 중입니다...</td></tr> : auditLogs.length === 0 ? <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">기록된 관리자 계정·권한 변경이 없습니다.</td></tr> : auditLogs.map((log) => <tr key={log.id}><td className="px-4 py-3 text-xs text-slate-500">{new Date(log.createdAt).toLocaleString("ko-KR")}</td><td className="px-4 py-3 font-medium text-slate-800">{log.actorName}</td><td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{log.action === "admin_account_created" ? "관리자 생성" : log.action === "role_changed" ? "역할 변경" : log.action === "level_changed" ? "레벨 조정" : "담당 교사"}</span></td><td className="px-4 py-3 text-slate-600">{log.targetName || "-"}</td><td className="px-4 py-3 text-slate-600">{log.summary}</td></tr>)}</tbody></table></div></CardContent></Card></TabsContent>
+    </Tabs>
 
-  const stats = useMemo(() => {
-    if (!usersList) return { total: 0, students: 0, teachers: 0, admins: 0, pendingTeachers: 0 };
-    return {
-      total: usersList.length,
-      students: usersList.filter((u) => u.role === "user").length,
-      teachers: usersList.filter((u) => u.role === "teacher").length,
-      admins: usersList.filter((u) => u.role === "admin").length,
-      pendingTeachers: usersList.filter((u) => u.role === "teacher" && u.teacherStatus === "pending").length,
-    };
-  }, [usersList]);
+    <Dialog open={createAdminOpen} onOpenChange={setCreateAdminOpen}><DialogContent><DialogHeader><DialogTitle>별도 관리자 계정 생성</DialogTitle><DialogDescription>기존 학생·교사 계정을 관리자 역할로 승격하지 않습니다. 관리자 전용 이메일과 임시 비밀번호로 새 계정을 생성합니다.</DialogDescription></DialogHeader><div className="space-y-3"><Input value={adminForm.name} onChange={(event) => setAdminForm((current) => ({ ...current, name: event.target.value }))} placeholder="관리자 이름" /><Input type="email" value={adminForm.email} onChange={(event) => setAdminForm((current) => ({ ...current, email: event.target.value }))} placeholder="admin@example.com" /><Input type="password" value={adminForm.password} onChange={(event) => setAdminForm((current) => ({ ...current, password: event.target.value }))} placeholder="임시 비밀번호 (10자 이상)" /></div><DialogFooter><Button variant="outline" onClick={() => setCreateAdminOpen(false)}>취소</Button><Button className="bg-slate-900 hover:bg-slate-800" onClick={submitAdminAccount} disabled={createAdmin.isPending}>{createAdmin.isPending ? "생성 중..." : "관리자 계정 생성"}</Button></DialogFooter></DialogContent></Dialog>
+  </div>;
+}
 
-  // Analytics mock / dynamic computation based on usersList and analyticsData
-  const analytics = useMemo(() => {
-    const totalUsers = stats.total || 1;
-    const studentShare = Math.round((stats.students / totalUsers) * 100);
-    const teacherShare = Math.round((stats.teachers / totalUsers) * 100);
-    const adminShare = 100 - studentShare - teacherShare;
-
-    return {
-      studentShare: isNaN(studentShare) ? 75 : studentShare,
-      teacherShare: isNaN(teacherShare) ? 20 : teacherShare,
-      adminShare: isNaN(adminShare) ? 5 : adminShare,
-      activeSessionsToday: Math.max(12, Math.round(stats.total * 0.6)),
-      avgScore: 88.4,
-      aiSubmissionsCount: analyticsData?.ai?.totalCalls || 45,
-    };
-  }, [stats, analyticsData]);
-
-  return (
-    <div className="space-y-6 max-w-7xl mx-auto py-6 px-4">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Link href="/admin">
-              <Button variant="ghost" size="sm" className="gap-1 text-slate-600 pl-0">
-                <ArrowLeft className="h-4 w-4" /> 일반 관리자 대시보드로 돌아가기
-              </Button>
-            </Link>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900">총괄 관리자 통합 계정 및 실시간 애널리틱스 콘솔</h1>
-          <p className="text-sm text-slate-500">전체 사용자 구성, 학습 세션 추이, 과정별 참여도와 권한을 통합 모니터링합니다.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={analyticsPeriod === "week" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setAnalyticsPeriod("week")}
-            className={analyticsPeriod === "week" ? "bg-slate-900 text-white" : ""}
-          >
-            이번 주
-          </Button>
-          <Button
-            variant={analyticsPeriod === "month" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setAnalyticsPeriod("month")}
-            className={analyticsPeriod === "month" ? "bg-slate-900 text-white" : ""}
-          >
-            이번 달
-          </Button>
-          <Button
-            variant={analyticsPeriod === "all" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setAnalyticsPeriod("all")}
-            className={analyticsPeriod === "all" ? "bg-slate-900 text-white" : ""}
-          >
-            전체 기간
-          </Button>
-        </div>
-      </div>
-
-      {/* Overview Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-500">전체 등록 계정</p>
-              <h3 className="text-2xl font-bold text-slate-900 mt-1">{stats.total}명</h3>
-            </div>
-            <div className="p-3 rounded-xl bg-blue-50 text-blue-600"><Users className="h-6 w-6" /></div>
-          </CardContent>
-        </Card>
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-500">학습자 (학생)</p>
-              <h3 className="text-2xl font-bold text-emerald-600 mt-1">{stats.students}명</h3>
-            </div>
-            <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600"><UserCheck className="h-6 w-6" /></div>
-          </CardContent>
-        </Card>
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-500">첨삭 교사회원</p>
-              <h3 className="text-2xl font-bold text-indigo-600 mt-1">{stats.teachers}명</h3>
-            </div>
-            <div className="p-3 rounded-xl bg-indigo-50 text-indigo-600"><UserCog className="h-6 w-6" /></div>
-          </CardContent>
-        </Card>
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-500">승인 대기 교사</p>
-              <h3 className="text-2xl font-bold text-amber-600 mt-1">{stats.pendingTeachers}명</h3>
-            </div>
-            <div className="p-3 rounded-xl bg-amber-50 text-amber-600"><ShieldAlert className="h-6 w-6" /></div>
-          </CardContent>
-        </Card>
-        <Card className="bg-white border-slate-200 shadow-sm">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium text-slate-500">총괄 관리자</p>
-              <h3 className="text-2xl font-bold text-purple-600 mt-1">{stats.admins}명</h3>
-            </div>
-            <div className="p-3 rounded-xl bg-purple-50 text-purple-600"><Shield className="h-6 w-6" /></div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Real-time Analytics Visualization Section */}
-      <div className="grid gap-6 md:grid-cols-3">
-        {/* User Role Distribution Chart */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <PieChart className="h-5 v-5 text-indigo-600" /> 사용자 권한 구성비
-              </CardTitle>
-              <span className="text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full font-medium">실시간 집계</span>
-            </div>
-            <CardDescription>플랫폼 내 전체 역할별 분포 현황</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4 space-y-4">
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1 text-slate-700">
-                  <span>학습자 (학생)</span>
-                  <span>{analytics.studentShare}% ({stats.students}명)</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                  <div className="bg-emerald-500 h-full rounded-full transition-all duration-500" style={{ width: `${analytics.studentShare}%` }} />
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1 text-slate-700">
-                  <span>첨삭 교사</span>
-                  <span>{analytics.teacherShare}% ({stats.teachers}명)</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                  <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${analytics.teacherShare}%` }} />
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1 text-slate-700">
-                  <span>총괄 관리자</span>
-                  <span>{analytics.adminShare}% ({stats.admins}명)</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                  <div className="bg-purple-500 h-full rounded-full transition-all duration-500" style={{ width: `${analytics.adminShare}%` }} />
-                </div>
-              </div>
-            </div>
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>총 가입 사용자</span>
-              <span className="font-bold text-slate-900">{stats.total}명</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Learning Session Activity Trend */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <Activity className="h-5 v-5 text-emerald-600" /> 학습 세션 활성도
-              </CardTitle>
-              <span className="text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium">라이브</span>
-            </div>
-            <CardDescription>오늘 접속 및 논술 제출 활동 세션</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4 space-y-4">
-            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
-              <div>
-                <p className="text-xs text-slate-500">오늘 활성 세션 수</p>
-                <p className="text-2xl font-bold text-slate-900 mt-0.5">{analytics.activeSessionsToday} 세션</p>
-              </div>
-              <div className="text-right">
-                <span className="inline-flex items-center text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
-                  <TrendingUp className="h-3 w-3 mr-1" /> +14.2% 전주 대비
-                </span>
-              </div>
-            </div>
-            <div className="space-y-2 text-xs text-slate-600">
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span>AI 자동 첨삭 이용 건수</span>
-                <span className="font-semibold text-slate-900">{analytics.aiSubmissionsCount}건</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-100">
-                <span>평균 논술 평가 점수</span>
-                <span className="font-semibold text-slate-900">{analytics.avgScore}점</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Course Category Participation */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <BarChart3 className="h-5 v-5 text-blue-600" /> 과정별 참여율 분포
-              </CardTitle>
-              <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium">커리큘럼</span>
-            </div>
-            <CardDescription>초·중고·고등대입·일반 과정 참여 비중</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4 space-y-3">
-            <div>
-              <div className="flex justify-between text-xs font-semibold mb-1 text-slate-700">
-                <span>초등 논술</span>
-                <span>35%</span>
-              </div>
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-blue-500 h-full rounded-full" style={{ width: "35%" }} />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-xs font-semibold mb-1 text-slate-700">
-                <span>중·고등 논술</span>
-                <span>40%</span>
-              </div>
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-sky-500 h-full rounded-full" style={{ width: "40%" }} />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-xs font-semibold mb-1 text-slate-700">
-                <span>고등 / 대입 논술</span>
-                <span>15%</span>
-              </div>
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-amber-500 h-full rounded-full" style={{ width: "15%" }} />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-xs font-semibold mb-1 text-slate-700">
-                <span>일반 / 직장인</span>
-                <span>10%</span>
-              </div>
-              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-teal-500 h-full rounded-full" style={{ width: "10%" }} />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Table Card */}
-      <Card className="border-slate-200 shadow-sm">
-        <CardHeader className="pb-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <CardTitle className="text-lg font-bold">계정 및 권한 통합 관리</CardTitle>
-              <CardDescription>검색 및 필터를 통해 특정 사용자의 권한을 변경하거나 교사회원을 승인할 수 있습니다.</CardDescription>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                className="gap-2 border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                onClick={() => {
-                  if (!usersList || usersList.length === 0) {
-                    toast.error("조회된 사용자가 없습니다.");
-                    return;
-                  }
-                  setSelectedUserIds(usersList.map(u => u.id));
-                  setBulkModalOpen(true);
-                }}
-              >
-                <ShieldCheck className="h-4 w-4" /> 전체 권한 빠른 일괄 조정
-              </Button>
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                <Input
-                  placeholder="이름 또는 이메일 검색..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 w-60 text-sm"
-                />
-              </div>
-              <select
-                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value)}
-              >
-                <option value="all">모든 권한(역할)</option>
-                <option value="user">학생(학습자)</option>
-                <option value="teacher">첨삭 교사</option>
-                <option value="admin">관리자</option>
-              </select>
-              <select
-                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">모든 상태</option>
-                <option value="approved">승인 완료</option>
-                <option value="pending">승인 대기중</option>
-              </select>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
-                  <th className="py-3 px-4">ID / 이름</th>
-                  <th className="py-3 px-4">이메일</th>
-                  <th className="py-3 px-4">권한 (Role)</th>
-                  <th className="py-3 px-4">교사 레벨 / 상태</th>
-                  <th className="py-3 px-4">가입일</th>
-                  <th className="py-3 px-4 text-right">권한 제어 / 작업</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-500">전체 사용자 계정 목록을 불러오는 중입니다...</td>
-                  </tr>
-                ) : filteredUsers.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-500">검색 조건에 일치하는 계정이 없습니다.</td>
-                  </tr>
-                ) : (
-                  filteredUsers.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-50/60 transition">
-                      <td className="py-3 px-4 font-semibold text-slate-900">{u.name || `사용자 #${u.id}`}</td>
-                      <td className="py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          u.role === 'admin' ? 'bg-purple-100 text-purple-800' : u.role === 'teacher' ? 'bg-indigo-100 text-indigo-800' : 'bg-blue-100 text-blue-800'
-                        }`}>
-                          {u.role === 'admin' ? '총괄/관리자' : u.role === 'teacher' ? '첨삭 교사' : '일반 학생'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-slate-600 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-indigo-600">Level {u.teacherLevel || 1}</span>
-                          {u.role === 'teacher' && (
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.teacherStatus === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                              {u.teacherStatus === 'approved' ? '승인완료' : '승인대기'}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-slate-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
-                      <td className="py-3 px-4 text-right space-x-2">
-                        {u.role === 'teacher' && u.teacherStatus === 'pending' && (
-                          <Button
-                            size="sm"
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-3 text-xs"
-                            onClick={() => {
-                              setTargetTeacherId(u.id);
-                              setSelectedTeacherLevel(u.teacherLevel || 1);
-                              setTeacherApprovalModalOpen(true);
-                            }}
-                            disabled={approveTeacherMutation.isPending}
-                          >
-                            교사 승인 및 레벨 설정
-                          </Button>
-                        )}
-                        {u.role === 'user' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 px-3 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                            onClick={() => {
-                              const nextLvl = (u.teacherLevel || 1) + 1;
-                              promoteUserMutation.mutate({ userId: u.id, targetLevel: nextLvl });
-                            }}
-                          >
-                            Lv.{u.teacherLevel || 1} → Lv.{(u.teacherLevel || 1) + 1} 승급
-                          </Button>
-                        )}
-                        {u.role !== 'admin' ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 px-3 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
-                            onClick={() => updateUserRoleMutation.mutate({ userId: u.id, newRole: 'admin' })}
-                            disabled={updateUserRoleMutation.isPending}
-                          >
-                            관리자 승격
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 px-3 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
-                            onClick={() => updateUserRoleMutation.mutate({ userId: u.id, newRole: 'user' })}
-                            disabled={updateUserRoleMutation.isPending}
-                          >
-                            학생으로 변경
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 전체 사용자 권한 빠른 일괄 조정 다이얼로그 */}
-      <Dialog open={bulkModalOpen} onOpenChange={setBulkModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-indigo-600" />
-              전체 사용자 권한 및 레벨 일괄 조정
-            </DialogTitle>
-            <DialogDescription>
-              현재 조회된 사용자 총 {selectedUserIds.length}명의 권한 등급과 학습 레벨을 일괄적으로 설정합니다.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">지정할 권한 (Role)</label>
-              <select
-                className="w-full h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
-                value={bulkTargetRole}
-                onChange={(e) => setBulkTargetRole(e.target.value as any)}
-              >
-                <option value="user">일반 학생 (User)</option>
-                <option value="teacher">첨삭 교사 (Teacher)</option>
-                <option value="admin">관리자 (Admin)</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">부여할 학습/교사 레벨</label>
-              <select
-                className="w-full h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
-                value={bulkTargetLevel}
-                onChange={(e) => setBulkTargetLevel(Number(e.target.value))}
-              >
-                <option value={1}>Level 1 (기초)</option>
-                <option value={2}>Level 2 (중급)</option>
-                <option value={3}>Level 3 (고급)</option>
-                <option value={4}>Level 4 (마스터)</option>
-              </select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBulkModalOpen(false)}>취소</Button>
-            <Button
-              className="bg-indigo-600 hover:bg-indigo-700 text-white"
-              onClick={async () => {
-                let count = 0;
-                for (const uid of selectedUserIds) {
-                  try {
-                    await updateUserRoleMutation.mutateAsync({ userId: uid, newRole: bulkTargetRole });
-                    await promoteUserMutation.mutateAsync({ userId: uid, targetLevel: bulkTargetLevel });
-                    count++;
-                  } catch (e) {}
-                }
-                toast.success(`총 ${count}명의 사용자 권한과 레벨이 일괄 조정되었습니다.`);
-                setBulkModalOpen(false);
-                refetch();
-              }}
-            >
-              일괄 적용 실행
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Teacher Approval & Level Assignment Dialog */}
-      <Dialog open={teacherApprovalModalOpen} onOpenChange={setTeacherApprovalModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-emerald-600" /> 교사 승인 및 권한 레벨 설정
-            </DialogTitle>
-            <DialogDescription>
-              대기 중인 교사회원의 권한 레벨을 지정하고 승인을 확정합니다.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1">부여할 교사 권한 레벨</label>
-              <select
-                className="w-full h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
-                value={selectedTeacherLevel}
-                onChange={(e) => setSelectedTeacherLevel(Number(e.target.value))}
-              >
-                <option value={1}>Level 1 · 주니어 첨삭교사 (문장 및 단락 코멘트)</option>
-                <option value={2}>Level 2 · 시니어 첨삭교사 (종합 채점 및 성취도 관리)</option>
-                <option value={3}>Level 3 · 수석 교사 (커리큘럼 조정 및 반 학생 일괄 관리)</option>
-              </select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTeacherApprovalModalOpen(false)}>취소</Button>
-            <Button
-              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-              disabled={approveTeacherMutation.isPending || targetTeacherId === null}
-              onClick={() => {
-                if (targetTeacherId !== null) {
-                  approveTeacherMutation.mutate({ userId: targetTeacherId, teacherLevel: selectedTeacherLevel });
-                }
-              }}
-            >
-              {approveTeacherMutation.isPending ? "승인 처리 중..." : "승인 및 레벨 부여 확정"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+function MetricCard({ label, value, icon, tone }: { label: string; value: number; icon: React.ReactNode; tone: "emerald" | "indigo" | "amber" }) {
+  const tones = { emerald: "bg-emerald-50 text-emerald-600", indigo: "bg-indigo-50 text-indigo-600", amber: "bg-amber-50 text-amber-600" };
+  return <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 text-2xl font-bold text-slate-900">{value}명</p></div><div className={`rounded-xl p-3 ${tones[tone]}`}>{icon}</div></CardContent></Card>;
 }
