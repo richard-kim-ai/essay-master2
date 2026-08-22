@@ -1,12 +1,10 @@
 import React from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Badge } from "@/components/ui/badge";
 import InstallPrompt from "@/components/InstallPrompt";
 import Navigation from "@/components/Navigation";
 import OfflineStatus from "@/components/OfflineStatus";
 import {
   getHomePrimaryAction,
-  getHomeSecondaryAction,
 } from "@/lib/homeExperience";
 import { Link } from "wouter";
 import {
@@ -16,7 +14,6 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileText,
-  GraduationCap,
   MessageSquareText,
   PenLine,
   Sparkles,
@@ -81,98 +78,53 @@ const LEARNING_PROMISES = [
   "학습 기록을 모아 약점을 복습하고 다음 단계로 연결",
 ] as const;
 
+const HERO_VALUE_CARDS = [
+  { label: "AI 실시간 첨삭", tone: "bg-blue-50" },
+  { label: "전문 교사 피드백", tone: "bg-purple-50" },
+  { label: "맞춤형 학습 경로", tone: "bg-pink-50" },
+  { label: "진도 추적 대시보드", tone: "bg-amber-50" },
+] as const;
+
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const primaryAction = getHomePrimaryAction(isAuthenticated, user?.role);
-  const secondaryAction = getHomeSecondaryAction(isAuthenticated);
+  const primaryActionLabel = isAuthenticated ? primaryAction.label : "지금 시작하기";
 
   return (
     <div className="min-h-screen bg-[#fbfcff] text-slate-950">
       <Navigation />
       <OfflineStatus />
 
-      {!isAuthenticated && (
-        <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-2.5 text-center text-sm text-indigo-950">
-          <span className="font-semibold">처음이신가요?</span> 로그인 전에도 과정을 살펴보고 학습 도구를 체험할 수 있습니다.
-          <Link href="/login" className="ml-2 font-bold underline underline-offset-4 hover:text-indigo-700">
-            계정 만들기
-          </Link>
-        </div>
-      )}
-
       <main>
-        <section className="relative overflow-hidden border-b border-slate-100 bg-[radial-gradient(circle_at_84%_12%,rgba(199,210,254,0.72),transparent_25rem),radial-gradient(circle_at_5%_90%,rgba(219,234,254,0.72),transparent_28rem)]">
-          <div aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-700 via-blue-500 to-cyan-400" />
-          <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-14 sm:px-6 sm:py-20 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:py-24">
-            <div className="relative z-10 max-w-2xl">
-              <Badge className="mb-6 border border-indigo-100 bg-white/80 px-3 py-1.5 text-xs font-bold tracking-wide text-indigo-700 shadow-sm">
-                <GraduationCap className="mr-1.5 h-3.5 w-3.5" />
-                단계별 논술 학습
-              </Badge>
-              <p className="mb-4 text-sm font-semibold tracking-[0.16em] text-indigo-700">읽고 · 생각하고 · 설득력 있게 쓰는 힘</p>
-              <h1 className="text-balance text-4xl font-black leading-[1.16] tracking-[-0.055em] text-slate-950 sm:text-5xl lg:text-6xl">
-                좋은 글은,
-                <br />
-                <span className="text-indigo-600">좋은 순서</span>에서 시작됩니다.
+        <section className="relative overflow-hidden border-b border-slate-100 bg-[radial-gradient(circle_at_90%_18%,rgba(224,231,255,0.9),transparent_34rem),radial-gradient(circle_at_4%_90%,rgba(219,234,254,0.78),transparent_30rem)]">
+          <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:px-8 lg:py-24">
+            <div className="max-w-2xl">
+              <h1 className="text-balance text-5xl font-black leading-[1.15] tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-7xl">
+                논술 마스터와 함께
+                <span className="block bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">글쓰기 실력 UP</span>
               </h1>
-              <p className="mt-6 max-w-xl text-pretty text-lg leading-8 text-slate-600 sm:text-xl">
-                논제 이해부터 구조 설계, 문장 다듬기까지. 논술 마스터가 당신의 글쓰기 과정을 한 단계씩 함께 정리합니다.
+              <p className="mt-8 max-w-xl text-pretty text-xl leading-9 text-slate-600">
+                AI 기반 맞춤형 첨삭과 전문 교사의 피드백으로 논술 실력을 한 단계 업그레이드하세요.
               </p>
-
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Link
-                  href={primaryAction.href}
-                  data-home-cta="primary"
-                  className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-indigo-700 px-5 text-base font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300 sm:w-auto"
-                  style={{ backgroundColor: "#4338ca", color: "#ffffff" }}
-                >
-                  {primaryAction.label}
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-                <Link
-                  href={secondaryAction.href}
-                  data-home-cta="secondary"
-                  className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white/80 px-5 text-base font-bold text-slate-800 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-auto"
-                >
-                  {secondaryAction.label}
-                  <ChevronRight className="ml-1 h-4 w-4" />
-                </Link>
-              </div>
-              <p className="mt-3 text-sm text-slate-500">{primaryAction.description}</p>
+              <Link
+                href={primaryAction.href}
+                data-home-cta="primary"
+                className="mt-9 inline-flex h-14 items-center justify-center rounded-xl bg-blue-600 px-8 text-lg font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300"
+              >
+                {primaryActionLabel}<ArrowRight className="ml-2 h-5 w-5" />
+              </Link>
             </div>
 
-            <div className="relative mx-auto w-full max-w-xl lg:max-w-none">
-              <div aria-hidden="true" className="absolute -inset-5 rounded-[2.5rem] bg-indigo-200/45 blur-3xl" />
-              <div className="relative overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white p-4 shadow-[0_22px_70px_-30px_rgba(49,46,129,0.36)] sm:p-6">
-                <div className="mb-5 flex items-center justify-between border-b border-slate-100 pb-4">
-                  <div>
-                    <p className="text-xs font-bold tracking-[0.12em] text-indigo-600">WRITING STUDIO</p>
-                    <p className="mt-1 text-base font-extrabold text-slate-900">내 글을 고치는 순간</p>
-                  </div>
-                  <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">학습 중</div>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-[1.06fr_0.94fr]">
-                  <article className="rounded-2xl bg-slate-50 p-4">
-                    <p className="mb-3 text-xs font-bold text-slate-500">작성한 문장</p>
-                    <p className="font-serif text-[1.04rem] leading-7 text-slate-800">
-                      “주장에 맞는 근거를 차례로 제시하면, 독자는 글의 흐름을 더 분명히 이해할 수 있다.”
-                    </p>
-                    <div className="mt-4 h-1.5 w-full rounded-full bg-slate-200">
-                      <div className="h-full w-3/4 rounded-full bg-indigo-500" />
+            <div className="relative mx-auto hidden w-full max-w-xl md:block">
+              <div aria-hidden="true" className="absolute -inset-6 rounded-[2.5rem] bg-indigo-200/50 blur-3xl" />
+              <div className="relative rounded-[1.75rem] border border-slate-100 bg-white p-7 shadow-[0_24px_60px_-30px_rgba(30,64,175,0.45)] sm:p-9">
+                <div className="space-y-4">
+                  {HERO_VALUE_CARDS.map((card) => (
+                    <div key={card.label} className={`flex items-center gap-4 rounded-xl p-4 ${card.tone}`}>
+                      <CheckCircle2 className="h-7 w-7 shrink-0 text-emerald-600" />
+                      <span className="text-xl font-medium text-slate-700">{card.label}</span>
                     </div>
-                  </article>
-                  <article className="rounded-2xl border border-indigo-100 bg-indigo-50/75 p-4">
-                    <p className="mb-3 text-xs font-bold text-indigo-700">다음 점검</p>
-                    <ul className="space-y-2.5 text-sm leading-5 text-slate-700">
-                      <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />주장과 근거의 연결</li>
-                      <li className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />문장의 핵심어 선택</li>
-                      <li className="flex gap-2"><span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400" />구체적 사례 보완</li>
-                    </ul>
-                  </article>
-                </div>
-                <div className="mt-4 flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-                  <Sparkles className="h-4 w-4 shrink-0 text-indigo-600" />
-                  <span><strong className="text-slate-900">AI 가이드</strong>가 다음에 다듬을 한 가지를 먼저 제안합니다.</span>
+                  ))}
                 </div>
               </div>
             </div>
