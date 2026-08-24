@@ -81,6 +81,9 @@ let _db: ReturnType<typeof drizzle> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
 let memoryProgressId = 1;
 
+const USER_SCHEMA_MIGRATION_HINT =
+  "users 테이블 스키마가 현재 코드와 맞지 않습니다. 설정된 DATABASE_URL에 대해 `pnpm db:migrate`를 실행하거나 로컬 DB라면 `pnpm local-db:up`을 다시 실행해주세요.";
+
 export type DifficultyOperationMode = "standard" | "advanced";
 export type DifficultyOperationPreset = {
   mode: DifficultyOperationMode;
@@ -123,6 +126,39 @@ export async function getDifficultyOperationPreset(): Promise<DifficultyOperatio
 
 function DIFFICULTY_OPERATION_PRESET_FALLBACK(): DifficultyOperationPreset {
   return DIFFICULTY_OPERATION_PRESETS.standard;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function collectErrorMessages(error: unknown, messages: string[] = [], depth = 0): string[] {
+  if (depth > 4 || !isRecord(error)) return messages;
+  const message = error.message;
+  if (typeof message === "string") messages.push(message);
+  collectErrorMessages(error.cause, messages, depth + 1);
+  return messages;
+}
+
+export function getUsersSchemaMismatchMessage(error: unknown): string | null {
+  const messages = collectErrorMessages(error);
+  const combined = messages.join("\n");
+  const missingColumn = combined.match(/Unknown column '([^']+)'/i)?.[1];
+  if (!missingColumn) return null;
+  const usersColumn = missingColumn.includes(".") ? missingColumn.split(".").pop() : missingColumn;
+  return `${USER_SCHEMA_MIGRATION_HINT} 누락된 컬럼: users.${usersColumn}.`;
+}
+
+async function withUsersSchemaHint<T>(operation: Promise<T>): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    const message = getUsersSchemaMismatchMessage(error);
+    if (!message) throw error;
+    const wrapped = new Error(message);
+    (wrapped as Error & { cause?: unknown }).cause = error;
+    throw wrapped;
+  }
 }
 
 export async function saveDifficultyOperationPreset(mode: DifficultyOperationMode, adminId: number) {
@@ -242,7 +278,7 @@ export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const result = await db.select().from(users).where(eq(users.openId, openId));
+  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.openId, openId)));
   return result[0];
 }
 
@@ -250,7 +286,7 @@ export async function getUserById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const result = await db.select().from(users).where(eq(users.id, id));
+  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.id, id)));
   return result[0];
 }
 
@@ -258,7 +294,7 @@ export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const result = await db.select().from(users).where(eq(users.email, email));
+  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.email, email)));
   return result[0];
 }
 
@@ -1197,7 +1233,7 @@ export async function createEmailUser(input: {
   if (!db) throw new Error("Database is not available");
   const role = input.role ?? "user";
   const teacherStatus = role === "teacher" ? (input.teacherStatus ?? "pending") : "approved";
-  await db.insert(users).values({
+  await withUsersSchemaHint(db.insert(users).values({
     openId: input.openId,
     name: input.name ?? null,
     email: input.email ?? null,
@@ -1213,7 +1249,7 @@ export async function createEmailUser(input: {
     preferredTeacherId: input.preferredTeacherId ?? null,
     tag: input.tag ?? "일반",
     lastSignedIn: new Date(),
-  });
+  }));
   return getUserByOpenId(input.openId);
 }
 
@@ -1239,7 +1275,7 @@ export async function setUserPasswordResetToken(userId: number, tokenHash: strin
 export async function getUserByPasswordResetTokenHash(tokenHash: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.verificationTokenHash, tokenHash));
+  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.verificationTokenHash, tokenHash)));
   return result[0];
 }
 
@@ -1264,7 +1300,7 @@ export async function updatePasswordResetToken(userId: number, tokenHash: string
 export async function getUserByVerificationTokenHash(tokenHash: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.verificationTokenHash, tokenHash));
+  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.verificationTokenHash, tokenHash)));
   return result[0];
 }
 
