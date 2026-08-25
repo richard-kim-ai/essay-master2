@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://essay-master.local/schemas/writing-evaluation-engine-v1.1.json",
+  "title": "AI 논술·글쓰기 평가엔진 v1.1 요청 스키마",
+  "type": "object",
+  "required": ["metadata", "task", "submission"],
+  "additionalProperties": false,
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["curriculum_code", "theory_category", "education_level", "difficulty", "writing_type"],
+      "additionalProperties": false,
+      "properties": {
+        "task_id": { "type": "string" },
+        "curriculum_code": { "type": "string", "minLength": 1 },
+        "theory_category": { "type": "string", "minLength": 1 },
+        "education_level": { "enum": ["elementary", "middle_high", "high_univ", "general_adult"] },
+        "difficulty": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "writing_type": { "enum": ["ARGUMENTATIVE", "EXPLANATORY", "REFLECTIVE", "SUMMARY", "CREATIVE"] },
+        "assessment_mode": { "enum": ["FREE_WRITING", "ARGUMENTATIVE", "DBQ", "ANALYTICAL", "IB_PERSONAL_SOCIETY", "IB_SCIENCE"] },
+        "rubric_profile": { "type": "string" },
+        "subject": { "type": "string" }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["prompt"],
+      "additionalProperties": false,
+      "properties": {
+        "prompt": { "type": "string", "minLength": 1 },
+        "assessment_mode": { "enum": ["FREE_WRITING", "ARGUMENTATIVE", "DBQ", "ANALYTICAL", "IB_PERSONAL_SOCIETY", "IB_SCIENCE"] },
+        "constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min_chars": { "type": "integer", "minimum": 0 },
+            "max_chars": { "type": "integer", "minimum": 1 },
+            "required_elements": { "type": "array", "items": { "type": "string" } },
+            "required_source_ids": { "type": "array", "items": { "type": "string" } },
+            "citation_required": { "type": "boolean" },
+            "minimum_source_count": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "source_documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source_id", "content"],
+            "properties": {
+              "source_id": { "type": "string" },
+              "title": { "type": "string" },
+              "content": { "type": "string" },
+              "author_or_origin": { "type": "string" },
+              "perspective": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "submission": {
+      "type": "object",
+      "required": ["learner_id", "essay_text"],
+      "additionalProperties": false,
+      "properties": {
+        "learner_id": { "type": "string", "minLength": 1 },
+        "essay_text": { "type": "string", "minLength": 1 },
+        "source_citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source_id"],
+            "properties": {
+              "source_id": { "type": "string" },
+              "excerpt": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "essay_submission_id": { "type": "integer", "minimum": 1 }
+  }
+}

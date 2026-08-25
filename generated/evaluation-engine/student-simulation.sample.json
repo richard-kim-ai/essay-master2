@@ -1,0 +1,20 @@
+{
+  "metadata": {
+    "curriculum_code": "BASIC_WRITING",
+    "theory_category": "claim_evidence_link",
+    "education_level": "middle_high",
+    "difficulty": 3,
+    "writing_type": "ARGUMENTATIVE"
+  },
+  "task": {
+    "prompt": "기존 학생 글 데이터를 평가엔진 v1.1으로 재평가한다."
+  },
+  "samples": [
+    {
+      "sample_id": "essay-001",
+      "learner_id": "student-sample",
+      "essay_text": "저는 학교에서 스마트폰 사용 시간을 제한해야 한다고 생각합니다. 왜냐하면 수업 시간에 집중하기 어렵기 때문입니다. 예를 들어 친구가 알림을 확인하다가 선생님의 설명을 놓친 적이 있습니다. 하지만 스마트폰은 검색과 연락에 필요합니다. 그래서 완전히 금지하기보다 쉬는 시간에만 사용하도록 정하는 것이 좋습니다.",
+      "previous_score": 74
+    }
+  ]
+}

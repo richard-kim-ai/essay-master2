@@ -3,6 +3,16 @@ import { invokeLLM } from "./_core/llm";
 
 export const QUESTION_BANK_MASTER_PROMPT_VERSION = "2026-08-18-taxonomy-a-f-v1";
 
+// 사람 검수 체크리스트: AI 생성 문항은 아래 6개 항목이 모두 통과되어야 question_bank에 저장된다. (local branch 고유 기능)
+export const HUMAN_REVIEW_ITEMS = [
+  "answer_is_not_length_based",
+  "answer_position_varied",
+  "distractors_are_plausible",
+  "single_best_answer_confirmed",
+  "no_pattern_guessing",
+  "content_matches_theory",
+] as const;
+
 export const COURSE_MAP = {
   ELEMENTARY: { db: "elementary", label: "초등 논술", defaultDifficulty: 2 },
   MIDDLE_HIGH: { db: "middle_high", label: "중고등 논술", defaultDifficulty: 3 },
@@ -28,7 +38,7 @@ export type GenerationRequestInput = z.input<typeof generationRequestSchema>;
 export type AdaptiveStats = { courseType: string; correctRate?: number; totalAttempts?: number; weakTheoryCategories?: string[] };
 export type QuestionBankDTO = { courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"; toolType: "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist"; title: string; contentData: string; difficulty: "easy" | "medium" | "hard"; isActive: number; qaStatus?: "passed" | "blocked"; qaIssues?: string[]; duplicateScore?: number };
 
-export const QUESTION_BANK_MASTER_PROMPT = `당신은 한국어 논술·글쓰기 전문 문항개발 AI다. 실제 학습자가 풀 수 있는 완전한 문항만 생성하며 placeholder, seed, 개발 테스트 문구, 제목만 있는 문항, 최신 사실의 진위를 정답으로 요구하는 문항, 사족과 반복을 금지한다. 과정은 ELEMENTARY(초등고학년/TOPIK3), MIDDLE_HIGH(중고등/TOPIK4), HIGH_ADMISSION(고등·대입/TOPIK5~6), GENERAL_WORK(일반·직장인/TOPIK6 실무형)이며, 난이도 1~5는 어휘·문장 구조·정보 밀도·추론·오류 복합성·정답 모호성·개념 결합으로 조절한다. theory_category를 실제로 평가한다. 모든 문항에는 question, explanation, learning_objective, difficulty_metrics 7개 값이 필요하다. QUIZ에는 4개 choices와 하나의 correct_answer, PARAGRAPH_REORDERING에는 paragraphs[{id,content,correctOrder}], SUMMARY에는 passage·keyPoints·model_answer, TOPIC_WIZARD에는 guidelines 3개와 sampleOutput, CHECKLIST에는 checklistItems 3개와 passingStandard를 포함한다. JSON만 반환한다.`;
+export const QUESTION_BANK_MASTER_PROMPT = `당신은 한국어 논술·글쓰기 전문 문항개발 AI다. 실제 학습자가 풀 수 있는 완전한 문항만 생성하며 placeholder, seed, 개발 테스트 문구, 제목만 있는 문항, 최신 사실의 진위를 정답으로 요구하는 문항, 사족과 반복을 금지한다. 과정은 ELEMENTARY(초등고학년/TOPIK3), MIDDLE_HIGH(중고등/TOPIK4), HIGH_ADMISSION(고등·대입/TOPIK5~6), GENERAL_WORK(일반·직장인/TOPIK6 실무형)이며, 난이도 1~5는 어휘·문장 구조·정보 밀도·추론·오류 복합성·정답 모호성·개념 결합으로 조절한다. theory_category를 실제로 평가한다. 모든 문항에는 question, explanation, learning_objective, difficulty_metrics 7개 값이 필요하다. QUIZ에는 4개 choices와 하나의 correct_answer, PARAGRAPH_REORDERING에는 paragraphs[{id,content,correctOrder}], SUMMARY에는 passage·keyPoints·model_answer, TOPIC_WIZARD에는 guidelines 3개와 sampleOutput, CHECKLIST에는 checklistItems 3개와 passingStandard를 포함한다. 객관식 정답은 길이·위치·문체·구체성만으로 추론할 수 없게 하고, 같은 묶음에서 정답 위치와 선택지 문장 길이·어조를 분산한다. JSON만 반환한다.`;
 export function loadQuestionBankMasterPrompt() { return QUESTION_BANK_MASTER_PROMPT; }
 
 function course(input: string): keyof typeof COURSE_MAP { const upper = input.trim().toUpperCase(); if (upper in COURSE_MAP) return upper as keyof typeof COURSE_MAP; if (legacyCourses[input.trim()]) return legacyCourses[input.trim()]; throw new Error(`지원하지 않는 과정: ${input}`); }
@@ -38,6 +48,49 @@ function parse(raw: unknown): Record<string, any> { const text = typeof raw === 
 function normalizeText(value: unknown) { return String(value ?? "").replace(/\s+/g, " ").replace(/[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ]/g, "").trim().toLowerCase(); }
 function similarity(a: string, b: string) { const as = new Set(a.split(" ").filter(Boolean)); const bs = new Set(b.split(" ").filter(Boolean)); const aItems = Array.from(as); const bItems = Array.from(bs); return aItems.filter((token) => bs.has(token)).length / (new Set(aItems.concat(bItems)).size || 1); }
 function legacyDifficulty(level: number): "easy" | "medium" | "hard" { return level <= 2 ? "easy" : level === 3 ? "medium" : "hard"; }
+
+// 정답 패턴 추측 방지 QA 함수 (local branch 고유 기능)
+function answerIndex(content: { choices?: unknown; correct_answer?: unknown }) {
+  if (!Array.isArray(content.choices) || typeof content.correct_answer !== "string") return -1;
+  return content.choices.findIndex((choice: unknown) => normalizeText(choice) === normalizeText(content.correct_answer));
+}
+
+function quizChoiceLengthIssues(content: { choices?: unknown; correct_answer?: unknown }) {
+  if (!Array.isArray(content.choices) || typeof content.correct_answer !== "string") return [];
+  const choices = content.choices.map((choice: unknown) => String(choice ?? ""));
+  const index = answerIndex({ choices, correct_answer: content.correct_answer });
+  if (index < 0) return [];
+
+  const lengths = choices.map((choice: string) => normalizeText(choice).length);
+  const correctLength = lengths[index];
+  const distractorLengths = lengths.filter((_: number, choiceIndex: number) => choiceIndex !== index);
+  const avgDistractorLength = distractorLengths.reduce((sum: number, value: number) => sum + value, 0) / Math.max(1, distractorLengths.length);
+  const maxDistractorLength = Math.max(0, ...distractorLengths);
+  const minDistractorLength = Math.min(...lengths);
+  const maxLength = Math.max(...lengths);
+  const issues: string[] = [];
+
+  if (correctLength === maxLength && correctLength >= avgDistractorLength * 1.35 && correctLength - maxDistractorLength >= 8) {
+    issues.push("choice_length_bias");
+  }
+  if (maxLength - minDistractorLength >= 45) {
+    issues.push("choice_length_variance_high");
+  }
+  return issues;
+}
+
+function hasHumanReviewPassed(content: {
+  generation_origin?: unknown;
+  human_review?: {
+    overall_passed?: unknown;
+    checklist?: Record<string, unknown>;
+  };
+}) {
+  if (content.generation_origin !== "ai_generated") return true;
+  const checklist = content.human_review?.checklist ?? {};
+  return content.human_review?.overall_passed === true
+    && HUMAN_REVIEW_ITEMS.every((item) => checklist[item] === true);
+}
 function defaults(level: number) { return { vocabulary_complexity: level, sentence_complexity: level, information_density: level, reasoning_depth: level, error_complexity: level, answer_ambiguity: Math.max(1, level - 1), concept_integration: level }; }
 
 export function resolveAdaptiveDifficulty(request: GenerationRequest, stats: AdaptiveStats[] = []) {
@@ -60,7 +113,7 @@ function normalizeContent(raw: unknown, request: GenerationRequest, level: numbe
     ...source, course: targetCourse, tool_type: targetTool, theory_category: clean(source.theory_category, request.theory_category), difficulty: resolvedLevel, difficulty_metrics: metricsSchema.parse(source.difficulty_metrics ?? defaults(resolvedLevel)),
     question: clean(source.question, clean(source.prompt, clean(source.passage))), passage: clean(source.passage, targetTool === "SUMMARY" ? clean(source.prompt) : ""), explanation: clean(source.explanation), learning_objective: clean(source.learning_objective, `${request.theory_category} 학습 목표를 적용한다.`),
     choices, correct_answer: source.correct_answer ?? source.answer ?? "", model_answer: clean(source.model_answer, clean(source.modelAnswer)), prompt: clean(source.prompt, targetTool === "SUMMARY" ? clean(source.passage) : clean(source.question)), options: choices, answer: clean(source.answer, typeof source.correct_answer === "string" ? source.correct_answer : ""), modelAnswer: clean(source.modelAnswer, clean(source.model_answer)),
-    paragraphs, keyPoints: Array.isArray(source.keyPoints) ? source.keyPoints : [], guidelines: Array.isArray(source.guidelines) ? source.guidelines : [], checklistItems: Array.isArray(source.checklistItems) ? source.checklistItems : [], master_prompt_version: QUESTION_BANK_MASTER_PROMPT_VERSION,
+    paragraphs, keyPoints: Array.isArray(source.keyPoints) ? source.keyPoints : [], guidelines: Array.isArray(source.guidelines) ? source.guidelines : [], checklistItems: Array.isArray(source.checklistItems) ? source.checklistItems : [], master_prompt_version: QUESTION_BANK_MASTER_PROMPT_VERSION, generation_origin: (source as { generation_origin?: unknown })?.generation_origin ?? "ai_generated", human_review: (source as { human_review?: unknown })?.human_review,
   };
   if (!content.question || !content.explanation || !content.learning_objective) throw new Error("필수 문항 본문·해설·학습 목표가 없습니다.");
   return content;
@@ -76,6 +129,8 @@ export function qaQuestionItem(item: Pick<QuestionBankDTO, "courseType" | "toolT
   if (!content.correct_answer && !content.answer && !content.model_answer && !content.modelAnswer && !content.evaluation_criteria) issues.push("missing_answer_or_rubric");
   const type = tool(item.toolType); const choices = Array.isArray(content.choices) ? content.choices : content.options; const answer = content.correct_answer ?? content.answer;
   if (type === "QUIZ" && (!Array.isArray(choices) || choices.length !== 4 || !answer || choices.filter((choice: unknown) => normalizeText(choice) === normalizeText(answer)).length !== 1)) issues.push("quiz_structure_failed");
+  if (type === "QUIZ" && Array.isArray(choices) && typeof answer === "string") issues.push(...quizChoiceLengthIssues({ choices, correct_answer: answer }));
+  if (!hasHumanReviewPassed(content)) issues.push("human_review_required");
   if (type === "PARAGRAPH_REORDERING") { const paragraphs = Array.isArray(content.paragraphs) ? content.paragraphs : []; const orders = paragraphs.map((paragraph: any) => Number(paragraph.correctOrder)); if (paragraphs.length < 3 || paragraphs.some((paragraph: any) => !clean(paragraph.id) || !clean(paragraph.content)) || new Set(orders).size !== paragraphs.length || orders.slice().sort((a: number, b: number) => a - b).some((value: number, index: number) => value !== index + 1)) issues.push("reordering_structure_failed"); }
   if (type === "SUMMARY" && (!clean(content.passage, clean(content.prompt)) || !clean(content.model_answer, clean(content.modelAnswer)))) issues.push("summary_structure_failed");
   if (type === "TOPIC_WIZARD" && (!Array.isArray(content.guidelines) || content.guidelines.length < 3)) issues.push("topic_wizard_structure_failed");
@@ -88,7 +143,27 @@ export function qaQuestionItem(item: Pick<QuestionBankDTO, "courseType" | "toolT
 export function mapGeneratedItemsToQuestionBank(raw: unknown, input: GenerationRequestInput, existingItems: Array<{ title: string; contentData: string }> = [], stats: AdaptiveStats[] = []) {
   const request = generationRequestSchema.parse(input); const parsed = z.object({ items: z.array(z.object({ title: z.string().trim().min(3), difficulty: z.enum(["easy", "medium", "hard"]).optional(), contentData: z.unknown() })).min(1) }).parse(Array.isArray(raw) ? { items: raw } : raw); const resolved = resolveAdaptiveDifficulty(request, stats); const result: QuestionBankDTO[] = [];
   for (const source of parsed.items) { const content = normalizeContent(source.contentData, request, resolved); const dto: QuestionBankDTO = { courseType: COURSE_MAP[course(request.course)].db, toolType: TOOL_TYPE_MAP[tool(request.tool_type)].db, title: source.title, contentData: JSON.stringify(content), difficulty: source.difficulty ?? legacyDifficulty(content.difficulty), isActive: 1 }; const qa = qaQuestionItem(dto, existingItems.concat(result)); result.push({ ...dto, qaStatus: qa.passed ? "passed" : "blocked", qaIssues: qa.issues, duplicateScore: qa.duplicateScore }); }
-  return result;
+
+  // 정답 위치 반복 패턴 차단: 같은 배치에서 생성된 QUIZ 문항들의 정답 위치가 전부 동일하면 차단한다. (local branch 고유 기능)
+  const quizAnswerIndexes = result
+    .filter((item) => item.toolType === "quiz")
+    .map((item) => {
+      try {
+        const content = parse(item.contentData);
+        return answerIndex({ choices: content.choices, correct_answer: content.correct_answer });
+      } catch {
+        return -1;
+      }
+    })
+    .filter((index) => index >= 0);
+  const hasBatchPositionPattern = quizAnswerIndexes.length >= 3 && new Set(quizAnswerIndexes).size === 1;
+  if (!hasBatchPositionPattern) return result;
+
+  return result.map((item) => {
+    if (item.toolType !== "quiz") return item;
+    const issues = Array.from(new Set([...(item.qaIssues ?? []), "answer_position_pattern"]));
+    return { ...item, qaStatus: "blocked" as const, qaIssues: issues };
+  });
 }
 
 export async function generateQuestionBankItems(input: GenerationRequestInput, options: { existingItems?: Array<{ title: string; contentData: string }>; adaptiveStats?: AdaptiveStats[]; llm?: typeof invokeLLM } = {}) {

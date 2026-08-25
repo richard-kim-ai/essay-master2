@@ -13,6 +13,11 @@ import {
   teacherFeedback,
   feedbackComment,
   aiAutoFeedback,
+  evaluationModelConfigs,
+  writingEvaluationRecords,
+  evaluationModelOperations,
+  evaluationReviewQueue,
+  evaluationAppeals,
   socialProviderConfig,
   appSecretConfig,
   pushSubscription,
@@ -68,7 +73,7 @@ import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared
 import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
 import { generateQuestionBankItems, qaQuestionItem, type AdaptiveStats, type GenerationRequestInput } from "./questionGeneration";
 import { buildCourseQuizContent, buildCourseSummaryContent, isLegacyRepeatedLearningContent } from "./learningToolContent";
-import { buildTheoryLessonSeedItems, generateTheoryLessonDrafts, qaTheoryLessonCandidate, theoryLessonRequestSchema, type TheoryLessonDraftCandidate, type TheoryLessonRequestInput } from "./theoryLessonContent";
+import { THEORY_LESSON_DATA_VERSION, buildTheoryLessonSeedItems, generateTheoryLessonDrafts, qaTheoryLessonCandidate, theoryLessonRequestSchema, type TheoryLessonDraftCandidate, type TheoryLessonRequestInput } from "./theoryLessonContent";
 import { generateDetailedSentenceFeedback } from "./sentenceFeedbackEngine";
 import { createRequestFingerprint, normalizeForFingerprint } from "./runtimeEfficiency";
 
@@ -470,14 +475,34 @@ export async function seedLessonTheoryContentIfNeeded() {
   const db = await getDb();
   if (!db) return;
   const existing = await db.select().from(lessonTheoryContent);
-  const existingKeys = new Set(existing.map((item) => `${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`));
-  const missing = buildTheoryLessonSeedItems().filter((item) => !existingKeys.has(`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`));
-  for (const item of missing) {
-    await db.insert(lessonTheoryContent).values({
-      contentScope: "THEORY_LESSON", courseType: item.courseType, lessonLevel: item.lessonLevel,
-      theoryCategory: item.theoryCategory, theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
+  const existingByKey = new Map(existing.map((item) => [`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`, item]));
+  for (const item of buildTheoryLessonSeedItems()) {
+    const existingItem = existingByKey.get(`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`);
+    if (!existingItem) {
+      await db.insert(lessonTheoryContent).values({
+        contentScope: "THEORY_LESSON", courseType: item.courseType, lessonLevel: item.lessonLevel,
+        theoryCategory: item.theoryCategory, theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
+        title: item.title, contentData: item.contentData, sourceNote: item.sourceNote, isActive: item.isActive,
+      });
+      continue;
+    }
+    if (!shouldRefreshSeedTheoryContent(existingItem, item)) continue;
+    await db.update(lessonTheoryContent).set({
+      theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
       title: item.title, contentData: item.contentData, sourceNote: item.sourceNote, isActive: item.isActive,
-    });
+      updatedAt: new Date(),
+    }).where(eq(lessonTheoryContent.id, existingItem.id));
+  }
+}
+
+function shouldRefreshSeedTheoryContent(existingItem: typeof lessonTheoryContent.$inferSelect, seedItem: ReturnType<typeof buildTheoryLessonSeedItems>[number]) {
+  if (existingItem.sourceNote !== seedItem.sourceNote) return false;
+  try {
+    const content = JSON.parse(existingItem.contentData) as { data_version?: string; lesson_passage?: unknown };
+    if (content.data_version !== THEORY_LESSON_DATA_VERSION) return true;
+    return ["high_univ", "general_adult"].includes(existingItem.courseType) && !content.lesson_passage;
+  } catch {
+    return true;
   }
 }
 
@@ -955,6 +980,150 @@ export async function createAIAutoFeedback(input: {
   return result;
 }
 
+// ========== Commercial Writing Evaluation Operations ==========
+
+export async function getActiveEvaluationModelConfig() {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [config] = await db.select().from(evaluationModelConfigs).where(eq(evaluationModelConfigs.isActive, 1)).orderBy(desc(evaluationModelConfigs.updatedAt)).limit(1);
+  return config;
+}
+
+export async function listEvaluationModelConfigs() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(evaluationModelConfigs).orderBy(desc(evaluationModelConfigs.updatedAt));
+}
+
+export async function saveEvaluationModelConfig(input: {
+  modelId: string;
+  endpoint: string;
+  allowedDomainsJson: string;
+  encryptedApiKey: string;
+  timeoutMs: number;
+  isActive: number;
+  createdBy: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  if (input.isActive === 1) await db.update(evaluationModelConfigs).set({ isActive: 0 });
+  const [result] = await db.insert(evaluationModelConfigs).values(input);
+  return result;
+}
+
+export async function createWritingEvaluationRecord(input: {
+  userId: number;
+  feedbackId?: number | null;
+  modelId: string;
+  correctionStatus: "completed" | "fallback" | "failed";
+  fallbackUsed: number;
+  providerError?: string | null;
+  latencyMs: number;
+  tokenUsage: number;
+  estimatedCostMicrousd: number;
+  confidence?: string | null;
+  heuristicOverallScore?: number | null;
+  modelOverallScore?: number | null;
+  sourceVerificationFailed?: number;
+  resultJson: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [result] = await db.insert(writingEvaluationRecords).values(input);
+  return result;
+}
+
+export async function getWritingEvaluationRecord(recordId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [record] = await db.select().from(writingEvaluationRecords).where(eq(writingEvaluationRecords.id, recordId)).limit(1);
+  return record;
+}
+
+export async function createEvaluationModelOperation(input: {
+  modelId: string;
+  status: "completed" | "fallback" | "failed";
+  latencyMs: number;
+  tokenUsage: number;
+  estimatedCostMicrousd: number;
+  errorSummary?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(evaluationModelOperations).values(input);
+}
+
+export async function getEvaluationModelOperationStats() {
+  const db = await getDb();
+  if (!db) return [];
+  const operations = await db.select().from(evaluationModelOperations);
+  const grouped = new Map<string, { modelId: string; requestCount: number; completedCount: number; fallbackCount: number; failedCount: number; totalLatency: number; totalTokens: number; estimatedCostMicrousd: number; latestError: string | null }>();
+  for (const operation of operations) {
+    const item = grouped.get(operation.modelId) || { modelId: operation.modelId, requestCount: 0, completedCount: 0, fallbackCount: 0, failedCount: 0, totalLatency: 0, totalTokens: 0, estimatedCostMicrousd: 0, latestError: null };
+    item.requestCount += 1;
+    item.totalLatency += operation.latencyMs || 0;
+    item.totalTokens += operation.tokenUsage || 0;
+    item.estimatedCostMicrousd += operation.estimatedCostMicrousd || 0;
+    if (operation.status === "completed") item.completedCount += 1;
+    if (operation.status === "fallback") item.fallbackCount += 1;
+    if (operation.status === "failed") item.failedCount += 1;
+    if (operation.errorSummary) item.latestError = operation.errorSummary;
+    grouped.set(operation.modelId, item);
+  }
+  return Array.from(grouped.values()).map((item) => ({ ...item, averageLatencyMs: item.requestCount ? Math.round(item.totalLatency / item.requestCount) : 0 }));
+}
+
+export async function createEvaluationReviewQueueItem(input: { evaluationRecordId: number; userId: number; reasonsJson: string }) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(evaluationReviewQueue).values(input);
+}
+
+export async function listEvaluationReviewQueue() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(evaluationReviewQueue).orderBy(desc(evaluationReviewQueue.createdAt));
+}
+
+export async function updateEvaluationReviewQueueItem(input: { id: number; status: "open" | "reviewing" | "resolved"; assignedAdminId?: number | null; resolutionNote?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(evaluationReviewQueue).where(eq(evaluationReviewQueue.id, input.id));
+  const { id, ...values } = input;
+  await db.update(evaluationReviewQueue).set({ ...values, resolvedAt: input.status === "resolved" ? new Date() : null }).where(eq(evaluationReviewQueue.id, id));
+  if (existing && existing.status !== "resolved" && input.status === "resolved") {
+    const detail = input.resolutionNote?.trim() || "담당자가 첨삭 결과를 검토했습니다. 학습 화면에서 결과를 다시 확인해 주세요.";
+    await db.insert(appNotifications).values({ userId: existing.userId, title: "AI 첨삭 인간 검수 완료", message: detail, category: "evaluation_review" });
+  }
+}
+
+export async function createEvaluationAppeal(input: { evaluationRecordId: number; userId: number; reason: string; requestedAction: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [result] = await db.insert(evaluationAppeals).values(input);
+  return result;
+}
+
+export async function listEvaluationAppeals(userId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return userId ? db.select().from(evaluationAppeals).where(eq(evaluationAppeals.userId, userId)).orderBy(desc(evaluationAppeals.createdAt)) : db.select().from(evaluationAppeals).orderBy(desc(evaluationAppeals.createdAt));
+}
+
+export async function updateEvaluationAppeal(input: { id: number; status: "submitted" | "under_review" | "accepted" | "rejected" | "resolved"; adminId: number; adminNote?: string | null }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select().from(evaluationAppeals).where(eq(evaluationAppeals.id, input.id));
+  const { id, ...values } = input;
+  await db.update(evaluationAppeals).set(values).where(eq(evaluationAppeals.id, id));
+  const finalStatuses = ["accepted", "rejected", "resolved"] as const;
+  if (existing && existing.status !== input.status && finalStatuses.includes(input.status as (typeof finalStatuses)[number])) {
+    const statusLabel = input.status === "accepted" ? "수용" : input.status === "rejected" ? "기각" : "처리 완료";
+    const detail = input.adminNote?.trim() || "관리자 검토가 완료되었습니다. 첨삭 결과와 안내 내용을 확인해 주세요.";
+    await db.insert(appNotifications).values({ userId: existing.userId, title: `AI 첨삭 이의제기 ${statusLabel}`, message: detail, category: "evaluation_review" });
+  }
+}
+
 // ========== AI Usage & Quota Functions ==========
 
 export async function logAIUsage(userId: number, actionType: string, tokensUsed: number = 0) {
@@ -1329,8 +1498,8 @@ export async function saveCertificateApprovalPolicy(input: {
   return getCertificateApprovalPolicies();
 }
 
-export async function getStudentCertificateEligibility(studentId: number) {
-  const student = await getUserById(studentId);
+export async function getStudentCertificateEligibility(studentId: number, fallbackStudent?: { id: number; tag?: string | null } & Record<string, unknown>) {
+  const student = await getUserById(studentId) ?? fallbackStudent;
   if (!student) throw new Error("학생을 찾을 수 없습니다.");
   const courseType = getCourseTypeFromUserTag(student.tag);
   const [studentProgress, dynamicModules, staticModules, policies] = await Promise.all([
@@ -3875,7 +4044,7 @@ export async function seedCurriculumWorkbookQuestions() {
   const db = await getDb();
   if (!db) return;
   const existing = await db.select().from(curriculumWorkbookQuestions);
-  if (existing.length > 0) return; // 이미 존재하면 스킵
+  const existingByKey = new Map(existing.map((item) => [`${item.courseType}:${item.level}:${item.lessonIndex}:${item.questionNumber}`, item]));
 
   const courses = [
     { type: "elementary", name: "초등 논술", levels: 2, lessonsPerLevel: 3 },
@@ -3907,21 +4076,23 @@ export async function seedCurriculumWorkbookQuestions() {
             explanation = "좋은 논술문은 명확한 주장과 이를 뒷받침하는 타당한 근거가 유기적으로 연결되어 있어야 합니다.";
           } else if (qNum === 2) {
             questionType = "subjective";
-            correctAnswer = "핵심 논지 파악 및 구체적 근거 제시";
-            explanation = "제시문의 핵심 쟁점을 정확히 포착하고 본인만의 구체적 사례나 근거를 들어 논증하는 것이 핵심 평가 기준입니다.";
-            prompt = `[${c.name} 워크북 심층 논술] 다음 제시된 주제에 대해 자신의 입장을 정하고, 2가지 이상의 타당한 근거를 들어 300자 내외로 서술하시오.\n\n주제: ${c.name} 과정 핵심 개념 적용 및 논리적 타당성 검증`;
+            const item = buildWorkbookSubjectiveSeed(c.type, lvl, lIdx, qNum, c.name);
+            correctAnswer = item.correctAnswer;
+            explanation = item.explanation;
+            prompt = item.prompt;
           } else {
             questionType = "subjective";
-            correctAnswer = "비판적 독해 및 대안 제시";
-            explanation = "제시된 상황의 문제점을 다각도로 분석하고, 실현 가능한 설득력 있는 대안을 제시하는 능력을 평가합니다.";
-            prompt = `[${c.name} 워크북 서술형 평가] 현대 사회에서 발생할 수 있는 주요 갈등 상황을 가정하여, 대립하는 두 관점을 비교하고 본인의 종합적인 견해를 논하시오.`;
+            const item = buildWorkbookSubjectiveSeed(c.type, lvl, lIdx, qNum, c.name);
+            correctAnswer = item.correctAnswer;
+            explanation = item.explanation;
+            prompt = item.prompt;
           }
 
           if (qNum === 1) {
             prompt = `[${c.name} 워크북 객관식 핵심 점검] 다음 중 올바른 논술문 작성 태도나 문장 구조로 가장 적절한 것을 고르시오.`;
           }
 
-          await db.insert(curriculumWorkbookQuestions).values({
+          const values = {
             courseType: c.type,
             level: lvl,
             lessonIndex: lIdx,
@@ -3932,12 +4103,112 @@ export async function seedCurriculumWorkbookQuestions() {
             correctAnswer,
             explanation,
             questionType,
-          });
+          };
+          const existingItem = existingByKey.get(`${c.type}:${lvl}:${lIdx}:${qNum}`);
+          if (!existingItem) {
+            await db.insert(curriculumWorkbookQuestions).values(values);
+          } else if (shouldRefreshWorkbookQuestionSeed(existingItem, title, prompt)) {
+            await db.update(curriculumWorkbookQuestions).set(values).where(eq(curriculumWorkbookQuestions.id, existingItem.id));
+          }
         }
       }
     }
   }
 }
+
+function shouldRefreshWorkbookQuestionSeed(existingItem: typeof curriculumWorkbookQuestions.$inferSelect, seedTitle: string, seedPrompt: string) {
+  if (existingItem.title !== seedTitle) return false;
+  if (existingItem.prompt === seedPrompt) return false;
+  return /다음 제시된 주제|현대 사회에서 발생할 수 있는 주요 갈등 상황|과정 핵심 개념 적용/.test(existingItem.prompt);
+}
+
+function buildWorkbookSubjectiveSeed(courseType: string, level: number, lessonIndex: number, questionNumber: number, courseName: string) {
+  const advanced = workbookSubjectivePassages[courseType]?.[level]?.[lessonIndex]?.[questionNumber];
+  if (advanced) return advanced;
+  const topic = workbookFallbackTopics[courseType]?.[lessonIndex] ?? "학습 태도와 공동체 생활";
+  if (questionNumber === 2) {
+    return {
+      prompt: `[${courseName} 워크북 심층 논술]\n다음 자료를 읽고 물음에 답하시오.\n\n[자료]\n${topic}을 둘러싸고 한쪽은 개인의 선택과 자율성을 강조한다. 다른 한쪽은 공동체의 규칙과 책임이 함께 고려되어야 한다고 본다. 두 입장은 모두 문제 해결을 목표로 하지만, 판단의 기준을 어디에 두는지가 다르다.\n\n[논제]\n자료에 드러난 두 관점의 차이를 정리하고, 자신의 입장을 2가지 근거와 함께 300자 내외로 서술하시오.`,
+      correctAnswer: "자료의 두 관점 비교와 자기 입장 제시",
+      explanation: "자료에 제시된 자율성과 공동체 책임의 차이를 먼저 정리한 뒤, 자신의 입장을 구체적 근거와 연결해야 합니다.",
+    };
+  }
+  return {
+    prompt: `[${courseName} 워크북 서술형 평가]\n다음 상황을 읽고 물음에 답하시오.\n\n[상황]\n${topic}에 대해 구성원들은 서로 다른 해결책을 제안한다. 일부는 빠른 결정을 위해 하나의 기준을 정해야 한다고 주장하고, 다른 일부는 상황마다 조건이 다르므로 예외를 인정해야 한다고 말한다.\n\n[논제]\n두 해결책의 장단점을 비교하고, 더 타당하다고 보는 방안을 300자 내외로 논하시오.`,
+    correctAnswer: "갈등 상황의 두 해결책 비교와 종합 판단",
+    explanation: "한쪽 주장만 반복하지 말고 두 방안의 장단점을 비교한 뒤, 선택한 방안의 이유를 제시해야 합니다.",
+  };
+}
+
+const workbookFallbackTopics: Record<string, string[]> = {
+  elementary: ["학급 약속", "학교 도서관 이용", "친구와의 협력"],
+  middle_high: ["교내 휴대전화 사용", "진로 활동 시간 배분", "미디어 이용 습관"],
+  high_univ: ["AI 추천 알고리즘", "기후 정책", "플랫폼 노동"],
+  general_adult: ["회의 방식 개선", "고객 응대 기준", "지식 공유 채널 운영"],
+};
+
+const workbookSubjectivePassages: Record<string, Record<number, Record<number, Record<number, { prompt: string; correctAnswer: string; explanation: string }>>>> = {
+  high_univ: {
+    1: {
+      2: {
+        2: {
+          prompt: `[고등 / 대입 워크북 심층 논술]\n다음 제시문을 읽고 물음에 답하시오.\n\n[제시문 (가)]\n플랫폼 노동은 일감을 빠르게 연결하고 노동자가 원하는 시간에 일할 수 있게 한다. 이 관점에서는 플랫폼이 전통적 고용보다 더 유연한 선택지를 제공한다고 본다.\n\n[제시문 (나)]\n그러나 플랫폼의 알고리즘은 배차, 평점, 노출 순서를 조정한다. 노동자는 형식상 독립되어 있어도 실제 수입과 업무 방식에서 플랫폼 규칙의 영향을 크게 받을 수 있다.\n\n[논제]\n(가)와 (나)의 관점을 비교하고, 플랫폼 노동을 판단할 때 어떤 기준이 더 중요하다고 보는지 300자 내외로 논하시오.`,
+          correctAnswer: "플랫폼 노동의 자유와 알고리즘 통제 비교",
+          explanation: "두 제시문의 핵심 대비인 유연성/통제성을 먼저 정리하고, 판단 기준을 밝혀야 합니다.",
+        },
+        3: {
+          prompt: `[고등 / 대입 워크북 서술형 평가]\n다음 자료를 읽고 물음에 답하시오.\n\n[자료]\n한 도시는 탄소 배출을 줄이기 위해 도심 차량 통행료를 올리는 방안을 검토하고 있다. 찬성 측은 교통량 감소와 대중교통 이용 증가를 기대한다. 반대 측은 통근 거리가 긴 노동자와 소상공인의 비용 부담이 커질 수 있다고 우려한다.\n\n[논제]\n자료에 나타난 두 관점을 비교하고, 환경 효과와 사회적 형평성을 함께 고려한 자신의 견해를 300자 내외로 서술하시오.`,
+          correctAnswer: "환경 효과와 형평성을 함께 고려한 종합 판단",
+          explanation: "찬반 중 하나만 고르는 것이 아니라 정책 효과와 부담 배분을 함께 검토해야 합니다.",
+        },
+      },
+    },
+    2: {
+      0: {
+        2: {
+          prompt: `[고등 / 대입 워크북 심층 논술]\n다음 제시문을 읽고 물음에 답하시오.\n\n[제시문 (가)]\n자율주행차의 위기 상황 판단은 전체 피해를 최소화하도록 설계되어야 한다. 한 사람의 손해가 있더라도 더 많은 생명을 보호하는 결과가 정당화될 수 있다는 입장이다.\n\n[제시문 (나)]\n반대로 인간을 수단으로 계산하는 방식은 존엄성을 훼손할 수 있다. 기술은 효율뿐 아니라 개인의 권리와 책임 소재를 분명히 하는 기준을 가져야 한다.\n\n[논제]\n두 제시문의 윤리 기준을 비교하고, 기술 설계에서 우선해야 할 기준을 300자 내외로 논하시오.`,
+          correctAnswer: "결과 중심 윤리와 권리 중심 윤리 비교",
+          explanation: "공리주의적 판단과 권리·존엄성 기준을 구분해 자신의 기준을 세워야 합니다.",
+        },
+        3: {
+          prompt: `[고등 / 대입 워크북 서술형 평가]\n다음 상황을 읽고 물음에 답하시오.\n\n[상황]\n대학은 생성형 AI 사용을 전면 금지할지, 출처 표시와 사용 범위를 정해 허용할지 논의하고 있다. 금지론은 표절과 사고력 약화를 우려하고, 허용론은 정보 탐색과 초안 작성 능력도 현대적 학습 역량이라고 본다.\n\n[논제]\n두 입장의 근거를 비교하고, 대학 글쓰기 교육에서 적용할 수 있는 기준을 300자 내외로 제안하시오.`,
+          correctAnswer: "AI 활용의 위험과 교육적 활용 기준 제안",
+          explanation: "금지/허용을 단순 선택하지 말고 사용 범위, 출처 표시, 평가 기준을 함께 제시해야 합니다.",
+        },
+      },
+    },
+  },
+  general_adult: {
+    1: {
+      0: {
+        2: {
+          prompt: `[일반 / 직장인 워크북 심층 논술]\n다음 업무 자료를 읽고 물음에 답하시오.\n\n[자료]\n지난 2주 동안 고객 문의 평균 응답 시간은 18시간에서 11시간으로 줄었다. 자동 분류 양식을 적용해 단순 문의가 담당자에게 바로 배정되었기 때문이다. 다만 환불 문의는 승인 절차가 남아 처리 시간이 거의 줄지 않았다.\n\n[논제]\n위 자료를 의사결정자에게 보고한다고 가정하고, 성과와 남은 과제를 300자 내외로 요약하시오.`,
+          correctAnswer: "성과 수치와 남은 과제를 분리한 업무 요약",
+          explanation: "응답 시간 단축이라는 성과와 환불 승인 절차라는 미해결 과제를 함께 담아야 합니다.",
+        },
+        3: {
+          prompt: `[일반 / 직장인 워크북 서술형 평가]\n다음 상황을 읽고 물음에 답하시오.\n\n[상황]\n팀 회의에서 보고서 양식을 통일하자는 의견과, 프로젝트별 특성을 반영해 자유 양식을 유지하자는 의견이 충돌했다. 통일 양식은 비교와 검토가 쉽지만 세부 맥락을 놓칠 수 있고, 자유 양식은 현장 설명이 풍부하지만 검토 시간이 길어진다.\n\n[논제]\n두 방안의 장단점을 비교하고, 실행 가능한 절충안을 300자 내외로 제안하시오.`,
+          correctAnswer: "표준화와 유연성의 장단점 비교 및 절충안",
+          explanation: "업무 글쓰기에서는 선택한 방안이 실제 실행 절차로 이어져야 합니다.",
+        },
+      },
+    },
+    2: {
+      0: {
+        2: {
+          prompt: `[일반 / 직장인 워크북 심층 논술]\n다음 업무 자료를 읽고 물음에 답하시오.\n\n[자료]\n매출 부진 원인을 분석한 결과 신규 고객 유입은 유지되었지만 재구매율이 낮아졌다. 고객 인터뷰에서는 첫 구매 후 사용법 안내가 부족하고, 문의 답변을 찾기 어렵다는 의견이 많았다. 가격 인하보다 온보딩 개선이 우선이라는 제안이 나왔다.\n\n[논제]\n자료의 핵심 문제를 정리하고, 우선 실행할 개선안을 300자 내외로 제안하시오.`,
+          correctAnswer: "재구매율 저하 원인과 온보딩 개선안 제시",
+          explanation: "매출 부진이라는 결과보다 재구매율과 사용 안내 부족이라는 원인을 중심으로 써야 합니다.",
+        },
+        3: {
+          prompt: `[일반 / 직장인 워크북 서술형 평가]\n다음 상황을 읽고 물음에 답하시오.\n\n[상황]\n회사는 ESG 보고서에 탄소 감축 계획을 넣으려 한다. 재무팀은 비용 증가를 우려해 단계적 도입을 주장하고, 브랜드팀은 고객 신뢰를 위해 빠른 선언이 필요하다고 본다. 생산팀은 현장 설비 교체 일정이 반영되어야 한다고 말한다.\n\n[논제]\n세 부서의 관점을 비교하고, 실행 가능성과 설득력을 모두 고려한 보고서 방향을 300자 내외로 제안하시오.`,
+          correctAnswer: "비용, 신뢰, 실행 일정을 통합한 보고서 방향",
+          explanation: "부서별 입장을 나열하지 말고 공통 의사결정 기준으로 묶어야 합니다.",
+        },
+      },
+    },
+  },
+};
 
 export async function getCurriculumWorkbookQuestions(courseType: string, level: number, lessonIndex: number) {
   const db = await getDb();

@@ -9,8 +9,29 @@ const curriculumDetailPath = new URL("../client/src/pages/CurriculumDetail.tsx",
 const curriculumPagePath = new URL("../client/src/pages/Curriculum.tsx", import.meta.url);
 const routersPath = new URL("./routers.ts", import.meta.url);
 const dbPath = new URL("./db.ts", import.meta.url);
+const evaluationAdminPath = new URL("../client/src/pages/AdminEvaluationModels.tsx", import.meta.url);
+const evaluationCorrectionPath = new URL("./writingCorrectionEngine.ts", import.meta.url);
 
 describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
+  it("외부 첨삭 모델 설정은 adminProcedure로만 노출되고 API 키 평문을 응답하지 않는다", () => {
+    const routersSource = readFileSync(routersPath, "utf8");
+    const dbSource = readFileSync(dbPath, "utf8");
+    expect(routersSource).toContain("evaluationModels: router({");
+    expect(routersSource).toContain("list: adminProcedure");
+    expect(routersSource).toContain("save: adminProcedure");
+    expect(routersSource).toContain("encryptedApiKey: _secret");
+    expect(dbSource).toContain("evaluationModelOperations");
+  });
+
+  it("상용 첨삭 화면이 문장별 비교와 이의제기 흐름을 제공한다", () => {
+    const feedbackSource = readFileSync(new URL("../client/src/pages/AIAutoFeedback.tsx", import.meta.url), "utf8");
+    const adminSource = readFileSync(evaluationAdminPath, "utf8");
+    const correctionSource = readFileSync(evaluationCorrectionPath, "utf8");
+    expect(feedbackSource).toContain("문장별 수정 비교");
+    expect(feedbackSource).toContain("이의제기 작성");
+    expect(adminSource).toContain("인간 검수 큐");
+    expect(correctionSource).toContain("correction_status");
+  });
   it("관리자 대시보드 페이지가 권한 확인 및 학습자 전체 분석을 포함한다", () => {
     const source = readFileSync(adminPagePath, "utf8");
     expect(source).toContain("관리자 전용 페이지");
@@ -54,17 +75,23 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("db.insert(learningGroupMembers).values({ groupId, studentId, addedBy })");
   });
 
-  it("학생용 신규 과정 상세 페이지가 AI 태그와 샘플 PDF 다운로드를 제공한다", () => {
+  it("학생용 신규 과정 상세 페이지가 AI 태그·생성 예문·샘플 PDF 다운로드를 제공한다", () => {
     const source = readFileSync(curriculumDetailPath, "utf8");
     expect(source).toContain("getDynamicByType.useQuery");
+    expect(source).toContain("getWorkbookLessonBundle.useQuery");
+    expect(source).toContain("parseCurriculumTheoryExample");
+    expect(source).toContain("예문으로 확인하기");
+    expect(source).toContain("예문과 함께 워크북 열기");
     expect(source).toContain("item.samplePdfUrl");
     expect(source).toContain("PDF 다운로드");
     expect(source).toContain("item.aiTags");
   });
 
-  it("학생용 커리큘럼 카드가 신규 과정의 상세 페이지와 자동 태그를 연결한다", () => {
+  it("학생용 커리큘럼 카드가 신규 과정의 상세·예문 워크북과 자동 태그를 연결한다", () => {
     const source = readFileSync(curriculumPagePath, "utf8");
-    expect(source).toContain("강의 상세 보기 · PDF 자료");
+    expect(source).toContain("강의 상세 보기 · 생성 예문");
+    expect(source).toContain("예문과 함께 강의 열기");
+    expect(source).toContain("/workbook/${courseType}/${item.level}");
     expect(source).toContain("aiTags");
     expect(source).toContain("isDynamicCourse");
   });
@@ -275,14 +302,16 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("서술형 워크북 답안을 길이 기반으로 채점하지 않고 주제·근거 기반 AI 루브릭으로 평가한다", () => {
     const dbSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
     const workbookSource = readFileSync(new URL("../client/src/pages/Workbook.tsx", import.meta.url), "utf8");
+    const feedbackSource = readFileSync(new URL("../client/src/components/WorkbookQuestionFeedback.tsx", import.meta.url), "utf8");
     expect(dbSource).toContain("evaluateSubjectiveWorkbookAnswer");
     expect(dbSource).toContain("topicRelevance");
     expect(dbSource).toContain("reasonQuotes");
     expect(dbSource).toContain("답안에서 확인 가능한 인용 근거가 없어");
     expect(dbSource).not.toContain("score = userAnswer.length >= 20 ? 95");
-    expect(workbookSource).toContain("AI 근거 기반 서술형 평가");
-    expect(workbookSource).toContain("근거 인용:");
-    expect(workbookSource).toContain("다음 답안에서 우선 보완할 점");
+    expect(workbookSource).toContain("<WorkbookQuestionCard");
+    expect(feedbackSource).toContain("AI 근거 기반 서술형 평가");
+    expect(feedbackSource).toContain("근거 인용:");
+    expect(feedbackSource).toContain("다음 답안에서 우선 보완할 점");
   });
 
   it("교사별 AI 보조 봇의 프로필·승인 사례·초안 수정 이력과 가명처리 모델을 보관한다", () => {

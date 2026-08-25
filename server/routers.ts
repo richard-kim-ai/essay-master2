@@ -6,7 +6,10 @@ import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_
 import * as db from "./db";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { evaluateEssay } from "./aiFeedback";
+import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
+import { normalizeAllowedDomains, validateExternalEvaluationEndpoint } from "./evaluationModelRegistry";
+import { getHumanEvaluationQualityMetrics } from "./evaluationMetrics";
+import { evaluateWritingHeuristic, getHumanReviewReasons } from "./writingCorrectionEngine";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -1041,7 +1044,7 @@ export const appRouter = router({
       db.getCertificatesByUser(ctx.user.id)
     ),
 
-    eligibility: protectedProcedure.query(({ ctx }) => db.getStudentCertificateEligibility(ctx.user.id)),
+    eligibility: protectedProcedure.query(({ ctx }) => db.getStudentCertificateEligibility(ctx.user.id, ctx.user)),
 
     getByShareToken: publicProcedure
       .input(z.string())
@@ -1239,51 +1242,48 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(
-        z.object({
-          essayTitle: z.string(),
-          essayContent: z.string(),
-          courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
-          level: z.number(),
-        })
-      )
+      .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), sourceVerificationFailed: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {
-        // 일일 쿼터 확인 (관리자는 무제한, 일반 학생은 일 5회 제한)
-        if (ctx.user.role !== "admin") {
-          const usageCount = await db.getTodayAIUsageCount(ctx.user.id);
-          if (usageCount >= 5) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요.",
-            });
-          }
-        }
-
-        // AI 피드백 생성
+        if (ctx.user.role !== "admin" && await db.getTodayAIUsageCount(ctx.user.id) >= 5) throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요." });
         const difficultyPreset = await db.getDifficultyOperationPreset();
-        const feedback = await evaluateEssay(input.essayContent, input.courseType, difficultyPreset.mode);
-
-        // 사용량 기록
-        await db.logAIUsage(ctx.user.id, "essay_feedback", 3000);
-
-        // 데이터베이스에 저장
-        return await db.createAIAutoFeedback({
-          userId: ctx.user.id,
-          essayTitle: input.essayTitle,
-          essayContent: input.essayContent,
-          courseType: input.courseType,
-          level: input.level,
-          overallComment: feedback.overallComment,
-          structureScore: feedback.structureScore,
-          logicScore: feedback.logicScore,
-          expressionScore: feedback.expressionScore,
-          overallScore: feedback.overallScore,
-          revisedEssay: feedback.revisedEssay,
-          suggestions: JSON.stringify(feedback.suggestions),
-          strengths: JSON.stringify(feedback.strengths),
-          weaknesses: JSON.stringify(feedback.weaknesses),
-        });
+        const request = { essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, difficultyMode: difficultyPreset.mode, sourceVerificationFailed: Boolean(input.sourceVerificationFailed) } as const;
+        const heuristic = evaluateWritingHeuristic(request);
+        const feedback = await evaluateConfiguredWriting(request, await db.getActiveEvaluationModelConfig());
+        await db.logAIUsage(ctx.user.id, "essay_feedback", feedback.token_usage);
+        await db.createEvaluationModelOperation({ modelId: feedback.model_id, status: feedback.correction_status, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, errorSummary: feedback.provider_error });
+        const savedFeedback = await db.createAIAutoFeedback({ userId: ctx.user.id, essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, overallComment: feedback.overallComment, structureScore: feedback.structureScore, logicScore: feedback.logicScore, expressionScore: feedback.expressionScore, overallScore: feedback.overallScore, revisedEssay: feedback.revisedEssay, suggestions: JSON.stringify(feedback.suggestions), strengths: JSON.stringify(feedback.strengths), weaknesses: JSON.stringify(feedback.weaknesses) });
+        const feedbackId = Number((savedFeedback as { insertId?: number }).insertId || 0) || null;
+        const record = await db.createWritingEvaluationRecord({ userId: ctx.user.id, feedbackId, modelId: feedback.model_id, correctionStatus: feedback.correction_status, fallbackUsed: feedback.fallback_used ? 1 : 0, providerError: feedback.provider_error, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, confidence: feedback.confidence.toFixed(4), heuristicOverallScore: heuristic.overallScore, modelOverallScore: feedback.overallScore, sourceVerificationFailed: input.sourceVerificationFailed ? 1 : 0, resultJson: JSON.stringify({ correction_status: feedback.correction_status, fallback_used: feedback.fallback_used, provider_error: feedback.provider_error, latency_ms: feedback.latency_ms, model_id: feedback.model_id, sentenceCorrections: feedback.sentenceCorrections }) });
+        const evaluationRecordId = Number((record as { insertId?: number }).insertId || 0);
+        const reviewReasons = getHumanReviewReasons(feedback, heuristic.overallScore, Boolean(input.sourceVerificationFailed));
+        if (reviewReasons.length && evaluationRecordId) await db.createEvaluationReviewQueueItem({ evaluationRecordId, userId: ctx.user.id, reasonsJson: JSON.stringify(reviewReasons) });
+        return { ...(savedFeedback as object), ...feedback, id: feedbackId, evaluationRecordId, reviewQueued: reviewReasons.length > 0 };
       }),
+  }),
+
+  evaluationModels: router({
+    list: adminProcedure.query(async () => (await db.listEvaluationModelConfigs()).map(({ encryptedApiKey: _secret, ...config }) => config)),
+    save: adminProcedure.input(z.object({ modelId: z.string().trim().min(1).max(160), endpoint: z.string().url().max(1024), allowedDomains: z.array(z.string().trim().min(1).max(255)).min(1).max(20), apiKey: z.string().min(8).max(4096), timeoutMs: z.number().int().min(1000).max(30000).default(15000), isActive: z.boolean().default(true) })).mutation(async ({ ctx, input }) => {
+      const allowedDomains = normalizeAllowedDomains(input.allowedDomains);
+      const validation = validateExternalEvaluationEndpoint(input.endpoint, allowedDomains);
+      if (!validation.valid) throw new TRPCError({ code: "BAD_REQUEST", message: validation.message });
+      return db.saveEvaluationModelConfig({ modelId: input.modelId, endpoint: input.endpoint, allowedDomainsJson: JSON.stringify(allowedDomains), encryptedApiKey: encryptSecret(input.apiKey), timeoutMs: input.timeoutMs, isActive: input.isActive ? 1 : 0, createdBy: ctx.user.id });
+    }),
+    operationStats: adminProcedure.query(() => db.getEvaluationModelOperationStats()),
+    reviewQueue: adminProcedure.query(() => db.listEvaluationReviewQueue()),
+    updateReviewQueue: adminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["open", "reviewing", "resolved"]), resolutionNote: z.string().max(4000).nullable().optional() })).mutation(({ ctx, input }) => db.updateEvaluationReviewQueueItem({ ...input, assignedAdminId: ctx.user.id })),
+    humanQualityMetrics: adminProcedure.input(z.array(z.object({ humanScore: z.number().min(0).max(100), modelScore: z.number().min(0).max(100) })).max(10000)).query(({ input }) => getHumanEvaluationQualityMetrics(input)),
+  }),
+
+  evaluationAppeals: router({
+    create: protectedProcedure.input(z.object({ evaluationRecordId: z.number().int().positive(), reason: z.string().trim().min(10).max(4000), requestedAction: z.enum(["recheck"]) })).mutation(async ({ ctx, input }) => {
+      const record = await db.getWritingEvaluationRecord(input.evaluationRecordId);
+      if (!record || record.userId !== ctx.user.id) throw new TRPCError({ code: "NOT_FOUND", message: "이의제기를 제출할 평가 기록을 찾을 수 없습니다." });
+      return db.createEvaluationAppeal({ ...input, userId: ctx.user.id });
+    }),
+    mine: protectedProcedure.query(({ ctx }) => db.listEvaluationAppeals(ctx.user.id)),
+    list: adminProcedure.query(() => db.listEvaluationAppeals()),
+    update: adminProcedure.input(z.object({ id: z.number().int().positive(), status: z.enum(["submitted", "under_review", "accepted", "rejected", "resolved"]), adminNote: z.string().max(4000).nullable().optional() })).mutation(({ ctx, input }) => db.updateEvaluationAppeal({ ...input, adminId: ctx.user.id })),
   }),
 
   badges: router({

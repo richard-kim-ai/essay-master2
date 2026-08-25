@@ -113,6 +113,8 @@ temp/
 client/public/__manus__/version.json
 .project-config.json
 
+# Independent evaluation-engine repository
+essay-evaluation-engine/
 # Local AI workspace and non-deployable reference materials
 /codex/
 /Codex/
@@ -120,5 +122,7 @@ client/public/__manus__/version.json
 /Claude/
 /원천 소스 학습자료/
 /평가엔진개발참조자료/
+/학습자료/
 **/원천 소스 학습자료/
 **/평가엔진개발참조자료/
+**/학습자료/

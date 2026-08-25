@@ -6,7 +6,8 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent } from "@/components/ui/tabs";
+import { AcademicApprovalTabs } from "@/components/AcademicApprovalTabs";
 import { Award, CheckCircle2, ChevronLeft, GraduationCap, ShieldCheck, SlidersHorizontal, UsersRound } from "lucide-react";
 
 const courseNames: Record<string, string> = {
@@ -125,12 +126,7 @@ export default function AdminAcademicPermissions() {
           <Card className="border-emerald-100 bg-emerald-50/60"><CardContent className="flex items-center gap-3 p-5"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><div><p className="text-xs font-semibold text-emerald-700">관리자 최종 승인 대기</p><p className="text-2xl font-bold text-slate-900">{requests.filter((request) => request.status === "pending_admin").length}건</p></div></CardContent></Card>
         </div>
 
-        <Tabs defaultValue="permissions" className="space-y-5">
-          <TabsList className="grid h-auto w-full grid-cols-1 gap-1 rounded-xl bg-slate-100 p-1 sm:grid-cols-3">
-            <TabsTrigger value="permissions" className="gap-2"><UsersRound className="h-4 w-4" />교사 권한 부여</TabsTrigger>
-            <TabsTrigger value="policies" className="gap-2"><SlidersHorizontal className="h-4 w-4" />발급 조건 설정</TabsTrigger>
-            <TabsTrigger value="approvals" className="gap-2"><Award className="h-4 w-4" />공동 승인 대기</TabsTrigger>
-          </TabsList>
+        <AcademicApprovalTabs>
 
           <TabsContent value="permissions" className="space-y-5">
             <Card><CardHeader><CardTitle>교사 관리 권한 부여</CardTitle><CardDescription>조직 단위는 해당 교사에게 배정된 학생 전체에, 학생 단위는 선택한 한 명에게만 적용됩니다.</CardDescription></CardHeader><CardContent className="grid gap-4 lg:grid-cols-3">
@@ -150,7 +146,7 @@ export default function AdminAcademicPermissions() {
           })}</TabsContent>
 
           <TabsContent value="approvals"><Card><CardHeader><CardTitle>수료증 공동 승인 요청</CardTitle><CardDescription>교사가 검토한 요청만 관리자 최종 승인 후 실제 수료증으로 발급됩니다.</CardDescription></CardHeader><CardContent className="space-y-3">{requests.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">현재 공동 승인 요청이 없습니다.</p> : requests.map((request) => <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="font-semibold text-slate-900">{request.studentName} · {request.courseLabel} {request.level ? `Level ${request.level}` : ""}</p><p className="mt-1 text-xs text-slate-600">진도 {request.evidenceCompletionRate}% · 평균 {request.evidenceAverageScore}점 · 요청 교사 {request.requestedByName}</p><p className="mt-1 text-xs font-medium text-violet-700">{request.status === "pending_teacher" ? "교사 검토 대기" : request.status === "pending_admin" ? "관리자 최종 승인 대기" : request.status === "approved" ? "발급 완료" : "반려됨"}</p></div>{request.status === "pending_admin" && <div className="flex gap-2"><Button size="sm" variant="outline" className="border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => resolveRequest.mutate({ requestId: request.id, approved: false, note: "관리자 검토 후 발급 조건 미충족" })}>반려</Button><Button size="sm" className="bg-emerald-700 hover:bg-emerald-800" onClick={() => resolveRequest.mutate({ requestId: request.id, approved: true })}>최종 승인·발급</Button></div>}</div>)}</CardContent></Card></TabsContent>
-        </Tabs>
+        </AcademicApprovalTabs>
       </div>
     </div>
   );

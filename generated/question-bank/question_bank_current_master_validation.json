@@ -1,0 +1,81 @@
+{
+  "csv": "/Users/richard/Desktop/AI수익화프로젝트/essay-master/generated/question-bank/question_bank_current_master_200.csv",
+  "rows": 200,
+  "courseType": {
+    "elementary": 50,
+    "middle_high": 50,
+    "high_univ": 50,
+    "general_adult": 50
+  },
+  "toolType": {
+    "quiz": 40,
+    "reordering": 40,
+    "summary": 40,
+    "topic_wizard": 40,
+    "thesis_checklist": 40
+  },
+  "dbDifficulty": {
+    "easy": 80,
+    "medium": 40,
+    "hard": 80
+  },
+  "level": {
+    "1": 40,
+    "2": 40,
+    "3": 40,
+    "4": 40,
+    "5": 40
+  },
+  "curriculumStage": {
+    "초등고학년": 50,
+    "중학생": 50,
+    "고등학생": 25,
+    "대입수험생": 25,
+    "일반인/직장인": 50
+  },
+  "topik": {
+    "TOPIK 3": 50,
+    "TOPIK 4": 50,
+    "TOPIK 5": 25,
+    "TOPIK 6 심화": 25,
+    "TOPIK 6 실무": 50
+  },
+  "stageTool": {
+    "초등고학년/quiz": 10,
+    "초등고학년/reordering": 10,
+    "초등고학년/summary": 10,
+    "초등고학년/topic_wizard": 10,
+    "초등고학년/thesis_checklist": 10,
+    "중학생/quiz": 10,
+    "중학생/reordering": 10,
+    "중학생/summary": 10,
+    "중학생/topic_wizard": 10,
+    "중학생/thesis_checklist": 10,
+    "고등학생/quiz": 5,
+    "대입수험생/quiz": 5,
+    "고등학생/reordering": 5,
+    "대입수험생/reordering": 5,
+    "고등학생/summary": 5,
+    "대입수험생/summary": 5,
+    "고등학생/topic_wizard": 5,
+    "대입수험생/topic_wizard": 5,
+    "고등학생/thesis_checklist": 5,
+    "대입수험생/thesis_checklist": 5,
+    "일반인/직장인/quiz": 10,
+    "일반인/직장인/reordering": 10,
+    "일반인/직장인/summary": 10,
+    "일반인/직장인/topic_wizard": 10,
+    "일반인/직장인/thesis_checklist": 10
+  },
+  "quizCorrectionFocus": {
+    "불필요한 반복과 사족 제거": 8,
+    "같은 어휘와 의미의 반복 삭제": 8,
+    "'~의 가지는'을 '~이 지닌', '~에서 나타나는'으로 전환": 8,
+    "명사형 주어와 서술어 짝 맞추기": 4,
+    "이중 피동을 능동 또는 단순 피동으로 전환": 4,
+    "'~함에 있어서', '~에 대한 확인'을 자연스러운 서술 구조로 전환": 4,
+    "'좋은 시간을 가졌다', '그것은 중요하다'를 자연스러운 한국어 구조로 전환": 4
+  },
+  "problems": {},
+  "passed": true
+}

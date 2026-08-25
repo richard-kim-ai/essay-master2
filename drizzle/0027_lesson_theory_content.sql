@@ -1,0 +1,4 @@
+-- SUPERSEDED: origin/main's 0041_omniscient_ma_gnuci.sql already creates `lesson_theory_content`
+-- with an equivalent schema. This file is intentionally emptied during the 2026-08-19 merge
+-- to avoid a duplicate CREATE TABLE. It is not referenced in drizzle/meta/_journal.json,
+-- so drizzle-kit will not execute it. Safe to delete manually.

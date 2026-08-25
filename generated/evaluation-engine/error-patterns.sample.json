@@ -1,0 +1,40 @@
+{
+  "patterns": [
+    {
+      "code": "CLAIM_UNCLEAR",
+      "label": "중심 주장 보완 지적",
+      "severity": "high",
+      "message": "글 전체를 이끄는 중심 주장이 분명하지 않습니다."
+    },
+    {
+      "code": "EVIDENCE_THIN",
+      "label": "근거 보완 지적",
+      "severity": "medium",
+      "message": "구체적 사례나 자료가 부족합니다."
+    },
+    {
+      "code": "ARG_LINK_WEAK",
+      "label": "주장-근거 연결 보완 지적",
+      "severity": "medium",
+      "message": "근거가 왜 주장을 뒷받침하는지 설명이 부족합니다."
+    },
+    {
+      "code": "NO_COUNTERARGUMENT",
+      "label": "반론 보완 지적",
+      "severity": "medium",
+      "message": "다른 관점이나 예상 반론을 검토하지 않았습니다."
+    },
+    {
+      "code": "DISMISSED_TOO_SHORT",
+      "label": "각하",
+      "severity": "high",
+      "message": "평가 가능한 답안 분량이 아닙니다."
+    },
+    {
+      "code": "HELD_LOW_RELEVANCE",
+      "label": "평가 보류",
+      "severity": "high",
+      "message": "논제 관련성 또는 평가 가능성이 낮습니다."
+    }
+  ]
+}

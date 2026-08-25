@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
-import { Loader2, CheckCircle, HelpCircle, Send, Award, ListChecks, Lightbulb, Sparkles, ArrowRight } from "lucide-react";
+import { Loader2, CheckCircle, HelpCircle, Send, Award, Sparkles, ArrowRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { buildToolPathWithWorkbookReturn, buildWorkbookReturnPath, getInitialWorkbookLesson } from "@/lib/workbookReturn";
 import { getAccessibleLessonIndex } from "@/lib/learningFlow";
+import { WorkbookQuestionCard } from "@/components/WorkbookQuestionCard";
 
 type SubjectiveCriterion = {
   key: "topicRelevance" | "claim" | "evidence" | "analysis" | "expression";
@@ -56,6 +57,15 @@ type TheoryLessonPayload = {
   wrong_example?: string;
   improved_example?: string;
   in_lesson_check?: { question?: string; answer?: string };
+  lesson_passage?: {
+    label?: string;
+    source_type?: string;
+    text?: string;
+    tasks?: string[];
+    model_answer?: string;
+    feedback?: string;
+  };
+  lecture_practice_items?: Array<{ question?: string; answer?: string; explanation?: string }>;
   answer_feedback?: string;
   next_step?: string;
   source_boundary?: string;
@@ -256,6 +266,52 @@ const WORKBOOK_CONTENT: Record<string, Record<number, { title: string; lessons: 
   },
 };
 
+function TheoryPassageBlock({ theory }: { theory: TheoryLessonPayload }) {
+  if (!theory.lesson_passage?.text) return null;
+  const passage = theory.lesson_passage;
+  return (
+    <div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <p className="font-semibold text-slate-900">{passage.label || "강의 지문"}</p>
+        {passage.source_type && <p className="text-xs font-semibold text-violet-700">{passage.source_type}</p>}
+      </div>
+      <p className="mt-3 whitespace-pre-line">{passage.text}</p>
+      {Array.isArray(passage.tasks) && passage.tasks.length > 0 && (
+        <div className="mt-4 border-t border-violet-100 pt-3">
+          <p className="text-xs font-bold text-violet-800">수업 중 과제</p>
+          <ul className="mt-2 space-y-1">
+            {passage.tasks.map((task) => <li key={task}>• {task}</li>)}
+          </ul>
+        </div>
+      )}
+      {(passage.model_answer || passage.feedback) && (
+        <div className="mt-4 rounded-lg bg-violet-50 p-3">
+          {passage.model_answer && <p><span className="font-semibold text-slate-900">예시 답안: </span>{passage.model_answer}</p>}
+          {passage.feedback && <p className="mt-2 text-slate-600"><span className="font-semibold text-slate-900">피드백: </span>{passage.feedback}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TheoryPracticeBlock({ theory }: { theory: TheoryLessonPayload }) {
+  if (!Array.isArray(theory.lecture_practice_items) || theory.lecture_practice_items.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-sky-100 bg-sky-50/60 p-4 text-sm leading-6 text-slate-700">
+      <p className="text-xs font-bold text-sky-800">강의 중 확인문항</p>
+      <div className="mt-3 space-y-3">
+        {theory.lecture_practice_items.map((item, index) => (
+          <div key={`${item.question}-${index}`} className="border-t border-sky-100 pt-3 first:border-t-0 first:pt-0">
+            <p className="font-semibold text-slate-900">{index + 1}. {item.question}</p>
+            {item.answer && <p className="mt-1"><span className="font-semibold">정답: </span>{item.answer}</p>}
+            {item.explanation && <p className="mt-1 text-slate-600">{item.explanation}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Workbook() {
   const { isAuthenticated } = useAuth();
   const utils = trpc.useUtils();
@@ -452,6 +508,8 @@ export default function Workbook() {
                     <p className="mt-3 font-semibold text-slate-900">적용 예시</p>
                     <p className="mt-1">{activeTheory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p>
                   </div>
+                  <TheoryPassageBlock theory={activeTheory} />
+                  <TheoryPracticeBlock theory={activeTheory} />
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="rounded-lg border border-rose-100 bg-rose-50/50 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.wrong_example}</p></div>
                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{activeTheory.improved_example}</p></div>
@@ -468,7 +526,7 @@ export default function Workbook() {
 
               {activeTheoryEntries.slice(1).map(({ theoryContentId, theory }) => {
                 const completed = theoryProgress.some((item) => item.theoryContentId === theoryContentId);
-                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />저장 중</> : recentlyCompletedTheoryId === theoryContentId ? <><CheckCircle className="mr-1.5 h-4 w-4 animate-bounce" />저장 완료</> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button></div>{recentlyCompletedTheoryId === theoryContentId && <p className="mt-3 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">학습 완료가 저장되었습니다. 다음 레슨으로 이동하거나 계속 학습해 보세요.</p>}</div></section>;
+                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><TheoryPassageBlock theory={theory} /><TheoryPracticeBlock theory={theory} /><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />저장 중</> : recentlyCompletedTheoryId === theoryContentId ? <><CheckCircle className="mr-1.5 h-4 w-4 animate-bounce" />저장 완료</> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button></div>{recentlyCompletedTheoryId === theoryContentId && <p className="mt-3 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">학습 완료가 저장되었습니다. 다음 레슨으로 이동하거나 계속 학습해 보세요.</p>}</div></section>;
               })}
 
               <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
@@ -508,26 +566,11 @@ export default function Workbook() {
               ) : workbookQuestions.length === 0 ? (
                 <div className="py-8 text-center text-slate-500 text-sm">등록된 기출문제가 없습니다.</div>
               ) : (
-                workbookQuestions.map((q: any, qIdx: number) => {
+                workbookQuestions.map((q: any) => {
                   const res = submittedResults[q.id];
                   const choices = q.choicesJson ? JSON.parse(q.choicesJson) : [];
                   return (
-                    <Card key={q.id} className="border-slate-200 bg-white shadow-sm">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md">
-                            기출문제 #{qIdx + 1} ({q.questionType === "objective" ? "객관식" : "서술형"})
-                          </span>
-                          {res && (
-                            <span className={`text-xs font-bold px-2.5 py-1 rounded-md ${res.isCorrect ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                              {q.questionType === "subjective" ? `평가 점수: ${res.score}/100점` : res.isCorrect ? "정답 (100점)" : `점수: ${res.score}점`}
-                            </span>
-                          )}
-                        </div>
-                        <CardTitle className="text-base font-bold text-slate-800 mt-2">{q.title}</CardTitle>
-                        <CardDescription className="text-slate-700 font-medium whitespace-pre-line mt-1">{q.prompt}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4 pt-0">
+                    <WorkbookQuestionCard key={q.id} questionType={q.questionType} prompt={q.prompt} explanation={q.explanation} result={res}>
                         {q.questionType === "objective" ? (
                           <div className="grid gap-2">
                             {choices.map((choice: string, cIdx: number) => (
@@ -572,39 +615,7 @@ export default function Workbook() {
                           </Button>
                         </div>
 
-                        {res && q.questionType === "subjective" && res.evaluation ? (
-                          <div className={`mt-3 space-y-4 rounded-xl border p-4 ${res.evaluation.verdict === "excellent" ? "border-emerald-200 bg-emerald-50" : res.evaluation.verdict === "adequate" ? "border-indigo-200 bg-indigo-50" : "border-amber-200 bg-amber-50"}`}>
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <p className="font-bold text-slate-900">AI 근거 기반 서술형 평가</p>
-                                <p className="mt-1 text-sm leading-6 text-slate-700">{res.evaluation.summary}</p>
-                              </div>
-                              <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700 shadow-sm">{res.evaluation.characterCount}자 · 근거 {res.evaluation.validReasonCount}개</span>
-                            </div>
-
-                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                              {res.evaluation.criteria.map((criterion) => (
-                                <div key={criterion.key} className="rounded-lg border border-white/80 bg-white/80 p-2.5">
-                                  <div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-slate-600">{criterion.label}</span><span className="text-sm font-extrabold text-slate-900">{criterion.score}<span className="text-[11px] font-medium text-slate-500">/{criterion.maxScore}</span></span></div>
-                                  <p className="mt-1.5 text-[11px] leading-4 text-slate-600">{criterion.explanation}</p>
-                                  <p className="mt-2 rounded bg-slate-50 px-1.5 py-1 text-[10px] leading-4 text-slate-500">근거 인용: {criterion.quote}</p>
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <div className="rounded-lg border border-amber-200 bg-white/80 p-3"><p className="flex items-center gap-1.5 text-xs font-bold text-amber-900"><Lightbulb className="h-3.5 w-3.5" /> 다음 답안에서 우선 보완할 점</p><ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-slate-700">{res.evaluation.priorityImprovements.map((item, index) => <li key={index}>{item}</li>)}</ol></div>
-                              <div className="rounded-lg border border-slate-200 bg-white/80 p-3"><p className="flex items-center gap-1.5 text-xs font-bold text-slate-800"><ListChecks className="h-3.5 w-3.5" /> 평가 확인</p><ul className="mt-2 space-y-1 text-xs leading-5 text-slate-700"><li>{res.evaluation.isOnTopic ? "주제 적합성 확인" : "주제 적합성 부족"}</li><li>{res.evaluation.hasClearClaim ? "명확한 주장 확인" : "주장·입장 제시 필요"}</li><li>{res.evaluation.hasComparativeAnalysis ? "비교·분석 확인" : "비교·분석 보완 필요"}</li>{res.evaluation.missingRequirements.slice(0, 2).map((item, index) => <li key={index}>보완: {item}</li>)}</ul></div>
-                            </div>
-                          </div>
-                        ) : res ? (
-                          <div className={`p-4 rounded-xl border text-sm space-y-1 mt-3 ${res.isCorrect ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-amber-50 border-amber-200 text-amber-900"}`}>
-                            <p className="font-bold">{res.aiFeedback}</p>
-                            <p className="text-xs opacity-90">해설: {q.explanation}</p>
-                          </div>
-                        ) : null}
-                      </CardContent>
-                    </Card>
+                    </WorkbookQuestionCard>
                   );
                 })
               )}
