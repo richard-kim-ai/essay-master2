@@ -119,7 +119,7 @@ export default function Home() {
                 </Link>
                 {!isAuthenticated && (
                   <Link
-                    href="/curriculum?experience=sample"
+                    href="/sample"
                     data-home-cta="course-finder"
                     className="inline-flex h-14 items-center justify-center rounded-xl border border-blue-200 bg-white px-7 text-base font-bold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
                   >

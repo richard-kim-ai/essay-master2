@@ -33,7 +33,7 @@ export default function Pricing() {
           </ul>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link href="/login?trial=1" className="inline-flex h-12 items-center justify-center rounded-xl bg-indigo-700 px-6 font-bold text-white transition hover:bg-indigo-800">지금 시작하기</Link>
-            <Link href="/curriculum?experience=sample" className="inline-flex h-12 items-center justify-center rounded-xl border border-indigo-200 bg-white px-6 font-bold text-indigo-700 transition hover:bg-indigo-50">나에게 맞는 과정 찾기</Link>
+            <Link href="/sample" className="inline-flex h-12 items-center justify-center rounded-xl border border-indigo-200 bg-white px-6 font-bold text-indigo-700 transition hover:bg-indigo-50">나에게 맞는 과정 찾기</Link>
           </div>
         </section>
 
