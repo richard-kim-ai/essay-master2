@@ -48,7 +48,7 @@ export default function EssayArchive() {
     toolType: activeTool === "all" ? undefined : activeTool,
   });
 
-  const { data: statsData } = trpc.questionBank.stats.useQuery();
+  const { data: statsData } = trpc.questionBank.publicStats.useQuery();
   const { data: bookmarksList, refetch: refetchBookmarks } = trpc.questionBank.getBookmarks.useQuery();
   const { data: similarQuestions } = trpc.questionBank.similarQuestions.useQuery(
     { questionId: selectedQuestionForSimilar?.id || 0 },

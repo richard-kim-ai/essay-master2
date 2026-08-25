@@ -161,6 +161,18 @@ describe("appRouter", () => {
     });
   });
 
+  describe("question bank public stats", () => {
+    it("일반 사용자는 비민감 문제은행 공개 통계를 조회할 수 있다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.questionBank.publicStats()).resolves.toEqual(expect.any(Array));
+    });
+
+    it("비로그인 사용자의 공개 통계 조회도 권한 오류 없이 처리한다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null } as any));
+      await expect(caller.questionBank.publicStats()).resolves.toEqual(expect.any(Array));
+    });
+  });
+
   describe("student class assignments", () => {
     it("교사·관리자 계정은 학생 배정 과제를 조회하거나 제출할 수 없다", async () => {
       const teacherCaller = appRouter.createCaller(createMockContext({

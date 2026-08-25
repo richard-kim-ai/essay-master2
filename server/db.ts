@@ -4046,6 +4046,29 @@ export async function getQuestionBankStats() {
   });
 }
 
+export async function getQuestionBankPublicStats() {
+  const db = await getDb();
+  if (!db) return [];
+  const questions = await db.select({
+    id: questionBank.id,
+    difficulty: questionBank.difficulty,
+  }).from(questionBank);
+  const answers = await db.select({
+    quizId: quizAnswer.quizId,
+    isCorrect: quizAnswer.isCorrect,
+  }).from(quizAnswer);
+
+  return questions.map((question) => {
+    const questionAnswers = answers.filter((answer) => answer.quizId === question.id);
+    const totalAttempts = questionAnswers.length;
+    const correctAttempts = questionAnswers.filter((answer) => answer.isCorrect === 1).length;
+    const correctRate = totalAttempts > 0
+      ? Math.round((correctAttempts / totalAttempts) * 100)
+      : (question.difficulty === "easy" ? 85 : question.difficulty === "medium" ? 60 : 35);
+    return { id: question.id, totalAttempts, correctRate };
+  });
+}
+
 export async function getQuestionBankTrendStats(period: "week" | "month" = "week") {
   const db = await getDb();
   if (!db) return [];

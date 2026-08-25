@@ -1347,6 +1347,9 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return await db.getQuestionBankList(input.courseType, input.toolType);
       }),
+    publicStats: publicProcedure.query(async () => {
+      return await db.getQuestionBankPublicStats();
+    }),
     random: protectedProcedure
       .input(z.object({ courseType: z.string(), toolType: z.string(), limit: z.number().default(10) }))
       .query(async ({ input }) => {
