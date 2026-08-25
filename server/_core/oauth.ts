@@ -49,7 +49,7 @@ export function registerOAuthRoutes(app: Express) {
       });
 
       const sessionToken = await sdk.createSessionToken(userInfo.openId, {
-        name: userInfo.name || "",
+        name: userInfo.name || "학습자",
         expiresInMs: ONE_YEAR_MS,
       });
 
