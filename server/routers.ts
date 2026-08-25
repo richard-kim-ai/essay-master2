@@ -1207,6 +1207,25 @@ export const appRouter = router({
       .mutation(({ input }) => db.createFeedbackComment(input)),
   }),
 
+  // ========== Master Prompt Writing Evaluation Routes ==========
+  writingEvaluationEngine: router({
+    evaluate: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      const result = await evaluateWritingWithLLM(input);
+      await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
+      return result;
+    }),
+    evaluateAndCorrect: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      const result = await evaluateWritingWithLLM(input);
+      await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
+      return result;
+    }),
+    reevaluate: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      const result = await evaluateWritingWithLLM(input);
+      await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
+      return result;
+    }),
+  }),
+
   // ========== AI Auto Feedback Routes ==========
   aiAutoFeedback: router({
     getByUser: protectedProcedure.query(({ ctx }) =>
