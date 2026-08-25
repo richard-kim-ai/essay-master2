@@ -28,6 +28,7 @@ import {
   GraduationCap,
   Edit3,
   Check,
+  CreditCard,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { NotificationPopover } from "@/components/NotificationPopover";
@@ -42,6 +43,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "커리큘럼", href: "/curriculum", icon: BookOpen },
   { label: "추천 아카이브", href: "/essay-archive", icon: GraduationCap },
+  { label: "요금정책", href: "/pricing", icon: CreditCard },
   {
     label: "학습 도구",
     href: "#",

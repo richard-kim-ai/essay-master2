@@ -42,10 +42,11 @@ describe("Home CTA accessibility", () => {
     } as ReturnType<typeof useAuth>);
   });
 
-  it("renders the restored visitor hero as a focusable single CTA without a nested button or unverified metrics", () => {
+  it("renders visitor CTA paths without a nested button or unverified metrics", () => {
     const html = renderToStaticMarkup(<Home />);
 
     expect(html).toContain('href="/curriculum"');
+    expect(html).toContain('href="/login?trial=1"');
     expect(html).toContain("논술 마스터와 함께");
     expect(html).toContain("글쓰기 실력 UP");
     expect(html).toContain("AI 실시간 첨삭");
@@ -69,7 +70,7 @@ describe("Home CTA accessibility", () => {
     const html = renderToStaticMarkup(<Home />);
 
     expect(html).toContain('href="/admin"');
-    expect(html).toContain("운영 현황 보기");
+    expect(html).toContain("지금 시작하기");
     expect(html).not.toContain("로그인 / 회원가입");
   });
 
@@ -82,7 +83,8 @@ describe("Home CTA accessibility", () => {
       root.render(<Home />);
     });
 
-    const primaryCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="primary"][href="/curriculum"]');
+    const primaryCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="primary"][href="/login?trial=1"]');
+    const courseFinderCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="course-finder"][href="/curriculum?experience=sample"]');
     const exploreCoursesLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('a[href="/curriculum"]')).find(
       (link) => !link.hasAttribute("data-slot") && link.textContent?.includes("전체 과정 보기"),
     );
@@ -90,7 +92,7 @@ describe("Home CTA accessibility", () => {
       container.querySelector<HTMLAnchorElement>(`a[href="${href}"]`),
     );
 
-    if (!primaryCta || !exploreCoursesLink || learningCardLinks.some((link) => !link)) {
+    if (!primaryCta || !courseFinderCta || !exploreCoursesLink || learningCardLinks.some((link) => !link)) {
       throw new Error("메인 페이지의 키보드 탐색 대상 링크를 찾을 수 없습니다.");
     }
 
@@ -104,6 +106,7 @@ describe("Home CTA accessibility", () => {
     const user = userEvent.setup();
     const expectedFocusSequence = [
       primaryCta,
+      courseFinderCta,
       exploreCoursesLink,
       ...learningCardLinks,
     ];

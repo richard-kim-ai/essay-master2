@@ -6,6 +6,7 @@ import OfflineStatus from "@/components/OfflineStatus";
 import {
   getHomePrimaryAction,
 } from "@/lib/homeExperience";
+import { getTrialStatus } from "@/lib/trialExperience";
 import { Link } from "wouter";
 import {
   ArrowRight,
@@ -88,7 +89,9 @@ const HERO_VALUE_CARDS = [
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
   const primaryAction = getHomePrimaryAction(isAuthenticated, user?.role);
-  const primaryActionLabel = isAuthenticated ? primaryAction.label : "지금 시작하기";
+  const trial = getTrialStatus(user?.createdAt);
+  const isLearnerTrial = isAuthenticated && user?.role === "user" && trial?.isActive;
+  const primaryActionLabel = "지금 시작하기";
 
   return (
     <div className="min-h-screen bg-[#fbfcff] text-slate-950">
@@ -106,13 +109,31 @@ export default function Home() {
               <p className="mt-8 max-w-xl text-pretty text-xl leading-9 text-slate-600">
                 AI 기반 맞춤형 첨삭과 전문 교사의 피드백으로 논술 실력을 한 단계 업그레이드하세요.
               </p>
-              <Link
-                href={primaryAction.href}
-                data-home-cta="primary"
-                className="mt-9 inline-flex h-14 items-center justify-center rounded-xl bg-blue-600 px-8 text-lg font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300"
-              >
-                {primaryActionLabel}<ArrowRight className="ml-2 h-5 w-5" />
-              </Link>
+              <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+                <Link
+                  href={isAuthenticated ? primaryAction.href : "/login?trial=1"}
+                  data-home-cta="primary"
+                  className="inline-flex h-14 items-center justify-center rounded-xl bg-blue-600 px-8 text-lg font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300"
+                >
+                  {primaryActionLabel}<ArrowRight className="ml-2 h-5 w-5" />
+                </Link>
+                {!isAuthenticated && (
+                  <Link
+                    href="/curriculum?experience=sample"
+                    data-home-cta="course-finder"
+                    className="inline-flex h-14 items-center justify-center rounded-xl border border-blue-200 bg-white px-7 text-base font-bold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+                  >
+                    나에게 맞는 과정 찾기
+                  </Link>
+                )}
+              </div>
+              {!isAuthenticated && <p className="mt-4 text-sm font-medium text-slate-500">과정 탐색은 로그인 없이 체험할 수 있으며, 로그인 후에는 7일간 무료로 학습을 이어갈 수 있습니다.</p>}
+              {isLearnerTrial && (
+                <div className="mt-6 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
+                  <span className="font-bold">7일 무료 체험 중</span>
+                  <span className="ml-2">{trial.daysRemaining}일 남음 · {trial.endsAt.toLocaleDateString("ko-KR")}까지 내 과정과 학습 도구를 둘러볼 수 있습니다.</span>
+                </div>
+              )}
             </div>
 
             <div className="relative mx-auto hidden w-full max-w-xl md:block">
@@ -209,12 +230,12 @@ export default function Home() {
             <h2 className="mt-3 text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">오늘의 한 문장부터 시작해 보세요.</h2>
             <p className="mt-4 text-lg leading-8 text-slate-600">과정을 선택하고, 첫 레슨에서 글쓰기의 기준을 세워 보세요.</p>
             <Link
-              href={primaryAction.href}
+              href={isAuthenticated ? primaryAction.href : "/login?trial=1"}
               data-home-cta="final"
               className="mt-8 inline-flex h-12 items-center justify-center rounded-xl bg-indigo-700 px-6 text-base font-bold text-white shadow-lg shadow-indigo-100 transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300"
               style={{ backgroundColor: "#4338ca", color: "#ffffff" }}
             >
-              {primaryAction.label}<ArrowRight className="ml-2 h-4 w-4" />
+              {primaryActionLabel}<ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </div>
         </section>
@@ -230,6 +251,7 @@ export default function Home() {
             <Link href="/curriculum" className="hover:text-white">커리큘럼</Link>
             <Link href="/essay-archive" className="hover:text-white">추천 아카이브</Link>
             <Link href="/topic-wizard" className="hover:text-white">주제 설정</Link>
+            <Link href="/pricing" className="hover:text-white">요금정책</Link>
             <Link href="/mypage" className="hover:text-white">마이페이지</Link>
           </div>
         </div>
