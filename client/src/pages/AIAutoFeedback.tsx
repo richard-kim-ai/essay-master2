@@ -60,6 +60,7 @@ export default function AIAutoFeedback() {
         essayContent: content,
         courseType,
         level: parseInt(level),
+        ...(quota?.isTrial ? { lessonNumber: 1, submissionSource: "lesson_one_essay" as const } : {}),
       });
 
       // 피드백 데이터 파싱
@@ -112,8 +113,8 @@ export default function AIAutoFeedback() {
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-sm">AI</span>
               <div>
-                <p className="text-sm font-semibold">공용 크레딧 일일 AI 첨삭 쿼터</p>
-                <p className="text-xs text-blue-700">오늘 사용한 횟수: <span className="font-bold">{quota.used}회</span> / 무료 제공 <span className="font-bold">{quota.limit}회</span> (잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</p>
+                <p className="text-sm font-semibold">{quota.isTrial ? "7일 무료 체험 AI 논술 평가" : "공용 크레딧 일일 AI 첨삭 쿼터"}</p>
+                <p className="text-xs text-blue-700">{quota.isTrial ? <>레슨 1 첫 서술형 제출 1회 · 사용: <span className="font-bold">{quota.used}회</span> / 잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span> · 체험 {quota.daysRemaining}일 남음</> : <>오늘 사용한 횟수: <span className="font-bold">{quota.used}회</span> / 무료 제공 <span className="font-bold">{quota.limit}회</span> (잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</>}</p>
               </div>
             </div>
             {quota.remaining === 0 && user?.role !== "admin" ? (
@@ -168,7 +169,7 @@ export default function AIAutoFeedback() {
               <CardHeader>
                 <CardTitle>논술 입력</CardTitle>
                 <CardDescription>
-                  작성한 논술을 입력하면 AI가 즉시 첨삭해드립니다
+                  {quota?.isTrial ? "7일 체험에서는 레슨 1의 첫 서술형 답안을 1회 평가합니다." : "작성한 논술을 입력하면 AI가 즉시 첨삭해드립니다"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">

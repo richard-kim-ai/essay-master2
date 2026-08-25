@@ -52,6 +52,8 @@ const AdminAcademicPermissions = lazy(() => import("@/pages/AdminAcademicPermiss
 const MasterAdminConsole = lazy(() => import("@/pages/MasterAdminConsole"));
 const ParentPortal = lazy(() => import("@/pages/ParentPortal"));
 const StudentAssignments = lazy(() => import("@/pages/StudentAssignments"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const SampleExperience = lazy(() => import("./pages/SampleExperience"));
 
 function RouteLoadingFallback() {
   return (
@@ -89,6 +91,8 @@ function Router() {
         <Route path="/master-admin">{() => <Layout><MasterAdminConsole /></Layout>}</Route>
         <Route path="/parent-portal">{() => <Layout><ParentPortal /></Layout>}</Route>
         <Route path="/" component={Home} />
+        <Route path="/pricing" component={Pricing} />
+        <Route path="/sample" component={SampleExperience} />
         <Route path="/curriculum/:courseType/:level">{() => <Layout><CurriculumDetail /></Layout>}</Route>
         <Route path="/curriculum">{() => <Layout><Curriculum /></Layout>}</Route>
         <Route path="/essay-archive">{() => <Layout><EssayArchive /></Layout>}</Route>

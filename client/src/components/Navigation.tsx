@@ -28,6 +28,7 @@ import {
   GraduationCap,
   Edit3,
   Check,
+  CreditCard,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { NotificationPopover } from "@/components/NotificationPopover";
@@ -42,6 +43,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "커리큘럼", href: "/curriculum", icon: BookOpen },
   { label: "추천 아카이브", href: "/essay-archive", icon: GraduationCap },
+  { label: "요금정책", href: "/pricing", icon: CreditCard },
   {
     label: "학습 도구",
     href: "#",
@@ -66,17 +68,6 @@ export default function Navigation() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editName, setEditName] = useState(user?.name || "");
   const [editAvatar, setEditAvatar] = useState(user?.avatarUrl || "");
-  const sampleLoginMutation = trpc.auth.loginWithEmail.useMutation({
-    onSuccess: async () => {
-      await refresh?.();
-      window.location.href = "/dashboard";
-    },
-    onError: () => {
-      toast.error("샘플 체험 계정으로 로그인하지 못했습니다. 로그인 화면에서 다시 시도해주세요.");
-      window.location.href = "/login";
-    },
-  });
-
   const updateProfileMutation = trpc.auth.updateProfile.useMutation({
     onSuccess: () => {
       toast.success("프로필이 성공적으로 수정되었습니다.");
@@ -200,15 +191,11 @@ export default function Navigation() {
           <div className="flex items-center gap-2">
             {!isAuthenticated && (
               <div className="hidden lg:flex items-center gap-1.5 mr-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-bold gap-1"
-                  disabled={sampleLoginMutation.isPending}
-                  onClick={() => sampleLoginMutation.mutate({ email: "student@sample.com", password: "sample1234" })}
-                >
-                  {sampleLoginMutation.isPending ? "샘플 준비 중..." : "✨ 샘플 모드 체험"}
-                </Button>
+                <Link href="/sample">
+                  <Button size="sm" variant="outline" className="bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-bold gap-1">
+                    ✨ 샘플 체험
+                  </Button>
+                </Link>
               </div>
             )}
 

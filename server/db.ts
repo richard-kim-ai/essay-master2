@@ -1187,6 +1187,13 @@ export async function getTodayAIUsageCount(userId: number): Promise<number> {
   return logs.length;
 }
 
+export async function getAIUsageCountByAction(userId: number, actionType: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const logs = await db.select().from(aiUsageLogs).where(and(eq(aiUsageLogs.userId, userId), eq(aiUsageLogs.actionType, actionType)));
+  return logs.length;
+}
+
 export async function getAllAIUsageStats() {
   const db = await getDb();
   if (!db) return { totalCalls: 0, todayCalls: 0 };

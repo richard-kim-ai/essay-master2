@@ -10,6 +10,8 @@ import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
 import { normalizeAllowedDomains, validateExternalEvaluationEndpoint } from "./evaluationModelRegistry";
 import { getHumanEvaluationQualityMetrics } from "./evaluationMetrics";
 import { evaluateWritingHeuristic, getHumanReviewReasons } from "./writingCorrectionEngine";
+import { evaluateWritingWithLLM } from "./writingEvaluationEngine";
+import { getTrialAccess, isEligibleTrialEvaluation, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -1205,6 +1207,25 @@ export const appRouter = router({
       .mutation(({ input }) => db.createFeedbackComment(input)),
   }),
 
+  // ========== Master Prompt Writing Evaluation Routes ==========
+  writingEvaluationEngine: router({
+    evaluate: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      const result = await evaluateWritingWithLLM(input);
+      await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
+      return result;
+    }),
+    evaluateAndCorrect: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      const result = await evaluateWritingWithLLM(input);
+      await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
+      return result;
+    }),
+    reevaluate: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      const result = await evaluateWritingWithLLM(input);
+      await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
+      return result;
+    }),
+  }),
+
   // ========== AI Auto Feedback Routes ==========
   aiAutoFeedback: router({
     getByUser: protectedProcedure.query(({ ctx }) =>
@@ -1212,9 +1233,14 @@ export const appRouter = router({
     ),
 
     getTodayQuota: protectedProcedure.query(async ({ ctx }) => {
+        const trial = getTrialAccess(ctx.user.createdAt);
+        if (ctx.user.role === "user" && trial.isActive) {
+          const used = await db.getAIUsageCountByAction(ctx.user.id, "trial_essay_feedback");
+          return { used, limit: TRIAL_AI_EVALUATION_LIMIT, remaining: Math.max(0, TRIAL_AI_EVALUATION_LIMIT - used), isTrial: true, daysRemaining: trial.daysRemaining };
+        }
         const count = await db.getTodayAIUsageCount(ctx.user.id);
         const limit = 5; // 일일 무료 공용 크레딧 제한
-        return { used: count, limit, remaining: Math.max(0, limit - count) };
+        return { used: count, limit, remaining: Math.max(0, limit - count), isTrial: false, daysRemaining: 0 };
       }),
 
     getWeeklyUsage: protectedProcedure.query(async ({ ctx }) => {
@@ -1242,14 +1268,23 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), sourceVerificationFailed: z.boolean().optional() }))
+      .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), lessonNumber: z.number().int().min(1).max(20).optional(), submissionSource: z.enum(["lesson_one_essay"]).optional(), sourceVerificationFailed: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "admin" && await db.getTodayAIUsageCount(ctx.user.id) >= 5) throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요." });
+        const trial = getTrialAccess(ctx.user.createdAt);
+        const isTrialUser = ctx.user.role === "user" && trial.isActive;
+        if (isTrialUser && !isEligibleTrialEvaluation(input)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험의 AI 논술 평가는 레슨 1의 첫 서술형 제출에만 제공됩니다." });
+        }
+        if (isTrialUser && await db.getAIUsageCountByAction(ctx.user.id, "trial_essay_feedback") >= TRIAL_AI_EVALUATION_LIMIT) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험에서는 AI 논술 평가를 1회 제공했습니다. 정식 이용 정책을 확인해 주세요." });
+        }
+        if (!isTrialUser && ctx.user.role !== "admin" && await db.getTodayAIUsageCount(ctx.user.id) >= 5) throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요." });
         const difficultyPreset = await db.getDifficultyOperationPreset();
         const request = { essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, difficultyMode: difficultyPreset.mode, sourceVerificationFailed: Boolean(input.sourceVerificationFailed) } as const;
         const heuristic = evaluateWritingHeuristic(request);
-        const feedback = await evaluateConfiguredWriting(request, await db.getActiveEvaluationModelConfig());
-        await db.logAIUsage(ctx.user.id, "essay_feedback", feedback.token_usage);
+        const semantic = await evaluateWritingWithLLM({ metadata: { title: input.essayTitle, course_type: input.courseType, level: input.level, difficulty_mode: difficultyPreset.mode }, task: input.essayTitle, submission: { essay_text: input.essayContent } });
+        const feedback = { structureScore: semantic.dimension_scores.find((item) => item.competency === "macro_structure")?.score ?? semantic.total_score, logicScore: semantic.dimension_scores.find((item) => item.competency === "logical_inference")?.score ?? semantic.total_score, expressionScore: semantic.dimension_scores.find((item) => item.competency === "sentence_expression")?.score ?? semantic.total_score, overallScore: semantic.total_score, strengths: semantic.strengths, weaknesses: semantic.improvement_points, suggestions: semantic.feedback.revision_steps, overallComment: semantic.feedback.summary, revisedEssay: input.essayContent, sentenceCorrections: [], confidence: semantic.fallback_used ? 0.25 : 0.85, correction_status: semantic.fallback_used ? "fallback" as const : "completed" as const, fallback_used: semantic.fallback_used, provider_error: semantic.provider_error, latency_ms: 0, model_id: "builtin-llm-v1.1", token_usage: semantic.token_usage, estimated_cost_microusd: 0 };
+        await db.logAIUsage(ctx.user.id, isTrialUser ? "trial_essay_feedback" : "essay_feedback", feedback.token_usage);
         await db.createEvaluationModelOperation({ modelId: feedback.model_id, status: feedback.correction_status, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, errorSummary: feedback.provider_error });
         const savedFeedback = await db.createAIAutoFeedback({ userId: ctx.user.id, essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, overallComment: feedback.overallComment, structureScore: feedback.structureScore, logicScore: feedback.logicScore, expressionScore: feedback.expressionScore, overallScore: feedback.overallScore, revisedEssay: feedback.revisedEssay, suggestions: JSON.stringify(feedback.suggestions), strengths: JSON.stringify(feedback.strengths), weaknesses: JSON.stringify(feedback.weaknesses) });
         const feedbackId = Number((savedFeedback as { insertId?: number }).insertId || 0) || null;

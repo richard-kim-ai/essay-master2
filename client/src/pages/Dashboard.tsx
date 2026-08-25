@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight, Sparkles, Loader2 } from "lucide-react";
+import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight, Sparkles, Loader2, Clock3, BrainCircuit } from "lucide-react";
 import { useState } from "react";
 import {
   LineChart,
@@ -142,6 +142,7 @@ export default function Dashboard() {
   const { data: weeklyUsageData } = trpc.aiAutoFeedback.getWeeklyUsage.useQuery(undefined, {
     enabled: isAuthenticated,
   });
+  const { data: trialQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery(undefined, { enabled: isAuthenticated });
   const [difficultyGuide, setDifficultyGuide] = useState<{
     headline: string;
     summary: string;
@@ -311,6 +312,14 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <h1 className="mb-5 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">학습 대시보드</h1>
+        {trialQuota?.isTrial && !isSampleMode && (
+          <section className="mb-6 rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-cyan-50 p-4 shadow-sm sm:p-5" aria-label="7일 무료 체험 상태">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white"><Clock3 className="h-5 w-5" /></div><div><p className="font-extrabold text-indigo-950">7일 무료 체험 · {trialQuota.daysRemaining}일 남음</p><p className="mt-1 text-sm leading-6 text-slate-600">내 과정의 레슨과 학습 도구를 자유롭게 경험해 보세요.</p></div></div>
+              <div className={`rounded-xl border px-4 py-3 text-sm ${trialQuota.remaining > 0 ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-slate-200 bg-slate-50 text-slate-700"}`}><p className="flex items-center gap-1.5 font-bold"><BrainCircuit className="h-4 w-4" />레슨 1 AI 논술 평가 {trialQuota.remaining > 0 ? "사용 가능" : "사용 완료"}</p><p className="mt-1 text-xs">{trialQuota.remaining > 0 ? "첫 서술형 답안 1회를 평가받을 수 있습니다." : "평가 결과와 학습 기록은 계속 확인할 수 있습니다."}</p></div>
+            </div>
+          </section>
+        )}
         {isSampleMode && <div className="mb-6 flex flex-col gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">샘플 학습 과정 선택</p><p className="mt-1 text-sm text-indigo-700">선택한 과정의 커리큘럼·뱃지·수료증 예시만 보고 학습을 시작할 수 있습니다.</p></div><select aria-label="샘플 학습 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as typeof sampleCourse; setSampleCourse(course); window.localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select></div>}
 
         {/* Course Progress Breakdown Bars (개인화된 가입 과정에 맞춤 표시) */}
