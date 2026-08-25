@@ -109,11 +109,11 @@ export default function Home() {
               <p className="mt-8 max-w-xl text-pretty text-xl leading-9 text-slate-600">
                 AI 기반 맞춤형 첨삭과 전문 교사의 피드백으로 논술 실력을 한 단계 업그레이드하세요.
               </p>
-              <div className="mt-9 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+              <div className="mt-9 flex w-full max-w-xl flex-col items-stretch gap-3 sm:flex-row sm:items-center">
                 <Link
                   href={isAuthenticated ? primaryAction.href : "/login?trial=1"}
                   data-home-cta="primary"
-                  className="inline-flex h-14 items-center justify-center rounded-xl bg-blue-600 px-8 text-lg font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300"
+                  className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl bg-blue-600 px-6 text-base font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 sm:w-auto sm:px-7 sm:text-lg"
                 >
                   {primaryActionLabel}<ArrowRight className="ml-2 h-5 w-5" />
                 </Link>
@@ -121,7 +121,7 @@ export default function Home() {
                   <Link
                     href="/sample"
                     data-home-cta="course-finder"
-                    className="inline-flex h-14 items-center justify-center rounded-xl border border-blue-200 bg-white px-7 text-base font-bold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+                    className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-white px-5 text-sm font-bold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 sm:w-auto sm:px-6 sm:text-base"
                   >
                     나에게 맞는 과정 찾기
                   </Link>
