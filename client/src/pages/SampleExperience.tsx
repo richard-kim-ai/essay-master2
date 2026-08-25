@@ -2,6 +2,8 @@ import { useState } from "react";
 import { CheckCircle2, ChevronRight, LockKeyhole, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import Navigation from "@/components/Navigation";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const SAMPLE_COURSES = [
   ["elementary", "초등 논술", "생각을 문장으로 표현하는 첫 단계"],
@@ -13,6 +15,7 @@ const SAMPLE_COURSES = [
 export default function SampleExperience() {
   const [selectedCourse, setSelectedCourse] = useState<(typeof SAMPLE_COURSES)[number][0]>("elementary");
   const [answer, setAnswer] = useState<string | null>(null);
+  const [showTrialInvite, setShowTrialInvite] = useState(false);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
@@ -43,7 +46,7 @@ export default function SampleExperience() {
               {["학교 급식에 지역 농산물 사용을 늘려야 한다.", "학생에게 더 신선한 식재료를 제공한다.", "지역 농가에도 도움이 된다."].map((choice, index) => {
                 const isCorrect = index === 0;
                 const isSelected = answer === choice;
-                return <button key={choice} type="button" onClick={() => setAnswer(choice)} className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left font-medium transition ${isSelected ? isCorrect ? "border-emerald-400 bg-emerald-50 text-emerald-950" : "border-rose-300 bg-rose-50 text-rose-950" : "border-slate-200 hover:border-indigo-300"}`}>{choice}{isSelected && <CheckCircle2 className={`h-5 w-5 ${isCorrect ? "text-emerald-600" : "text-rose-500"}`} />}</button>;
+                return <button key={choice} type="button" onClick={() => { setAnswer(choice); setShowTrialInvite(true); }} className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left font-medium transition ${isSelected ? isCorrect ? "border-emerald-400 bg-emerald-50 text-emerald-950" : "border-rose-300 bg-rose-50 text-rose-950" : "border-slate-200 hover:border-indigo-300"}`}>{choice}{isSelected && <CheckCircle2 className={`h-5 w-5 ${isCorrect ? "text-emerald-600" : "text-rose-500"}`} />}</button>;
               })}
             </div>
             {answer && <p className={`mt-4 rounded-xl px-4 py-3 text-sm ${answer.startsWith("학교 급식") ? "bg-emerald-50 text-emerald-900" : "bg-rose-50 text-rose-900"}`}>{answer.startsWith("학교 급식") ? "맞았습니다. ‘늘려야 한다’가 글쓴이의 주장이고, 뒤 문장은 이유입니다." : "다시 살펴보세요. ‘늘려야 한다’처럼 해야 할 일을 말한 문장이 주장입니다."}</p>}
@@ -56,6 +59,16 @@ export default function SampleExperience() {
           </aside>
         </section>
       </main>
+      <Dialog open={showTrialInvite} onOpenChange={setShowTrialInvite}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>샘플 연습을 완료했어요.</DialogTitle>
+            <DialogDescription>회원가입 후 7일 동안 내 과정의 레슨과 학습 도구를 사용하고, 레슨 1 첫 서술형 답안에 대한 AI 논술 평가를 1회 받아 보세요.</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl bg-indigo-50 p-4 text-sm leading-6 text-indigo-950">샘플에서 푼 답안은 저장되지 않습니다. 회원가입 후부터 나의 진도와 학습 기록이 안전하게 저장됩니다.</div>
+          <DialogFooter className="gap-2 sm:gap-0"><Button variant="outline" onClick={() => setShowTrialInvite(false)}>더 둘러보기</Button><Link href="/signup?trial=1"><Button>7일 무료 체험 시작</Button></Link></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

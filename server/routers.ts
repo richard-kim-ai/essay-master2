@@ -10,7 +10,7 @@ import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
 import { normalizeAllowedDomains, validateExternalEvaluationEndpoint } from "./evaluationModelRegistry";
 import { getHumanEvaluationQualityMetrics } from "./evaluationMetrics";
 import { evaluateWritingHeuristic, getHumanReviewReasons } from "./writingCorrectionEngine";
-import { getTrialAccess, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
+import { getTrialAccess, isEligibleTrialEvaluation, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -1220,7 +1220,7 @@ export const appRouter = router({
         }
         const count = await db.getTodayAIUsageCount(ctx.user.id);
         const limit = 5; // 일일 무료 공용 크레딧 제한
-        return { used: count, limit, remaining: Math.max(0, limit - count) };
+        return { used: count, limit, remaining: Math.max(0, limit - count), isTrial: false, daysRemaining: 0 };
       }),
 
     getWeeklyUsage: protectedProcedure.query(async ({ ctx }) => {
@@ -1248,14 +1248,17 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), sourceVerificationFailed: z.boolean().optional() }))
+      .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), lessonNumber: z.number().int().min(1).max(20).optional(), submissionSource: z.enum(["lesson_one_essay"]).optional(), sourceVerificationFailed: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {
         const trial = getTrialAccess(ctx.user.createdAt);
         const isTrialUser = ctx.user.role === "user" && trial.isActive;
+        if (isTrialUser && !isEligibleTrialEvaluation(input)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험의 AI 논술 평가는 레슨 1의 첫 서술형 제출에만 제공됩니다." });
+        }
         if (isTrialUser && await db.getAIUsageCountByAction(ctx.user.id, "trial_essay_feedback") >= TRIAL_AI_EVALUATION_LIMIT) {
           throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험에서는 AI 논술 평가를 1회 제공했습니다. 정식 이용 정책을 확인해 주세요." });
         }
-        if (ctx.user.role !== "admin" && await db.getTodayAIUsageCount(ctx.user.id) >= 5) throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요." });
+        if (!isTrialUser && ctx.user.role !== "admin" && await db.getTodayAIUsageCount(ctx.user.id) >= 5) throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요." });
         const difficultyPreset = await db.getDifficultyOperationPreset();
         const request = { essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, difficultyMode: difficultyPreset.mode, sourceVerificationFailed: Boolean(input.sourceVerificationFailed) } as const;
         const heuristic = evaluateWritingHeuristic(request);

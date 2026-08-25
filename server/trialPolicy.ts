@@ -1,5 +1,11 @@
 export const TRIAL_DURATION_DAYS = 7;
 export const TRIAL_AI_EVALUATION_LIMIT = 1;
+export const TRIAL_AI_EVALUATION_LESSON = 1;
+export const TRIAL_AI_EVALUATION_SOURCE = "lesson_one_essay";
+
+export function isEligibleTrialEvaluation(input: { lessonNumber?: number; submissionSource?: string }) {
+  return input.lessonNumber === TRIAL_AI_EVALUATION_LESSON && input.submissionSource === TRIAL_AI_EVALUATION_SOURCE;
+}
 
 export function getTrialAccess(createdAt: Date | string, now = new Date()) {
   const startedAt = new Date(createdAt);
