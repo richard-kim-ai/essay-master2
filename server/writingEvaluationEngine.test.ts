@@ -3,6 +3,10 @@ import { getHumanEvaluationQualityMetrics } from "./evaluationMetrics";
 import { validateExternalEvaluationEndpoint } from "./evaluationModelRegistry";
 import { evaluateWritingHeuristic, evaluateWritingWithExternalModel, getHumanReviewReasons } from "./writingCorrectionEngine";
 import { simulateEvaluationLearning, summarizeSimulationQuality } from "./writingEvaluationSimulation";
+import { evaluateWritingWithLLM } from "./writingEvaluationEngine";
+import { invokeLLM } from "./_core/llm";
+
+vi.mock("./_core/llm", () => ({ invokeLLM: vi.fn() }));
 
 const request = { essayTitle: "학교 급식", essayContent: "학교 급식은 학생 건강에 중요하다. 따라서 영양 기준을 공개해야 한다.", courseType: "middle_high" as const, level: 1 };
 const connection = { modelId: "commercial-test", endpoint: "https://api.example.com/v1/chat/completions", allowedDomains: ["api.example.com"], apiKey: "test-key", timeoutMs: 2000 };
@@ -64,5 +68,34 @@ describe("인간 채점 품질 지표", () => {
     expect(metrics.thresholdRecall).toBe(1);
     expect(metrics.isOfficial).toBe(false);
     expect(metrics.sampleWarning).toContain("30건 미만");
+  });
+});
+
+const semanticRequest = { metadata: { title: "학교 급식", course_type: "middle_high", level: 1 }, task: "학교 급식의 영양 기준 공개 필요성을 주장하시오.", submission: { essay_text: "학교 급식은 학생 건강에 중요하다. 영양 기준을 공개하면 학생과 학부모가 식단을 이해하고 개선점을 제안할 수 있다." } };
+const semanticPayload = { engine_version: "1.1", decision: "scored", total_score: 82, level: "우수", dimension_scores: Array.from({ length: 12 }, (_, index) => ({ competency: `competency_${index}`, score: 82, evidence: "답안에서 확인되는 근거입니다." })), strengths: ["주장이 분명합니다."], improvement_points: ["근거를 더 구체화할 수 있습니다."], error_patterns: [], feedback: { summary: "논제에 맞는 주장이 드러납니다.", revision_steps: ["구체적인 자료를 보강하세요."], model_sentence_examples: ["영양 기준을 공개하면 개선 논의가 가능해집니다."] }, next_learning_recommendation: { theory_category: "근거 제시", reason: "주장을 뒷받침하는 근거를 확장해 보세요." } };
+
+describe("Master Prompt 의미론 평가", () => {
+  it("정상 JSON 응답을 12개 competency 점수와 피드백으로 정규화한다", async () => {
+    vi.mocked(invokeLLM).mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(semanticPayload) } }], usage: { total_tokens: 444 } } as never);
+    const result = await evaluateWritingWithLLM(semanticRequest);
+    expect(result.decision).toBe("scored");
+    expect(result.dimension_scores).toHaveLength(12);
+    expect(result.fallback_used).toBe(false);
+    expect(result.token_usage).toBe(444);
+  });
+
+  it("JSON 파싱 실패는 휴리스틱 결과로 폴백한다", async () => {
+    vi.mocked(invokeLLM).mockResolvedValueOnce({ choices: [{ message: { content: "not-json" } }] } as never);
+    const result = await evaluateWritingWithLLM(semanticRequest);
+    expect(result.fallback_used).toBe(true);
+    expect(result.provider_error).toContain("Unexpected token");
+  });
+
+  it("짧은 답안은 LLM 호출 없이 held로 반환한다", async () => {
+    vi.mocked(invokeLLM).mockClear();
+    const result = await evaluateWritingWithLLM({ ...semanticRequest, submission: { essay_text: "짧은 답" } });
+    expect(result.decision).toBe("held");
+    expect(result.fallback_used).toBe(false);
+    expect(invokeLLM).not.toHaveBeenCalled();
   });
 });
