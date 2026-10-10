@@ -33,14 +33,17 @@ describe("Signup birth date and guardian input", () => {
     routerState.search = "";
   });
 
-  it("학생 가입에는 생년월일 입력란과 만 14세 미만 안내가 보인다", () => {
+  it("초등 과정(기본 선택)에서는 생년월일과 보호자 정보 입력란, 보호자 동의 안내가 보인다", () => {
     const html = renderToStaticMarkup(<Signup />);
     expect(html).toContain('name="birthDate"');
-    expect(html).toContain("만 14세 미만은 보호자(법정대리인)의 동의가 필요합니다");
+    expect(html).toContain('aria-label="법정대리인 정보"');
+    expect(html).toContain("초등 과정은 보호자(법정대리인)의 동의가 필요합니다");
   });
 
-  it("생년월일을 입력하기 전에는 보호자 입력란을 보여주지 않는다", () => {
+  it("초등이 아닌 과정으로 들어오면 생년월일과 보호자 입력란을 보여주지 않는다", () => {
+    routerState.search = "trial=1&course=middle_high";
     const html = renderToStaticMarkup(<Signup />);
+    expect(html).not.toContain('name="birthDate"');
     expect(html).not.toContain('aria-label="법정대리인 정보"');
   });
 });

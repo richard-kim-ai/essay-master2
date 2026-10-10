@@ -23,7 +23,7 @@ export function GuardianConsentFields({
   return (
     <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3" role="group" aria-label="법정대리인 정보">
       <p className="text-xs leading-relaxed text-amber-950">
-        <strong>만 14세 미만은 보호자(법정대리인)의 동의가 필요합니다.</strong> 아래 보호자 이메일로 동의 요청 메일이 발송되며, 보호자가 동의하기 전에는 서비스를 이용할 수 없습니다.
+        <strong>초등 과정은 보호자(법정대리인)의 동의가 필요합니다.</strong> 아래 보호자 이메일로 동의 요청 메일이 발송되며, 보호자가 동의하기 전에는 서비스를 이용할 수 없습니다.
       </p>
       <label className="block text-sm font-medium text-slate-700">
         보호자 성명

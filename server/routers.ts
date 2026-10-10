@@ -23,7 +23,7 @@ const SAMPLE_AI_GLOBAL_DAILY_LIMIT = 300;
 import { resolveClientIp } from "./clientIp";
 import {
   GUARDIAN_AGREEMENT_LABELS,
-  GUARDIAN_CONSENT_AGE,
+  GUARDIAN_CONSENT_COURSE,
   GUARDIAN_CONSENT_INTRO,
   GUARDIAN_CONSENT_METHOD,
   GUARDIAN_CONSENT_SECTIONS,
@@ -330,23 +330,22 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        let guardianConsentRequired = false;
-        if (input.accountType === "student") {
+        // 보호자(법정대리인) 동의는 초등 과정 가입자에게만 적용한다. 학년과 만 나이가 일치하지 않을 수 있어
+        // 생년월일로 대상을 가르지 않고, 초등 과정이면 생년월일과 보호자 정보를 받아 보호자 이메일로 동의를 확인한다.
+        const guardianConsentRequired = input.accountType === "student" && input.courseType === GUARDIAN_CONSENT_COURSE;
+        if (guardianConsentRequired) {
           if (!input.birthDate) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "학생 회원은 생년월일을 입력해야 합니다." });
+            throw new TRPCError({ code: "BAD_REQUEST", message: "초등 과정 학생은 생년월일을 입력해야 합니다." });
           }
           const age = calculateAge(input.birthDate);
           if (age === null || age > 120) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "생년월일을 정확히 입력해 주세요." });
           }
-          guardianConsentRequired = age < GUARDIAN_CONSENT_AGE;
-          if (guardianConsentRequired) {
-            if (!input.guardian) {
-              throw new TRPCError({ code: "BAD_REQUEST", message: "만 14세 미만 학생은 법정대리인(보호자) 정보를 입력해야 합니다." });
-            }
-            if (input.guardian.email === input.email) {
-              throw new TRPCError({ code: "BAD_REQUEST", message: "보호자 이메일은 학생 이메일과 달라야 합니다." });
-            }
+          if (!input.guardian) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "초등 과정 학생은 법정대리인(보호자) 정보를 입력해야 합니다." });
+          }
+          if (input.guardian.email === input.email) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "보호자 이메일은 학생 이메일과 달라야 합니다." });
           }
         }
         const approvedConsents = await validateSignupConsents(input.accountType, input.consents);
@@ -556,7 +555,7 @@ export const appRouter = router({
         if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "이메일 또는 비밀번호를 확인해주세요." });
         }
-        // 만 14세 미만 아동은 법정대리인이 동의하기 전까지 로그인할 수 없다.
+        // 초등 과정 가입 아동은 법정대리인(보호자)이 동의하기 전까지 로그인할 수 없다.
         const guardianStatus = await db.getLatestGuardianConsentStatusForUser(user.id);
         if (guardianStatus && guardianStatus !== "approved") {
           throw new TRPCError({
@@ -564,7 +563,11 @@ export const appRouter = router({
             message: "보호자(법정대리인)의 동의가 아직 완료되지 않았습니다. 보호자에게 발송된 메일에서 동의를 완료해 주세요. 메일을 받지 못했거나 링크가 만료되었다면 ceo@ufinsu.com으로 문의해 주세요.",
           });
         }
+        // 이메일 인증을 마치지 않은 계정은 로그인할 수 없다. 샘플 체험 계정만 인증 없이 로그인된다.
         if (!user.emailVerifiedAt) {
+          if (!user.email?.includes("@sample.")) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "EMAIL_NOT_VERIFIED" });
+          }
           await db.markEmailVerified(user.id);
         }
 

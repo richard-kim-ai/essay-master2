@@ -311,9 +311,17 @@ describe("appRouter", () => {
       ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("학생 이메일과 달라야") });
     });
 
-    it("만 14세 이상은 보호자 정보 없이 검증을 통과한다(이후 단계에서 DB가 없어 실패해도 보호자 검증 오류는 아니다)", async () => {
-      const result = publicCaller().auth.signup({ ...baseSignup, birthDate: adult });
+    it("초등 과정은 생년월일이 만 14세 이상이어도 보호자 정보를 요구한다", async () => {
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: adult })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining("법정대리인"),
+      });
+    });
+
+    it("초등이 아닌 과정은 생년월일·보호자 정보 없이 검증을 통과한다(이후 단계에서 DB가 없어 실패해도 보호자 검증 오류는 아니다)", async () => {
+      const result = publicCaller().auth.signup({ ...baseSignup, courseType: "middle_high" });
       await expect(result).rejects.not.toMatchObject({ message: expect.stringContaining("법정대리인") });
+      await expect(result).rejects.not.toMatchObject({ message: expect.stringContaining("생년월일") });
     });
 
     it("존재하지 않는 동의 링크는 invalid로 응답하고 확정할 수 없다", async () => {

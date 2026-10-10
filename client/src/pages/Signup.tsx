@@ -8,7 +8,7 @@ import { Mail, Lock, User, ArrowRight, BookOpen, CheckCircle2, Sparkles } from "
 import { trpc } from "@/lib/trpc";
 import { PolicyConsentChecklist, type PolicyConsentValue } from "@/components/PolicyConsentChecklist";
 import { COURSE_OPTIONS, COURSE_TYPES, type CourseType } from "@shared/course";
-import { calculateAge, requiresGuardianConsent } from "@shared/guardian";
+import { GUARDIAN_CONSENT_COURSE, calculateAge } from "@shared/guardian";
 import { EMPTY_GUARDIAN, GuardianConsentFields, type GuardianInput } from "@/components/GuardianConsentFields";
 
 export default function Signup() {
@@ -29,8 +29,8 @@ export default function Signup() {
   const [consents, setConsents] = useState<PolicyConsentValue[]>([]);
   const [birthDate, setBirthDate] = useState("");
   const [guardian, setGuardian] = useState<GuardianInput>(EMPTY_GUARDIAN);
-  // 만 14세 미만 학생은 법정대리인(보호자)의 동의가 필요하다.
-  const needsGuardian = accountType === "student" && requiresGuardianConsent(birthDate);
+  // 초등 과정 학생은 생년월일과 법정대리인(보호자) 정보를 입력하고, 보호자가 이메일로 동의해야 한다.
+  const needsGuardian = accountType === "student" && courseType === GUARDIAN_CONSENT_COURSE;
   const todayDate = new Date().toISOString().slice(0, 10);
   const socialProviders = trpc.social.providers.useQuery();
   const recommendedTeachers = trpc.auth.recommendedTeachers.useQuery({ courseType }, { enabled: accountType === "student" });
@@ -58,17 +58,15 @@ export default function Signup() {
     if (!formData.name || !formData.email || !formData.password) return toast.error("모든 필드를 입력해주세요.");
     if (formData.password.length < 8) return toast.error("비밀번호는 8자 이상이어야 합니다.");
     if (formData.password !== formData.confirmPassword) return toast.error("비밀번호가 일치하지 않습니다.");
-    if (accountType === "student") {
+    if (needsGuardian) {
       if (!birthDate) return toast.error("생년월일을 입력해 주세요.");
       if (calculateAge(birthDate) === null) return toast.error("생년월일을 정확히 입력해 주세요.");
-      if (needsGuardian) {
-        if (guardian.name.trim().length < 2) return toast.error("보호자 성명을 입력해 주세요.");
-        if (!guardian.email.trim()) return toast.error("보호자 이메일을 입력해 주세요.");
-        if (guardian.email.trim().toLowerCase() === formData.email.trim().toLowerCase()) return toast.error("보호자 이메일은 학생 이메일과 달라야 합니다.");
-      }
+      if (guardian.name.trim().length < 2) return toast.error("보호자 성명을 입력해 주세요.");
+      if (!guardian.email.trim()) return toast.error("보호자 이메일을 입력해 주세요.");
+      if (guardian.email.trim().toLowerCase() === formData.email.trim().toLowerCase()) return toast.error("보호자 이메일은 학생 이메일과 달라야 합니다.");
     }
     if (consents.length === 0) return toast.error("필수 문서를 확인하고 동의해주세요.");
-    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password, accountType, courseType: accountType === "student" ? courseType : undefined, preferredTeacherId: accountType === "student" && preferredTeacherId ? Number(preferredTeacherId) : undefined, birthDate: accountType === "student" ? birthDate : undefined, guardian: needsGuardian ? { name: guardian.name.trim(), relation: guardian.relation, email: guardian.email.trim() } : undefined, consents });
+    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password, accountType, courseType: accountType === "student" ? courseType : undefined, preferredTeacherId: accountType === "student" && preferredTeacherId ? Number(preferredTeacherId) : undefined, birthDate: needsGuardian ? birthDate : undefined, guardian: needsGuardian ? { name: guardian.name.trim(), relation: guardian.relation, email: guardian.email.trim() } : undefined, consents });
   };
 
   return (
@@ -104,10 +102,10 @@ export default function Signup() {
               <p className="mt-2 text-[11px] leading-relaxed text-emerald-800">학부모 계정은 연결된 학생의 학습 상황 확인과 코멘트 기능에 사용됩니다.</p>
             </div>
             {accountType === "student" && <><label className="block text-sm font-medium text-slate-700">학습 과정<select value={courseType} onChange={(event) => { setCourseType(event.target.value as CourseType); setPreferredTeacherId(""); }} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">로그인 후 선택한 과정의 커리큘럼과 레슨을 기본으로 안내합니다.</span></label><label className="block text-sm font-medium text-slate-700">추천 교사 선택 <span className="font-normal text-slate-400">(선택)</span><select value={preferredTeacherId} onChange={(event) => setPreferredTeacherId(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2" disabled={recommendedTeachers.isLoading}><option value="">선택하지 않음 — AI 첨삭 전용 봇 기본 배정</option>{recommendedTeachers.data?.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name} · Level {teacher.teacherLevel}{teacher.courseMatch ? " · 선택 과정 추천" : ""}</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">교사를 선택하지 않으면 AI 첨삭 전용 봇이 기본 담당으로 지정됩니다.</span></label></>}
-            {accountType === "student" && (
+            {needsGuardian && (
               <label className="block text-sm font-medium text-slate-700">생년월일
                 <Input type="date" name="birthDate" value={birthDate} max={todayDate} onChange={(event) => setBirthDate(event.target.value)} className="mt-2" disabled={signupMutation.isPending} />
-                <span className="mt-1 block text-[11px] font-normal text-slate-500">만 14세 미만은 보호자(법정대리인)의 동의가 필요합니다. 생년월일은 이 확인에만 사용합니다.</span>
+                <span className="mt-1 block text-[11px] font-normal text-slate-500">초등 과정은 보호자(법정대리인)의 동의가 필요합니다. 생년월일은 동의 기록에만 사용합니다.</span>
               </label>
             )}
             {needsGuardian && <GuardianConsentFields value={guardian} onChange={setGuardian} disabled={signupMutation.isPending} />}

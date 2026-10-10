@@ -2,6 +2,8 @@
 // 서버(가입 검증·동의 기록)와 화면(가입 입력·동의 페이지)이 같은 기준을 쓰도록 한 곳에 둔다.
 
 export const GUARDIAN_CONSENT_AGE = 14;
+// 보호자 동의를 받는 대상 과정. 학년과 만 나이가 달라 생년월일로 대상을 가르기 어려워 초등 과정 가입자에게만 적용한다.
+export const GUARDIAN_CONSENT_COURSE = "elementary";
 // 동의서 문구가 바뀌면 값을 올려, 어떤 문구에 동의했는지 기록으로 구분한다.
 export const GUARDIAN_CONSENT_VERSION = "2026-10-v1";
 export const GUARDIAN_CONSENT_METHOD = "email_confirmation";
