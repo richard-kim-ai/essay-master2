@@ -422,12 +422,15 @@ export default function Workbook() {
       if (!completedLessons.includes(currentLesson)) {
         setCompletedLessons([...completedLessons, currentLesson]);
       }
-      await progressMutation.mutateAsync({
-        curriculumId: level,
-        completed: currentLesson === workbookData.lessons.length - 1 ? 1 : 0,
-        score: Math.round(((completedLessons.length + 1) / workbookData.lessons.length) * 100),
+      // 점수·완료 여부는 서버가 채점한 워크북 답안으로 계산한다(여기서는 과정과 레벨만 알린다).
+      const saved = await progressMutation.mutateAsync({
+        courseType: courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
+        level,
       });
-      toast.success("레슨 학습 완료 및 진도가 성공적으로 저장되었습니다.");
+      if (!saved) toast.success("레슨 학습을 확인했습니다.");
+      else if (saved.completed) toast.success("이 레벨의 모든 문항을 마쳐 학습 완료로 저장되었습니다.");
+      else if (saved.totalCount > saved.answeredCount) toast.info(`진도가 저장되었습니다. 이 레벨 문항 ${saved.totalCount}개 중 ${saved.answeredCount}개를 풀었어요. 모든 문항을 풀면 학습 완료로 인정됩니다.`);
+      else toast.info(`진도가 저장되었습니다. 현재 평균 ${saved.score}점입니다. 평균 60점 이상이면 학습 완료로 인정됩니다. 틀린 문항은 다시 풀어 점수를 높일 수 있어요.`);
     } catch (err: any) {
       toast.error(err.message || "진도 저장 중 오류가 발생했습니다.");
     } finally {

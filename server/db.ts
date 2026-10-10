@@ -69,6 +69,7 @@ import {
   type InsertPushSubscription,
 } from "../drizzle/schema";
 import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
+import { computeLessonProgress } from "./lessonProgress";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
@@ -756,6 +757,45 @@ export async function upsertProgress(input: {
   return result;
 }
 
+/**
+ * 학생의 레슨(모듈) 진행 기록을 서버가 계산해 저장한다. 클라이언트가 보낸 점수·완료 여부는 받지 않는다.
+ * - 모듈은 수료 판정과 같은 기준(동적 커리큘럼 우선, 없으면 정적 커리큘럼)에서 학생의 과정·레벨로 찾는다.
+ * - 점수·완료는 해당 과정·레벨 워크북 문항에 대해 서버가 채점해 저장한 답안으로 계산한다.
+ * - 이미 완료된 기록은 되돌리지 않고, 점수는 더 높은 값만 반영한다.
+ */
+export async function recordLessonProgress(student: { id: number; tag?: string | null }, level: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const courseType = getCourseTypeFromUserTag(student.tag);
+  const [dynamicModules, staticModules] = await Promise.all([getDynamicCurriculumByType(courseType), getCurriculumByType(courseType)]);
+  const modules = dynamicModules.length > 0 ? dynamicModules : staticModules;
+  const module = modules.find((item) => Number(item.level) === level);
+  if (!module) throw new Error("가입·학습 중인 과정에 없는 레벨입니다.");
+  const curriculumId = module.id;
+
+  const questions = await db.select({ id: curriculumWorkbookQuestions.id }).from(curriculumWorkbookQuestions)
+    .where(and(eq(curriculumWorkbookQuestions.courseType, courseType), eq(curriculumWorkbookQuestions.level, Number(module.level))));
+  const questionIds = questions.map((question) => question.id);
+  const answers = questionIds.length > 0
+    ? await db.select({ questionId: curriculumWorkbookAnswers.questionId, score: curriculumWorkbookAnswers.score }).from(curriculumWorkbookAnswers)
+      .where(and(eq(curriculumWorkbookAnswers.userId, student.id), inArray(curriculumWorkbookAnswers.questionId, questionIds)))
+    : [];
+  const computed = computeLessonProgress({ questionIds, answers });
+
+  const existing = await getProgressByUserAndCurriculum(student.id, curriculumId);
+  const wasCompleted = Number(existing?.completed ?? 0) >= 1;
+  const completed = wasCompleted || computed.completed;
+  const score = Math.max(Number(existing?.score ?? 0), computed.score);
+  await upsertProgress({
+    userId: student.id,
+    curriculumId,
+    completed: completed ? 1 : 0,
+    score,
+    completedAt: completed ? (existing?.completedAt ?? new Date()) : null,
+  });
+  return { curriculumId, level: Number(module.level), score, completed, answeredCount: computed.answeredCount, totalCount: computed.totalCount };
+}
+
 // ========== Quiz Functions ==========
 
 export async function saveQuizAnswer(input: {
@@ -922,6 +962,13 @@ export async function getTeacherFeedbackByEssay(essayId: number) {
     .where(eq(teacherFeedback.essayId, essayId));
 
   return result[0];
+}
+
+export async function getTeacherFeedbackById(feedbackId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(teacherFeedback).where(eq(teacherFeedback.id, feedbackId));
+  return row;
 }
 
 export async function createTeacherFeedback(input: {

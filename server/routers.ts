@@ -175,6 +175,20 @@ async function assertTeacherEssayAccess(user: { id: number; role: string; teache
   return essay;
 }
 
+// 제출 글과 그 첨삭은 글 주인·배정 교사·관리자만 볼 수 있다(글 번호만으로 남의 글을 열 수 없게 한다).
+async function assertEssayReadAccess(user: { id: number; role: string; teacherStatus?: string | null }, essayId: number) {
+  const essay = await db.getEssaySubmissionById(essayId);
+  if (!essay) throw new TRPCError({ code: "NOT_FOUND", message: "논술 제출물을 찾을 수 없습니다." });
+  if (user.role === "admin" || essay.userId === user.id) return essay;
+  if (user.role === "teacher" && user.teacherStatus === "approved") {
+    const student = await db.getUserById(essay.userId);
+    if (student?.teacherId === user.id) return essay;
+  }
+  throw new TRPCError({ code: "FORBIDDEN", message: "본인 또는 담당 학생의 제출물만 확인할 수 있습니다." });
+}
+
+const SCORE_0_100 = z.number().int().min(0).max(100);
+
 export const appRouter = router({
   system: systemRouter,
   policy: router({
@@ -889,24 +903,18 @@ export const appRouter = router({
         db.getProgressByUserAndCurriculum(ctx.user.id, input)
       ),
 
+    // 점수·완료 여부는 클라이언트가 정하지 않는다. 서버가 채점해 저장한 워크북 답안으로 계산한다.
     upsert: protectedProcedure
-      .input(
-        z.object({
-          curriculumId: z.number(),
-          score: z.number(),
-          completed: z.number(),
-          completedAt: z.date().optional(),
-        })
-      )
-      .mutation(({ ctx, input }) =>
-        db.upsertProgress({
-          userId: ctx.user.id,
-          curriculumId: input.curriculumId,
-          score: input.score ?? 0,
-          completed: input.completed ? 1 : 0,
-          completedAt: input.completedAt ?? null,
-        })
-      ),
+      .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(20) }))
+      .mutation(async ({ ctx, input }) => {
+        // 관리자·교사·학부모 계정의 미리보기, 그리고 가입 과정이 아닌 다른 과정을 둘러보는 경우에는 학습 기록을 남기지 않는다.
+        if (ctx.user.role !== "user" || ctx.user.tag === "학부모" || input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) return null;
+        try {
+          return await db.recordLessonProgress(ctx.user, input.level);
+        } catch (error: any) {
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "진도를 저장할 수 없습니다." });
+        }
+      }),
   }),
 
   student: router({
@@ -1154,24 +1162,23 @@ export const appRouter = router({
       .input(
         z.object({
           courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]),
-          level: z.number().optional(),
+          level: z.number().int().min(1).max(20).optional(),
           certificateType: z.enum([
             "level_certificate",
             "graduation_certificate",
           ]),
-          pdfUrl: z.string().optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 수료증을 신청할 수 있습니다." });
+        if (ctx.user.role !== "user" || ctx.user.tag === "학부모") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 수료증을 신청할 수 있습니다." });
         try {
+          // 발급 근거(완료율·평균 점수)는 서버가 계산한 진행 기록이다. pdfUrl 등 파일 주소는 클라이언트에서 받지 않는다.
           return await db.issueCertificate({
           userId: ctx.user.id,
           courseType: input.courseType,
           level: input.level,
           certificateType: input.certificateType,
           shareToken: nanoid(),
-          pdfUrl: input.pdfUrl,
           });
         } catch (error: any) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "수료증 발급 조건을 확인할 수 없습니다." });
@@ -1187,15 +1194,16 @@ export const appRouter = router({
 
     getById: protectedProcedure
       .input(z.number())
-      .query(({ input }) => db.getEssaySubmissionById(input)),
+      .query(({ ctx, input }) => assertEssayReadAccess(ctx.user, input)),
 
     create: protectedProcedure
       .input(
         z.object({
           curriculumId: z.number().optional(),
-          title: z.string(),
-          content: z.string(),
-          status: z.enum(["draft", "submitted", "reviewed"]).optional(),
+          title: z.string().trim().min(1).max(255),
+          content: z.string().max(50000),
+          // 채점 완료(reviewed)는 교사 승인 과정에서 서버가 정한다.
+          status: z.enum(["draft", "submitted"]).optional(),
         })
       )
       .mutation(({ ctx, input }) =>
@@ -1212,40 +1220,51 @@ export const appRouter = router({
       .input(
         z.object({
           id: z.number(),
-          title: z.string().optional(),
-          content: z.string().optional(),
-          status: z.enum(["draft", "submitted", "reviewed"]).optional(),
+          title: z.string().trim().min(1).max(255).optional(),
+          content: z.string().max(50000).optional(),
+          status: z.enum(["draft", "submitted"]).optional(),
           submittedAt: z.date().optional(),
         })
       )
-      .mutation(({ input }) =>
-        db.updateEssaySubmission(input.id, {
+      .mutation(async ({ ctx, input }) => {
+        // 본인 글만 고칠 수 있고, 교사 채점이 끝난 글은 고칠 수 없다.
+        const essay = await db.getEssaySubmissionById(input.id);
+        if (!essay) throw new TRPCError({ code: "NOT_FOUND", message: "논술 제출물을 찾을 수 없습니다." });
+        if (essay.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "본인의 제출물만 수정할 수 있습니다." });
+        if (essay.status === "reviewed") throw new TRPCError({ code: "FORBIDDEN", message: "교사 채점이 완료된 제출물은 수정할 수 없습니다." });
+        return db.updateEssaySubmission(input.id, {
           title: input.title,
           content: input.content,
           status: input.status,
           submittedAt: input.submittedAt,
-        })
-      ),
+        });
+      }),
   }),
 
   // ========== Teacher Feedback Routes ==========
   teacherFeedback: router({
-    getByEssay: publicProcedure
+    // 첨삭 조회: 글 주인·배정 교사·관리자만. 쓰기: 배정 교사·관리자만(학생이 교사 점수·코멘트를 만들거나 바꿀 수 없다).
+    getByEssay: protectedProcedure
       .input(z.number())
-      .query(({ input }) => db.getTeacherFeedbackByEssay(input)),
+      .query(async ({ ctx, input }) => {
+        await assertEssayReadAccess(ctx.user, input);
+        return db.getTeacherFeedbackByEssay(input);
+      }),
 
     create: protectedProcedure
       .input(
         z.object({
           essayId: z.number(),
-          overallComment: z.string().optional(),
-          overallScore: z.number().optional(),
-          structureScore: z.number().optional(),
-          logicScore: z.number().optional(),
-          expressionScore: z.number().optional(),
+          overallComment: z.string().max(10000).optional(),
+          overallScore: SCORE_0_100.optional(),
+          structureScore: SCORE_0_100.optional(),
+          logicScore: SCORE_0_100.optional(),
+          expressionScore: SCORE_0_100.optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
+        const essay = await assertTeacherEssayAccess(ctx.user, input.essayId);
+        if (await db.getTeacherFeedbackByEssay(input.essayId)) throw new TRPCError({ code: "CONFLICT", message: "이미 첨삭이 등록된 제출물입니다. 기존 첨삭을 수정해 주세요." });
         const feedback = await db.createTeacherFeedback({
           essayId: input.essayId,
           teacherId: ctx.user.id,
@@ -1255,8 +1274,7 @@ export const appRouter = router({
           logicScore: input.logicScore,
           expressionScore: input.expressionScore,
         });
-        const essay = await db.getEssaySubmissionById(input.essayId);
-        if (essay) void sendPushToUser(essay.userId, { title: "새로운 첨삭 피드백이 도착했어요", body: `${essay.title}에 선생님 피드백이 등록되었습니다.`, url: `/teacher-feedback?essayId=${essay.id}`, tag: `feedback-${essay.id}` });
+        void sendPushToUser(essay.userId, { title: "새로운 첨삭 피드백이 도착했어요", body: `${essay.title}에 선생님 피드백이 등록되었습니다.`, url: `/teacher-feedback?essayId=${essay.id}`, tag: `feedback-${essay.id}` });
         return feedback;
       }),
 
@@ -1264,35 +1282,43 @@ export const appRouter = router({
       .input(
         z.object({
           id: z.number(),
-          overallComment: z.string().optional(),
-          overallScore: z.number().optional(),
-          structureScore: z.number().optional(),
-          logicScore: z.number().optional(),
-          expressionScore: z.number().optional(),
+          overallComment: z.string().max(10000).optional(),
+          overallScore: SCORE_0_100.optional(),
+          structureScore: SCORE_0_100.optional(),
+          logicScore: SCORE_0_100.optional(),
+          expressionScore: SCORE_0_100.optional(),
         })
       )
-      .mutation(({ input }) =>
-        db.updateTeacherFeedback(input.id, {
+      .mutation(async ({ ctx, input }) => {
+        const feedback = await db.getTeacherFeedbackById(input.id);
+        if (!feedback) throw new TRPCError({ code: "NOT_FOUND", message: "첨삭을 찾을 수 없습니다." });
+        await assertTeacherEssayAccess(ctx.user, feedback.essayId);
+        return db.updateTeacherFeedback(input.id, {
           overallComment: input.overallComment,
           overallScore: input.overallScore,
           structureScore: input.structureScore,
           logicScore: input.logicScore,
           expressionScore: input.expressionScore,
-        })
-      ),
+        });
+      }),
 
-    getComments: publicProcedure
+    getComments: protectedProcedure
       .input(z.number())
-      .query(({ input }) => db.getFeedbackCommentsByFeedback(input)),
+      .query(async ({ ctx, input }) => {
+        const feedback = await db.getTeacherFeedbackById(input);
+        if (!feedback) return [];
+        await assertEssayReadAccess(ctx.user, feedback.essayId);
+        return db.getFeedbackCommentsByFeedback(input);
+      }),
 
     addComment: protectedProcedure
       .input(
         z.object({
           feedbackId: z.number(),
-          lineNumber: z.number(),
-          startIndex: z.number(),
-          endIndex: z.number(),
-          comment: z.string(),
+          lineNumber: z.number().int().min(0),
+          startIndex: z.number().int().min(0),
+          endIndex: z.number().int().min(0),
+          comment: z.string().trim().min(1).max(5000),
           commentType: z.enum([
             "grammar",
             "logic",
@@ -1302,7 +1328,12 @@ export const appRouter = router({
           ]),
         })
       )
-      .mutation(({ input }) => db.createFeedbackComment(input)),
+      .mutation(async ({ ctx, input }) => {
+        const feedback = await db.getTeacherFeedbackById(input.feedbackId);
+        if (!feedback) throw new TRPCError({ code: "NOT_FOUND", message: "첨삭을 찾을 수 없습니다." });
+        await assertTeacherEssayAccess(ctx.user, feedback.essayId);
+        return db.createFeedbackComment(input);
+      }),
   }),
 
   // ========== Master Prompt Writing Evaluation Routes ==========
