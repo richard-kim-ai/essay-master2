@@ -65,6 +65,9 @@ export const parentStudentLinks = mysqlTable("parent_student_links", {
   id: int("id").autoincrement().primaryKey(),
   parentId: int("parentId").notNull(),
   studentId: int("studentId").notNull(),
+  // 학부모가 요청하면 pending, 학생이 승인해야 approved가 된다. 승인 단계 도입 전 기존 연결은 approved로 유지한다.
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("approved").notNull(),
+  respondedAt: timestamp("respondedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

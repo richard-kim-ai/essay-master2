@@ -17,13 +17,23 @@ export default function ParentPortal() {
   const utils = trpc.useUtils();
   const { data: linkedStudents, isLoading: linkedLoading, refetch: refetchLinked } = trpc.parent.linkedStudents.useQuery();
 
+  const { data: linkRequests = [], refetch: refetchRequests } = trpc.parent.linkRequests.useQuery();
+
   const linkMutation = trpc.parent.linkStudent.useMutation({
     onSuccess: (data) => {
-      toast.success(`자녀 계정이 ${data.courseLabel || "선택"} 과정으로 성공적으로 연동되었습니다.`);
       setStudentEmailInput("");
       setLinkModalOpen(false);
-      refetchLinked();
-      if (data.studentId) setLinkedStudentId(data.studentId);
+      if (data.status === "approved") {
+        toast.success(`자녀 계정이 ${"courseLabel" in data && data.courseLabel ? data.courseLabel : "선택"} 과정으로 연동되었습니다.`);
+        refetchLinked();
+        if ("studentId" in data && data.studentId) setLinkedStudentId(data.studentId);
+      } else if (data.status === "pending") {
+        toast.success("연결 요청을 보냈습니다. 자녀가 승인하면 학습 현황을 볼 수 있습니다.");
+        refetchRequests();
+      } else {
+        toast.error("자녀가 연결을 거절한 상태입니다. 자녀와 상의한 뒤 다시 요청해 주세요.");
+        refetchRequests();
+      }
     },
     onError: (err: any) => {
       toast.error(err.message || "자녀 연동 중 오류가 발생했습니다.");
@@ -102,6 +112,19 @@ export default function ParentPortal() {
           </Button>
         </div>
       </div>
+
+      {linkRequests.length > 0 && (
+        <Card className="space-y-2 border-amber-200 bg-amber-50 p-4" aria-label="자녀 연결 요청 현황">
+          <p className="text-sm font-bold text-amber-950">자녀 연결 요청 현황</p>
+          <ul className="space-y-1 text-sm text-amber-900">
+            {linkRequests.map((request) => (
+              <li key={request.linkId}>
+                {request.studentName || request.studentEmail || "자녀 계정"} · {request.status === "pending" ? "자녀의 승인을 기다리는 중입니다." : "자녀가 연결을 거절했습니다."}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {linkedLoading ? (
         <Card className="p-12 text-center text-slate-500">연동된 자녀 정보를 불러오는 중...</Card>

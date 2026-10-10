@@ -1,13 +1,13 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-- [Local] 학부모-학생 연결 학생 승인 단계 추가(parent_student_links status 컬럼·마이그레이션, parent 라우터 linkRequests/incomingRequests/respondToRequest, ParentPortal·MyPageHub UI) — 시작 2026-10-11 09:20
 
 
 
 
 
 ## 완료
+- [Local] 학부모-학생 연결 학생 승인 단계 추가(parent_student_links status 컬럼·마이그레이션, parent 라우터 linkRequests/myParentLinks/respondToRequest, ParentPortal·MyPageHub UI) — 시작 2026-10-11 09:20, 완료 2026-10-11 10:10 (DB 마이그레이션 0047 수동 적용 필요)
 - [Local] 가입 화면 초등 과정 선택 시 만 14세 미만 보호자 동의 안내 문구 추가(Signup.tsx, 동의 기록 없는 안내 전용) — 시작 2026-10-11 08:40, 완료 2026-10-11 09:00
 - [Local] 샘플 체험 AI 첨삭 외부 전송·저장 범위 고지 추가(SampleExperience.tsx) — 시작 2026-10-11 08:00, 완료 2026-10-11 08:25
 - [Local] 샘플 체험 과정 탭(초등/중고등/고등·대입/일반·직장인)별 학습 방식·연습·AI 논제 차별화(SampleExperience.tsx, sampleEvaluation courseType 전달) — 시작 2026-10-11 06:10, 완료 2026-10-11 06:50
@@ -711,5 +711,4 @@
 
 ## 후속 검토 필요: 만 14세 미만 보호자 동의 (법률 검토 선행)
 - [ ] 가입 화면 안내 문구만 있고 동의 기록은 남기지 않음. 법정대리인 동의 확인 방식(체크·이메일·본인확인)과 동의 기록 저장, 정책 문서(`DEFAULT_POLICY_DOCUMENTS`) 추가 여부를 법률 검토 후 결정
-- [ ] 학부모 연결 시 학생·보호자 승인 단계(`parent_student_links` 상태 컬럼, DB 변경 필요)
 - [ ] 운영 문의 채널 확정(요금 정책 페이지의 "운영 문의"에 실제 연락 수단 연결)

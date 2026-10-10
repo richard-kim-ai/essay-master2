@@ -252,6 +252,33 @@ describe("appRouter", () => {
     });
   });
 
+  describe("parent link approval", () => {
+    it("학생 계정이 아니면 학부모 연결 요청에 응답할 수 없다", async () => {
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.respondToRequest({ linkId: 1, accept: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      const parentCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "학부모" } as any,
+      }));
+      await expect(parentCaller.parent.respondToRequest({ linkId: 1, accept: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("학생이 아닌 계정에는 받은 연결 요청 목록이 비어 있다", async () => {
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.myParentLinks()).resolves.toEqual({ pending: [], approved: [] });
+    });
+
+    it("로그인하지 않으면 연결 요청 목록과 응답을 사용할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null as any }));
+      await expect(caller.parent.myParentLinks()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(caller.parent.respondToRequest({ linkId: 1, accept: false })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
   describe("public curriculum overview", () => {
     it("비로그인 방문자도 과정 구성을 조회할 수 있고 로그인 전용 조회는 계속 차단된다", async () => {
       const caller = appRouter.createCaller(createMockContext({ user: null as any }));

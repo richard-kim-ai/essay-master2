@@ -2128,6 +2128,32 @@ export const appRouter = router({
         }
         return linked;
       }),
+    // 학부모 본인이 보낸 요청 중 아직 연결되지 않은(승인 대기·거절) 목록
+    linkRequests: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getParentLinkRequests(ctx.user.id);
+    }),
+    // 학생 본인에게 온 연결 요청과 이미 연결된 학부모 목록. 학생 계정이 아니면 빈 목록을 반환한다.
+    myParentLinks: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "user" || ctx.user.tag === "학부모") return { pending: [], approved: [] };
+      const [pending, approved] = await Promise.all([
+        db.getPendingLinkRequestsForStudent(ctx.user.id),
+        db.getApprovedParentsForStudent(ctx.user.id),
+      ]);
+      return { pending, approved };
+    }),
+    // 학생이 학부모 연결 요청을 승인·거절하거나 이미 연결된 학부모를 해제한다.
+    respondToRequest: protectedProcedure
+      .input(z.object({ linkId: z.number().int().positive(), accept: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user" || ctx.user.tag === "학부모") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "학생 계정만 학부모 연결 요청에 응답할 수 있습니다." });
+        }
+        const result = await db.respondToParentLinkRequest(ctx.user.id, input.linkId, input.accept);
+        if (!result) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "처리할 수 있는 연결 요청을 찾을 수 없습니다." });
+        }
+        return result;
+      }),
     studentDetail: protectedProcedure
       .input(z.object({ studentId: z.number() }))
       .query(async ({ ctx, input }) => {

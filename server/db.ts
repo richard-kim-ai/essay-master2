@@ -3145,7 +3145,8 @@ export async function getManagedStudentsForTeacher(teacherId: number) {
 export async function getLinkedStudentsForParent(parentId: number) {
   const db = await getDb();
   if (!db) return [];
-  const links = await db.select().from(parentStudentLinks).where(eq(parentStudentLinks.parentId, parentId));
+  // 학생이 승인한 연결만 학습 정보 조회 대상이 된다.
+  const links = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), eq(parentStudentLinks.status, "approved")));
   const studentIds = links.map(l => l.studentId);
   if (studentIds.length === 0) return [];
 
@@ -3172,14 +3173,76 @@ export async function linkParentAndStudent(parentId: number, studentEmail: strin
     return null;
   }
   const [existing] = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), eq(parentStudentLinks.studentId, student.id)));
+  if (existing?.status === "approved") {
+    return { success: true, status: "approved" as const, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
+  }
+  // 승인 대기·거절 상태에서는 학생 정보를 돌려주지 않는다.
+  if (existing?.status === "pending") {
+    return { success: true, status: "pending" as const };
+  }
+  // 거절된 연결도 학부모가 다시 요청하면 승인 대기로 돌린다. 학생이 실수로 거절한 경우를 복구할 수 있고, 학생은 다시 거절할 수 있다.
   if (existing) {
-    return { success: true, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
+    await db.update(parentStudentLinks).set({ status: "pending", respondedAt: null }).where(eq(parentStudentLinks.id, existing.id));
+    return { success: true, status: "pending" as const };
   }
   await db.insert(parentStudentLinks).values({
     parentId,
     studentId: student.id,
+    status: "pending",
   });
-  return { success: true, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
+  return { success: true, status: "pending" as const };
+}
+
+// 학부모 본인이 보낸 요청 중 아직 연결되지 않은(대기·거절) 목록
+export async function getParentLinkRequests(parentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), inArray(parentStudentLinks.status, ["pending", "rejected"])));
+  if (links.length === 0) return [];
+  const students = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, links.map((link) => link.studentId)));
+  return links.map((link) => {
+    const student = students.find((item) => item.id === link.studentId);
+    return { linkId: link.id, status: link.status as "pending" | "rejected", studentName: student?.name ?? null, studentEmail: student?.email ?? null, requestedAt: link.createdAt };
+  });
+}
+
+// 학생 본인에게 온 학부모 연결 요청(대기) 목록
+export async function getPendingLinkRequestsForStudent(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.studentId, studentId), eq(parentStudentLinks.status, "pending")));
+  if (links.length === 0) return [];
+  const parents = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, links.map((link) => link.parentId)));
+  return links.map((link) => {
+    const parent = parents.find((item) => item.id === link.parentId);
+    return { linkId: link.id, parentName: parent?.name ?? null, parentEmail: parent?.email ?? null, requestedAt: link.createdAt };
+  });
+}
+
+// 학생이 요청을 승인하거나 거절한다. 이미 연결된 학부모는 거절(accept=false)로 해제할 수 있다.
+export async function respondToParentLinkRequest(studentId: number, linkId: number, accept: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [link] = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.id, linkId), eq(parentStudentLinks.studentId, studentId)));
+  if (!link) return null;
+  if (accept && link.status !== "pending") return null;
+  if (!accept && link.status === "rejected") return null;
+  const status = accept ? "approved" : "rejected";
+  await db.update(parentStudentLinks).set({ status, respondedAt: new Date() }).where(eq(parentStudentLinks.id, linkId));
+  return { linkId, status } as const;
+}
+
+// 학생에게 학습 정보 열람이 허용된 학부모 목록(학생이 해제할 수 있도록 보여준다)
+export async function getApprovedParentsForStudent(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.studentId, studentId), eq(parentStudentLinks.status, "approved")));
+  if (links.length === 0) return [];
+  const parents = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, links.map((link) => link.parentId)));
+  return links.map((link) => {
+    const parent = parents.find((item) => item.id === link.parentId);
+    return { linkId: link.id, parentName: parent?.name ?? null, parentEmail: parent?.email ?? null };
+  });
 }
 
 export async function adminResetAllCertificates() {
