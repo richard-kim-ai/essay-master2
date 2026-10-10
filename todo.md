@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 로그인 화면 원클릭 샘플 체험 모드 삭제(Login.tsx, loginWithEmail 샘플 계정 자동 생성 삭제, 샘플 계정 비활성화 스크립트)·로그인 화면 색을 인디고로 통일 — 시작 2026-10-11 18:10
 
 
 
