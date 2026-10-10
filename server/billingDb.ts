@@ -1,11 +1,12 @@
 // 결제·이용권·교사 정산의 데이터 접근. 화면 단위 규칙은 billingRouter.ts, 금액 계산은 shared/settlement.ts에 있다.
-import { and, count, desc, eq, gte, inArray, like, lt, or } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, like, lt, or } from "drizzle-orm";
 import {
   aiUsageLogs,
   classAssignmentSubmissions,
   classAssignments,
   paymentOrders,
   subscriptions,
+  teacherActivityAccounting,
   teacherFeedback,
   teacherSettlementRates,
   teacherSettlements,
@@ -263,37 +264,74 @@ export async function listApprovedTeachers() {
   return db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.role, "teacher"), eq(users.teacherStatus, "approved")));
 }
 
-/** 한 달 동안 교사별 활동 건수(교사 id → 건수). 한 번의 조회로 모든 교사를 집계한다. */
-export async function countTeacherActivities(start: Date, end: Date, teacherId?: number): Promise<Map<number, ActivityCounts>> {
+export type ActivityBreakdown = { included: ActivityCounts; excludedAuto: number; excludedManual: number };
+
+/**
+ * 한 달 동안 교사별 활동 건수. 정산 대상 여부는 활동이 처음 완료된 시점에 고정해 둔 장부(teacher_activity_accounting)를 따르고,
+ * 장부 도입 전의 과거 활동(장부에 없는 것)은 이전처럼 개별 정산 대상으로 센다.
+ */
+export async function countTeacherActivityBreakdown(start: Date, end: Date, teacherId?: number): Promise<Map<number, ActivityBreakdown>> {
   const db = await requireDb();
-  const result = new Map<number, ActivityCounts>();
+  const result = new Map<number, ActivityBreakdown>();
   const bucket = (id: number) => {
-    let counts = result.get(id);
-    if (!counts) { counts = emptyCounts(); result.set(id, counts); }
-    return counts;
+    let entry = result.get(id);
+    if (!entry) { entry = { included: emptyCounts(), excludedAuto: 0, excludedManual: 0 }; result.set(id, entry); }
+    return entry;
+  };
+  const addIncluded = (id: number, type: string, value: number) => {
+    const included = bucket(id).included;
+    if (type in included) included[type as ActivityType] += value;
   };
 
-  const feedbackConditions = [gte(teacherFeedback.createdAt, start), lt(teacherFeedback.createdAt, end)];
-  if (teacherId !== undefined) feedbackConditions.push(eq(teacherFeedback.teacherId, teacherId));
-  const essayRows = await db.select({ teacherId: teacherFeedback.teacherId, value: count() }).from(teacherFeedback).where(and(...feedbackConditions)).groupBy(teacherFeedback.teacherId);
-  for (const row of essayRows) bucket(row.teacherId).essay_feedback = Number(row.value);
+  const ledgerConditions = [gte(teacherActivityAccounting.occurredAt, start), lt(teacherActivityAccounting.occurredAt, end)];
+  if (teacherId !== undefined) ledgerConditions.push(eq(teacherActivityAccounting.teacherId, teacherId));
+  const ledgerRows = await db.select({
+    teacherId: teacherActivityAccounting.teacherId,
+    activityType: teacherActivityAccounting.activityType,
+    automaticExclusion: teacherActivityAccounting.automaticExclusion,
+    manualExcluded: teacherActivityAccounting.manualExcluded,
+    value: count(),
+  }).from(teacherActivityAccounting).where(and(...ledgerConditions))
+    .groupBy(teacherActivityAccounting.teacherId, teacherActivityAccounting.activityType, teacherActivityAccounting.automaticExclusion, teacherActivityAccounting.manualExcluded);
+  for (const row of ledgerRows) {
+    const value = Number(row.value);
+    if (row.automaticExclusion !== "none") bucket(row.teacherId).excludedAuto += value;
+    else if (row.manualExcluded === 1) bucket(row.teacherId).excludedManual += value;
+    else addIncluded(row.teacherId, row.activityType, value);
+  }
 
-  // 반 과제 채점: 과제를 만든 교사가 채점 담당으로 본다.
-  const reviewConditions = [eq(classAssignmentSubmissions.status, "reviewed"), gte(classAssignmentSubmissions.reviewedAt, start), lt(classAssignmentSubmissions.reviewedAt, end)];
+  // 장부에 없는 과거 활동(장부 도입 전)은 개별 정산 대상이다.
+  const essayConditions = [gte(teacherFeedback.createdAt, start), lt(teacherFeedback.createdAt, end), isNull(teacherActivityAccounting.id)];
+  if (teacherId !== undefined) essayConditions.push(eq(teacherFeedback.teacherId, teacherId));
+  const essayRows = await db.select({ teacherId: teacherFeedback.teacherId, value: count() }).from(teacherFeedback)
+    .leftJoin(teacherActivityAccounting, and(eq(teacherActivityAccounting.activityType, "essay_feedback"), eq(teacherActivityAccounting.sourceId, teacherFeedback.id)))
+    .where(and(...essayConditions)).groupBy(teacherFeedback.teacherId);
+  for (const row of essayRows) addIncluded(row.teacherId, "essay_feedback", Number(row.value));
+
+  // 반 과제 채점(과거): 과제를 만든 교사가 채점 담당으로 본다.
+  const reviewConditions = [eq(classAssignmentSubmissions.status, "reviewed"), gte(classAssignmentSubmissions.reviewedAt, start), lt(classAssignmentSubmissions.reviewedAt, end), isNull(teacherActivityAccounting.id)];
   if (teacherId !== undefined) reviewConditions.push(eq(classAssignments.createdBy, teacherId));
   const reviewRows = await db.select({ teacherId: classAssignments.createdBy, value: count() })
     .from(classAssignmentSubmissions)
     .innerJoin(classAssignments, eq(classAssignments.id, classAssignmentSubmissions.assignmentId))
-    .where(and(...reviewConditions))
-    .groupBy(classAssignments.createdBy);
-  for (const row of reviewRows) bucket(row.teacherId).assignment_review = Number(row.value);
+    .leftJoin(teacherActivityAccounting, and(eq(teacherActivityAccounting.activityType, "assignment_review"), eq(teacherActivityAccounting.sourceId, classAssignmentSubmissions.id)))
+    .where(and(...reviewConditions)).groupBy(classAssignments.createdBy);
+  for (const row of reviewRows) addIncluded(row.teacherId, "assignment_review", Number(row.value));
 
-  const workbookConditions = [gte(workbookTeacherFeedback.createdAt, start), lt(workbookTeacherFeedback.createdAt, end)];
+  const workbookConditions = [gte(workbookTeacherFeedback.createdAt, start), lt(workbookTeacherFeedback.createdAt, end), isNull(teacherActivityAccounting.id)];
   if (teacherId !== undefined) workbookConditions.push(eq(workbookTeacherFeedback.teacherId, teacherId));
-  const workbookRows = await db.select({ teacherId: workbookTeacherFeedback.teacherId, value: count() }).from(workbookTeacherFeedback).where(and(...workbookConditions)).groupBy(workbookTeacherFeedback.teacherId);
-  for (const row of workbookRows) bucket(row.teacherId).workbook_feedback = Number(row.value);
+  const workbookRows = await db.select({ teacherId: workbookTeacherFeedback.teacherId, value: count() }).from(workbookTeacherFeedback)
+    .leftJoin(teacherActivityAccounting, and(eq(teacherActivityAccounting.activityType, "workbook_feedback"), eq(teacherActivityAccounting.sourceId, workbookTeacherFeedback.id)))
+    .where(and(...workbookConditions)).groupBy(workbookTeacherFeedback.teacherId);
+  for (const row of workbookRows) addIncluded(row.teacherId, "workbook_feedback", Number(row.value));
 
   return result;
+}
+
+/** 정산 대상(개별 정산) 건수만 모은 교사별 집계. 정산서 산출에 쓴다. */
+export async function countTeacherActivities(start: Date, end: Date, teacherId?: number): Promise<Map<number, ActivityCounts>> {
+  const breakdown = await countTeacherActivityBreakdown(start, end, teacherId);
+  return new Map(Array.from(breakdown.entries()).map(([id, entry]) => [id, entry.included]));
 }
 
 export async function getSettlement(teacherId: number, periodMonth: string) {

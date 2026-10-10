@@ -23,7 +23,10 @@ const SAMPLE_AI_GLOBAL_DAILY_LIMIT = 300;
 import { resolveClientIp } from "./clientIp";
 import { publicBaseUrl } from "./publicUrl";
 import { billingRouter, settlementRouter } from "./billingRouter";
+import { institutionRouter } from "./institutionRouter";
 import { clearGuardianStatusCache } from "./_core/trpc";
+import { recordActivitySafely, toBudgetTrpcError, withGroupBudget, withTeacherStudentBudget } from "./institutionService";
+import { budgetOps as institutionBudgetOps } from "./institutionDb";
 import * as billingDb from "./billingDb";
 import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement } from "./billing/service";
 import { consumeRateLimit, RATE_RULES, type RateLimitRule } from "./rateLimit";
@@ -215,6 +218,7 @@ export const appRouter = router({
   system: systemRouter,
   billing: billingRouter,
   settlement: settlementRouter,
+  institution: institutionRouter,
   policy: router({
     forSignup: publicProcedure
       .input(z.object({ accountType: z.enum(["student", "parent", "teacher"]) }))
@@ -277,9 +281,13 @@ export const appRouter = router({
     generateDraft: protectedProcedure
       .input(z.object({ essayId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        await assertTeacherEssayAccess(ctx.user, input.essayId);
+        const essay = await assertTeacherEssayAccess(ctx.user, input.essayId);
         const profileTeacherId = ctx.user.role === "admin" ? ctx.user.id : ctx.user.id;
-        return db.generateTeacherAiDraft(input.essayId, profileTeacherId);
+        // 기관 계약 반의 학생이면 계약의 'AI 첨삭' 예산을 쓴다(실패하면 되돌린다).
+        return withTeacherStudentBudget(
+          { teacherId: profileTeacherId, studentId: essay.userId, budgetType: "ai", actorId: ctx.user.id, sourceType: "teacher_ai_draft" },
+          () => db.generateTeacherAiDraft(input.essayId, profileTeacherId),
+        );
       }),
     saveDraftRevision: protectedProcedure
       .input(z.object({ draftId: z.number(), revisedComment: z.string().trim().min(20).max(12000), changeSummary: z.string().trim().max(1000).optional(), learningApproval: z.enum(["pending", "approved", "rejected", "withdrawn"]).optional() }))
@@ -297,7 +305,15 @@ export const appRouter = router({
         if (!draft) throw new TRPCError({ code: "NOT_FOUND" });
         await assertTeacherEssayAccess(ctx.user, draft.essayId);
         if (ctx.user.role !== "admin" && draft.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "작성 교사만 최종 발송할 수 있습니다." });
-        const result = await db.approveTeacherAiDraft({ draftId: input.draftId, teacherId: draft.teacherId, finalComment: input.finalComment });
+        const essayBefore = await db.getEssaySubmissionById(draft.essayId);
+        const feedbackBefore = await db.getTeacherFeedbackByEssay(draft.essayId);
+        const approve = () => db.approveTeacherAiDraft({ draftId: input.draftId, teacherId: draft.teacherId, finalComment: input.finalComment });
+        // 첨삭이 이 승인으로 처음 만들어질 때만 '첨삭' 예산을 쓰고 장부에 기록한다(이미 있던 첨삭을 고치는 것은 새 활동이 아니다).
+        const firstCompletion = !feedbackBefore && Boolean(essayBefore);
+        const result = firstCompletion && essayBefore
+          ? await withTeacherStudentBudget({ teacherId: draft.teacherId, studentId: essayBefore.userId, budgetType: "human", actorId: ctx.user.id, sourceType: "essay_feedback" }, approve, (created) => (created as { id?: number } | undefined)?.id)
+          : await approve();
+        if (firstCompletion && essayBefore && (result as { id?: number } | undefined)?.id) await recordActivitySafely({ activityType: "essay_feedback", sourceId: (result as { id: number }).id, teacherId: draft.teacherId, studentId: essayBefore.userId });
         const essay = await db.getEssaySubmissionById(draft.essayId);
         if (essay) void sendPushToUser(essay.userId, { title: "교사 승인 첨삭이 도착했어요", body: `${essay.title}의 최종 첨삭을 확인해보세요.`, url: `/teacher-feedback/${essay.id}`, tag: `teacher-ai-approved-${draft.id}` });
         return result;
@@ -841,7 +857,13 @@ export const appRouter = router({
           const student = await db.getUserById(answer.userId);
           if (!student || student.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "배정된 학생의 답안만 첨삭할 수 있습니다." });
         }
-        return db.addWorkbookTeacherFeedback(input.answerId, ctx.user.id, input.comment, input.gradeScore);
+        const existingFeedback = await db.getWorkbookTeacherFeedbackByAnswerId(input.answerId);
+        const save = () => db.addWorkbookTeacherFeedback(input.answerId, ctx.user.id, input.comment, input.gradeScore);
+        if (existingFeedback) return save();
+        // 새 첨삭일 때만 '첨삭' 예산을 쓰고 장부에 기록한다(같은 답안을 다시 저장하는 것은 수정이다).
+        const saved = await withTeacherStudentBudget({ teacherId: ctx.user.id, studentId: answer.userId, budgetType: "human", actorId: ctx.user.id, sourceType: "workbook_feedback" }, save, (result) => result.feedbackId);
+        await recordActivitySafely({ activityType: "workbook_feedback", sourceId: saved.feedbackId, teacherId: ctx.user.id, studentId: answer.userId });
+        return saved;
       }),
 
     getStats: protectedProcedure.query(({ ctx }) => db.getWorkbookStatsByUser(ctx.user.id)),
@@ -1021,19 +1043,37 @@ export const appRouter = router({
       .input(z.object({ groupId: z.number().int().positive(), studentId: z.number().int().positive(), attendanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), status: z.enum(["present", "late", "absent", "excused"]), note: z.string().trim().max(500).optional() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
-        try { return await db.recordClassAttendance(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "출결 기록 권한이 없습니다." }); }
+        try {
+          const record = () => db.recordClassAttendance(ctx.user.id, input);
+          // 이미 있는 출결을 고치는 것은 무료이고, 새 출결 기록만 '관리' 예산을 쓴다.
+          const existing = await db.getClassAttendanceRecord(input.groupId, input.studentId, input.attendanceDate);
+          return existing ? await record() : await withGroupBudget({ groupId: input.groupId, budgetType: "management", actorId: ctx.user.id, studentId: input.studentId, sourceType: "attendance" }, record);
+        } catch (error: any) {
+          if (error instanceof TRPCError) throw error;
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "출결 기록 권한이 없습니다." });
+        }
       }),
     publishClassAnnouncement: protectedProcedure
       .input(z.object({ groupId: z.number().int().positive(), title: z.string().trim().min(2).max(255), content: z.string().trim().min(2).max(5000) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
-        try { return await db.publishClassAnnouncement(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "공지 발송 권한이 없습니다." }); }
+        try {
+          return await withGroupBudget({ groupId: input.groupId, budgetType: "management", actorId: ctx.user.id, sourceType: "announcement" }, () => db.publishClassAnnouncement(ctx.user.id, input));
+        } catch (error: any) {
+          if (error instanceof TRPCError) throw error;
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "공지 발송 권한이 없습니다." });
+        }
       }),
     createClassAssignment: protectedProcedure
       .input(z.object({ groupId: z.number().int().positive(), title: z.string().trim().min(2).max(255), instructions: z.string().trim().min(2).max(5000), dueAt: z.date().nullable().optional() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
-        try { return await db.createClassAssignment(ctx.user.id, input); } catch (error: any) { throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제 배정 권한이 없습니다." }); }
+        try {
+          return await withGroupBudget({ groupId: input.groupId, budgetType: "management", actorId: ctx.user.id, sourceType: "assignment" }, () => db.createClassAssignment(ctx.user.id, input), (created) => created.assignmentId);
+        } catch (error: any) {
+          if (error instanceof TRPCError) throw error;
+          throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제 배정 권한이 없습니다." });
+        }
       }),
     feedbackTemplates: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
@@ -1098,9 +1138,20 @@ export const appRouter = router({
       .input(z.object({ submissionId: z.number().int().positive(), score: z.number().int().min(0).max(100), teacherComment: z.string().trim().min(2).max(5000) }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        // 처음 채점할 때만 새 활동이다(다시 저장해도 예산·정산이 늘지 않는다).
+        const context = await db.getClassAssignmentSubmissionContext(input.submissionId);
+        const firstReview = Boolean(context && context.submission.status !== "reviewed");
         try {
-          return await db.reviewStudentClassAssignment(ctx.user.id, input.submissionId, input);
+          const review = () => db.reviewStudentClassAssignment(ctx.user.id, input.submissionId, input);
+          const updated = firstReview && context
+            ? await withGroupBudget({ groupId: context.assignment.groupId, budgetType: "human", actorId: ctx.user.id, studentId: context.submission.studentId, sourceType: "assignment_review" }, review, () => input.submissionId)
+            : await review();
+          if (firstReview && context) {
+            await recordActivitySafely({ activityType: "assignment_review", sourceId: input.submissionId, teacherId: ctx.user.id, studentId: context.submission.studentId, groupId: context.assignment.groupId, occurredAt: updated?.reviewedAt ?? new Date() });
+          }
+          return updated;
         } catch (error: any) {
+          if (error instanceof TRPCError) throw error;
           throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "과제를 채점할 수 없습니다." });
         }
       }),
@@ -1116,9 +1167,14 @@ export const appRouter = router({
       .input(z.object({ submissionId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+        const context = await db.getClassAssignmentSubmissionContext(input.submissionId);
         try {
-          return await db.generateClassAssignmentAiFeedback(ctx.user.id, input.submissionId);
+          const generate = () => db.generateClassAssignmentAiFeedback(ctx.user.id, input.submissionId);
+          return context
+            ? await withGroupBudget({ groupId: context.assignment.groupId, budgetType: "ai", actorId: ctx.user.id, studentId: context.submission.studentId, sourceType: "assignment_ai_feedback" }, generate)
+            : await generate();
         } catch (error: any) {
+          if (error instanceof TRPCError) throw error;
           throw new TRPCError({ code: "FORBIDDEN", message: error?.message || "AI 1차 첨삭을 생성할 수 없습니다." });
         }
       }),
@@ -1315,15 +1371,21 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const essay = await assertTeacherEssayAccess(ctx.user, input.essayId);
         if (await db.getTeacherFeedbackByEssay(input.essayId)) throw new TRPCError({ code: "CONFLICT", message: "이미 첨삭이 등록된 제출물입니다. 기존 첨삭을 수정해 주세요." });
-        const feedback = await db.createTeacherFeedback({
-          essayId: input.essayId,
-          teacherId: ctx.user.id,
-          overallComment: input.overallComment,
-          overallScore: input.overallScore,
-          structureScore: input.structureScore,
-          logicScore: input.logicScore,
-          expressionScore: input.expressionScore,
-        });
+        // 기관 계약 반의 학생이면 계약의 '첨삭' 예산을 쓰고, 정산 대상 여부는 이 시점의 정책으로 장부에 고정한다.
+        const feedback = await withTeacherStudentBudget(
+          { teacherId: ctx.user.id, studentId: essay.userId, budgetType: "human", actorId: ctx.user.id, sourceType: "essay_feedback" },
+          () => db.createTeacherFeedback({
+            essayId: input.essayId,
+            teacherId: ctx.user.id,
+            overallComment: input.overallComment,
+            overallScore: input.overallScore,
+            structureScore: input.structureScore,
+            logicScore: input.logicScore,
+            expressionScore: input.expressionScore,
+          }),
+          (created) => (created as { id?: number })?.id,
+        );
+        if ((feedback as { id?: number })?.id) await recordActivitySafely({ activityType: "essay_feedback", sourceId: (feedback as { id: number }).id, teacherId: ctx.user.id, studentId: essay.userId });
         void sendPushToUser(essay.userId, { title: "새로운 첨삭 피드백이 도착했어요", body: `${essay.title}에 선생님 피드백이 등록되었습니다.`, url: `/teacher-feedback?essayId=${essay.id}`, tag: `feedback-${essay.id}` });
         return feedback;
       }),
@@ -1517,6 +1579,16 @@ export const appRouter = router({
         }
         // 사용 횟수를 AI 호출 전에 먼저 예약한다(동시에 여러 번 보내도 한도를 넘지 못한다). 호출이 실패하면 되돌린다.
         let reservationId = 0;
+        let releaseInstitutionBudget: (() => Promise<void>) | null = null;
+        if (entitlement.mode === "institution" && entitlement.contractId) {
+          const budget = institutionBudgetOps({ contractId: entitlement.contractId, budgetType: "ai", actorId: ctx.user.id, studentId: ctx.user.id, sourceType: "ai_feedback" });
+          try {
+            const reserved = await budget.reserve();
+            releaseInstitutionBudget = () => budget.release(reserved.usageId);
+          } catch (error) {
+            throw toBudgetTrpcError(error);
+          }
+        }
         if (entitlement.mode === "trial" || entitlement.mode === "plan") {
           const actionType = entitlement.mode === "trial" ? AI_ACTION_TRIAL : AI_ACTION_PLAN;
           const reservation = await billingDb.reserveAiUsage({ userId: ctx.user.id, actionType, countedActionTypes: [actionType], since: entitlement.periodStart, limit: entitlement.limit });
@@ -1528,11 +1600,13 @@ export const appRouter = router({
         const heuristic = evaluateWritingHeuristic(request);
         const semantic = await evaluateWritingWithLLM({ metadata: { title: input.essayTitle, course_type: input.courseType, level: input.level, difficulty_mode: difficultyPreset.mode }, task: input.essayTitle, submission: { essay_text: input.essayContent } }).catch(async (error) => {
           await billingDb.releaseAiUsage(reservationId);
+          if (releaseInstitutionBudget) await releaseInstitutionBudget().catch(() => undefined);
           throw error;
         });
         const feedback = { structureScore: semantic.dimension_scores.find((item) => item.competency === "macro_structure")?.score ?? semantic.total_score, logicScore: semantic.dimension_scores.find((item) => item.competency === "logical_inference")?.score ?? semantic.total_score, expressionScore: semantic.dimension_scores.find((item) => item.competency === "sentence_expression")?.score ?? semantic.total_score, overallScore: semantic.total_score, strengths: semantic.strengths, weaknesses: semantic.improvement_points, suggestions: semantic.feedback.revision_steps, overallComment: semantic.feedback.summary, revisedEssay: input.essayContent, sentenceCorrections: [], confidence: semantic.fallback_used ? 0.25 : 0.85, correction_status: semantic.fallback_used ? "fallback" as const : "completed" as const, fallback_used: semantic.fallback_used, provider_error: semantic.provider_error, latency_ms: 0, model_id: "builtin-llm-v1.1", token_usage: semantic.token_usage, estimated_cost_microusd: 0 };
         if (reservationId) await billingDb.recordAiUsageTokens(reservationId, feedback.token_usage);
-        else await db.logAIUsage(ctx.user.id, AI_ACTION_PLAN, feedback.token_usage);
+        // 기관 계약 비용으로 쓴 평가는 개인 이용권·체험 사용량과 섞이지 않도록 따로 기록한다.
+        else await db.logAIUsage(ctx.user.id, entitlement.mode === "institution" ? "institution_essay_feedback" : AI_ACTION_PLAN, feedback.token_usage);
         await db.createEvaluationModelOperation({ modelId: feedback.model_id, status: feedback.correction_status, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, errorSummary: feedback.provider_error });
         const savedFeedback = await db.createAIAutoFeedback({ userId: ctx.user.id, essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, overallComment: feedback.overallComment, structureScore: feedback.structureScore, logicScore: feedback.logicScore, expressionScore: feedback.expressionScore, overallScore: feedback.overallScore, revisedEssay: feedback.revisedEssay, suggestions: JSON.stringify(feedback.suggestions), strengths: JSON.stringify(feedback.strengths), weaknesses: JSON.stringify(feedback.weaknesses) });
         const feedbackId = Number((savedFeedback as { insertId?: number }).insertId || 0) || null;

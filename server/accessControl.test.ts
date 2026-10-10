@@ -26,9 +26,17 @@ vi.mock("./db", async (importOriginal) => {
     getQuestionFeedbacksSummary: vi.fn(),
     logAIUsage: vi.fn(),
     getLatestGuardianConsentStatusForUser: vi.fn(),
+    getWorkbookTeacherFeedbackByAnswerId: vi.fn(),
   };
 });
 vi.mock("./_core/notification", () => ({ notifyOwner: vi.fn() }));
+// 기관 계약이 없는 일반 반(예산·자동 제외 없음)을 기본 상황으로 둔다.
+vi.mock("./institutionDb", () => ({
+  resolveTeacherStudentContext: vi.fn(async () => ({ groupId: null, contractId: null })),
+  getGroupContractId: vi.fn(async () => null),
+  recordTeacherActivity: vi.fn(async () => undefined),
+  budgetOps: vi.fn(),
+}));
 
 import * as db from "./db";
 import { appRouter } from "./routers";

@@ -15,6 +15,8 @@ import {
 } from "../shared/settlement";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import * as billingDb from "./billingDb";
+import * as institution from "./institutionDb";
+import { exclusionLabel, isSettlementExcluded, type AutomaticExclusion } from "../shared/institution";
 import { getPaymentProvider } from "./billing/providers";
 import { getAiEntitlement } from "./billing/service";
 import { RATE_RULES, consumeRateLimit } from "./rateLimit";
@@ -173,17 +175,21 @@ export const settlementRouter = router({
       assertApprovedTeacher(ctx.user);
       const month = input.month ?? currentMonthKst();
       const { start, end } = monthRange(month);
-      const [rates, withholdingPct, countsByTeacher, statement] = await Promise.all([
+      const [rates, withholdingPct, breakdownByTeacher, statement] = await Promise.all([
         billingDb.getSettlementRates(),
         billingDb.getWithholdingPct(),
-        billingDb.countTeacherActivities(start, end, ctx.user.id),
+        billingDb.countTeacherActivityBreakdown(start, end, ctx.user.id),
         billingDb.getSettlement(ctx.user.id, month),
       ]);
-      const counts = countsByTeacher.get(ctx.user.id) ?? emptyCounts();
+      const breakdown = breakdownByTeacher.get(ctx.user.id) ?? { included: emptyCounts(), excludedAuto: 0, excludedManual: 0 };
+      const counts = breakdown.included;
       const estimate = computeSettlement(counts, rates, withholdingPct);
+      const includedTotal = Object.values(counts).reduce((sum, value) => sum + value, 0);
       return {
         month,
         isCurrentMonth: month === currentMonthKst(),
+        // 전체 활동 = 정산 대상 + 기관 계약·소속으로 자동 제외 + 교사가 직접 제외(기관 업무량도 숨기지 않고 보여 준다)
+        workload: { total: includedTotal + breakdown.excludedAuto + breakdown.excludedManual, included: includedTotal, excludedAuto: breakdown.excludedAuto, excludedManual: breakdown.excludedManual },
         counts,
         rates,
         activities: SETTLEMENT_ACTIVITIES,
@@ -191,6 +197,56 @@ export const settlementRouter = router({
         // 확정·지급된 정산서는 그 시점의 금액이 기준이다(이후 단가가 바뀌어도 변하지 않는다).
         statement: statement && statement.status !== "draft" ? describeStatement(statement) : null,
       };
+    }),
+
+  /** 이 달에 한 활동 목록과 정산 대상 여부. 교사는 자기 활동을 정산에서 제외(또는 되돌리기)할 수 있다. */
+  myActivities: protectedProcedure
+    .input(z.object({ month: monthInput }))
+    .query(async ({ ctx, input }) => {
+      assertApprovedTeacher(ctx.user);
+      const { start, end } = monthRange(input.month);
+      const [rows, statement] = await Promise.all([institution.listTeacherActivitiesForMonth(ctx.user.id, start, end), billingDb.getSettlement(ctx.user.id, input.month)]);
+      // 확정·지급된 달은 바꿀 수 없다.
+      const frozen = Boolean(statement && statement.status !== "draft");
+      return {
+        frozen,
+        activities: rows.map((row) => ({
+          activityType: row.activityType,
+          sourceId: row.sourceId,
+          occurredAt: row.occurredAt,
+          studentName: row.studentName,
+          excluded: isSettlementExcluded({ automaticExclusion: row.automaticExclusion as AutomaticExclusion, manualExcluded: row.manualExcluded }),
+          label: exclusionLabel({ automaticExclusion: row.automaticExclusion as AutomaticExclusion, manualExcluded: row.manualExcluded }),
+          automatic: row.automaticExclusion !== "none",
+          manualReason: row.manualExclusionReason,
+          // 자동 제외(기관 계약·소속)는 바꿀 수 없고, 수동 제외만 되돌릴 수 있다.
+          canToggle: !frozen && row.automaticExclusion === "none",
+        })),
+      };
+    }),
+
+  /** 교사가 자기 활동을 개별 정산에서 제외하거나 되돌린다. 사유가 필요하고 변경 이력이 남는다. */
+  setActivityExclusion: protectedProcedure
+    .input(z.object({
+      activityType: z.enum(SETTLEMENT_ACTIVITIES.map((activity) => activity.type) as [ActivityType, ...ActivityType[]]),
+      sourceId: z.number().int().positive(),
+      excluded: z.boolean(),
+      reason: z.string().trim().min(2).max(500),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") assertApprovedTeacher(ctx.user);
+      const row = await institution.ensureAccountingRow(input.activityType, input.sourceId);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "활동을 찾을 수 없습니다." });
+      // 교사는 본인의 활동만 다룰 수 있다(다른 교사의 활동이나 존재하지 않는 활동은 알려 주지 않는다).
+      if (ctx.user.role !== "admin" && row.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "본인의 활동만 정산 제외를 바꿀 수 있습니다." });
+      if (row.automaticExclusion !== "none") throw new TRPCError({ code: "BAD_REQUEST", message: "기관 계약·소속으로 자동 제외된 활동은 바꿀 수 없습니다." });
+      // 확정·지급된 정산서가 있는 달의 활동은 바꿀 수 없다.
+      const statement = await billingDb.getSettlement(row.teacherId, currentMonthKst(new Date(row.occurredAt)));
+      if (statement && statement.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "이미 확정된 정산 월의 활동은 바꿀 수 없습니다." });
+      // 되돌리기는 제외한 사람 본인이나 관리자만 할 수 있다.
+      if (!input.excluded && ctx.user.role !== "admin" && row.manualExcludedBy !== null && row.manualExcludedBy !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "제외한 사람만 되돌릴 수 있습니다." });
+      await institution.setManualExclusion({ activityType: input.activityType, sourceId: input.sourceId, excluded: input.excluded, reason: input.reason, actorId: ctx.user.id });
+      return { success: true as const };
     }),
 
   myStatements: protectedProcedure.query(async ({ ctx }) => {
@@ -210,18 +266,21 @@ export const settlementRouter = router({
         billingDb.listApprovedTeachers(),
         billingDb.getSettlementRates(),
         billingDb.getWithholdingPct(),
-        billingDb.countTeacherActivities(start, end),
+        billingDb.countTeacherActivityBreakdown(start, end),
         billingDb.listSettlementsByMonth(input.month),
       ]);
       const statementByTeacher = new Map(statements.map((row) => [row.teacherId, row]));
       const rows = teachers.map((teacher) => {
         const statement = statementByTeacher.get(teacher.id);
-        const teacherCounts = counts.get(teacher.id) ?? emptyCounts();
+        const breakdown = counts.get(teacher.id) ?? { included: emptyCounts(), excludedAuto: 0, excludedManual: 0 };
+        const teacherCounts = breakdown.included;
         return {
           teacherId: teacher.id,
           name: teacher.name,
           email: teacher.email,
           counts: teacherCounts,
+          excludedAuto: breakdown.excludedAuto,
+          excludedManual: breakdown.excludedManual,
           estimate: computeSettlement(teacherCounts, rates, withholdingPct),
           statement: statement ? describeStatement(statement) : null,
         };
@@ -262,6 +321,11 @@ export const settlementRouter = router({
       if (!statement) throw new TRPCError({ code: "NOT_FOUND", message: "정산서를 찾을 수 없습니다." });
       // 진행 중인 달은 건수가 계속 늘어나므로 확정할 수 없다.
       if (statement.periodMonth >= currentMonthKst()) throw new TRPCError({ code: "BAD_REQUEST", message: "해당 월이 끝난 뒤에 확정할 수 있습니다." });
+      if (statement.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "산출 중(초안) 상태의 정산서만 확정할 수 있습니다." });
+      // 확정하기 직전에 지금의 활동·제외 상태·단가로 다시 계산한다(오래된 초안이 그대로 확정되지 않도록).
+      const { start, end } = monthRange(statement.periodMonth);
+      const [rates, withholdingPct, counts] = await Promise.all([billingDb.getSettlementRates(), billingDb.getWithholdingPct(), billingDb.countTeacherActivities(start, end, statement.teacherId)]);
+      await billingDb.upsertDraftSettlement(statement.teacherId, statement.periodMonth, computeSettlement(counts.get(statement.teacherId) ?? emptyCounts(), rates, withholdingPct));
       if (!(await billingDb.confirmSettlement(statement.id, ctx.user.id))) throw new TRPCError({ code: "BAD_REQUEST", message: "산출 중(초안) 상태의 정산서만 확정할 수 있습니다." });
       return { success: true as const };
     }),

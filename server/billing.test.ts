@@ -22,6 +22,7 @@ vi.mock("./billingDb", () => ({
   saveWithholdingPct: vi.fn(),
   listApprovedTeachers: vi.fn(),
   countTeacherActivities: vi.fn(),
+  countTeacherActivityBreakdown: vi.fn(),
   getSettlement: vi.fn(),
   getSettlementById: vi.fn(),
   listSettlementsForTeacher: vi.fn(),
@@ -31,7 +32,15 @@ vi.mock("./billingDb", () => ({
   markSettlementPaid: vi.fn(),
 }));
 
+vi.mock("./institutionDb", () => ({
+  listTeacherActivitiesForMonth: vi.fn(),
+  ensureAccountingRow: vi.fn(),
+  setManualExclusion: vi.fn(),
+  resolveStudentFunding: vi.fn(async () => ({ kind: "none" })),
+}));
+
 import * as billingDb from "./billingDb";
+import * as institution from "./institutionDb";
 import { appRouter } from "./routers";
 import { getPaymentProvider, mockProvider } from "./billing/providers";
 import { evaluateAiEntitlement } from "./billing/entitlements";
@@ -244,7 +253,9 @@ describe("교사 정산(settlement) 접근", () => {
   beforeEach(() => {
     vi.mocked(billingDb.getSettlementRates).mockResolvedValue(defaultRates());
     vi.mocked(billingDb.getWithholdingPct).mockResolvedValue(3.3);
-    vi.mocked(billingDb.countTeacherActivities).mockResolvedValue(new Map([[20, { essay_feedback: 4, assignment_review: 1, workbook_feedback: 2 }]]));
+    const included = { essay_feedback: 4, assignment_review: 1, workbook_feedback: 2 };
+    vi.mocked(billingDb.countTeacherActivities).mockResolvedValue(new Map([[20, included]]));
+    vi.mocked(billingDb.countTeacherActivityBreakdown).mockResolvedValue(new Map([[20, { included, excludedAuto: 5, excludedManual: 1 }]]));
     vi.mocked(billingDb.getSettlement).mockResolvedValue(undefined);
     vi.mocked(billingDb.listApprovedTeachers).mockResolvedValue([{ id: 20, name: "김교사", email: "t@example.com" }] as any);
     vi.mocked(billingDb.listSettlementsByMonth).mockResolvedValue([]);
@@ -254,8 +265,9 @@ describe("교사 정산(settlement) 접근", () => {
     const overview = await callerFor(teacher).settlement.myOverview({ month: "2026-09" });
     expect(overview.counts).toEqual({ essay_feedback: 4, assignment_review: 1, workbook_feedback: 2 });
     expect(overview.estimate.grossKrw).toBe(4 * 3000 + 1 * 2000 + 2 * 1000);
-    // 본인 교사 id로만 집계한다
-    expect(billingDb.countTeacherActivities).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), 20);
+    // 본인 교사 id로만 집계하고, 정산에서 제외된 활동(기관 계약·직접 제외)도 업무량에는 그대로 보여 준다.
+    expect(billingDb.countTeacherActivityBreakdown).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), 20);
+    expect(overview.workload).toEqual({ total: 7 + 5 + 1, included: 7, excludedAuto: 5, excludedManual: 1 });
 
     for (const user of [student, parent, pendingTeacher, admin]) {
       await expect(callerFor(user).settlement.myOverview({})).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -308,5 +320,87 @@ describe("교사 정산(settlement) 접근", () => {
     await expect(callerFor(admin).settlement.adminMarkPaid({ id: 5 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     vi.mocked(billingDb.markSettlementPaid).mockResolvedValueOnce(true);
     await expect(callerFor(admin).settlement.adminMarkPaid({ id: 5, note: "10월 말 이체" })).resolves.toEqual({ success: true });
+  });
+});
+
+describe("교사 정산 제외(setActivityExclusion)", () => {
+  const ledgerRow = (overrides = {}) => ({ id: 1, activityType: "essay_feedback", sourceId: 9, teacherId: 20, occurredAt: new Date("2020-01-15T00:00:00Z"), automaticExclusion: "none", manualExcluded: 0, manualExcludedBy: null, ...overrides });
+  const input = { activityType: "essay_feedback" as const, sourceId: 9, excluded: true, reason: "교내 연수 지원 업무" };
+
+  beforeEach(() => {
+    vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow() as any);
+    vi.mocked(billingDb.getSettlement).mockResolvedValue(undefined);
+  });
+
+  it("교사는 본인 활동을 사유와 함께 정산에서 제외할 수 있다", async () => {
+    await callerFor(teacher).settlement.setActivityExclusion(input);
+    expect(institution.setManualExclusion).toHaveBeenCalledWith({ activityType: "essay_feedback", sourceId: 9, excluded: true, reason: "교내 연수 지원 업무", actorId: 20 });
+  });
+
+  it("학생·학부모·승인 전 교사·비로그인은 정산 제외를 바꿀 수 없다", async () => {
+    for (const user of [student, parent, pendingTeacher]) await expect(callerFor(user).settlement.setActivityExclusion(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(null).settlement.setActivityExclusion(input)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(institution.setManualExclusion).not.toHaveBeenCalled();
+  });
+
+  it("다른 교사의 활동은 바꿀 수 없다(관리자는 가능)", async () => {
+    vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow({ teacherId: 99 }) as any);
+    await expect(callerFor(teacher).settlement.setActivityExclusion(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await callerFor(admin).settlement.setActivityExclusion(input);
+    expect(institution.setManualExclusion).toHaveBeenCalledTimes(1);
+  });
+
+  it("사유가 없으면 제외할 수 없다", async () => {
+    await expect(callerFor(teacher).settlement.setActivityExclusion({ ...input, reason: " " })).rejects.toThrow();
+    expect(institution.setManualExclusion).not.toHaveBeenCalled();
+  });
+
+  it("기관 계약·소속으로 자동 제외된 활동은 바꿀 수 없다(되돌려서 정산받는 우회 불가)", async () => {
+    for (const automaticExclusion of ["institution_contract", "institution_member", "teacher_member"]) {
+      vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow({ automaticExclusion }) as any);
+      await expect(callerFor(teacher).settlement.setActivityExclusion({ ...input, excluded: false })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    expect(institution.setManualExclusion).not.toHaveBeenCalled();
+  });
+
+  it("이미 확정·지급된 정산 월의 활동은 바꿀 수 없다", async () => {
+    for (const status of ["confirmed", "paid"]) {
+      vi.mocked(billingDb.getSettlement).mockResolvedValue({ id: 1, status } as any);
+      await expect(callerFor(teacher).settlement.setActivityExclusion(input)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    expect(institution.setManualExclusion).not.toHaveBeenCalled();
+  });
+
+  it("교사는 관리자가 제외한 활동을 스스로 되돌릴 수 없다", async () => {
+    vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow({ manualExcluded: 1, manualExcludedBy: 1 }) as any);
+    await expect(callerFor(teacher).settlement.setActivityExclusion({ ...input, excluded: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow({ manualExcluded: 1, manualExcludedBy: 20 }) as any);
+    await callerFor(teacher).settlement.setActivityExclusion({ ...input, excluded: false });
+    expect(institution.setManualExclusion).toHaveBeenCalledWith(expect.objectContaining({ excluded: false }));
+  });
+
+  it("활동 목록에는 자동 제외 사유와 변경 가능 여부를 보여 준다", async () => {
+    vi.mocked(billingDb.getSettlement).mockResolvedValue(undefined);
+    vi.mocked(institution.listTeacherActivitiesForMonth).mockResolvedValue([
+      { activityType: "essay_feedback", sourceId: 1, occurredAt: new Date(), studentName: "가", automaticExclusion: "institution_contract", manualExcluded: 0, manualExclusionReason: null },
+      { activityType: "essay_feedback", sourceId: 2, occurredAt: new Date(), studentName: "나", automaticExclusion: "none", manualExcluded: 1, manualExclusionReason: "연수" },
+      { activityType: "workbook_feedback", sourceId: 3, occurredAt: new Date(), studentName: "다", automaticExclusion: "none", manualExcluded: 0, manualExclusionReason: null },
+    ] as any);
+    const { activities, frozen } = await callerFor(teacher).settlement.myActivities({ month: "2026-09" });
+    expect(frozen).toBe(false);
+    expect(activities.map((activity) => [activity.excluded, activity.canToggle])).toEqual([[true, false], [true, true], [false, true]]);
+    expect(activities[0].label).toContain("기관 계약");
+  });
+
+  it("확정하기 직전에 지금의 활동·제외 상태로 다시 계산한다(오래된 초안이 그대로 확정되지 않는다)", async () => {
+    vi.mocked(billingDb.getSettlementById).mockResolvedValue({ id: 2, teacherId: 20, periodMonth: "2020-01", status: "draft" } as any);
+    vi.mocked(billingDb.countTeacherActivities).mockResolvedValue(new Map([[20, { essay_feedback: 1, assignment_review: 0, workbook_feedback: 0 }]]));
+    vi.mocked(billingDb.upsertDraftSettlement).mockResolvedValue(true);
+    vi.mocked(billingDb.confirmSettlement).mockResolvedValue(true);
+    await callerFor(admin).settlement.adminConfirm({ id: 2 });
+    expect(billingDb.upsertDraftSettlement).toHaveBeenCalledWith(20, "2020-01", expect.objectContaining({ grossKrw: 3000 }));
+    const upsertOrder = vi.mocked(billingDb.upsertDraftSettlement).mock.invocationCallOrder[0];
+    const confirmOrder = vi.mocked(billingDb.confirmSettlement).mock.invocationCallOrder[0];
+    expect(upsertOrder).toBeLessThan(confirmOrder);
   });
 });

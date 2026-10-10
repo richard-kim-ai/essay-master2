@@ -351,6 +351,13 @@
       "when": 1791674135891,
       "tag": "0049_billing_and_settlement",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "5",
+      "when": 1791675354362,
+      "tag": "0050_institution_contracts_and_settlement_accounting",
+      "breakpoints": true
     }
   ]
 }

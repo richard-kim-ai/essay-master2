@@ -984,7 +984,10 @@ export async function createTeacherFeedback(input: {
   if (!db) throw new Error("Database is not available");
 
   const [result] = await db.insert(teacherFeedback).values(input);
-  return result;
+  // 삽입 결과(헤더)가 아니라 만들어진 첨삭 행을 돌려준다(호출한 쪽이 id로 이어서 수정·코멘트할 수 있도록).
+  const insertId = Number((result as { insertId?: number }).insertId ?? 0);
+  const [created] = insertId ? await db.select().from(teacherFeedback).where(eq(teacherFeedback.id, insertId)) : [];
+  return created ?? result;
 }
 
 export async function updateTeacherFeedback(
@@ -2920,11 +2923,36 @@ export async function reviewStudentClassAssignment(teacherId: number, submission
   const [assignment] = await db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId));
   if (!assignment) throw new Error("연결된 과제를 찾을 수 없습니다.");
   await assertTeacherGroupOwnership(teacherId, assignment.groupId);
-  await db.update(classAssignmentSubmissions).set({ status: "reviewed", score: input.score, teacherComment: input.teacherComment.trim(), reviewedAt: new Date(), updatedAt: new Date() }).where(eq(classAssignmentSubmissions.id, submissionId));
+  await db.update(classAssignmentSubmissions).set({ status: "reviewed", score: input.score, // 채점 시각은 처음 채점한 시각을 유지한다(다시 저장해도 활동이 다른 달로 옮겨가거나 새 활동이 되지 않는다).
+  teacherComment: input.teacherComment.trim(), reviewedAt: submission.status === "reviewed" && submission.reviewedAt ? submission.reviewedAt : new Date(), updatedAt: new Date() }).where(eq(classAssignmentSubmissions.id, submissionId));
   await db.update(classAssignmentAiFeedbacks).set({ status: "reviewed", reviewedAt: new Date(), updatedAt: new Date() }).where(and(eq(classAssignmentAiFeedbacks.submissionId, submissionId), eq(classAssignmentAiFeedbacks.status, "generated")));
   await db.insert(appNotifications).values({ userId: submission.studentId, assignmentId: assignment.id, title: `[과제 채점 완료] ${assignment.title}`, message: `교사가 과제를 채점했습니다. 점수 ${input.score}점과 피드백을 확인하세요.`, category: "teacher_feedback" });
   const [updated] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
   return updated;
+}
+
+/** 과제 제출물과 그 과제(반 정보 포함). 채점·AI 첨삭이 어느 반의 활동인지 알아야 정산·예산을 정할 수 있다. */
+export async function getClassAssignmentSubmissionContext(submissionId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
+  if (!submission) return undefined;
+  const [assignment] = await db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId));
+  return assignment ? { submission, assignment } : undefined;
+}
+
+export async function getWorkbookTeacherFeedbackByAnswerId(answerId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(workbookTeacherFeedback).where(eq(workbookTeacherFeedback.answerId, answerId));
+  return row;
+}
+
+export async function getClassAttendanceRecord(groupId: number, studentId: number, attendanceDate: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(classAttendance).where(and(eq(classAttendance.groupId, groupId), eq(classAttendance.studentId, studentId), eq(classAttendance.attendanceDate, attendanceDate)));
+  return row;
 }
 
 export async function listTeacherFeedbackTemplates(teacherId: number) {
@@ -5107,12 +5135,18 @@ export async function addWorkbookTeacherFeedback(answerId: number, teacherId: nu
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
 
-  await db.insert(workbookTeacherFeedback).values({
-    answerId,
-    teacherId,
-    comment,
-    gradeScore,
-  });
+  // 한 답안에는 첨삭 한 건만 둔다(다시 저장하면 새 건이 아니라 수정이다 — 정산·집계가 부풀지 않도록).
+  const [existing] = await db.select().from(workbookTeacherFeedback).where(eq(workbookTeacherFeedback.answerId, answerId));
+  let feedbackId: number;
+  let created = false;
+  if (existing) {
+    feedbackId = existing.id;
+    await db.update(workbookTeacherFeedback).set({ comment, gradeScore }).where(eq(workbookTeacherFeedback.id, existing.id));
+  } else {
+    const [inserted] = await db.insert(workbookTeacherFeedback).values({ answerId, teacherId, comment, gradeScore });
+    feedbackId = Number((inserted as { insertId?: number }).insertId);
+    created = true;
+  }
 
   // 해당 답안 점수 업데이트
   await db.update(curriculumWorkbookAnswers)
@@ -5124,13 +5158,13 @@ export async function addWorkbookTeacherFeedback(answerId: number, teacherId: nu
   if (ans) {
     await db.insert(appNotifications).values({
       userId: ans.userId,
-      title: "선생님 서술형 첨삭 완료",
-      message: `제출하신 워크북 답안에 담당 교사 첨삭이 등록되었습니다. (점수: ${gradeScore}점)`,
+      title: created ? "선생님 서술형 첨삭 완료" : "선생님 서술형 첨삭이 수정되었습니다",
+      message: `제출하신 워크북 답안에 담당 교사 첨삭이 ${created ? "등록" : "수정"}되었습니다. (점수: ${gradeScore}점)`,
       category: "teacher_feedback",
     });
   }
 
-  return { success: true };
+  return { success: true, feedbackId, created, studentId: ans?.userId ?? null };
 }
 
 export async function getNotificationsByUser(userId: number) {

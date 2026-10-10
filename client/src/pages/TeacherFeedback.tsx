@@ -62,8 +62,10 @@ export default function TeacherFeedback() {
   }, [getEssayQuery.data]);
 
   useEffect(() => {
-    if (getFeedbackQuery.data && Array.isArray(getFeedbackQuery.data) && getFeedbackQuery.data.length > 0) {
-      const fb = getFeedbackQuery.data[0];
+    // 서버는 이 글의 첨삭을 객체 하나로 돌려준다(없으면 비어 있음). 예전 배열 형태도 함께 받아 준다.
+    const loaded = Array.isArray(getFeedbackQuery.data) ? getFeedbackQuery.data[0] : getFeedbackQuery.data;
+    if (loaded && typeof loaded === "object" && "id" in loaded) {
+      const fb = loaded;
       setFeedback(fb);
       setOverallComment(fb.overallComment || "");
       setOverallScore(fb.overallScore || 75);
