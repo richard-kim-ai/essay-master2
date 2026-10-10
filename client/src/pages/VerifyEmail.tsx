@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { MailCheck, Loader2, RefreshCw, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import Footer from "@/components/Footer";
 
 export default function VerifyEmail() {
   const [, setLocation] = useLocation();
@@ -52,6 +53,7 @@ export default function VerifyEmail() {
   }
 
   return (
+    <>
     <div className="flex min-h-screen items-center justify-center bg-blue-50 p-4">
       <Card className="w-full max-w-md p-6 sm:p-8">
         <MailCheck className="h-12 w-12 text-blue-600" />
@@ -64,5 +66,7 @@ export default function VerifyEmail() {
         <Link href="/login" className="mt-5 block text-center text-sm font-medium text-blue-600 hover:underline">로그인으로 돌아가기</Link>
       </Card>
     </div>
+    <Footer variant="compact" />
+    </>
   );
 }

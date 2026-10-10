@@ -1,4 +1,5 @@
 import Navigation from "./Navigation";
+import Footer from "./Footer";
 import OfflineStatus from "./OfflineStatus";
 import InstallPrompt from "./InstallPrompt";
 import PushPermissionPrompt from "./PushPermissionPrompt";
@@ -11,10 +12,11 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="flex min-h-screen flex-col bg-gray-50">
       <Navigation />
       <OfflineStatus />
-      <main>{children}</main>
+      <main className="flex-1">{children}</main>
+      <Footer />
       <InstallPrompt />
       <PushPermissionPrompt />
       <SampleModeBanner />

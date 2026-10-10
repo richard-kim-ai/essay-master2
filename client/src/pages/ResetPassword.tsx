@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { KeyRound, CheckCircle2, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import Footer from "@/components/Footer";
 
 export default function ResetPassword() {
   const [, setLocation] = useLocation();
@@ -28,6 +29,7 @@ export default function ResetPassword() {
   };
 
   return (
+    <>
     <div className="flex min-h-screen items-center justify-center bg-indigo-50 p-4">
       <Card className="w-full max-w-md p-6 sm:p-8">
         {done ? (
@@ -37,5 +39,7 @@ export default function ResetPassword() {
         )}
       </Card>
     </div>
+    <Footer variant="compact" />
+    </>
   );
 }

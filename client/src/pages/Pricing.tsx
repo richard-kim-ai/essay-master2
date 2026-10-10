@@ -2,6 +2,7 @@ import React from "react";
 import { ArrowRight, CheckCircle2, Clock3, LockKeyhole, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
+import Footer from "@/components/Footer";
 import Navigation from "@/components/Navigation";
 
 const TRIAL_BENEFITS = [
@@ -119,6 +120,7 @@ export default function Pricing() {
           </section>
         </div>
       </main>
+      <Footer />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Mail, Lock, User, ArrowRight, BookOpen, CheckCircle2, Sparkles } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import Footer from "@/components/Footer";
 import { PolicyConsentChecklist, type PolicyConsentValue } from "@/components/PolicyConsentChecklist";
 import { COURSE_OPTIONS, COURSE_TYPES, type CourseType } from "@shared/course";
 import { GUARDIAN_CONSENT_COURSE, calculateAge } from "@shared/guardian";
@@ -125,6 +126,7 @@ export default function Signup() {
 
         <div className="mt-8 space-y-3 text-sm text-slate-700"><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />AI 기반 맞춤형 피드백</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />14개 이상의 학습 도구</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />이메일 인증으로 안전한 학습 기록</div></div>
       </div>
+      <Footer variant="compact" />
     </div>
   );
 }

@@ -7,7 +7,7 @@ import {
   getHomePrimaryAction,
 } from "@/lib/homeExperience";
 import { getTrialStatus } from "@/lib/trialExperience";
-import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
+import Footer from "@/components/Footer";
 import { Link } from "wouter";
 import {
   ArrowRight,
@@ -242,23 +242,7 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="bg-slate-950 px-4 py-10 text-slate-400 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row md:items-end">
-          <div>
-            <div className="flex items-center gap-2 font-extrabold text-white"><BookOpen className="h-5 w-5 text-cyan-300" />논술 마스터</div>
-            <p className="mt-3 max-w-sm text-sm leading-6">읽고, 생각하고, 설득력 있게 쓰는 과정을 함께하는 단계별 논술 학습 플랫폼입니다.</p>
-          </div>
-          <div className="flex flex-wrap justify-start gap-x-5 gap-y-3 text-sm font-semibold md:justify-end">
-            <Link href="/curriculum" className="hover:text-white">커리큘럼</Link>
-            <Link href="/essay-archive" className="hover:text-white">추천 아카이브</Link>
-            <Link href="/topic-wizard" className="hover:text-white">주제 설정</Link>
-            <Link href="/pricing" className="hover:text-white">요금정책</Link>
-            <Link href="/mypage" className="hover:text-white">마이페이지</Link>
-            <a href={CONTACT_MAILTO} className="hover:text-white">문의 {CONTACT_EMAIL}</a>
-          </div>
-        </div>
-        <div className="mx-auto mt-8 max-w-7xl border-t border-slate-800 pt-6 text-sm">© 2026 논술 마스터. All rights reserved.</div>
-      </footer>
+      <Footer />
       <InstallPrompt />
     </div>
   );

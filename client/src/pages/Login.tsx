@@ -7,13 +7,12 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Mail, Lock, ArrowRight, BookOpen } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { TermsAndPrivacyModal } from "@/components/TermsAndPrivacyModal";
+import Footer from "@/components/Footer";
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [modalType, setModalType] = useState<"terms" | "privacy" | null>(null);
 
   // 보호자(법정대리인) 동의가 끝나지 않아 로그인이 막힌 경우 동의 메일 재발송을 안내한다.
   const [guardianPending, setGuardianPending] = useState(false);
@@ -184,15 +183,9 @@ export default function Login() {
               </Link>
             </div>
           </div>
-
-          <div className="mt-6 border-t border-slate-100 pt-4 text-center text-xs text-slate-400 flex justify-center gap-4">
-            <button type="button" onClick={() => setModalType("terms")} className="hover:text-slate-600 hover:underline">이용약관</button>
-            <span>·</span>
-            <button type="button" onClick={() => setModalType("privacy")} className="hover:text-slate-600 hover:underline">개인정보처리방침</button>
-          </div>
         </Card>
       </div>
-      <TermsAndPrivacyModal type={modalType} onClose={() => setModalType(null)} />
+      <Footer variant="compact" />
     </div>
   );
 }

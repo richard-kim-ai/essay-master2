@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { CONTACT_EMAIL } from "@/lib/contact";
+import Footer from "@/components/Footer";
 
 // 만 14세 미만 학생의 법정대리인(보호자)이 메일 링크로 들어와 동의서를 확인하고 동의하는 페이지.
 export default function GuardianConsent() {
@@ -32,6 +33,7 @@ export default function GuardianConsent() {
         <h1 className="mb-6 text-center text-3xl font-bold text-slate-900">논술 마스터</h1>
         {children}
       </div>
+      <Footer variant="compact" />
     </div>
   );
 

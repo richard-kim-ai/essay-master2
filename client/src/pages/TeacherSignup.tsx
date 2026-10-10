@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Mail, Lock, User, ArrowRight, GraduationCap, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import Footer from "@/components/Footer";
 import { PolicyConsentChecklist, type PolicyConsentValue } from "@/components/PolicyConsentChecklist";
 
 export default function TeacherSignup() {
@@ -67,6 +68,7 @@ export default function TeacherSignup() {
 
         <div className="mt-8 space-y-3 text-sm text-slate-700"><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />담당 학생 논술 실시간 모니터링</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />문장별 상세 첨삭 및 점수 부여</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />레벨별 권한에 따른 맞춤 관리</div></div>
       </div>
+      <Footer variant="compact" />
     </div>
   );
 }

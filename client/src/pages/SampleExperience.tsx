@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { SAMPLE_COURSE_CONTENT } from "@/lib/sampleCourseContent";
+import Footer from "@/components/Footer";
 
 const SAMPLE_COURSES = [
   ["elementary", "초등 논술", "생각을 문장으로 표현하는 첫 단계"],
@@ -215,6 +216,7 @@ export default function SampleExperience() {
           <DialogFooter className="gap-2 sm:gap-0"><Button variant="outline" onClick={() => setShowTrialInvite(false)}>AI 첨삭 실체험 해보기</Button><Link href={signupHref}><Button>7일 무료 체험 시작</Button></Link></DialogFooter>
         </DialogContent>
       </Dialog>
+      <Footer />
     </div>
   );
 }
