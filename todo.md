@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 운영 문의 이메일(ceo@ufinsu.com) 연결(lib/contact.ts, Pricing.tsx 도입 문의, Home.tsx 푸터) — 시작 2026-10-11 10:40
 
 
 
