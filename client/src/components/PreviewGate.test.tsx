@@ -43,11 +43,11 @@ describe("PreviewGate", () => {
     expect(html).toContain("pointer-events-none");
   });
 
-  it("미리보기 안내와 로그인·회원가입 진입점을 보여준다", () => {
+  it("화면 위에 별도 안내 줄을 두지 않고, 눌렀을 때 뜨는 로그인 팝업만 둔다(헤더에 로그인·회원가입이 있다)", () => {
     const html = render(true);
-    expect(html).toContain("AI 문장 교정 미리보기");
-    expect(html).toContain("/login?next=%2Fquiz");
-    expect(html).toContain("/signup?trial=1");
+    expect(html).not.toContain("미리보기 안내");
+    expect(html).not.toContain("화면 구성만 둘러볼 수 있습니다");
+    expect(html).toContain('data-preview-surface="true"');
   });
 
   it("로그인한 상태에서는 아무것도 바꾸지 않고 그대로 보여준다", () => {
