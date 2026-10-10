@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 샘플 계정(@sample.) 전용 UI 분기 제거(Certificate·Dashboard·Curriculum·MyPageHub; 비로그인 공개 샘플 모드는 유지) — 시작 2026-10-12 11:00
 
 
 
