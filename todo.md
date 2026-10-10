@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] /pricing(Pricing.tsx) 내부 검토용 안내·참고 문구를 서비스 실제 문구로 정리 — 시작 2026-10-12 10:00
 
 
 
