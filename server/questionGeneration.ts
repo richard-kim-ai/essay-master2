@@ -45,6 +45,13 @@ function course(input: string): keyof typeof COURSE_MAP { const upper = input.tr
 function tool(input: string): keyof typeof TOOL_TYPE_MAP { const upper = input.trim().toUpperCase(); if (upper in TOOL_TYPE_MAP) return upper as keyof typeof TOOL_TYPE_MAP; if (legacyTools[input.trim()]) return legacyTools[input.trim()]; throw new Error(`지원하지 않는 도구: ${input}`); }
 function clean(value: unknown, fallback = "") { return typeof value === "string" && value.trim() ? value.trim() : fallback; }
 function parse(raw: unknown): Record<string, any> { const text = typeof raw === "string" ? raw.replace(/```json/gi, "").replace(/```/g, "").trim() : JSON.stringify(raw ?? {}); return JSON.parse(text); }
+function contentSource(raw: unknown): Record<string, any> {
+  const parsed = parse(raw);
+  const nested = parsed.contentData ?? parsed.content ?? parsed.data;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) return nested as Record<string, any>;
+  if (typeof nested === "string" && nested.trim()) return parse(nested);
+  return parsed;
+}
 function normalizeText(value: unknown) { return String(value ?? "").replace(/\s+/g, " ").replace(/[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ]/g, "").trim().toLowerCase(); }
 function similarity(a: string, b: string) { const as = new Set(a.split(" ").filter(Boolean)); const bs = new Set(b.split(" ").filter(Boolean)); const aItems = Array.from(as); const bItems = Array.from(bs); return aItems.filter((token) => bs.has(token)).length / (new Set(aItems.concat(bItems)).size || 1); }
 function legacyDifficulty(level: number): "easy" | "medium" | "hard" { return level <= 2 ? "easy" : level === 3 ? "medium" : "hard"; }
@@ -105,14 +112,14 @@ export function resolveAdaptiveDifficulty(request: GenerationRequest, stats: Ada
 export function buildShortUserPrompt(input: GenerationRequestInput, stats: AdaptiveStats[] = []) { const request = generationRequestSchema.parse(input); return [`course=${course(request.course)}`, `tool_type=${tool(request.tool_type)}`, `theory_category=${request.theory_category}`, `difficulty=${request.difficulty}`, `resolved_difficulty=${resolveAdaptiveDifficulty(request, stats)}`, `question_count=${request.question_count}`, `topic=${request.topic}`, `adaptive_context=${stats.flatMap((item) => item.weakTheoryCategories ?? []).slice(0, 5).join("|") || "NONE"}`].join(" / "); }
 
 function normalizeContent(raw: unknown, request: GenerationRequest, level: number) {
-  const source = parse(raw); const targetTool = tool(request.tool_type); const targetCourse = course(request.course);
+  const source = contentSource(raw); const targetTool = tool(request.tool_type); const targetCourse = course(request.course);
   const choices = Array.isArray(source.choices) ? source.choices : Array.isArray(source.options) ? source.options : [];
   const paragraphs = Array.isArray(source.paragraphs) ? source.paragraphs.map((item: any, index: number) => ({ id: clean(item?.id, `p${index + 1}`), content: clean(item?.content ?? item), correctOrder: Number(item?.correctOrder ?? index + 1) })) : [];
   const resolvedLevel = Math.max(1, Math.min(5, Number(source.difficulty ?? level)));
   const content = {
-    ...source, course: targetCourse, tool_type: targetTool, theory_category: clean(source.theory_category, request.theory_category), difficulty: resolvedLevel, difficulty_metrics: metricsSchema.parse(source.difficulty_metrics ?? defaults(resolvedLevel)),
-    question: clean(source.question, clean(source.prompt, clean(source.passage))), passage: clean(source.passage, targetTool === "SUMMARY" ? clean(source.prompt) : ""), explanation: clean(source.explanation), learning_objective: clean(source.learning_objective, `${request.theory_category} 학습 목표를 적용한다.`),
-    choices, correct_answer: source.correct_answer ?? source.answer ?? "", model_answer: clean(source.model_answer, clean(source.modelAnswer)), prompt: clean(source.prompt, targetTool === "SUMMARY" ? clean(source.passage) : clean(source.question)), options: choices, answer: clean(source.answer, typeof source.correct_answer === "string" ? source.correct_answer : ""), modelAnswer: clean(source.modelAnswer, clean(source.model_answer)),
+    ...source, course: targetCourse, tool_type: targetTool, theory_category: clean(source.theory_category, request.theory_category), difficulty: resolvedLevel, difficulty_metrics: metricsSchema.parse(source.difficulty_metrics ?? source.difficultyMetrics ?? defaults(resolvedLevel)),
+    question: clean(source.question, clean(source.prompt, clean(source.passage))), passage: clean(source.passage, targetTool === "SUMMARY" ? clean(source.prompt) : ""), explanation: clean(source.explanation, clean(source.answer_explanation, clean(source.rationale, clean(source.feedback)))), learning_objective: clean(source.learning_objective, clean(source.learningObjective, `${request.theory_category} 학습 목표를 적용한다.`)),
+    choices, correct_answer: source.correct_answer ?? source.correctAnswer ?? source.answer ?? "", model_answer: clean(source.model_answer, clean(source.modelAnswer, clean(source.reference_answer, clean(source.referenceAnswer)))), prompt: clean(source.prompt, targetTool === "SUMMARY" ? clean(source.passage) : clean(source.question)), options: choices, answer: clean(source.answer, typeof source.correct_answer === "string" ? source.correct_answer : ""), modelAnswer: clean(source.modelAnswer, clean(source.model_answer)),
     paragraphs, keyPoints: Array.isArray(source.keyPoints) ? source.keyPoints : [], guidelines: Array.isArray(source.guidelines) ? source.guidelines : [], checklistItems: Array.isArray(source.checklistItems) ? source.checklistItems : [], master_prompt_version: QUESTION_BANK_MASTER_PROMPT_VERSION, generation_origin: (source as { generation_origin?: unknown })?.generation_origin ?? "ai_generated", human_review: (source as { human_review?: unknown })?.human_review,
   };
   if (!content.question || !content.explanation || !content.learning_objective) throw new Error("필수 문항 본문·해설·학습 목표가 없습니다.");

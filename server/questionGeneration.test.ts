@@ -47,6 +47,29 @@ describe("공통 문항 생성·QA 엔진", () => {
   it("손상된 AI JSON 응답을 저장 전 차단한다", async () => {
     await expect(generateQuestionBankItems({ course: "MIDDLE_HIGH", tool_type: "SUMMARY", theory_category: "C04", difficulty: 3, question_count: 1, topic: "AUTO" }, { llm: async () => ({ id: "test", created: 0, model: "test", choices: [{ index: 0, message: { role: "assistant", content: "{not-json" }, finish_reason: "stop" }] }) as any })).rejects.toThrow();
   });
+  it("기존 contentData 필드명과 한 단계 중첩된 응답도 공통 DTO로 정규화한다", () => {
+    const legacy = content("MIDDLE_HIGH", "SUMMARY", {
+      prompt: "학교 휴대전화 사용의 장단점을 요약하십시오.",
+      answer_explanation: "쟁점과 조건을 빠뜨리지 않고 요약했는지 확인한다.",
+      learningObjective: "핵심 주장과 조건을 구분한다.",
+      modelAnswer: "편의와 학습권을 함께 고려해야 한다.",
+    });
+    delete (legacy as Record<string, unknown>).question;
+    delete (legacy as Record<string, unknown>).explanation;
+    delete (legacy as Record<string, unknown>).learning_objective;
+    delete (legacy as Record<string, unknown>).model_answer;
+    const [item] = mapGeneratedItemsToQuestionBank(
+      { items: [{ title: "휴대전화 사용 요약", contentData: { contentData: legacy } }] },
+      { course: "MIDDLE_HIGH", tool_type: "SUMMARY", theory_category: "C04", difficulty: 3, question_count: 1, topic: "AUTO" },
+    );
+    expect(item.qaStatus).toBe("passed");
+    expect(JSON.parse(item.contentData)).toMatchObject({
+      question: legacy.prompt,
+      explanation: legacy.answer_explanation,
+      learning_objective: legacy.learningObjective,
+      model_answer: legacy.modelAnswer,
+    });
+  });
 
   // ===== 아래는 local branch 고유 기능: 사람 검수 체크리스트·정답 패턴 추측 방지 QA (2026-08-19 merge 시 이식) =====
   it("사람 검수(human_review)가 완료되지 않은 AI 생성 문항은 human_review_required로 차단한다", () => {
