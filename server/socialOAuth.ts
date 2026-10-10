@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
 import { COOKIE_NAME } from "@shared/const";
+import { sanitizeNextPath } from "@shared/nextPath";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -39,14 +40,16 @@ function stateCookie(provider: Provider) {
   return `social-state-${provider}`;
 }
 
-function encodeState(value: { state: string; origin: string }) {
+// next는 로그인 뒤 돌아갈 같은 사이트 경로다. 저장할 때와 꺼낼 때 모두 다시 검증한다(쿠키는 신뢰하지 않는다).
+export function encodeState(value: { state: string; origin: string; next?: string }) {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
 }
 
-function decodeState(value: string) {
+export function decodeState(value: string) {
   try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as { state?: string; origin?: string };
-    return parsed.state && parsed.origin ? { state: parsed.state, origin: parsed.origin } : null;
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as { state?: string; origin?: string; next?: string };
+    if (!parsed.state || !parsed.origin) return null;
+    return { state: parsed.state, origin: parsed.origin, next: sanitizeNextPath(parsed.next, "") };
   } catch {
     return null;
   }
@@ -122,7 +125,8 @@ export function registerSocialOAuthRoutes(app: Express) {
       return;
     }
     const state = randomBytes(24).toString("hex");
-    res.cookie(stateCookie(provider), encodeState({ state, origin }), { httpOnly: true, secure: req.protocol === "https", sameSite: "lax", path: "/", maxAge: 600 });
+    const next = sanitizeNextPath(typeof req.query.next === "string" ? req.query.next : "", "");
+    res.cookie(stateCookie(provider), encodeState({ state, origin, ...(next ? { next } : {}) }), { httpOnly: true, secure: req.protocol === "https", sameSite: "lax", path: "/", maxAge: 600 });
     const redirectUri = callbackUrl(origin, provider);
     const authorizeUrl = provider === "google"
       ? `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({ client_id: config.clientId, redirect_uri: redirectUri, response_type: "code", scope: PROVIDERS[provider].scopes.join(" "), state }).toString()}`
@@ -148,7 +152,7 @@ export function registerSocialOAuthRoutes(app: Express) {
       const redirectOrigin = origin;
       const profile = await fetchProviderProfile(provider, String(req.query.code || ""), callbackUrl(redirectOrigin, provider), config.clientId, secret);
       await signInWithProfile(provider, profile, res, req);
-      res.redirect(`${redirectOrigin}/`);
+      res.redirect(`${redirectOrigin}${stored.next || "/"}`);
     } catch (error) {
       console.error(`[Social OAuth] ${provider} callback failed`, error);
       const redirectOrigin = origin;

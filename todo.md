@@ -1,11 +1,11 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-- [Local] 소셜 로그인(Google·카카오·네이버) 성공 뒤 next 경로 복귀(socialOAuth.ts state 쿠키에 검증된 next 저장, Login.tsx 전달, sanitizeNextPath를 shared로 이동) — 시작 2026-10-12 13:00
 
 
 
 ## 완료
+- [Local] 소셜 로그인(Google·카카오·네이버) 성공 뒤 next 경로 복귀: sanitizeNextPath를 shared/nextPath.ts로 이동, Login.tsx가 next를 start에 전달, socialOAuth.ts가 검증한 next를 state 쿠키에 저장·재검증 후 이동(next 없으면 기존처럼 /) — 시작 2026-10-12 13:00, 완료 2026-10-12 (실제 소셜 로그인 왕복은 Manus 환경의 제공자 설정 후 확인 필요)
 - [Local] 미리보기 화면 상단 안내 줄 제거(PreviewGate; 헤더에 로그인·회원가입이 있어 중복, 화면 클릭 시 로그인 팝업은 유지) — 시작 2026-10-12 12:00, 완료 2026-10-12
 - [Local] 샘플 계정(@sample.) 전용 UI 분기 제거: Certificate(샘플 과정 선택·미리보기 문구), MyPageHub(샘플 과정 설정 카드), Curriculum·Dashboard(이메일 검사만 제거, 비로그인 공개 샘플 모드는 유지) — 시작 2026-10-12 11:00, 완료 2026-10-12 (화면 육안 확인 미실시)
 - [Local] /pricing 내부 검토용 안내·참고 문구(검토안·원가·Grammarly 참고 링크·출시 전 필수 확인·법률 자문 면책·빈 '공개 요금 비교 기준 보기')를 서비스 실제 문구로 정리, 내부 표현 재유입 방지 테스트 추가 — 시작 2026-10-12 10:00, 완료 2026-10-12 (요금은 결제 기능 준비 중으로 안내, 최종 요금 확정 시 갱신 필요)

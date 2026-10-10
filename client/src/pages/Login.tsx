@@ -28,6 +28,8 @@ export default function Login() {
   // 로그인이 필요한 화면에서 넘어온 경우 로그인 뒤 그 화면으로 돌아간다(같은 사이트 경로만 허용).
   const search = useSearch();
   const nextPath = sanitizeNextPath(new URLSearchParams(search).get("next"));
+  // 소셜 로그인은 next가 주소에 있을 때만 넘긴다(없으면 기존처럼 첫 화면으로 이동).
+  const socialNext = sanitizeNextPath(new URLSearchParams(search).get("next"), "");
   const loginMutation = trpc.auth.loginWithEmail.useMutation({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
@@ -123,7 +125,7 @@ export default function Login() {
               </div>
               <div className={`grid gap-2 ${enabledProviders.length === 1 ? "grid-cols-1" : enabledProviders.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
                 {enabledProviders.map((provider) => (
-                  <Button key={provider} type="button" variant="outline" onClick={() => { window.location.href = `/api/social/${provider}/start?origin=${encodeURIComponent(window.location.origin)}`; }}>{PROVIDER_LABELS[provider]}</Button>
+                  <Button key={provider} type="button" variant="outline" onClick={() => { window.location.href = `/api/social/${provider}/start?origin=${encodeURIComponent(window.location.origin)}${socialNext ? `&next=${encodeURIComponent(socialNext)}` : ""}`; }}>{PROVIDER_LABELS[provider]}</Button>
                 ))}
               </div>
             </>
