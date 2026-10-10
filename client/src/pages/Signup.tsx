@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -82,6 +82,11 @@ export default function Signup() {
               <p className="mt-2 text-[11px] leading-relaxed text-emerald-800">학부모 계정은 연결된 학생의 학습 상황 확인과 코멘트 기능에 사용됩니다.</p>
             </div>
             {accountType === "student" && <><label className="block text-sm font-medium text-slate-700">학습 과정<select value={courseType} onChange={(event) => { setCourseType(event.target.value as CourseType); setPreferredTeacherId(""); }} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">로그인 후 선택한 과정의 커리큘럼과 레슨을 기본으로 안내합니다.</span></label><label className="block text-sm font-medium text-slate-700">추천 교사 선택 <span className="font-normal text-slate-400">(선택)</span><select value={preferredTeacherId} onChange={(event) => setPreferredTeacherId(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2" disabled={recommendedTeachers.isLoading}><option value="">선택하지 않음 — AI 첨삭 전용 봇 기본 배정</option>{recommendedTeachers.data?.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name} · Level {teacher.teacherLevel}{teacher.courseMatch ? " · 선택 과정 추천" : ""}</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">교사를 선택하지 않으면 AI 첨삭 전용 봇이 기본 담당으로 지정됩니다.</span></label></>}
+            {accountType === "student" && courseType === "elementary" && (
+              <p role="note" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950">
+                <strong>만 14세 미만 어린이는 보호자 동의가 필요합니다.</strong> 보호자(법정대리인)와 함께 가입 내용과 약관, 개인정보처리방침을 확인해 주세요. 보호자는 학부모 회원으로 가입해 자녀 계정을 연결할 수 있습니다.
+              </p>
+            )}
             <label className="block text-sm font-medium text-slate-700">이름<span className="relative mt-2 block"><User className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input name="name" value={formData.name} onChange={handleChange} placeholder="홍길동" className="pl-10" disabled={signupMutation.isPending} /></span></label>
             <label className="block text-sm font-medium text-slate-700">이메일<span className="relative mt-2 block"><Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="your@email.com" className="pl-10" disabled={signupMutation.isPending} /></span></label>
             <label className="block text-sm font-medium text-slate-700">비밀번호<span className="relative mt-2 block"><Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="password" name="password" value={formData.password} onChange={handleChange} placeholder="8자 이상" className="pl-10" disabled={signupMutation.isPending} /></span></label>
