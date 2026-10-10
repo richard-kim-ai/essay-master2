@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 미리보기 화면 상단 안내 줄 제거(PreviewGate; 헤더에 로그인·회원가입이 있어 중복) — 시작 2026-10-12 12:00
 
 
 
