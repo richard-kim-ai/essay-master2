@@ -1217,6 +1217,17 @@ export async function getSampleAiUsageCountByIpSince(ipHash: string, since: Date
   return rows.length;
 }
 
+// 세션·IP를 바꿔 가며 보내는 요청까지 막기 위한 서비스 전체 일일 호출 수 집계.
+export async function getSampleAiUsageCountSince(since: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ id: sampleAiUsageLog.id })
+    .from(sampleAiUsageLog)
+    .where(gte(sampleAiUsageLog.createdAt, since));
+  return rows.length;
+}
+
 export async function logSampleAiUsage(sessionToken: string, ipHash: string): Promise<void> {
   const db = await getDb();
   if (!db) return;

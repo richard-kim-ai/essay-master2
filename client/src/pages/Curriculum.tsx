@@ -83,9 +83,14 @@ export default function Curriculum() {
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
     enabled: isAuthenticated,
   });
-  const { data: dynamicCurriculum } = trpc.curriculum.getDynamicByType.useQuery(courseType, {
+  const { data: memberCurriculum } = trpc.curriculum.getDynamicByType.useQuery(courseType, {
     enabled: isAuthenticated,
   });
+  // 비로그인 방문자는 공개해도 되는 과정 구성 정보만 조회한다.
+  const { data: publicCurriculum, isLoading: publicCurriculumLoading } = trpc.curriculum.getPublicOverview.useQuery(courseType, {
+    enabled: !isAuthenticated,
+  });
+  const dynamicCurriculum = (isAuthenticated ? memberCurriculum : publicCurriculum) as Array<{ id?: number; level: number; title: string; description: string; topics: string[]; aiSummary?: string | null; aiTags?: string[] }> | undefined;
 
   // 비로그인 방문자도 샘플 모드로 전체 커리큘럼을 바로 탐색할 수 있도록 허용
 
@@ -97,7 +102,8 @@ export default function Curriculum() {
       const managed = dynamicCurriculum?.find((item) => item.level === canonical.level);
       return managed ? { ...managed, ...canonical, id: managed.id, aiSummary: managed.aiSummary, aiTags: managed.aiTags } : canonical;
     })
-    : dynamicCurriculum && dynamicCurriculum.length > 0 ? dynamicCurriculum : CURRICULUM_DATA["middle_high"];
+    // 고등/대입·일반 과정은 조회된 과정 구성만 보여준다. 다른 과정의 내용으로 대체해 보여주면 잘못된 안내가 된다.
+    : dynamicCurriculum ?? [];
   const progressMap = new Map(
     progressData?.map((p) => [p.curriculumId, p]) || []
   );
@@ -119,13 +125,20 @@ export default function Curriculum() {
               {isSampleExperience ? "샘플 맞춤 과정" : isAdminPreview ? "관리자 탐색 미리보기" : "회원 맞춤 과정"}
             </span>
             <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 mt-1">{courseNames[courseType]}</h1>
-            <p className="text-sm text-slate-600 mt-1">{isSampleExperience ? "과정을 고르고 단계별 레슨을 체험해 보세요. 로그인 후에는 7일간 무료 체험으로 학습을 이어갈 수 있습니다." : isAdminPreview ? "선택한 과정의 커리큘럼·워크북·학습 도구를 운영 점검용으로 탐색합니다. 학습자 진도에는 영향을 주지 않습니다." : "회원가입 시 선택하신 과정에 최적화된 단계별 학습 레슨과 실전 논술 훈련을 제공합니다."}</p>
+            <p className="text-sm text-slate-600 mt-1">{isPublicSampleExperience ? "과정을 고르고 단계별 학습 구성을 미리 확인해 보세요. 레슨 학습은 회원가입 후 7일 무료 체험으로 시작할 수 있습니다." : isSampleExperience ? "과정을 고르고 단계별 레슨을 체험해 보세요. 로그인 후에는 7일간 무료 체험으로 학습을 이어갈 수 있습니다." : isAdminPreview ? "선택한 과정의 커리큘럼·워크북·학습 도구를 운영 점검용으로 탐색합니다. 학습자 진도에는 영향을 주지 않습니다." : "회원가입 시 선택하신 과정에 최적화된 단계별 학습 레슨과 실전 논술 훈련을 제공합니다."}</p>
           </div>
           {(isSampleExperience || isAdminPreview) && <select aria-label={isAdminPreview ? "관리자 탐색 커리큘럼 과정" : "샘플 커리큘럼 과정"} value={isAdminPreview ? adminPreviewCourse : sampleCourse} onChange={(event) => { const course = event.target.value as CourseType; if (isAdminPreview) { setAdminPreviewCourse(course); saveAdminPreviewCourse(course); } else { setSampleCourse(course); localStorage.setItem("essaymaster-sample-course", course); } }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900">{ADMIN_PREVIEW_COURSES.map((course) => <option key={course.value} value={course.value}>{course.label}</option>)}</select>}
         </div>
 
         <div className="mt-6">
             <div className="grid gap-6">
+              {curriculumList.length === 0 && (
+                <Card>
+                  <CardContent className="py-10 text-center text-slate-600">
+                    {publicCurriculumLoading ? "과정 구성을 불러오는 중입니다." : "이 과정의 커리큘럼 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+                  </CardContent>
+                </Card>
+              )}
               {curriculumList.map((item) => {
                 const curriculumId = (item as { id?: number }).id ?? item.level;
                 const progress = progressMap.get(curriculumId) ?? progressMap.get(item.level);
@@ -205,11 +218,17 @@ export default function Curriculum() {
                       )}
 
                       {(item as { id?: number }).id && isDynamicCourse && <Link href={`/curriculum/${courseType}/${item.level}`}><Button variant="outline" className="mb-2 w-full gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50">강의 상세 보기 · 생성 예문</Button></Link>}
-                      <Link href={`/workbook/${courseType}/${item.level}`}>
-                        <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white">
-                          {isDynamicCourse ? "예문과 함께 강의 열기" : isCompleted ? "다시 풀기" : "시작하기"}
-                        </Button>
-                      </Link>
+                      {isAuthenticated ? (
+                        <Link href={`/workbook/${courseType}/${item.level}`}>
+                          <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white">
+                            {isDynamicCourse ? "예문과 함께 강의 열기" : isCompleted ? "다시 풀기" : "시작하기"}
+                          </Button>
+                        </Link>
+                      ) : (
+                        <Link href={`/signup?trial=1&course=${courseType}`}>
+                          <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white">가입하고 7일 무료 체험으로 시작하기</Button>
+                        </Link>
+                      )}
                     </CardContent>
                   </Card>
                 );

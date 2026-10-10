@@ -17,12 +17,10 @@ import { getTrialAccess, isEligibleTrialEvaluation, TRIAL_AI_EVALUATION_LIMIT } 
 const SAMPLE_AI_SESSION_LIMIT = 3;
 const SAMPLE_AI_IP_DAILY_LIMIT = 10;
 const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
+// 세션 토큰·IP 헤더를 바꿔도 넘을 수 없는 서비스 전체 일일 상한(AI 비용 보호).
+const SAMPLE_AI_GLOBAL_DAILY_LIMIT = 300;
 
-function getClientIp(req: { headers: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } ; ip?: string }): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0]?.trim();
-  return forwardedIp || req.ip || req.socket?.remoteAddress || "unknown";
-}
+import { resolveClientIp } from "./clientIp";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -628,6 +626,21 @@ export const appRouter = router({
     getByType: protectedProcedure
       .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
       .query(({ input }) => db.getCurriculumByType(input)),
+
+    // 비로그인 방문자도 과정 구성을 확인할 수 있도록 공개해도 되는 필드만 반환한다(썸네일·PDF 경로·내부 id 제외).
+    getPublicOverview: publicProcedure
+      .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
+      .query(async ({ input }) => {
+        const items = await db.getDynamicCurriculumByType(input);
+        return items.map((item) => ({
+          level: item.level,
+          title: item.title,
+          description: item.description,
+          topics: item.topics,
+          aiSummary: item.aiSummary,
+          aiTags: item.aiTags,
+        }));
+      }),
 
     getDynamicByType: protectedProcedure
       .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
@@ -1247,25 +1260,35 @@ export const appRouter = router({
         essayText: z.string().trim().min(1).max(SAMPLE_AI_TEXT_MAX_LENGTH),
       }))
       .mutation(async ({ ctx, input }) => {
+        // 한도를 기록할 DB가 없으면 한도 없이 AI를 호출하게 되므로 요청을 받지 않는다.
+        if (!(await db.getDb())) {
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "지금은 AI 첨삭 체험을 이용할 수 없습니다. 잠시 후 다시 시도해 주세요." });
+        }
+
         const sessionCount = await db.getSampleAiUsageCountBySession(input.sessionToken);
         if (sessionCount >= SAMPLE_AI_SESSION_LIMIT) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "이번 방문에서 체험 가능한 AI 첨삭을 모두 사용했습니다." });
         }
 
-        const ipHash = db.hashSampleClientIp(getClientIp(ctx.req));
+        const ipHash = db.hashSampleClientIp(resolveClientIp(ctx.req));
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const ipCount = await db.getSampleAiUsageCountByIpSince(ipHash, since);
         if (ipCount >= SAMPLE_AI_IP_DAILY_LIMIT) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "오늘 이 네트워크에서 체험 가능한 AI 첨삭을 모두 사용했습니다." });
         }
 
-        const result = await evaluateWritingWithLLM({
+        const globalCount = await db.getSampleAiUsageCountSince(since);
+        if (globalCount >= SAMPLE_AI_GLOBAL_DAILY_LIMIT) {
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "오늘 제공 가능한 AI 첨삭 체험이 모두 소진되었습니다. 내일 다시 이용하거나 로그인하고 7일 무료 체험을 시작해 주세요." });
+        }
+
+        // AI 호출 전에 사용 기록을 먼저 남겨 동시에 여러 번 보내는 요청이 한도를 넘지 못하게 한다.
+        await db.logSampleAiUsage(input.sessionToken, ipHash);
+        return await evaluateWritingWithLLM({
           metadata: { source: "sample_experience" },
           task: input.task,
           submission: { essay_text: input.essayText },
         });
-        await db.logSampleAiUsage(input.sessionToken, ipHash);
-        return result;
       }),
   }),
 

@@ -1,13 +1,13 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-- [Local] 샘플 AI 첨삭 한도 우회 차단(server/routers.ts sampleEvaluation) 및 비로그인 커리큘럼 소개 보완(Curriculum.tsx, curriculum 공개 조회) — 시작 2026-10-11 05:00
 
 
 
 
 
 ## 완료
+- [Local] 샘플 AI 첨삭 한도 우회 차단(server/routers.ts sampleEvaluation) 및 비로그인 커리큘럼 소개 보완(Curriculum.tsx, curriculum 공개 조회) — 시작 2026-10-11 05:00, 완료 2026-10-11 05:40
 - [Local] 학부모 연동·학생 상세 조회 권한/개인정보 노출 보완(server/db.ts, server/routers.ts parent 라우터) — 시작 2026-10-11 04:10, 완료 2026-10-11 04:40
 - [Codex] 분리 worktree를 현재 main 기준으로 통일 및 동기화 절차 정리 — 시작 2026-10-11, 완료 2026-10-11
 - [Local] 요금 정책 페이지 '공개 요금 비교 기준 보기' 링크 제거(문구만 유지) — 시작 2026-10-11 03:30, 완료 2026-10-11 03:40
