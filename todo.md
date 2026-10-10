@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 학부모-학생 연결 학생 승인 단계 추가(parent_student_links status 컬럼·마이그레이션, parent 라우터 linkRequests/incomingRequests/respondToRequest, ParentPortal·MyPageHub UI) — 시작 2026-10-11 09:20
 
 
 
