@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 위험도 높음 5건: 진행 기록(progress.upsert) 서버 검증, 수료증 발급 입력 검증, 제출 글(essaySubmission) 소유자 검사, 교사 첨삭(teacherFeedback) 역할·배정 검사와 비로그인 조회 차단, AIAutoFeedback 가짜 결제 버튼 제거 — 시작 2026-10-12 16:00
 
 
 
