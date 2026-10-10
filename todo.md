@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 만 14세 미만 법정대리인 이메일 확인 동의 구현(guardian_consents 테이블·마이그레이션 0048, 가입 생년월일·보호자 입력, 동의 메일·/guardian-consent 페이지, 동의 전 로그인 차단) — 시작 2026-10-11 11:20
 
 
 
