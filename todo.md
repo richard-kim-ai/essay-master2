@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 샘플 체험 AI 첨삭 외부 전송·저장 범위 고지 추가(SampleExperience.tsx) — 시작 2026-10-11 08:00
 
 
 
