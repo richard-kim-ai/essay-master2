@@ -7,6 +7,7 @@ import {
   getHomePrimaryAction,
 } from "@/lib/homeExperience";
 import { getTrialStatus } from "@/lib/trialExperience";
+import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
 import { Link } from "wouter";
 import {
   ArrowRight,
@@ -253,6 +254,7 @@ export default function Home() {
             <Link href="/topic-wizard" className="hover:text-white">주제 설정</Link>
             <Link href="/pricing" className="hover:text-white">요금정책</Link>
             <Link href="/mypage" className="hover:text-white">마이페이지</Link>
+            <a href={CONTACT_MAILTO} className="hover:text-white">문의 {CONTACT_EMAIL}</a>
           </div>
         </div>
         <div className="mx-auto mt-8 max-w-7xl border-t border-slate-800 pt-6 text-sm">© 2026 논술 마스터. All rights reserved.</div>

@@ -26,6 +26,7 @@ describe("Pricing policy page", () => {
     expect(html).toContain("최소 수집");
     expect(html).toContain("AI 전송 고지");
     expect(html).toContain('href="https://www.grammarly.com/plans"');
+    expect(html).toContain('href="mailto:ceo@ufinsu.com"');
     expect(html).not.toContain("SOC 2 Type I");
     expect(html).not.toContain("개인정보 보호법 완전 준수");
   });

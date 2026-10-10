@@ -1,13 +1,13 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-- [Local] 운영 문의 이메일(ceo@ufinsu.com) 연결(lib/contact.ts, Pricing.tsx 도입 문의, Home.tsx 푸터) — 시작 2026-10-11 10:40
 
 
 
 
 
 ## 완료
+- [Local] 운영 문의 이메일(ceo@ufinsu.com) 연결(lib/contact.ts, Pricing.tsx 도입 문의, Home.tsx 푸터) — 시작 2026-10-11 10:40, 완료 2026-10-11 10:55
 - [Local] 학부모-학생 연결 학생 승인 단계 추가(parent_student_links status 컬럼·마이그레이션, parent 라우터 linkRequests/myParentLinks/respondToRequest, ParentPortal·MyPageHub UI) — 시작 2026-10-11 09:20, 완료 2026-10-11 10:10 (DB 마이그레이션 0047 수동 적용 필요)
 - [Local] 가입 화면 초등 과정 선택 시 만 14세 미만 보호자 동의 안내 문구 추가(Signup.tsx, 동의 기록 없는 안내 전용) — 시작 2026-10-11 08:40, 완료 2026-10-11 09:00
 - [Local] 샘플 체험 AI 첨삭 외부 전송·저장 범위 고지 추가(SampleExperience.tsx) — 시작 2026-10-11 08:00, 완료 2026-10-11 08:25
@@ -712,4 +712,3 @@
 
 ## 후속 검토 필요: 만 14세 미만 보호자 동의 (법률 검토 선행)
 - [ ] 가입 화면 안내 문구만 있고 동의 기록은 남기지 않음. 법정대리인 동의 확인 방식(체크·이메일·본인확인)과 동의 기록 저장, 정책 문서(`DEFAULT_POLICY_DOCUMENTS`) 추가 여부를 법률 검토 후 결정
-- [ ] 운영 문의 채널 확정(요금 정책 페이지의 "운영 문의"에 실제 연락 수단 연결)
