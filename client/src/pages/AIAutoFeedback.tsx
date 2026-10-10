@@ -12,7 +12,6 @@ import { useEffect, useState } from "react";
 import { Progress } from "@/components/ui/progress";
 import { EvaluationLoadingState } from "@/components/EvaluationLoadingState";
 import { toast } from "sonner";
-import { CONTACT_MAILTO } from "@/lib/contact";
 
 const EVALUATION_STEPS = [
   { label: "답안 구조를 읽고 있어요", detail: "작성하신 글의 문단과 핵심 문장을 살펴보고 있습니다." },
@@ -73,16 +72,14 @@ export default function AIAutoFeedback() {
   }, [loading]);
 
   const { data: quota, refetch: refetchQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery();
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const createFeedbackMutation = trpc.aiAutoFeedback.create.useMutation({
     onSuccess: () => {
       refetchQuota();
     },
-    onError: (err) => {
-      if (err.message && err.message.includes("쿼터")) {
-        setShowUpgradeModal(true);
-      }
+    onError: () => {
+      // 한도·이용권 문제는 서버 메시지를 그대로 보여 주기 위해 아래 제출 처리에서 안내하고, 남은 횟수는 다시 불러온다.
+      refetchQuota();
     },
   });
   const appealMutation = trpc.evaluationAppeals.create.useMutation({
@@ -147,7 +144,7 @@ export default function AIAutoFeedback() {
       toast.success("AI 첨삭이 완료되었습니다!");
     } catch (error) {
       console.error("Error generating feedback:", error);
-      toast.error("첨삭 중 오류가 발생했습니다.");
+      toast.error(error instanceof Error && error.message ? error.message : "첨삭 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -159,51 +156,32 @@ export default function AIAutoFeedback() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h1 className="text-4xl font-bold text-slate-900 mb-8">AI 자동 첨삭</h1>
 
-        {quota && (
-          <div className="mb-6 flex items-center justify-between rounded-xl bg-indigo-50 border border-indigo-200 p-4 text-indigo-900">
-            <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-sm">AI</span>
-              <div>
-                <p className="text-sm font-semibold">{quota.isTrial ? "7일 무료 체험 AI 논술 평가" : "일일 무료 AI 첨삭"}</p>
-                <p className="text-xs text-indigo-700">{quota.isTrial ? <>레슨 1 첫 서술형 제출 1회 · 사용: <span className="font-bold">{quota.used}회</span> / 잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span> · 체험 {quota.daysRemaining}일 남음</> : <>오늘 사용한 횟수: <span className="font-bold">{quota.used}회</span> / 무료 제공 <span className="font-bold">{quota.limit}회</span> (잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</>}</p>
+        {quota && (() => {
+          const needsPlan = quota.mode === "none" || ((quota.mode === "plan" || quota.mode === "trial") && quota.remaining === 0);
+          const title = quota.mode === "trial" ? "7일 무료 체험 AI 논술 평가" : quota.mode === "plan" ? `${quota.planKey === "growth" ? "성장" : "스타터"} 이용권 AI 논술 평가` : quota.mode === "unlimited" ? "AI 논술 평가" : "AI 논술 평가는 이용권이 필요합니다";
+          const detail = quota.mode === "trial"
+            ? <>레슨 1 첫 서술형 제출 1회 · 사용 <span className="font-bold">{quota.used}회</span> / 잔여 <span className="font-bold text-emerald-600">{quota.remaining}회</span> · 체험 {quota.daysRemaining}일 남음</>
+            : quota.mode === "plan"
+              ? <>이용 기간 {quota.periodEnd ? new Date(quota.periodEnd).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" }) : "-"}까지 · 사용 <span className="font-bold">{quota.used}회</span> / {quota.limit}회 (잔여 <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</>
+              : quota.mode === "unlimited" ? "교사·관리자 계정은 사용 횟수에 제한이 없습니다." : (quota.reason ?? "");
+          return (
+            <div className="mb-6 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-indigo-900 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">AI</span>
+                <div>
+                  <p className="text-sm font-semibold">{title}</p>
+                  <p className="text-xs text-indigo-700">{detail}</p>
+                  {quota.reason && quota.mode !== "none" && quota.remaining === 0 && <p className="mt-1 text-xs text-amber-800">{quota.reason}</p>}
+                </div>
               </div>
+              {needsPlan && user?.role === "user" ? (
+                <Link href="/checkout"><Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">이용권 선택</Button></Link>
+              ) : quota.canUse ? (
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">이용 가능</span>
+              ) : null}
             </div>
-            {quota.remaining === 0 && user?.role !== "admin" ? (
-              <button
-                onClick={() => setShowUpgradeModal(true)}
-                className="text-xs bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold px-4 py-2 rounded-lg shadow-sm transition"
-              >
-                이용 안내
-              </button>
-            ) : (
-              <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-3 py-1 rounded-full">
-                이용 가능
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* AI 첨삭 이용 안내: 결제 기능이 없으므로 구매 버튼 없이 실제 이용 조건과 문의 경로만 안내한다. */}
-        {showUpgradeModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ai-usage-guide-title">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 id="ai-usage-guide-title" className="text-xl font-bold text-slate-900">{quota?.isTrial ? "무료 체험 AI 평가 이용 안내" : "오늘의 AI 첨삭 횟수를 모두 사용했어요"}</h3>
-                <button onClick={() => setShowUpgradeModal(false)} aria-label="닫기" className="text-slate-400 hover:text-slate-600 font-bold text-lg">×</button>
-              </div>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                {quota?.isTrial
-                  ? "7일 무료 체험에서는 레슨 1의 첫 서술형 답안에 대해 AI 논술 평가를 1회 제공합니다. 체험 이후의 이용 조건은 요금정책에서 확인하실 수 있어요."
-                  : `오늘 제공된 무료 AI 첨삭 횟수(${quota?.limit ?? 5}회)를 모두 사용했습니다. 내일 다시 이용할 수 있어요. 교사 첨삭이나 기관 도입이 필요하시면 문의해 주세요.`}
-              </p>
-              <div className="flex flex-col gap-2 pt-2 sm:flex-row">
-                <Link href="/pricing" className="flex-1"><Button className="w-full bg-indigo-600 hover:bg-indigo-700">요금정책 보기</Button></Link>
-                <a href={CONTACT_MAILTO} className="flex-1"><Button variant="outline" className="w-full">문의하기</Button></a>
-              </div>
-              <button onClick={() => setShowUpgradeModal(false)} className="w-full text-center text-xs text-slate-500 hover:text-slate-700 pt-2">닫기</button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Input Section */}

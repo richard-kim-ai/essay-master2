@@ -37,6 +37,9 @@ const MyPageHub = lazy(() => import("./pages/MyPageHub"));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
 const GuardianConsent = lazy(() => import("./pages/GuardianConsent"));
 const AdminGuardianConsents = lazy(() => import("./pages/AdminGuardianConsents"));
+const AdminBilling = lazy(() => import("./pages/AdminBilling"));
+const TeacherSettlement = lazy(() => import("./pages/TeacherSettlement"));
+const Checkout = lazy(() => import("./pages/Checkout"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SocialProviderSettings = lazy(() => import("./pages/SocialProviderSettings"));
@@ -90,6 +93,7 @@ function Router() {
         <Route path="/admin/social-providers">{() => <Layout><SocialProviderSettings /></Layout>}</Route>
         <Route path="/admin/terms">{() => <Layout><AdminTermsManager /></Layout>}</Route>
         <Route path="/admin/guardian-consents">{() => <Layout><AdminGuardianConsents /></Layout>}</Route>
+        <Route path="/admin/billing">{() => <Layout><AdminBilling /></Layout>}</Route>
         <Route path="/admin/ai-governance">{() => <Layout><AdminAIGovernance /></Layout>}</Route>
         <Route path="/admin/academic-permissions">{() => <Layout><AdminAcademicPermissions /></Layout>}</Route>
         <Route path="/master-admin">{() => <Layout><MasterAdminConsole /></Layout>}</Route>
@@ -106,6 +110,8 @@ function Router() {
         <Route path="/dashboard-detail">{() => <Layout><Dashboard /></Layout>}</Route>
         <Route path="/teacher-mypage">{() => <Layout><TeacherMyPage /></Layout>}</Route>
         <Route path="/teacher/writing-examples">{() => <Layout><TeacherWritingExamples /></Layout>}</Route>
+        <Route path="/teacher/settlement">{() => <Layout><TeacherSettlement /></Layout>}</Route>
+        <Route path="/checkout">{() => <Layout><Checkout /></Layout>}</Route>
         <Route path="/ai-auto-feedback">{() => <Layout><AIAutoFeedback /></Layout>}</Route>
         <Route path="/ai-feedback-compare/:id">{() => <Layout><AIFeedbackCompare /></Layout>}</Route>
         <Route path="/essay-submission">{() => <Layout><EssaySubmission /></Layout>}</Route>

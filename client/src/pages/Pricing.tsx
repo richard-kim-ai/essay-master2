@@ -2,6 +2,7 @@ import React from "react";
 import { ArrowRight, CheckCircle2, Clock3, LockKeyhole, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
+import { PLANS, formatKrw } from "@shared/plans";
 
 const TRIAL_BENEFITS = [
   "선택한 과정의 커리큘럼과 레슨 탐색",
@@ -19,25 +20,18 @@ const PRICE_GUIDE = [
     tone: "border-slate-200 bg-white",
     accent: "bg-slate-100 text-slate-700",
   },
-  {
-    name: "스타터",
-    price: "9,900원",
+  // 가격·횟수는 shared/plans.ts의 이용권 정의를 그대로 쓴다(결제 화면과 서버 한도와 같은 값).
+  ...PLANS.map((plan) => ({
+    name: plan.name,
+    price: formatKrw(plan.priceKrw),
     period: "/월",
-    description: "개인 학습을 꾸준히 이어가는 학습자",
-    features: ["전체 커리큘럼 이용", "AI 평가 월 5회", "기본 학습 리포트"],
-    tone: "border-indigo-200 bg-indigo-50/55",
+    description: plan.description,
+    features: plan.features,
+    tone: plan.featured ? "border-indigo-300 bg-indigo-50/65" : "border-indigo-200 bg-indigo-50/55",
     accent: "bg-indigo-100 text-indigo-700",
-  },
-  {
-    name: "성장",
-    price: "24,900원",
-    period: "/월",
-    description: "첨삭과 분석을 집중적으로 활용하는 학습자",
-    features: ["스타터의 모든 기능", "AI 평가 월 20회", "상세 취약점 분석"],
-    tone: "border-indigo-300 bg-indigo-50/65",
-    accent: "bg-indigo-100 text-indigo-700",
-    featured: true,
-  },
+    href: `/checkout?plan=${plan.key}`,
+    ...(plan.featured ? { featured: true } : {}),
+  })),
   {
     name: "교사·기관",
     price: "문의",
@@ -47,7 +41,7 @@ const PRICE_GUIDE = [
     tone: "border-slate-200 bg-white",
     accent: "bg-slate-100 text-slate-700",
   },
-] as const;
+] satisfies ReadonlyArray<{ name: string; price: string; period: string; description: string; features: readonly string[]; tone: string; accent: string; href?: string; featured?: boolean }>;
 
 const PRIVACY_CONTROLS = [
   { title: "최소 수집", text: "계정과 학습 제공에 필요한 정보와 답안만 목적에 맞게 처리합니다." },
@@ -102,6 +96,8 @@ export default function Pricing() {
                 <p className="mt-4 min-h-[3rem] text-sm leading-6 text-slate-600">{plan.description}</p>
                 <div className="mt-5 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 border-b border-slate-200/80 pb-5"><span className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{plan.price}</span><span className="text-xs font-bold text-slate-500">{plan.period}</span></div>
                 <ul className="mt-5 flex-1 space-y-3">{plan.features.map((feature) => <li key={feature} className="flex items-start gap-2 text-sm font-semibold leading-5 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" /><span>{feature}</span></li>)}</ul>
+                {"href" in plan && plan.href && <Link href={plan.href} className="mt-5 inline-flex h-10 items-center justify-center rounded-xl bg-indigo-700 px-4 text-sm font-extrabold text-white transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2">이용권 시작하기</Link>}
+                {plan.name === "교사·기관" && <a href={CONTACT_MAILTO} className="mt-5 inline-flex h-10 items-center justify-center rounded-xl border border-indigo-200 bg-white px-4 text-sm font-extrabold text-indigo-700 transition hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2">도입 문의</a>}
               </article>)}
             </div>
           </section>

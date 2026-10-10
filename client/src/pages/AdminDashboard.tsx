@@ -649,6 +649,16 @@ export default function AdminDashboard() {
               <span className="text-[10px] text-slate-400 mt-0.5">소셜 키 및 정책</span>
             </div>
           </Link>
+
+          <Link href="/admin/billing">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <Settings className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">결제·정산 관리</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">회원 결제·교사 정산</span>
+            </div>
+          </Link>
         </div>
       </div>
     </div>

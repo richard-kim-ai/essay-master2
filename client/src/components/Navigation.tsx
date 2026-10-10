@@ -28,6 +28,7 @@ import {
   Edit3,
   Check,
   CreditCard,
+  Wallet,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { NotificationPopover } from "@/components/NotificationPopover";
@@ -347,6 +348,14 @@ export default function Navigation() {
                           <span>수료증</span>
                         </DropdownMenuItem>
                       </Link>
+                      {user?.role === "user" && user?.tag !== "학부모" && (
+                        <Link href="/checkout">
+                          <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                            <CreditCard className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>이용권·결제</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
                       {(user?.role === "teacher" || user?.role === "admin") && (
                         <>
                           <DropdownMenuSeparator />
@@ -356,6 +365,14 @@ export default function Navigation() {
                               <span>교사 마이페이지 (지도학생)</span>
                             </DropdownMenuItem>
                           </Link>
+                          {user?.role === "teacher" && (
+                            <Link href="/teacher/settlement">
+                              <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-700">
+                                <Wallet className="w-4 h-4 mr-2" />
+                                <span>첨삭 정산</span>
+                              </DropdownMenuItem>
+                            </Link>
+                          )}
                         </>
                       )}
                       {user?.role === "admin" && (
@@ -371,6 +388,12 @@ export default function Navigation() {
                             <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-700">
                               <Zap className="w-4 h-4 mr-2" />
                               <span>교사 AI 보조 봇 운영</span>
+                            </DropdownMenuItem>
+                          </Link>
+                          <Link href="/admin/billing">
+                            <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-700">
+                              <Wallet className="w-4 h-4 mr-2" />
+                              <span>결제·정산 관리</span>
                             </DropdownMenuItem>
                           </Link>
                         </>
