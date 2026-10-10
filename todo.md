@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 학부모 연동·학생 상세 조회 권한/개인정보 노출 보완(server/db.ts, server/routers.ts parent 라우터) — 시작 2026-10-11 04:10
 
 
 
