@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import ParentLinkRequests from "@/components/ParentLinkRequests";
 import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -130,6 +131,8 @@ export default function MyPageHub() {
 
         {isSampleUser && <Card className="border-indigo-100 bg-indigo-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">샘플 학습 과정 설정</p><p className="mt-1 text-sm text-indigo-700">희망 과정을 고르면 해당 커리큘럼·뱃지·수료증 예시로 체험할 수 있습니다.</p></div><div className="flex gap-2"><select aria-label="샘플 학습 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as typeof sampleCourse; setSampleCourse(course); localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select><Button onClick={() => setLocation("/curriculum")} className="bg-indigo-600 text-white hover:bg-indigo-700">학습 시작</Button></div></CardContent></Card>}
         {isAdminPreview && <Card className="border-violet-200 bg-violet-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-violet-950">관리자 탐색·테스트 과정</p><p className="mt-1 text-sm text-violet-700">선택 과정은 관리자 화면의 커리큘럼과 학습 도구 미리보기에만 적용되며, 학습자 계정·진도·뱃지에는 영향을 주지 않습니다.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select aria-label="관리자 탐색 과정" value={adminPreviewCourse} onChange={(event) => { const course = event.target.value as typeof adminPreviewCourse; setAdminPreviewCourse(course); saveAdminPreviewCourse(course); toast.success(`${courseLabels[course]} 미리보기로 전환했습니다.`); }} className="h-10 rounded-lg border border-violet-200 bg-white px-3 text-sm font-semibold text-violet-900">{ADMIN_PREVIEW_COURSES.map((course) => <option key={course.value} value={course.value}>{course.label}</option>)}</select><Button onClick={() => setLocation("/curriculum")} className="bg-violet-700 text-white hover:bg-violet-800">커리큘럼 탐색</Button><Button variant="outline" onClick={() => setLocation("/quiz")} className="border-violet-200 text-violet-800 hover:bg-violet-100">퀴즈 테스트</Button></div></CardContent></Card>}
+
+        {user?.role === "user" && !isSampleUser && user?.tag !== "학부모" && <ParentLinkRequests />}
 
         {/* Weekly Study Summary Mini Cards */}
         <div className="grid gap-3 sm:grid-cols-3">

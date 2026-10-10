@@ -17,18 +17,29 @@ import { getTrialAccess, isEligibleTrialEvaluation, TRIAL_AI_EVALUATION_LIMIT } 
 const SAMPLE_AI_SESSION_LIMIT = 3;
 const SAMPLE_AI_IP_DAILY_LIMIT = 10;
 const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
+// 세션 토큰·IP 헤더를 바꿔도 넘을 수 없는 서비스 전체 일일 상한(AI 비용 보호).
+const SAMPLE_AI_GLOBAL_DAILY_LIMIT = 300;
 
-function getClientIp(req: { headers: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } ; ip?: string }): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0]?.trim();
-  return forwardedIp || req.ip || req.socket?.remoteAddress || "unknown";
-}
+import { resolveClientIp } from "./clientIp";
+import {
+  GUARDIAN_AGREEMENT_LABELS,
+  GUARDIAN_CONSENT_COURSE,
+  GUARDIAN_CONSENT_INTRO,
+  GUARDIAN_CONSENT_METHOD,
+  GUARDIAN_CONSENT_SECTIONS,
+  GUARDIAN_CONSENT_TITLE,
+  GUARDIAN_CONSENT_VERSION,
+  GUARDIAN_RELATIONS,
+  calculateAge,
+  maskName,
+} from "@shared/guardian";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
 import { TRPCError } from "@trpc/server";
 import {
   createVerificationToken,
+  sendGuardianConsentEmail,
   hashPassword,
   hashVerificationToken,
   sendPasswordResetEmail,
@@ -39,6 +50,7 @@ import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 import type { CourseType } from "@shared/course";
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const GUARDIAN_CONSENT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 const questionGenerationInput = z.object({
@@ -95,6 +107,24 @@ async function sendUserVerificationEmail(
     to: user.email,
     name: user.name || "학습자",
     verificationUrl: `${requestOrigin(req)}/verify-email?token=${encodeURIComponent(token)}`,
+  });
+}
+
+const GUARDIAN_RESEND_COOLDOWN_MS = 5 * 60 * 1000;
+
+// 새 동의 링크를 발급(이전 링크는 즉시 무효)하고 보호자에게 동의 요청 메일을 보낸다.
+async function issueGuardianConsentLink(
+  req: { protocol: string; headers: Record<string, unknown> },
+  consent: { id: number; guardianEmail: string; guardianName: string },
+  childName: string,
+) {
+  const token = createVerificationToken();
+  await db.refreshGuardianConsentToken(consent.id, hashVerificationToken(token), new Date(Date.now() + GUARDIAN_CONSENT_TTL_MS));
+  await sendGuardianConsentEmail({
+    to: consent.guardianEmail,
+    guardianName: consent.guardianName,
+    childName,
+    consentUrl: `${requestOrigin(req)}/guardian-consent?token=${encodeURIComponent(token)}`,
   });
 }
 
@@ -287,10 +317,37 @@ export const appRouter = router({
           accountType: z.enum(["student", "parent"]).default("student"),
           courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
           preferredTeacherId: z.number().int().positive().optional(),
+          // 학생 회원은 만 14세 미만 여부를 판정하기 위해 생년월일(YYYY-MM-DD)이 필요하다.
+          birthDate: z.string().trim().max(10).optional(),
+          guardian: z
+            .object({
+              name: z.string().trim().min(2).max(40),
+              relation: z.enum(GUARDIAN_RELATIONS),
+              email: z.string().trim().email().transform((value) => value.toLowerCase()),
+            })
+            .optional(),
           consents: z.array(signupConsentSchema).min(1),
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        // 보호자(법정대리인) 동의는 초등 과정 가입자에게만 적용한다. 학년과 만 나이가 일치하지 않을 수 있어
+        // 생년월일로 대상을 가르지 않고, 초등 과정이면 생년월일과 보호자 정보를 받아 보호자 이메일로 동의를 확인한다.
+        const guardianConsentRequired = input.accountType === "student" && input.courseType === GUARDIAN_CONSENT_COURSE;
+        if (guardianConsentRequired) {
+          if (!input.birthDate) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "초등 과정 학생은 생년월일을 입력해야 합니다." });
+          }
+          const age = calculateAge(input.birthDate);
+          if (age === null || age > 120) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "생년월일을 정확히 입력해 주세요." });
+          }
+          if (!input.guardian) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "초등 과정 학생은 법정대리인(보호자) 정보를 입력해야 합니다." });
+          }
+          if (input.guardian.email === input.email) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "보호자 이메일은 학생 이메일과 달라야 합니다." });
+          }
+        }
         const approvedConsents = await validateSignupConsents(input.accountType, input.consents);
         if (input.accountType === "student" && !input.courseType) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "학생 회원은 학습 과정을 선택해야 합니다." });
@@ -314,7 +371,7 @@ export const appRouter = router({
           await db.updateVerificationToken(existing.id, tokenHash, expiresAt);
           await db.recordUserPolicyConsents(existing.id, approvedConsents);
           await sendUserVerificationEmail(ctx.req, existing, token);
-          return { requiresVerification: true } as const;
+          return { requiresVerification: true, requiresGuardianConsent: false, guardianEmailSent: false } as const;
         }
 
         const defaultAiTutor = input.accountType === "student" && !input.preferredTeacherId ? await db.getDefaultAiTutor() : null;
@@ -334,8 +391,36 @@ export const appRouter = router({
 
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "회원가입에 실패했습니다." });
         await db.recordUserPolicyConsents(user.id, approvedConsents);
+
+        // 만 14세 미만이면 법정대리인 동의 기록을 만들고 보호자에게 동의 확인 메일을 보낸다. 동의 전에는 로그인할 수 없다.
+        let guardianEmailSent = false;
+        if (guardianConsentRequired && input.guardian && input.birthDate) {
+          const guardianToken = createVerificationToken();
+          await db.createGuardianConsent({
+            userId: user.id,
+            childBirthDate: input.birthDate,
+            guardianName: input.guardian.name,
+            guardianRelation: input.guardian.relation,
+            guardianEmail: input.guardian.email,
+            tokenHash: hashVerificationToken(guardianToken),
+            tokenExpiresAt: new Date(Date.now() + GUARDIAN_CONSENT_TTL_MS),
+            consentVersion: GUARDIAN_CONSENT_VERSION,
+          });
+          try {
+            await sendGuardianConsentEmail({
+              to: input.guardian.email,
+              guardianName: input.guardian.name,
+              childName: user.name || input.name,
+              consentUrl: `${requestOrigin(ctx.req)}/guardian-consent?token=${encodeURIComponent(guardianToken)}`,
+            });
+            guardianEmailSent = true;
+          } catch (error) {
+            console.error("[Guardian] consent email failed", error);
+          }
+        }
+
         await sendUserVerificationEmail(ctx.req, user, token);
-        return { requiresVerification: true } as const;
+        return { requiresVerification: true, requiresGuardianConsent: guardianConsentRequired, guardianEmailSent } as const;
       }),
 
     teacherSignup: publicProcedure
@@ -470,7 +555,19 @@ export const appRouter = router({
         if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "이메일 또는 비밀번호를 확인해주세요." });
         }
+        // 초등 과정 가입 아동은 법정대리인(보호자)이 동의하기 전까지 로그인할 수 없다.
+        const guardianStatus = await db.getLatestGuardianConsentStatusForUser(user.id);
+        if (guardianStatus && guardianStatus !== "approved") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "보호자(법정대리인)의 동의가 아직 완료되지 않았습니다. 보호자에게 발송된 메일에서 동의를 완료해 주세요. 메일을 받지 못했거나 링크가 만료되었다면 ceo@ufinsu.com으로 문의해 주세요.",
+          });
+        }
+        // 이메일 인증을 마치지 않은 계정은 로그인할 수 없다. 샘플 체험 계정만 인증 없이 로그인된다.
         if (!user.emailVerifiedAt) {
+          if (!user.email?.includes("@sample.")) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "EMAIL_NOT_VERIFIED" });
+          }
           await db.markEmailVerified(user.id);
         }
 
@@ -628,6 +725,21 @@ export const appRouter = router({
     getByType: protectedProcedure
       .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
       .query(({ input }) => db.getCurriculumByType(input)),
+
+    // 비로그인 방문자도 과정 구성을 확인할 수 있도록 공개해도 되는 필드만 반환한다(썸네일·PDF 경로·내부 id 제외).
+    getPublicOverview: publicProcedure
+      .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
+      .query(async ({ input }) => {
+        const items = await db.getDynamicCurriculumByType(input);
+        return items.map((item) => ({
+          level: item.level,
+          title: item.title,
+          description: item.description,
+          topics: item.topics,
+          aiSummary: item.aiSummary,
+          aiTags: item.aiTags,
+        }));
+      }),
 
     getDynamicByType: protectedProcedure
       .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
@@ -1244,28 +1356,40 @@ export const appRouter = router({
       .input(z.object({
         sessionToken: z.string().trim().min(10).max(64),
         task: z.string().trim().min(1).max(500),
+        // 샘플에서 고른 과정. 평가가 과정 수준(초등~일반)에 맞게 이뤄지도록 평가 엔진에 전달한다.
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
         essayText: z.string().trim().min(1).max(SAMPLE_AI_TEXT_MAX_LENGTH),
       }))
       .mutation(async ({ ctx, input }) => {
+        // 한도를 기록할 DB가 없으면 한도 없이 AI를 호출하게 되므로 요청을 받지 않는다.
+        if (!(await db.getDb())) {
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "지금은 AI 첨삭 체험을 이용할 수 없습니다. 잠시 후 다시 시도해 주세요." });
+        }
+
         const sessionCount = await db.getSampleAiUsageCountBySession(input.sessionToken);
         if (sessionCount >= SAMPLE_AI_SESSION_LIMIT) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "이번 방문에서 체험 가능한 AI 첨삭을 모두 사용했습니다." });
         }
 
-        const ipHash = db.hashSampleClientIp(getClientIp(ctx.req));
+        const ipHash = db.hashSampleClientIp(resolveClientIp(ctx.req));
         const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const ipCount = await db.getSampleAiUsageCountByIpSince(ipHash, since);
         if (ipCount >= SAMPLE_AI_IP_DAILY_LIMIT) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "오늘 이 네트워크에서 체험 가능한 AI 첨삭을 모두 사용했습니다." });
         }
 
-        const result = await evaluateWritingWithLLM({
-          metadata: { source: "sample_experience" },
+        const globalCount = await db.getSampleAiUsageCountSince(since);
+        if (globalCount >= SAMPLE_AI_GLOBAL_DAILY_LIMIT) {
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "오늘 제공 가능한 AI 첨삭 체험이 모두 소진되었습니다. 내일 다시 이용하거나 로그인하고 7일 무료 체험을 시작해 주세요." });
+        }
+
+        // AI 호출 전에 사용 기록을 먼저 남겨 동시에 여러 번 보내는 요청이 한도를 넘지 못하게 한다.
+        await db.logSampleAiUsage(input.sessionToken, ipHash);
+        return await evaluateWritingWithLLM({
+          metadata: { source: "sample_experience", ...(input.courseType ? { course_type: input.courseType } : {}) },
           task: input.task,
           submission: { essay_text: input.essayText },
         });
-        await db.logSampleAiUsage(input.sessionToken, ipHash);
-        return result;
       }),
   }),
 
@@ -2087,6 +2211,106 @@ export const appRouter = router({
         return true;
       }),
   }),
+  // 만 14세 미만 아동의 법정대리인(보호자)이 메일 링크로 동의서를 확인하고 동의하는 흐름
+  guardian: router({
+    getConsent: publicProcedure
+      .input(z.object({ token: z.string().min(32).max(200) }))
+      .query(async ({ input }) => {
+        const consent = await db.getGuardianConsentByTokenHash(hashVerificationToken(input.token));
+        if (!consent) return { state: "invalid" as const };
+        if (consent.status === "approved") return { state: "approved" as const };
+        if (consent.status !== "pending") return { state: "invalid" as const };
+        if (consent.tokenExpiresAt.getTime() < Date.now()) return { state: "expired" as const };
+        const child = await db.getUserById(consent.userId);
+        // 보호자 화면에는 아동 정보를 일부만 보여준다(이름 가운데 가림, 출생연도만).
+        return {
+          state: "pending" as const,
+          childNameMasked: maskName(child?.name),
+          childBirthYear: consent.childBirthDate.slice(0, 4),
+          relation: consent.guardianRelation,
+          title: GUARDIAN_CONSENT_TITLE,
+          intro: GUARDIAN_CONSENT_INTRO,
+          sections: GUARDIAN_CONSENT_SECTIONS,
+          labels: GUARDIAN_AGREEMENT_LABELS,
+        };
+      }),
+
+    confirm: publicProcedure
+      .input(
+        z.object({
+          token: z.string().min(32).max(200),
+          guardianName: z.string().trim().min(2).max(40),
+          agreeCollection: z.literal(true),
+          agreeGuardian: z.literal(true),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const consent = await db.getGuardianConsentByTokenHash(hashVerificationToken(input.token));
+        if (!consent || consent.status !== "pending" || consent.tokenExpiresAt.getTime() < Date.now()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "동의 링크가 만료되었거나 이미 처리되었습니다." });
+        }
+        const normalize = (value: string) => value.replace(/\s+/g, "").toLowerCase();
+        if (normalize(input.guardianName) !== normalize(consent.guardianName)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "입력하신 성명이 가입 시 입력된 보호자 성명과 다릅니다." });
+        }
+        const userAgent = ctx.req.headers["user-agent"];
+        await db.approveGuardianConsent(consent.id, {
+          method: GUARDIAN_CONSENT_METHOD,
+          consentVersion: consent.consentVersion,
+          confirmedGuardianName: input.guardianName,
+          agreements: { agreeCollection: true, agreeGuardian: true },
+          ipHash: db.hashSampleClientIp(resolveClientIp(ctx.req)),
+          userAgent: (Array.isArray(userAgent) ? userAgent[0] : userAgent ?? "").slice(0, 200),
+        });
+        return { success: true } as const;
+      }),
+
+    // 아동이 보호자 동의 메일을 다시 받도록 요청한다. 계정 존재 여부를 알려주지 않도록 항상 같은 응답을 하고, 5분에 한 번만 발송한다.
+    resendConsent: publicProcedure
+      .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()) }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserByEmail(input.email);
+        const consent = user ? await db.getLatestGuardianConsentForUser(user.id) : null;
+        if (user && consent && consent.status === "pending" && Date.now() - consent.updatedAt.getTime() > GUARDIAN_RESEND_COOLDOWN_MS) {
+          try {
+            await issueGuardianConsentLink(ctx.req, consent, user.name || "학생");
+          } catch (error) {
+            // 발송 실패 여부로 계정 존재를 알 수 없도록 같은 응답을 유지한다.
+            console.error("[Guardian] resend failed", error);
+          }
+        }
+        return { success: true } as const;
+      }),
+
+    // 동의 관리대장(관리자용): 동의 일시·확인 수단·문구 버전 등을 확인한다.
+    adminList: adminProcedure.query(async () => db.listGuardianConsents()),
+
+    // 관리자가 동의 대기 중인 보호자에게 동의 메일을 다시 보낸다.
+    adminResend: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const consent = await db.getGuardianConsentById(input.id);
+        if (!consent || consent.status !== "pending") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "동의 대기 중인 요청만 다시 보낼 수 있습니다." });
+        }
+        const child = await db.getUserById(consent.userId);
+        await issueGuardianConsentLink(ctx.req, consent, child?.name || "학생");
+        return { success: true } as const;
+      }),
+
+    // 법정대리인의 동의 철회 요청을 관리자가 처리한다. 철회되면 아동 계정은 로그인할 수 없다.
+    adminWithdraw: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const consent = await db.getGuardianConsentById(input.id);
+        if (!consent || consent.status === "withdrawn") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "철회할 수 있는 동의 기록이 없습니다." });
+        }
+        await db.withdrawGuardianConsent(input.id);
+        return { success: true } as const;
+      }),
+  }),
+
   parent: router({
     linkedStudents: protectedProcedure.query(async ({ ctx }) => {
       return await db.getLinkedStudentsForParent(ctx.user.id);
@@ -2094,18 +2318,59 @@ export const appRouter = router({
     linkStudent: protectedProcedure
       .input(z.object({ studentEmail: z.string().email() }))
       .mutation(async ({ ctx, input }) => {
-        return await db.linkParentAndStudent(ctx.user.id, input.studentEmail);
+        if (ctx.user.role !== "admin" && !(ctx.user.role === "user" && ctx.user.tag === "학부모")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "학부모 계정만 자녀 계정을 연결할 수 있습니다." });
+        }
+        const linked = await db.linkParentAndStudent(ctx.user.id, input.studentEmail);
+        if (!linked) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "연결할 수 있는 학생 계정을 찾을 수 없습니다. 이메일을 다시 확인해 주세요." });
+        }
+        return linked;
+      }),
+    // 학부모 본인이 보낸 요청 중 아직 연결되지 않은(승인 대기·거절) 목록
+    linkRequests: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getParentLinkRequests(ctx.user.id);
+    }),
+    // 학생 본인에게 온 연결 요청과 이미 연결된 학부모 목록. 학생 계정이 아니면 빈 목록을 반환한다.
+    myParentLinks: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "user" || ctx.user.tag === "학부모") return { pending: [], approved: [] };
+      const [pending, approved] = await Promise.all([
+        db.getPendingLinkRequestsForStudent(ctx.user.id),
+        db.getApprovedParentsForStudent(ctx.user.id),
+      ]);
+      return { pending, approved };
+    }),
+    // 학생이 학부모 연결 요청을 승인·거절하거나 이미 연결된 학부모를 해제한다.
+    respondToRequest: protectedProcedure
+      .input(z.object({ linkId: z.number().int().positive(), accept: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user" || ctx.user.tag === "학부모") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "학생 계정만 학부모 연결 요청에 응답할 수 있습니다." });
+        }
+        const result = await db.respondToParentLinkRequest(ctx.user.id, input.linkId, input.accept);
+        if (!result) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "처리할 수 있는 연결 요청을 찾을 수 없습니다." });
+        }
+        return result;
       }),
     studentDetail: protectedProcedure
       .input(z.object({ studentId: z.number() }))
       .query(async ({ ctx, input }) => {
-        // 부모가 링크된 학생인지 검증하거나 관리자/교사인 경우 허용
-        const linked = await db.getLinkedStudentsForParent(ctx.user.id);
-        const isAuthorized = ctx.user.role === "admin" || ctx.user.role === "teacher" || linked.some(s => s.id === input.studentId);
+        // 관리자, 연결된 학부모, 진도 관리 권한을 받은 승인 교사만 조회할 수 있다.
+        const isAdmin = ctx.user.role === "admin";
+        let isAuthorized = isAdmin;
+        if (!isAuthorized && ctx.user.role === "teacher" && ctx.user.teacherStatus === "approved") {
+          isAuthorized = await db.canTeacherManageStudent(ctx.user.id, input.studentId, "progress");
+        }
+        if (!isAuthorized) {
+          const linked = await db.getLinkedStudentsForParent(ctx.user.id);
+          isAuthorized = linked.some(s => s.id === input.studentId);
+        }
         if (!isAuthorized) {
           throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생의 학습 정보에 접근할 권한이 없습니다." });
         }
-        return await db.getStudentDetailStats(input.studentId);
+        // 운영자 내부 메모는 관리자에게만 보여준다.
+        return await db.getStudentDetailStats(input.studentId, { includeAdminNotes: isAdmin });
       }),
     addComment: protectedProcedure
       .input(z.object({ studentId: z.number(), comment: z.string().min(1).max(1000) }))
@@ -2118,7 +2383,9 @@ export const appRouter = router({
         const studentUser = await db.getUserById(input.studentId);
         if (!studentUser) throw new TRPCError({ code: "NOT_FOUND", message: "학생을 찾을 수 없습니다." });
         const existingNotes = studentUser.adminNotes || "";
-        const newMemo = `[학부모 코멘트(${ctx.user.name || "학부모"})] ${input.comment.trim()} (${new Date().toLocaleString()})`;
+        // 한 코멘트가 한 줄로 저장되어야 keepParentCommentsOnly가 줄 단위로 걸러낼 수 있다.
+        const singleLineComment = input.comment.trim().replace(/\s*\n\s*/g, " ");
+        const newMemo = `[학부모 코멘트(${ctx.user.name || "학부모"})] ${singleLineComment} (${new Date().toLocaleString()})`;
         const updatedNotes = existingNotes ? `${existingNotes}\n${newMemo}` : newMemo;
         await db.updateStudentAdminNotes(input.studentId, updatedNotes);
         return true;

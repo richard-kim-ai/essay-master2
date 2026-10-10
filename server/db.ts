@@ -31,6 +31,7 @@ import {
   workbookLessonConnections,
   siteSettings,
   parentStudentLinks,
+  guardianConsents,
   userBadges,
   learningToolAttempts,
   questionBank,
@@ -1217,6 +1218,17 @@ export async function getSampleAiUsageCountByIpSince(ipHash: string, since: Date
   return rows.length;
 }
 
+// 세션·IP를 바꿔 가며 보내는 요청까지 막기 위한 서비스 전체 일일 호출 수 집계.
+export async function getSampleAiUsageCountSince(since: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ id: sampleAiUsageLog.id })
+    .from(sampleAiUsageLog)
+    .where(gte(sampleAiUsageLog.createdAt, since));
+  return rows.length;
+}
+
 export async function logSampleAiUsage(sessionToken: string, ipHash: string): Promise<void> {
   const db = await getDb();
   if (!db) return;
@@ -1416,7 +1428,16 @@ export async function getAllProgressStats() {
   return { totalSubmissions, avgScore };
 }
 
-export async function getStudentDetailStats(userId: number) {
+// 학부모 코멘트는 운영자 메모(adminNotes)에 "[학부모 코멘트(이름)] ..." 형식으로 한 줄씩 쌓인다.
+// 관리자가 아닌 조회자에게는 학부모 코멘트 줄만 보여주고 운영자 내부 메모는 숨긴다.
+export function keepParentCommentsOnly(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const lines = notes.split("\n").filter((line) => line.startsWith("[학부모 코멘트"));
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+export async function getStudentDetailStats(userId: number, options: { includeAdminNotes?: boolean } = {}) {
+  const { includeAdminNotes = true } = options;
   const db = await getDb();
   if (!db) return null;
 
@@ -1442,7 +1463,7 @@ export async function getStudentDetailStats(userId: number) {
       courseLabel: getCourseTag(getCourseTypeFromUserTag(userRecord.tag)),
       createdAt: userRecord.createdAt,
       lastSignedIn: userRecord.lastSignedIn,
-      adminNotes: userRecord.adminNotes,
+      adminNotes: includeAdminNotes ? userRecord.adminNotes : keepParentCommentsOnly(userRecord.adminNotes),
     },
     submissions,
     progress: userProgress,
@@ -3125,13 +3146,20 @@ export async function getManagedStudentsForTeacher(teacherId: number) {
 export async function getLinkedStudentsForParent(parentId: number) {
   const db = await getDb();
   if (!db) return [];
-  const links = await db.select().from(parentStudentLinks).where(eq(parentStudentLinks.parentId, parentId));
+  // 학생이 승인한 연결만 학습 정보 조회 대상이 된다.
+  const links = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), eq(parentStudentLinks.status, "approved")));
   const studentIds = links.map(l => l.studentId);
   if (studentIds.length === 0) return [];
-  
-  const allU = await db.select().from(users);
-  return allU.filter((student) => studentIds.includes(student.id)).map((student) => ({
-    ...student,
+
+  // 학부모 화면에는 비밀번호 해시·인증 토큰·운영자 메모 등을 내려보내지 않고 필요한 필드만 반환한다.
+  const linkedStudents = await db.select().from(users).where(inArray(users.id, studentIds));
+  return linkedStudents.map((student) => ({
+    id: student.id,
+    name: student.name,
+    email: student.email,
+    tag: student.tag,
+    createdAt: student.createdAt,
+    lastSignedIn: student.lastSignedIn,
     courseType: getCourseTypeFromUserTag(student.tag),
     courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)),
   }));
@@ -3141,18 +3169,178 @@ export async function linkParentAndStudent(parentId: number, studentEmail: strin
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [student] = await db.select().from(users).where(eq(users.email, studentEmail));
-  if (!student) {
-    throw new Error("해당 이메일을 가진 학생 계정을 찾을 수 없습니다.");
+  // 교사·관리자·다른 학부모 계정은 연결 대상이 될 수 없다. 계정 존재 여부를 노출하지 않도록 호출부는 동일한 메시지로 응답한다.
+  if (!student || student.role !== "user" || student.tag === "학부모") {
+    return null;
   }
   const [existing] = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), eq(parentStudentLinks.studentId, student.id)));
+  if (existing?.status === "approved") {
+    return { success: true, status: "approved" as const, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
+  }
+  // 승인 대기·거절 상태에서는 학생 정보를 돌려주지 않는다.
+  if (existing?.status === "pending") {
+    return { success: true, status: "pending" as const };
+  }
+  // 거절된 연결도 학부모가 다시 요청하면 승인 대기로 돌린다. 학생이 실수로 거절한 경우를 복구할 수 있고, 학생은 다시 거절할 수 있다.
   if (existing) {
-    return { success: true, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
+    await db.update(parentStudentLinks).set({ status: "pending", respondedAt: null }).where(eq(parentStudentLinks.id, existing.id));
+    return { success: true, status: "pending" as const };
   }
   await db.insert(parentStudentLinks).values({
     parentId,
     studentId: student.id,
+    status: "pending",
   });
-  return { success: true, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
+  return { success: true, status: "pending" as const };
+}
+
+// 학부모 본인이 보낸 요청 중 아직 연결되지 않은(대기·거절) 목록
+export async function getParentLinkRequests(parentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), inArray(parentStudentLinks.status, ["pending", "rejected"])));
+  if (links.length === 0) return [];
+  const students = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, links.map((link) => link.studentId)));
+  return links.map((link) => {
+    const student = students.find((item) => item.id === link.studentId);
+    return { linkId: link.id, status: link.status as "pending" | "rejected", studentName: student?.name ?? null, studentEmail: student?.email ?? null, requestedAt: link.createdAt };
+  });
+}
+
+// 학생 본인에게 온 학부모 연결 요청(대기) 목록
+export async function getPendingLinkRequestsForStudent(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.studentId, studentId), eq(parentStudentLinks.status, "pending")));
+  if (links.length === 0) return [];
+  const parents = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, links.map((link) => link.parentId)));
+  return links.map((link) => {
+    const parent = parents.find((item) => item.id === link.parentId);
+    return { linkId: link.id, parentName: parent?.name ?? null, parentEmail: parent?.email ?? null, requestedAt: link.createdAt };
+  });
+}
+
+// 학생이 요청을 승인하거나 거절한다. 이미 연결된 학부모는 거절(accept=false)로 해제할 수 있다.
+export async function respondToParentLinkRequest(studentId: number, linkId: number, accept: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [link] = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.id, linkId), eq(parentStudentLinks.studentId, studentId)));
+  if (!link) return null;
+  if (accept && link.status !== "pending") return null;
+  if (!accept && link.status === "rejected") return null;
+  const status = accept ? "approved" : "rejected";
+  await db.update(parentStudentLinks).set({ status, respondedAt: new Date() }).where(eq(parentStudentLinks.id, linkId));
+  return { linkId, status } as const;
+}
+
+// ===== 만 14세 미만 법정대리인 동의(개인정보 보호법 제22조의2) =====
+
+export async function createGuardianConsent(input: {
+  userId: number;
+  childBirthDate: string;
+  guardianName: string;
+  guardianRelation: string;
+  guardianEmail: string;
+  tokenHash: string;
+  tokenExpiresAt: Date;
+  consentVersion: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(guardianConsents).values(input);
+}
+
+export async function getGuardianConsentByTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(guardianConsents).where(eq(guardianConsents.tokenHash, tokenHash)).limit(1);
+  return row ?? null;
+}
+
+// 가장 최근 동의 기록의 상태. 동의 대상이 아닌 회원은 null이다.
+export async function getLatestGuardianConsentStatusForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select({ status: guardianConsents.status }).from(guardianConsents).where(eq(guardianConsents.userId, userId)).orderBy(desc(guardianConsents.id)).limit(1);
+  return row?.status ?? null;
+}
+
+// 동의 확정: 상태를 approved로 바꾸고 증적을 남기며, 같은 링크로 다시 처리되지 않게 토큰 만료 시각을 지금으로 당긴다.
+export async function approveGuardianConsent(id: number, evidence: Record<string, unknown>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const now = new Date();
+  await db.update(guardianConsents).set({ status: "approved", approvedAt: now, tokenExpiresAt: now, evidenceJson: JSON.stringify(evidence) }).where(eq(guardianConsents.id, id));
+}
+
+export async function getGuardianConsentById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(guardianConsents).where(eq(guardianConsents.id, id)).limit(1);
+  return row ?? null;
+}
+
+// 아동 계정의 가장 최근 동의 기록(재발송 대상 확인용)
+export async function getLatestGuardianConsentForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(guardianConsents).where(eq(guardianConsents.userId, userId)).orderBy(desc(guardianConsents.id)).limit(1);
+  return row ?? null;
+}
+
+// 동의 메일을 다시 보낼 때 새 링크를 발급한다. 이전 링크는 즉시 무효가 된다.
+export async function refreshGuardianConsentToken(id: number, tokenHash: string, tokenExpiresAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(guardianConsents).set({ tokenHash, tokenExpiresAt }).where(and(eq(guardianConsents.id, id), eq(guardianConsents.status, "pending")));
+}
+
+// 법정대리인의 동의 철회 요청을 처리한다. 철회되면 아동 계정은 다시 로그인할 수 없다. 처리 시각은 updatedAt에 남는다.
+export async function withdrawGuardianConsent(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(guardianConsents).set({ status: "withdrawn", tokenExpiresAt: new Date() }).where(eq(guardianConsents.id, id));
+}
+
+// 동의 관리대장 조회(관리자용). 토큰 해시와 증적 원문은 내려보내지 않는다.
+export async function listGuardianConsents() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(guardianConsents).orderBy(desc(guardianConsents.id));
+  if (rows.length === 0) return [];
+  const children = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, rows.map((row) => row.userId)));
+  return rows.map((row) => {
+    const child = children.find((item) => item.id === row.userId);
+    return {
+      id: row.id,
+      childId: row.userId,
+      childName: child?.name ?? null,
+      childEmail: child?.email ?? null,
+      childBirthDate: row.childBirthDate,
+      guardianName: row.guardianName,
+      guardianRelation: row.guardianRelation,
+      guardianEmail: row.guardianEmail,
+      status: row.status,
+      consentVersion: row.consentVersion,
+      consentMethod: row.consentMethod,
+      approvedAt: row.approvedAt,
+      requestedAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  });
+}
+
+// 학생에게 학습 정보 열람이 허용된 학부모 목록(학생이 해제할 수 있도록 보여준다)
+export async function getApprovedParentsForStudent(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.studentId, studentId), eq(parentStudentLinks.status, "approved")));
+  if (links.length === 0) return [];
+  const parents = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, links.map((link) => link.parentId)));
+  return links.map((link) => {
+    const parent = parents.find((item) => item.id === link.parentId);
+    return { linkId: link.id, parentName: parent?.name ?? null, parentEmail: parent?.email ?? null };
+  });
 }
 
 export async function adminResetAllCertificates() {

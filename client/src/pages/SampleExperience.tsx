@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { CheckCircle2, ChevronRight, Loader2, LockKeyhole, Sparkles, Wand2 } from "lucide-react";
 import { Link } from "wouter";
 import Navigation from "@/components/Navigation";
@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { SAMPLE_COURSE_CONTENT } from "@/lib/sampleCourseContent";
 
 const SAMPLE_COURSES = [
   ["elementary", "초등 논술", "생각을 문장으로 표현하는 첫 단계"],
@@ -17,7 +18,6 @@ const SAMPLE_COURSES = [
 // 서버의 SAMPLE_AI_SESSION_LIMIT(server/routers.ts)과 동일하게 유지해야 합니다.
 const SAMPLE_AI_SESSION_LIMIT = 3;
 const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
-const SAMPLE_AI_TASK = "학교 급식에 지역 농산물 사용을 늘려야 한다는 주장에 대해, 이유를 들어 자신의 생각을 3~5문장으로 써보세요.";
 const SAMPLE_SESSION_TOKEN_KEY = "essayMasterSampleSessionToken";
 
 function getOrCreateSampleSessionToken(): string {
@@ -46,6 +46,8 @@ export default function SampleExperience() {
   const [essayText, setEssayText] = useState("");
   const [usedCount, setUsedCount] = useState(0);
   const [limitReached, setLimitReached] = useState(false);
+  // 선택한 과정에 따라 학습 방식 소개, 미니 연습, AI 첨삭 논제가 달라진다.
+  const content = SAMPLE_COURSE_CONTENT[selectedCourse];
 
   // 샘플에서 둘러본 과정과 AI 첨삭 실체험 사용 여부를 가입 유도 링크에 실어 보냅니다.
   // 회원가입 화면은 이 값으로 과정을 미리 선택해두고, "이어가기" 메시지를 보여줍니다.
@@ -76,7 +78,8 @@ export default function SampleExperience() {
     if (!canSubmit) return;
     evaluateMutation.mutate({
       sessionToken,
-      task: SAMPLE_AI_TASK,
+      task: content.aiTask,
+      courseType: selectedCourse,
       essayText: essayText.trim(),
     });
   };
@@ -95,27 +98,42 @@ export default function SampleExperience() {
 
         <section className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="샘플 과정 선택">
           {SAMPLE_COURSES.map(([value, title, description]) => (
-            <button key={value} type="button" onClick={() => { setSelectedCourse(value); setAnswer(null); }} className={`rounded-2xl border p-5 text-left transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 ${selectedCourse === value ? "border-indigo-500 bg-indigo-50 shadow-sm" : "border-slate-200 bg-white hover:border-indigo-200"}`}>
+            <button key={value} type="button" aria-pressed={selectedCourse === value} onClick={() => { setSelectedCourse(value); setAnswer(null); evaluateMutation.reset(); }} className={`rounded-2xl border p-5 text-left transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 ${selectedCourse === value ? "border-indigo-500 bg-indigo-50 shadow-sm" : "border-slate-200 bg-white hover:border-indigo-200"}`}>
               <h2 className="font-extrabold text-slate-950">{title}</h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
             </button>
           ))}
         </section>
 
+        <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8" aria-label={`${content.label} 학습 방식`}>
+          <p className="text-sm font-bold text-indigo-700">{content.label} 학습 방식</p>
+          <h2 className="mt-2 text-2xl font-black">{content.audience}을 위한 과정입니다.</h2>
+          <p className="mt-3 leading-7 text-slate-600">{content.goal}</p>
+          <ol className="mt-6 grid gap-3 sm:grid-cols-2">
+            {content.levels.map((level) => (
+              <li key={level.title} className="rounded-xl bg-slate-50 p-4">
+                <p className="font-extrabold text-slate-900">{level.title}</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{level.summary}</p>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-4 text-sm text-slate-500">각 레벨은 이론 학습, 확인 문제, 서술형 제출과 AI 평가 순서로 진행됩니다. 레슨 학습은 회원가입 후 7일 무료 체험에서 시작할 수 있습니다.</p>
+        </section>
+
         <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            <div className="flex items-center gap-2 text-sm font-bold text-indigo-700"><Sparkles className="h-4 w-4" />무저장 미니 연습</div>
-            <h2 className="mt-3 text-2xl font-black">주장과 근거를 구분해 보세요.</h2>
-            <p className="mt-4 leading-7 text-slate-600">“학교 급식에 지역 농산물 사용을 늘려야 한다. 학생에게 더 신선한 식재료를 제공하고 지역 농가에도 도움이 되기 때문이다.”</p>
-            <p className="mt-6 font-bold text-slate-800">위 문장에서 주장은 가장 잘 나타내는 문장은 무엇인가요?</p>
+            <div className="flex items-center gap-2 text-sm font-bold text-indigo-700"><Sparkles className="h-4 w-4" />무저장 미니 연습 · {content.label}</div>
+            <h2 className="mt-3 text-2xl font-black">{content.practice.heading}</h2>
+            <p className="mt-4 whitespace-pre-line leading-7 text-slate-600">{content.practice.passage}</p>
+            <p className="mt-6 font-bold text-slate-800">{content.practice.question}</p>
             <div className="mt-4 space-y-3">
-              {["학교 급식에 지역 농산물 사용을 늘려야 한다.", "학생에게 더 신선한 식재료를 제공한다.", "지역 농가에도 도움이 된다."].map((choice, index) => {
-                const isCorrect = index === 0;
+              {content.practice.choices.map((choice, index) => {
+                const isCorrect = index === content.practice.correctIndex;
                 const isSelected = answer === choice;
                 return <button key={choice} type="button" onClick={() => { setAnswer(choice); setShowTrialInvite(true); }} className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left font-medium transition ${isSelected ? isCorrect ? "border-emerald-400 bg-emerald-50 text-emerald-950" : "border-rose-300 bg-rose-50 text-rose-950" : "border-slate-200 hover:border-indigo-300"}`}>{choice}{isSelected && <CheckCircle2 className={`h-5 w-5 ${isCorrect ? "text-emerald-600" : "text-rose-500"}`} />}</button>;
               })}
             </div>
-            {answer && <p className={`mt-4 rounded-xl px-4 py-3 text-sm ${answer.startsWith("학교 급식") ? "bg-emerald-50 text-emerald-900" : "bg-rose-50 text-rose-900"}`}>{answer.startsWith("학교 급식") ? "맞았습니다. ‘늘려야 한다’가 글쓴이의 주장이고, 뒤 문장은 이유입니다." : "다시 살펴보세요. ‘늘려야 한다’처럼 해야 할 일을 말한 문장이 주장입니다."}</p>}
+            {answer && <p className={`mt-4 rounded-xl px-4 py-3 text-sm ${answer === content.practice.choices[content.practice.correctIndex] ? "bg-emerald-50 text-emerald-900" : "bg-rose-50 text-rose-900"}`}>{answer === content.practice.choices[content.practice.correctIndex] ? content.practice.correctMessage : content.practice.wrongMessage}</p>}
           </article>
           <aside className="rounded-3xl bg-slate-950 p-6 text-white sm:p-8">
             <LockKeyhole className="h-7 w-7 text-cyan-300" />
@@ -132,7 +150,10 @@ export default function SampleExperience() {
           </div>
           <h2 className="mt-3 text-2xl font-black">직접 써보고, 실제 AI 첨삭을 받아보세요.</h2>
           <p className="mt-3 leading-7 text-slate-600">예시가 아니라 실제 서비스와 같은 AI 논술 평가 엔진이 첨삭합니다. 로그인 없이 지금 바로 체험할 수 있고, 입력한 글과 결과는 계정에 저장되지 않습니다.</p>
-          <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">논제: {SAMPLE_AI_TASK}</p>
+          <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">논제({content.label}): {content.aiTask}</p>
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950" role="note">
+            <strong>입력 전 확인해 주세요.</strong> 작성한 글은 AI 평가를 위해 외부 AI 모델 제공자에게 전송됩니다. 이름·연락처·학교 등 개인을 알아볼 수 있는 정보는 쓰지 마세요. 답안과 첨삭 결과는 저장하지 않으며, 체험 횟수 제한을 위해 방문 식별값과 접속 IP를 암호화한 값, 사용 시각만 기록합니다.
+          </p>
 
           {limitReached ? (
             <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-5">
@@ -142,9 +163,9 @@ export default function SampleExperience() {
             </div>
           ) : (
             <div className="mt-5">
-              <Textarea value={essayText} onChange={(event) => setEssayText(event.target.value.slice(0, SAMPLE_AI_TEXT_MAX_LENGTH))} placeholder="여기에 답안을 작성해 보세요. (최대 300자)" rows={5} className="resize-none" disabled={evaluateMutation.isPending} />
+              <Textarea value={essayText} onChange={(event) => setEssayText(event.target.value.slice(0, SAMPLE_AI_TEXT_MAX_LENGTH))} placeholder={content.aiPlaceholder} rows={5} className="resize-none" disabled={evaluateMutation.isPending} />
               <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>{essayText.trim().length === 0 ? "20자 이상 작성하면 더 정확한 첨삭을 받을 수 있어요." : " "}</span>
+                <span>{essayText.trim().length < 20 ? "20자 이상 작성하면 더 정확한 첨삭을 받을 수 있어요." : " "}</span>
                 <span className={essayText.length >= SAMPLE_AI_TEXT_MAX_LENGTH ? "font-bold text-rose-600" : ""}>{essayText.length} / {SAMPLE_AI_TEXT_MAX_LENGTH}자</span>
               </div>
               <Button onClick={handleEvaluate} disabled={!canSubmit || evaluateMutation.isPending} className="mt-3 h-11">

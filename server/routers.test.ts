@@ -224,6 +224,157 @@ describe("appRouter", () => {
       const caller = appRouter.createCaller(createMockContext());
       await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
+
+    it("승인되지 않은 교사는 학생 상세 정보를 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "pending" } as any,
+      }));
+      await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("승인된 교사라도 권한을 받지 않은 학생의 상세 정보는 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("학부모 계정이 아닌 사용자는 학생 계정을 연결할 수 없다", async () => {
+      const studentCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "초등" } as any,
+      }));
+      await expect(studentCaller.parent.linkStudent({ studentEmail: "child@example.com" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.linkStudent({ studentEmail: "child@example.com" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
+  describe("parent link approval", () => {
+    it("학생 계정이 아니면 학부모 연결 요청에 응답할 수 없다", async () => {
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.respondToRequest({ linkId: 1, accept: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      const parentCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "학부모" } as any,
+      }));
+      await expect(parentCaller.parent.respondToRequest({ linkId: 1, accept: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("학생이 아닌 계정에는 받은 연결 요청 목록이 비어 있다", async () => {
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.myParentLinks()).resolves.toEqual({ pending: [], approved: [] });
+    });
+
+    it("로그인하지 않으면 연결 요청 목록과 응답을 사용할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null as any }));
+      await expect(caller.parent.myParentLinks()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(caller.parent.respondToRequest({ linkId: 1, accept: false })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
+  describe("guardian consent for under-14 signup", () => {
+    const baseSignup = {
+      name: "홍길동",
+      email: "child@example.com",
+      password: "password1234",
+      accountType: "student" as const,
+      courseType: "elementary" as const,
+      consents: [{ policyKey: "terms_of_service", policyVersion: "1", accepted: true }],
+    };
+    const publicCaller = () => appRouter.createCaller(createMockContext({ user: null as any }));
+    const underFourteen = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const adult = new Date(Date.now() - 30 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    it("학생 가입에는 생년월일이 필요하다", async () => {
+      await expect(publicCaller().auth.signup(baseSignup)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: "2020-13-45" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("만 14세 미만이면 보호자 정보가 필요하고 학생 이메일과 같은 이메일은 쓸 수 없다", async () => {
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: underFourteen })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining("법정대리인"),
+      });
+      await expect(
+        publicCaller().auth.signup({
+          ...baseSignup,
+          birthDate: underFourteen,
+          guardian: { name: "홍부모", relation: "부", email: "child@example.com" },
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("학생 이메일과 달라야") });
+    });
+
+    it("초등 과정은 생년월일이 만 14세 이상이어도 보호자 정보를 요구한다", async () => {
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: adult })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining("법정대리인"),
+      });
+    });
+
+    it("초등이 아닌 과정은 생년월일·보호자 정보 없이 검증을 통과한다(이후 단계에서 DB가 없어 실패해도 보호자 검증 오류는 아니다)", async () => {
+      const result = publicCaller().auth.signup({ ...baseSignup, courseType: "middle_high" });
+      await expect(result).rejects.not.toMatchObject({ message: expect.stringContaining("법정대리인") });
+      await expect(result).rejects.not.toMatchObject({ message: expect.stringContaining("생년월일") });
+    });
+
+    it("존재하지 않는 동의 링크는 invalid로 응답하고 확정할 수 없다", async () => {
+      const token = "z".repeat(48);
+      await expect(publicCaller().guardian.getConsent({ token })).resolves.toEqual({ state: "invalid" });
+      await expect(
+        publicCaller().guardian.confirm({ token, guardianName: "홍부모", agreeCollection: true, agreeGuardian: true }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("보호자 동의 메일 재발송 요청은 가입 여부와 상관없이 같은 응답을 한다", async () => {
+      await expect(publicCaller().guardian.resendConsent({ email: "nobody@example.com" })).resolves.toEqual({ success: true });
+    });
+
+    it("재발송·철회는 관리자만 처리할 수 있다", async () => {
+      const userCaller = appRouter.createCaller(createMockContext());
+      await expect(userCaller.guardian.adminResend({ id: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(userCaller.guardian.adminWithdraw({ id: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(publicCaller().guardian.adminWithdraw({ id: 1 })).rejects.toBeTruthy();
+    });
+
+    it("관리자가 존재하지 않는 동의 기록을 처리하려 하면 거절한다", async () => {
+      const adminCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "admin" } as any,
+      }));
+      await expect(adminCaller.guardian.adminResend({ id: 999999 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(adminCaller.guardian.adminWithdraw({ id: 999999 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("동의 관리대장은 관리자만 조회할 수 있다", async () => {
+      await expect(publicCaller().guardian.adminList()).rejects.toBeTruthy();
+      const userCaller = appRouter.createCaller(createMockContext());
+      await expect(userCaller.guardian.adminList()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
+  describe("public curriculum overview", () => {
+    it("비로그인 방문자도 과정 구성을 조회할 수 있고 로그인 전용 조회는 계속 차단된다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null as any }));
+      await expect(caller.curriculum.getPublicOverview("high_univ")).resolves.toEqual(expect.any(Array));
+      await expect(caller.curriculum.getDynamicByType("high_univ")).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
+  describe("sample AI evaluation abuse protection", () => {
+    it("사용 기록을 남길 DB가 없으면 한도 없이 AI를 호출하지 않고 요청을 거절한다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null as any }));
+      await expect(caller.sampleEvaluation.evaluate({
+        sessionToken: "abcdefghij1234567890",
+        task: "학교 급식에 지역 농산물 사용을 늘려야 한다는 주장에 대해 써보세요.",
+        essayText: "지역 농산물은 신선하고 지역 농가에도 도움이 되므로 급식에 더 많이 써야 합니다.",
+      })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+    });
   });
 
   describe("academic approval administration", () => {
