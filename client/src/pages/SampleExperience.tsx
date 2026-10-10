@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { CheckCircle2, ChevronRight, Loader2, LockKeyhole, Sparkles, Wand2 } from "lucide-react";
 import { Link } from "wouter";
 import Navigation from "@/components/Navigation";
@@ -151,6 +151,9 @@ export default function SampleExperience() {
           <h2 className="mt-3 text-2xl font-black">직접 써보고, 실제 AI 첨삭을 받아보세요.</h2>
           <p className="mt-3 leading-7 text-slate-600">예시가 아니라 실제 서비스와 같은 AI 논술 평가 엔진이 첨삭합니다. 로그인 없이 지금 바로 체험할 수 있고, 입력한 글과 결과는 계정에 저장되지 않습니다.</p>
           <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">논제({content.label}): {content.aiTask}</p>
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950" role="note">
+            <strong>입력 전 확인해 주세요.</strong> 작성한 글은 AI 평가를 위해 외부 AI 모델 제공자에게 전송됩니다. 이름·연락처·학교 등 개인을 알아볼 수 있는 정보는 쓰지 마세요. 답안과 첨삭 결과는 저장하지 않으며, 체험 횟수 제한을 위해 방문 식별값과 접속 IP를 암호화한 값, 사용 시각만 기록합니다.
+          </p>
 
           {limitReached ? (
             <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-5">
