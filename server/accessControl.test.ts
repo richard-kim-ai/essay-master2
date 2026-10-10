@@ -25,12 +25,14 @@ vi.mock("./db", async (importOriginal) => {
     getSiteSetting: vi.fn(),
     getQuestionFeedbacksSummary: vi.fn(),
     logAIUsage: vi.fn(),
+    getLatestGuardianConsentStatusForUser: vi.fn(),
   };
 });
 vi.mock("./_core/notification", () => ({ notifyOwner: vi.fn() }));
 
 import * as db from "./db";
 import { appRouter } from "./routers";
+import { clearGuardianStatusCache } from "./_core/trpc";
 import type { TrpcContext } from "./_core/context";
 
 type TestUser = Partial<NonNullable<TrpcContext["user"]>> & { id: number };
@@ -252,5 +254,29 @@ describe("비로그인·학습자에게 내려가는 정보", () => {
     await expect(callerFor(owner).questionBank.feedbackSummary({ questionId: 1 })).resolves.toEqual({ helpfulCount: 3, unhelpfulCount: 1, reports: [] });
     const adminView = await callerFor(admin).questionBank.feedbackSummary({ questionId: 1 });
     expect(adminView.reports).toHaveLength(1);
+  });
+});
+
+describe("보호자 동의 철회는 이미 로그인한 세션에도 적용된다", () => {
+  const child: TestUser = { id: 12, role: "user", tag: "초등" };
+  beforeEach(() => clearGuardianStatusCache());
+
+  it("동의가 철회·대기 상태인 초등 학생은 로그인 세션이 있어도 보호된 기능을 쓸 수 없다", async () => {
+    for (const status of ["withdrawn", "pending"]) {
+      clearGuardianStatusCache();
+      vi.mocked(db.getLatestGuardianConsentStatusForUser).mockResolvedValue(status as any);
+      await expect(callerFor(child).progress.upsert({ courseType: "elementary", level: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    expect(db.recordLessonProgress).not.toHaveBeenCalled();
+  });
+
+  it("동의가 완료된 초등 학생과 동의 기록이 없는 다른 과정 학생은 정상적으로 쓴다", async () => {
+    vi.mocked(db.getLatestGuardianConsentStatusForUser).mockResolvedValue("approved" as any);
+    await callerFor(child).progress.upsert({ courseType: "elementary", level: 1 });
+    expect(db.recordLessonProgress).toHaveBeenCalledTimes(1);
+
+    vi.mocked(db.getLatestGuardianConsentStatusForUser).mockClear();
+    await callerFor(owner).progress.upsert({ courseType: "middle_high", level: 1 });
+    expect(db.getLatestGuardianConsentStatusForUser).not.toHaveBeenCalled();
   });
 });

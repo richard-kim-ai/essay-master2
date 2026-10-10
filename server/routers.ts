@@ -23,6 +23,7 @@ const SAMPLE_AI_GLOBAL_DAILY_LIMIT = 300;
 import { resolveClientIp } from "./clientIp";
 import { publicBaseUrl } from "./publicUrl";
 import { billingRouter, settlementRouter } from "./billingRouter";
+import { clearGuardianStatusCache } from "./_core/trpc";
 import * as billingDb from "./billingDb";
 import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement } from "./billing/service";
 import { consumeRateLimit, RATE_RULES, type RateLimitRule } from "./rateLimit";
@@ -2423,6 +2424,8 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: "철회할 수 있는 동의 기록이 없습니다." });
         }
         await db.withdrawGuardianConsent(input.id);
+        // 철회는 이미 로그인한 세션에도 바로 적용되도록 동의 상태 캐시를 비운다.
+        clearGuardianStatusCache();
         return { success: true } as const;
       }),
   }),
