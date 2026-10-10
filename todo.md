@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 샘플 AI 첨삭 한도 우회 차단(server/routers.ts sampleEvaluation) 및 비로그인 커리큘럼 소개 보완(Curriculum.tsx, curriculum 공개 조회) — 시작 2026-10-11 05:00
 
 
 
