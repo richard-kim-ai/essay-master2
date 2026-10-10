@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 로그인 자동 인증을 샘플 계정으로 한정(loginWithEmail)·기존 미인증 계정 인증 스크립트, 보호자 동의를 초등 과정 가입자에게만 적용(생년월일+보호자 정보, auth.signup·Signup.tsx) — 시작 2026-10-11 14:40
 
 
 
