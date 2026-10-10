@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 소셜 로그인(Google·카카오·네이버) 성공 뒤 next 경로 복귀(socialOAuth.ts state 쿠키에 검증된 next 저장, Login.tsx 전달, sanitizeNextPath를 shared로 이동) — 시작 2026-10-12 13:00
 
 
 
