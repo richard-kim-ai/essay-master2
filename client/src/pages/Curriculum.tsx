@@ -69,9 +69,8 @@ const CURRICULUM_DATA = {
 export default function Curriculum() {
   const { user, isAuthenticated } = useAuth();
   const userCourse = getCourseTypeFromUserTag(user?.tag);
-  const isSampleUser = Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
   const isPublicSampleExperience = !isAuthenticated;
-  const isSampleExperience = isSampleUser || isPublicSampleExperience;
+  const isSampleExperience = isPublicSampleExperience;
   const isAdminPreview = user?.role === "admin";
   const [sampleCourse, setSampleCourse] = React.useState<CourseType>(() => {
     const stored = localStorage.getItem("essaymaster-sample-course");

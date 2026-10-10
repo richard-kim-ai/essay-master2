@@ -91,7 +91,7 @@ function BadgeSection({ courseType }: { courseType: string }) {
 
 export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
-  const isSampleMode = !isAuthenticated || Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
+  const isSampleMode = !isAuthenticated;
   const [sampleCourse, setSampleCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => {
     if (typeof window === "undefined") return "elementary";
     const stored = window.localStorage.getItem("essaymaster-sample-course");
