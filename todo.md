@@ -1,7 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-
+- [Local] 향후 발전 단계 기능 로드맵(글쓰기 도구 확장) todo.md 정리 — 시작 2026-10-11 03:10
 
 
 
