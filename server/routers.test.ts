@@ -224,6 +224,32 @@ describe("appRouter", () => {
       const caller = appRouter.createCaller(createMockContext());
       await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
+
+    it("승인되지 않은 교사는 학생 상세 정보를 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "pending" } as any,
+      }));
+      await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("승인된 교사라도 권한을 받지 않은 학생의 상세 정보는 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("학부모 계정이 아닌 사용자는 학생 계정을 연결할 수 없다", async () => {
+      const studentCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "초등" } as any,
+      }));
+      await expect(studentCaller.parent.linkStudent({ studentEmail: "child@example.com" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.linkStudent({ studentEmail: "child@example.com" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
   });
 
   describe("academic approval administration", () => {

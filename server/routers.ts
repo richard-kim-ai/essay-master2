@@ -2094,18 +2094,33 @@ export const appRouter = router({
     linkStudent: protectedProcedure
       .input(z.object({ studentEmail: z.string().email() }))
       .mutation(async ({ ctx, input }) => {
-        return await db.linkParentAndStudent(ctx.user.id, input.studentEmail);
+        if (ctx.user.role !== "admin" && !(ctx.user.role === "user" && ctx.user.tag === "학부모")) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "학부모 계정만 자녀 계정을 연결할 수 있습니다." });
+        }
+        const linked = await db.linkParentAndStudent(ctx.user.id, input.studentEmail);
+        if (!linked) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "연결할 수 있는 학생 계정을 찾을 수 없습니다. 이메일을 다시 확인해 주세요." });
+        }
+        return linked;
       }),
     studentDetail: protectedProcedure
       .input(z.object({ studentId: z.number() }))
       .query(async ({ ctx, input }) => {
-        // 부모가 링크된 학생인지 검증하거나 관리자/교사인 경우 허용
-        const linked = await db.getLinkedStudentsForParent(ctx.user.id);
-        const isAuthorized = ctx.user.role === "admin" || ctx.user.role === "teacher" || linked.some(s => s.id === input.studentId);
+        // 관리자, 연결된 학부모, 진도 관리 권한을 받은 승인 교사만 조회할 수 있다.
+        const isAdmin = ctx.user.role === "admin";
+        let isAuthorized = isAdmin;
+        if (!isAuthorized && ctx.user.role === "teacher" && ctx.user.teacherStatus === "approved") {
+          isAuthorized = await db.canTeacherManageStudent(ctx.user.id, input.studentId, "progress");
+        }
+        if (!isAuthorized) {
+          const linked = await db.getLinkedStudentsForParent(ctx.user.id);
+          isAuthorized = linked.some(s => s.id === input.studentId);
+        }
         if (!isAuthorized) {
           throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생의 학습 정보에 접근할 권한이 없습니다." });
         }
-        return await db.getStudentDetailStats(input.studentId);
+        // 운영자 내부 메모는 관리자에게만 보여준다.
+        return await db.getStudentDetailStats(input.studentId, { includeAdminNotes: isAdmin });
       }),
     addComment: protectedProcedure
       .input(z.object({ studentId: z.number(), comment: z.string().min(1).max(1000) }))
@@ -2118,7 +2133,9 @@ export const appRouter = router({
         const studentUser = await db.getUserById(input.studentId);
         if (!studentUser) throw new TRPCError({ code: "NOT_FOUND", message: "학생을 찾을 수 없습니다." });
         const existingNotes = studentUser.adminNotes || "";
-        const newMemo = `[학부모 코멘트(${ctx.user.name || "학부모"})] ${input.comment.trim()} (${new Date().toLocaleString()})`;
+        // 한 코멘트가 한 줄로 저장되어야 keepParentCommentsOnly가 줄 단위로 걸러낼 수 있다.
+        const singleLineComment = input.comment.trim().replace(/\s*\n\s*/g, " ");
+        const newMemo = `[학부모 코멘트(${ctx.user.name || "학부모"})] ${singleLineComment} (${new Date().toLocaleString()})`;
         const updatedNotes = existingNotes ? `${existingNotes}\n${newMemo}` : newMemo;
         await db.updateStudentAdminNotes(input.studentId, updatedNotes);
         return true;

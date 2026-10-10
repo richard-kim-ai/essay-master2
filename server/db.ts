@@ -1416,7 +1416,16 @@ export async function getAllProgressStats() {
   return { totalSubmissions, avgScore };
 }
 
-export async function getStudentDetailStats(userId: number) {
+// 학부모 코멘트는 운영자 메모(adminNotes)에 "[학부모 코멘트(이름)] ..." 형식으로 한 줄씩 쌓인다.
+// 관리자가 아닌 조회자에게는 학부모 코멘트 줄만 보여주고 운영자 내부 메모는 숨긴다.
+export function keepParentCommentsOnly(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const lines = notes.split("\n").filter((line) => line.startsWith("[학부모 코멘트"));
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+export async function getStudentDetailStats(userId: number, options: { includeAdminNotes?: boolean } = {}) {
+  const { includeAdminNotes = true } = options;
   const db = await getDb();
   if (!db) return null;
 
@@ -1442,7 +1451,7 @@ export async function getStudentDetailStats(userId: number) {
       courseLabel: getCourseTag(getCourseTypeFromUserTag(userRecord.tag)),
       createdAt: userRecord.createdAt,
       lastSignedIn: userRecord.lastSignedIn,
-      adminNotes: userRecord.adminNotes,
+      adminNotes: includeAdminNotes ? userRecord.adminNotes : keepParentCommentsOnly(userRecord.adminNotes),
     },
     submissions,
     progress: userProgress,
@@ -3128,10 +3137,16 @@ export async function getLinkedStudentsForParent(parentId: number) {
   const links = await db.select().from(parentStudentLinks).where(eq(parentStudentLinks.parentId, parentId));
   const studentIds = links.map(l => l.studentId);
   if (studentIds.length === 0) return [];
-  
-  const allU = await db.select().from(users);
-  return allU.filter((student) => studentIds.includes(student.id)).map((student) => ({
-    ...student,
+
+  // 학부모 화면에는 비밀번호 해시·인증 토큰·운영자 메모 등을 내려보내지 않고 필요한 필드만 반환한다.
+  const linkedStudents = await db.select().from(users).where(inArray(users.id, studentIds));
+  return linkedStudents.map((student) => ({
+    id: student.id,
+    name: student.name,
+    email: student.email,
+    tag: student.tag,
+    createdAt: student.createdAt,
+    lastSignedIn: student.lastSignedIn,
     courseType: getCourseTypeFromUserTag(student.tag),
     courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)),
   }));
@@ -3141,8 +3156,9 @@ export async function linkParentAndStudent(parentId: number, studentEmail: strin
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [student] = await db.select().from(users).where(eq(users.email, studentEmail));
-  if (!student) {
-    throw new Error("해당 이메일을 가진 학생 계정을 찾을 수 없습니다.");
+  // 교사·관리자·다른 학부모 계정은 연결 대상이 될 수 없다. 계정 존재 여부를 노출하지 않도록 호출부는 동일한 메시지로 응답한다.
+  if (!student || student.role !== "user" || student.tag === "학부모") {
+    return null;
   }
   const [existing] = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), eq(parentStudentLinks.studentId, student.id)));
   if (existing) {
