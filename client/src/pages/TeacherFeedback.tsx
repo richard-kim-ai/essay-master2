@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -85,7 +86,7 @@ export default function TeacherFeedback() {
   }, [aiDraftsQuery.data]);
 
   if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
+    return <LoginRequired />;
   }
 
   if (!essayId || !essay) {

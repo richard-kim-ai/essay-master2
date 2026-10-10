@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,10 @@ import { ADMIN_PREVIEW_COURSES, readAdminPreviewCourse, saveAdminPreviewCourse }
 export default function MyPageHub() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  // 학부모 계정은 학생용 허브가 아니라 학부모 포털로 이동한다.
+  useEffect(() => {
+    if (user?.tag === "학부모") setLocation("/parent-portal");
+  }, [user?.tag, setLocation]);
   const isSampleUser = Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
   const isAdminPreview = user?.role === "admin";
   const [sampleCourse, setSampleCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => {

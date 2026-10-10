@@ -1,6 +1,7 @@
 import { ArrowLeft, BookOpen, Download, FileText, Sparkles } from "lucide-react";
 import { Link, useRoute } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +31,7 @@ export default function CurriculumDetail() {
   const firstTheoryContent = workbookLessonBundle?.theoryContent[0];
   const theoryExample = parseCurriculumTheoryExample(firstTheoryContent?.contentData);
 
-  if (!isAuthenticated) return <div className="p-12 text-center text-slate-600">로그인이 필요합니다.</div>;
+  if (!isAuthenticated) return <LoginRequired />;
   if (isLoading) return <div className="p-12 text-center text-slate-600">강의 정보를 불러오는 중입니다...</div>;
   if (!item) return <div className="p-12 text-center text-slate-600">강의 정보를 찾을 수 없습니다.</div>;
 

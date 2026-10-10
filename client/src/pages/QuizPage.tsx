@@ -8,6 +8,7 @@ import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import QuestionFeedbackBox from "@/components/QuestionFeedbackBox";
 import { readAdminPreviewCourse } from "@/lib/adminPreviewCourse";
 
@@ -56,7 +57,7 @@ export default function QuizPage() {
   }, [courseType]);
 
   if (!isAuthenticated) {
-    return <div className="text-center py-12 text-slate-600">로그인이 필요합니다.</div>;
+    return <LoginRequired />;
   }
 
   if (qLoading) {

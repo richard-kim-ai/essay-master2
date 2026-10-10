@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { sanitizeNextPath } from "@/lib/loginRedirect";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,10 +23,13 @@ export default function Login() {
   });
 
   const socialProviders = trpc.social.providers.useQuery();
+  // 로그인이 필요한 화면에서 넘어온 경우 로그인 뒤 그 화면으로 돌아간다(같은 사이트 경로만 허용).
+  const search = useSearch();
+  const nextPath = sanitizeNextPath(new URLSearchParams(search).get("next"));
   const loginMutation = trpc.auth.loginWithEmail.useMutation({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
-      setLocation("/dashboard");
+      setLocation(nextPath);
     },
     onError: (error) => {
       if (error.message === "EMAIL_NOT_VERIFIED") {

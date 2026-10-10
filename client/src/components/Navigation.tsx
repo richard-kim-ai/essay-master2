@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -316,6 +315,14 @@ export default function Navigation() {
                         </div>
                       )}
                       <DropdownMenuSeparator />
+                      {user?.tag === "학부모" && (
+                        <Link href="/parent-portal">
+                          <DropdownMenuItem className="cursor-pointer font-bold text-emerald-700 bg-emerald-50/60 mb-1">
+                            <User className="w-4 h-4 mr-2 text-emerald-600" />
+                            <span>학부모 포털</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
                       <Link href="/mypage">
                         <DropdownMenuItem className="cursor-pointer font-bold text-indigo-700 bg-indigo-50/50 mb-1">
                           <User className="w-4 h-4 mr-2 text-indigo-600" />
@@ -399,6 +406,14 @@ export default function Navigation() {
                       {/* Mobile MyPage / Account Submenu Section */}
                       <div className="border-b border-gray-200 pb-3 mb-2">
                         <p className="px-4 text-xs font-bold text-blue-600 uppercase mb-2">마이페이지 & 개인 기록</p>
+                        {user?.tag === "학부모" && (
+                          <Link href="/parent-portal">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold text-emerald-700 hover:bg-emerald-50">
+                              <User className="w-4 h-4" />
+                              <span>학부모 포털</span>
+                            </button>
+                          </Link>
+                        )}
                         <Link href="/dashboard-detail">
                           <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
                             <BarChart3 className="w-4 h-4 text-blue-600" />
@@ -516,14 +531,18 @@ export default function Navigation() {
               </>
             ) : (
               <>
-                {/* Desktop Login Button */}
-                <Button
-                  onClick={() => startLogin()}
-                  className="hidden md:flex bg-blue-600 hover:bg-blue-700 text-white gap-2"
-                >
-                  로그인
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
+                {/* Desktop Login / Signup: 이메일 로그인(/login)과 회원가입으로 통일 */}
+                <div className="hidden md:flex items-center gap-2">
+                  <Link href="/login">
+                    <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+                      로그인
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                  <Link href="/signup?trial=1">
+                    <Button variant="outline" className="border-blue-200 text-blue-700 hover:bg-blue-50">회원가입</Button>
+                  </Link>
+                </div>
 
                 {/* Mobile Login Button */}
                 <Sheet>
@@ -534,18 +553,23 @@ export default function Navigation() {
                   </SheetTrigger>
                   <SheetContent side="right" className="w-72">
                     <div className="flex flex-col gap-4 mt-8">
-                      <Button
-                        onClick={() => startLogin()}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white gap-2"
-                      >
-                        로그인
-                        <ArrowRight className="w-4 h-4" />
-                      </Button>
+                      <Link href="/login">
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white gap-2">
+                          로그인
+                          <ArrowRight className="w-4 h-4" />
+                        </Button>
+                      </Link>
+                      <Link href="/signup?trial=1">
+                        <Button variant="outline" className="w-full border-blue-200 text-blue-700 hover:bg-blue-50">회원가입</Button>
+                      </Link>
+                      <Link href="/sample">
+                        <Button variant="outline" className="w-full bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-bold">✨ 샘플 체험</Button>
+                      </Link>
 
                       <div className="border-t border-gray-200 pt-4 space-y-2">
-                        {NAV_ITEMS.map((item) => {
+                        {/* 학습 도구 하위 메뉴도 모바일에서 보이도록 펼쳐서 보여준다 */}
+                        {NAV_ITEMS.flatMap((navItem) => navItem.submenu ?? [navItem]).map((item) => {
                           const Icon = item.icon;
-                          if (item.submenu) return null;
 
                           return (
                             <Link key={item.href} href={item.href}>

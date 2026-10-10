@@ -5,6 +5,7 @@ import { Loader2, CheckCircle, HelpCircle, Send, Award, Sparkles, ArrowRight } f
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { buildToolPathWithWorkbookReturn, buildWorkbookReturnPath, getInitialWorkbookLesson } from "@/lib/workbookReturn";
@@ -356,7 +357,7 @@ export default function Workbook() {
   });
 
   if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
+    return <LoginRequired />;
   }
 
   const hasCanonicalWorkbook = Boolean(WORKBOOK_CONTENT[courseType]?.[level]);

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Check, CheckCircle2, GripVertical, RotateCcw, Sparkles } from "lucide-react";
@@ -148,7 +149,7 @@ export default function ParagraphReordering() {
   };
 
   if (authLoading) return <div className="py-12 text-center text-slate-600">학습자 정보를 확인하고 있습니다...</div>;
-  if (!isAuthenticated) return <div className="py-12 text-center text-slate-600">로그인이 필요합니다.</div>;
+  if (!isAuthenticated) return <LoginRequired />;
   if (isLoading) return <div className="py-12 text-center text-slate-600">{courseLabel} 과정의 단락 재구성 실습을 준비하고 있습니다...</div>;
   if (isError || questions.length < 10 || !content) return <div className="mx-auto max-w-xl py-16 text-center"><p className="font-semibold text-slate-800">단락 재구성 문항을 준비하지 못했습니다.</p><p className="mt-2 text-sm text-slate-500">관리자에게 문제은행 상태를 확인해 달라고 요청해주세요.</p></div>;
 

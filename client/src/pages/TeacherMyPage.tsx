@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +38,7 @@ export default function TeacherMyPage() {
     onError: (error) => toast.error(error.message || "검토 제출에 실패했습니다."),
   });
 
-  if (!isAuthenticated) return <div className="p-12 text-center text-slate-600">로그인이 필요합니다.</div>;
+  if (!isAuthenticated) return <LoginRequired />;
   if (user?.role !== "teacher" && user?.role !== "admin") {
     return (
       <div className="mx-auto max-w-xl py-16 text-center">

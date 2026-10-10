@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { toast } from "sonner";
 import { BookOpen, Send, RotateCcw, CheckCircle2, Award } from "lucide-react";
 import { Link } from "wouter";
@@ -44,7 +45,7 @@ export default function SummaryPractice() {
     }
   }, [qList]);
 
-  if (!isAuthenticated) return <div className="text-center py-12 text-slate-600">로그인이 필요합니다.</div>;
+  if (!isAuthenticated) return <LoginRequired />;
   if (isLoading) return <div className="text-center py-12 text-slate-600">문제은행에서 요약 지문을 불러오는 중...</div>;
 
   const analyzeSummary = async () => {
