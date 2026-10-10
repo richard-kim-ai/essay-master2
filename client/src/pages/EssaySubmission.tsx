@@ -138,12 +138,12 @@ export default function EssaySubmission() {
   };
 
   return (
-    <div className="bg-gray-50">
+    <div className="bg-slate-50">
       {/* Layout의 Navigation으로 대체되므로 중복 헤더 제거 완료 */}
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <h1 className="text-4xl font-bold text-gray-900 mb-8">논술 제출</h1>
+        <h1 className="text-4xl font-bold text-slate-900 mb-8">논술 제출</h1>
 
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Essay List */}
@@ -174,13 +174,13 @@ export default function EssaySubmission() {
                       className={`w-full text-left p-3 rounded-lg border transition-colors ${
                         essayId === essay.id
                           ? "bg-indigo-50 border-indigo-300"
-                          : "bg-white border-gray-200 hover:bg-gray-50"
+                          : "bg-white border-slate-200 hover:bg-slate-50"
                       }`}
                     >
-                      <p className="font-medium text-sm text-gray-900 truncate">
+                      <p className="font-medium text-sm text-slate-900 truncate">
                         {essay.title}
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-slate-500 mt-1">
                         {essay.status === "submitted" ? "제출됨" : "임시 저장"}
                       </p>
                     </button>
@@ -202,7 +202,7 @@ export default function EssaySubmission() {
               <CardContent className="space-y-4">
                 {/* Title */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     제목
                   </label>
                   <Input
@@ -215,7 +215,7 @@ export default function EssaySubmission() {
 
                 {/* Content */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     내용
                   </label>
                   <Textarea
@@ -226,7 +226,7 @@ export default function EssaySubmission() {
                     className="resize-none"
                     disabled={status === "submitted"}
                   />
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-slate-500 mt-2">
                     {content.length} / 10000 자
                   </p>
                 </div>

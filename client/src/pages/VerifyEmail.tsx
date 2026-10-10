@@ -55,14 +55,14 @@ export default function VerifyEmail() {
   return (
     <AuthLayout>
       <Card className="w-full max-w-md p-6 sm:p-8">
-        <MailCheck className="h-12 w-12 text-blue-600" />
+        <MailCheck className="h-12 w-12 text-indigo-600" />
         <h1 className="mt-5 text-2xl font-bold text-slate-900">이메일을 인증해 주세요</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">가입을 완료하려면 이메일의 인증 링크를 눌러 주세요. 메일이 보이지 않으면 스팸함도 확인해 주세요.</p>
         <form onSubmit={resend} className="mt-6 space-y-3">
           <label className="block text-sm font-medium text-slate-700">가입한 이메일<Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="your@email.com" className="mt-2" /></label>
-          <Button type="submit" disabled={resendMutation.isPending} className="w-full gap-2 bg-blue-600 hover:bg-blue-700"><RefreshCw className="h-4 w-4" />{resendMutation.isPending ? "발송 중..." : "인증 메일 다시 보내기"}</Button>
+          <Button type="submit" disabled={resendMutation.isPending} className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700"><RefreshCw className="h-4 w-4" />{resendMutation.isPending ? "발송 중..." : "인증 메일 다시 보내기"}</Button>
         </form>
-        <Link href="/login" className="mt-5 block text-center text-sm font-medium text-blue-600 hover:underline">로그인으로 돌아가기</Link>
+        <Link href="/login" className="mt-5 block text-center text-sm font-medium text-indigo-600 hover:underline">로그인으로 돌아가기</Link>
       </Card>
     </AuthLayout>
   );

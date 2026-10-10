@@ -494,8 +494,8 @@ export default function AdminCurriculumManager() {
         ) : (
           <div>
             {renderGroup("초등 논술", elementary, "text-emerald-600")}
-            {renderGroup("중고등 논술", middleHigh, "text-blue-600")}
-            {renderGroup("고등 / 대입", highUniv, "text-purple-600")}
+            {renderGroup("중고등 논술", middleHigh, "text-indigo-600")}
+            {renderGroup("고등 / 대입", highUniv, "text-indigo-600")}
             {renderGroup("일반 / 직장인", generalAdult, "text-amber-600")}
           </div>
         )}

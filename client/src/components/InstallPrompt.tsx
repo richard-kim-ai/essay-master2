@@ -33,7 +33,7 @@ export default function InstallPrompt() {
   };
 
   return (
-    <div className="fixed inset-x-3 bottom-4 z-50 rounded-2xl border border-blue-100 bg-white p-4 shadow-xl sm:inset-x-auto sm:right-5 sm:w-96">
+    <div className="fixed inset-x-3 bottom-4 z-50 rounded-2xl border border-indigo-100 bg-white p-4 shadow-xl sm:inset-x-auto sm:right-5 sm:w-96">
       <button
         type="button"
         aria-label="설치 안내 닫기"
@@ -46,7 +46,7 @@ export default function InstallPrompt() {
         <p className="font-semibold text-slate-900">논술 마스터를 앱처럼 사용해 보세요</p>
         <p className="mt-1 text-sm text-slate-600">홈 화면에 설치하면 모바일에서도 빠르게 학습을 이어갈 수 있습니다.</p>
       </div>
-      <Button onClick={install} className="mt-3 w-full gap-2 bg-blue-600 hover:bg-blue-700">
+      <Button onClick={install} className="mt-3 w-full gap-2 bg-indigo-600 hover:bg-indigo-700">
         <Download className="h-4 w-4" />
         홈 화면에 설치
       </Button>

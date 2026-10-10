@@ -94,7 +94,7 @@ export default function TopicWizard() {
 
   if (completed) {
     return (
-      <div className="bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl space-y-6">
           {workbookReturnPath && <Link href={workbookReturnPath}><Button variant="outline" className="mb-1"><ChevronLeft className="mr-1.5 h-4 w-4" />학습 중인 레슨으로 돌아가기</Button></Link>}
           <Card className="border-emerald-200 bg-white p-6 shadow-sm sm:p-8">
@@ -114,7 +114,7 @@ export default function TopicWizard() {
   }
 
   return (
-    <div className="bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
         <header className="mb-6">{workbookReturnPath && <Link href={workbookReturnPath}><Button variant="ghost" className="mb-3 h-auto px-0 text-emerald-800 hover:bg-transparent hover:text-emerald-950"><ChevronLeft className="mr-1.5 h-4 w-4" />학습 중인 레슨으로 돌아가기</Button></Link>}<Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{courseLabel} 과정</Badge><h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">주제 설정</h1><p className="mt-2 text-base leading-7 text-slate-600">질문에 차례로 답하며 글쓰기의 출발점인 주제·주제문·개요를 완성해 보세요.</p></header>
         <Card className="mb-5 border-slate-200 bg-white p-5 shadow-sm"><div className="flex justify-between text-sm font-semibold text-slate-700"><span>단계 {step} / 4</span><span>{inProgressPercent}%</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600 transition-[width] duration-200" style={{ width: `${inProgressPercent}%` }} /></div></Card>

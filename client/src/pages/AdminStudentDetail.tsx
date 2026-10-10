@@ -87,9 +87,9 @@ export default function AdminStudentDetail() {
         </div>
 
         {/* Student Profile Card */}
-        <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-white to-blue-50/30">
+        <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-white to-indigo-50/30">
           <CardHeader className="flex flex-row items-center gap-4 pb-4">
-            <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold text-2xl shadow-inner">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold text-2xl shadow-inner">
               {student.user.name?.[0] || "학"}
             </div>
             <div>
@@ -151,7 +151,7 @@ export default function AdminStudentDetail() {
         <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg font-bold flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-600" />
+              <FileText className="w-5 h-5 text-indigo-600" />
               <span>최근 논술 제출 및 첨삭 내역</span>
             </CardTitle>
             <CardDescription>학생이 제출한 논술과 선생님/AI 첨삭 상태입니다.</CardDescription>
@@ -165,7 +165,7 @@ export default function AdminStudentDetail() {
                   <div key={sub.id} className="p-4 rounded-xl border border-slate-200 bg-white shadow-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="font-bold text-slate-900">{sub.title}</h4>
-                      <span className="text-xs px-2.5 py-1 rounded bg-blue-50 text-blue-700 font-semibold uppercase">
+                      <span className="text-xs px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 font-semibold uppercase">
                         {sub.courseType} • Level {sub.level}
                       </span>
                     </div>

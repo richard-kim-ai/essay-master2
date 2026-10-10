@@ -34,8 +34,8 @@ const PRICE_GUIDE = [
     period: "/월 · 검토안",
     description: "첨삭과 분석을 집중적으로 활용하는 학습자",
     features: ["스타터의 모든 기능", "AI 평가 월 20회 기준", "상세 취약점 분석"],
-    tone: "border-blue-300 bg-blue-50/65",
-    accent: "bg-blue-100 text-blue-700",
+    tone: "border-indigo-300 bg-indigo-50/65",
+    accent: "bg-indigo-100 text-indigo-700",
     featured: true,
   },
   {

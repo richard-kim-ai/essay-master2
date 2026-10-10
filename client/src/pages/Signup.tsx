@@ -76,8 +76,8 @@ export default function Signup() {
           <h1 className="text-2xl font-bold text-slate-900">회원가입</h1>
           <p className="mt-2 text-sm text-slate-500">인증이 완료된 계정으로 학습 기록을 안전하게 저장합니다.</p>
           {cameFromSample && (
-            <div className="mt-4 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">
-              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm leading-6 text-indigo-900">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
               <span>
                 샘플에서 둘러보신 <strong>{sampleCourseLabel} 논술</strong> 과정으로 바로 시작하도록 미리 선택해 두었습니다.
                 {sampleAiTried && " 방금 체험한 AI 첨삭도 가입 후에는 계정에 저장되어 이어볼 수 있어요."}
@@ -85,15 +85,15 @@ export default function Signup() {
             </div>
           )}
           <form onSubmit={handleSignup} className="mt-6 space-y-4">
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-              <p className="text-xs font-bold text-emerald-900">가입 유형</p>
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+              <p className="text-xs font-bold text-indigo-900">가입 유형</p>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <Button type="button" size="sm" variant={accountType === "student" ? "default" : "outline"} className={accountType === "student" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-white"} onClick={() => setAccountType("student")}>학생 회원</Button>
-                <Button type="button" size="sm" variant={accountType === "parent" ? "default" : "outline"} className={accountType === "parent" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-white"} onClick={() => setAccountType("parent")}>학부모 회원</Button>
+                <Button type="button" size="sm" variant={accountType === "student" ? "default" : "outline"} className={accountType === "student" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-white"} onClick={() => setAccountType("student")}>학생 회원</Button>
+                <Button type="button" size="sm" variant={accountType === "parent" ? "default" : "outline"} className={accountType === "parent" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-white"} onClick={() => setAccountType("parent")}>학부모 회원</Button>
               </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-emerald-800">학부모 계정은 연결된 학생의 학습 상황 확인과 코멘트 기능에 사용됩니다.</p>
+              <p className="mt-2 text-[11px] leading-relaxed text-indigo-800">학부모 계정은 연결된 학생의 학습 상황 확인과 코멘트 기능에 사용됩니다.</p>
             </div>
-            {accountType === "student" && <><label className="block text-sm font-medium text-slate-700">학습 과정<select value={courseType} onChange={(event) => { setCourseType(event.target.value as CourseType); setPreferredTeacherId(""); }} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">로그인 후 선택한 과정의 커리큘럼과 레슨을 기본으로 안내합니다.</span></label><label className="block text-sm font-medium text-slate-700">추천 교사 선택 <span className="font-normal text-slate-400">(선택)</span><select value={preferredTeacherId} onChange={(event) => setPreferredTeacherId(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2" disabled={recommendedTeachers.isLoading}><option value="">선택하지 않음 — AI 첨삭 전용 봇 기본 배정</option>{recommendedTeachers.data?.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name} · Level {teacher.teacherLevel}{teacher.courseMatch ? " · 선택 과정 추천" : ""}</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">교사를 선택하지 않으면 AI 첨삭 전용 봇이 기본 담당으로 지정됩니다.</span></label></>}
+            {accountType === "student" && <><label className="block text-sm font-medium text-slate-700">학습 과정<select value={courseType} onChange={(event) => { setCourseType(event.target.value as CourseType); setPreferredTeacherId(""); }} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-indigo-500 focus:ring-2">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">로그인 후 선택한 과정의 커리큘럼과 레슨을 기본으로 안내합니다.</span></label><label className="block text-sm font-medium text-slate-700">추천 교사 선택 <span className="font-normal text-slate-400">(선택)</span><select value={preferredTeacherId} onChange={(event) => setPreferredTeacherId(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-indigo-500 focus:ring-2" disabled={recommendedTeachers.isLoading}><option value="">선택하지 않음 — AI 첨삭 전용 봇 기본 배정</option>{recommendedTeachers.data?.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name} · Level {teacher.teacherLevel}{teacher.courseMatch ? " · 선택 과정 추천" : ""}</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">교사를 선택하지 않으면 AI 첨삭 전용 봇이 기본 담당으로 지정됩니다.</span></label></>}
             {needsGuardian && (
               <label className="block text-sm font-medium text-slate-700">생년월일
                 <Input type="date" name="birthDate" value={birthDate} max={todayDate} onChange={(event) => setBirthDate(event.target.value)} className="mt-2" disabled={signupMutation.isPending} />
@@ -106,16 +106,16 @@ export default function Signup() {
             <label className="block text-sm font-medium text-slate-700">비밀번호<span className="relative mt-2 block"><Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="password" name="password" value={formData.password} onChange={handleChange} placeholder="8자 이상" className="pl-10" disabled={signupMutation.isPending} /></span></label>
             <label className="block text-sm font-medium text-slate-700">비밀번호 확인<span className="relative mt-2 block"><Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" /><Input type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} placeholder="비밀번호를 다시 입력" className="pl-10" disabled={signupMutation.isPending} /></span></label>
             <PolicyConsentChecklist accountType={accountType} value={consents} onChange={setConsents} disabled={signupMutation.isPending} />
-            <Button type="submit" disabled={signupMutation.isPending} className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700">{signupMutation.isPending ? "가입 중..." : "회원가입"}<ArrowRight className="h-4 w-4" /></Button>
+            <Button type="submit" disabled={signupMutation.isPending} className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700">{signupMutation.isPending ? "가입 중..." : "회원가입"}<ArrowRight className="h-4 w-4" /></Button>
           </form>
 
           <div className="relative my-6"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div><div className="relative flex justify-center"><span className="bg-white px-3 text-sm text-slate-500">또는</span></div></div>
           <div className="mt-3 grid grid-cols-3 gap-2">{(["google", "kakao", "naver"] as const).map((provider) => { const available = socialProviders.data?.find((item) => item.provider === provider)?.enabled; const label = provider === "google" ? "Google" : provider === "kakao" ? "카카오" : "네이버"; return <Button key={provider} type="button" variant="outline" disabled={!available} onClick={() => { window.location.href = `/api/social/${provider}/start?origin=${encodeURIComponent(window.location.origin)}`; }}>{label}</Button>; })}</div>
           <p className="mt-2 text-center text-xs text-slate-500">소셜 로그인은 관리자 설정이 완료된 제공자만 활성화됩니다.</p>
-          <p className="mt-6 text-center text-sm text-slate-600">이미 계정이 있으신가요? <Link href="/login" className="font-semibold text-emerald-700 hover:underline">로그인</Link></p>
+          <p className="mt-6 text-center text-sm text-slate-600">이미 계정이 있으신가요? <Link href="/login" className="font-semibold text-indigo-700 hover:underline">로그인</Link></p>
         </Card>
 
-        <div className="mt-8 space-y-3 text-sm text-slate-700"><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />AI 기반 맞춤형 피드백</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />14개 이상의 학습 도구</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />이메일 인증으로 안전한 학습 기록</div></div>
+        <div className="mt-8 space-y-3 text-sm text-slate-700"><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />AI 기반 맞춤형 피드백</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />14개 이상의 학습 도구</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />이메일 인증으로 안전한 학습 기록</div></div>
     </AuthLayout>
   );
 }

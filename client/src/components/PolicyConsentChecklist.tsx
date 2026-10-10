@@ -64,7 +64,7 @@ export function PolicyConsentChecklist({ accountType, value, onChange, disabled 
                 <span className="font-semibold text-slate-900">{policy.title}</span>
                 <span className={policy.isRequired ? "ml-1 text-rose-600" : "ml-1 text-emerald-700"}>{policy.isRequired ? "(필수)" : "(선택)"}</span>
               </label>
-              <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-xs text-blue-700" onClick={() => setActivePolicyKey(policy.policyKey)} disabled={disabled}>
+              <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-xs text-indigo-700" onClick={() => setActivePolicyKey(policy.policyKey)} disabled={disabled}>
                 내용 확인
               </Button>
             </div>
@@ -76,7 +76,7 @@ export function PolicyConsentChecklist({ accountType, value, onChange, disabled 
       <Dialog open={Boolean(activePolicy)} onOpenChange={(open) => !open && setActivePolicyKey(null)}>
         <DialogContent className="max-h-[82vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><FileCheck2 className="h-5 w-5 text-blue-600" />{activePolicy?.title}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><FileCheck2 className="h-5 w-5 text-indigo-600" />{activePolicy?.title}</DialogTitle>
             <DialogDescription>가입 전 확인 문서</DialogDescription>
           </DialogHeader>
           <article className="whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-sm leading-7 text-slate-700">{activePolicy?.content}</article>

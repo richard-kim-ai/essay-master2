@@ -107,7 +107,7 @@ export default function ParentPortal() {
               </select>
             </div>
           )}
-          <Button onClick={() => setLinkModalOpen(true)} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs">
+          <Button onClick={() => setLinkModalOpen(true)} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs">
             <UserPlus className="h-4 w-4" /> 자녀 계정 연동하기
           </Button>
         </div>
@@ -130,14 +130,14 @@ export default function ParentPortal() {
         <Card className="p-12 text-center text-slate-500">연동된 자녀 정보를 불러오는 중...</Card>
       ) : !linkedStudents || linkedStudents.length === 0 ? (
         <Card className="p-12 text-center space-y-4 border-dashed border-2 border-slate-200 bg-white">
-          <div className="mx-auto w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+          <div className="mx-auto w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
             <LinkIcon className="h-6 w-6" />
           </div>
           <h3 className="text-lg font-bold text-slate-900">연동된 자녀 계정이 없습니다</h3>
           <p className="text-sm text-slate-500 max-w-md mx-auto">
             학습 중인 자녀의 이메일 계정을 연동하여 주간 AI 첨삭 리포트와 학습 진도 변화를 실시간으로 확인해 보세요.
           </p>
-          <Button onClick={() => setLinkModalOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+          <Button onClick={() => setLinkModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white">
             지금 자녀 계정 연동하기
           </Button>
         </Card>
@@ -148,27 +148,27 @@ export default function ParentPortal() {
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
                 <CardTitle className="text-lg font-bold flex items-center gap-2">
-                  <UserCheck className="h-5 w-5 text-blue-600" />
+                  <UserCheck className="h-5 w-5 text-indigo-600" />
                   <span>{studentDetail.user.name || "자녀"} 학생 학습 현황 개요</span>
                 </CardTitle>
-                <CardDescription>가입 과정: <span className="font-semibold text-blue-700">{studentDetail.user.courseLabel || studentDetail.user.tag || "과정 미설정"}</span> · 가입일: {new Date(studentDetail.user.createdAt).toLocaleDateString()} · 최근 접속: {new Date(studentDetail.user.lastSignedIn).toLocaleString()}</CardDescription>
+                <CardDescription>가입 과정: <span className="font-semibold text-indigo-700">{studentDetail.user.courseLabel || studentDetail.user.tag || "과정 미설정"}</span> · 가입일: {new Date(studentDetail.user.createdAt).toLocaleDateString()} · 최근 접속: {new Date(studentDetail.user.lastSignedIn).toLocaleString()}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-5">
                 <div className="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
                   <p className="text-xs font-medium text-indigo-600">선택 학습 과정</p>
                   <h3 className="mt-1 text-base font-bold text-indigo-900">{studentDetail.user.courseLabel || studentDetail.user.tag || "미설정"}</h3>
                 </div>
-                <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
-                  <p className="text-xs font-medium text-blue-600">완료한 학습 모듈</p>
-                  <h3 className="text-2xl font-bold text-blue-900 mt-1">{studentDetail.progress.length}개</h3>
+                <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
+                  <p className="text-xs font-medium text-indigo-600">완료한 학습 모듈</p>
+                  <h3 className="text-2xl font-bold text-indigo-900 mt-1">{studentDetail.progress.length}개</h3>
                 </div>
                 <div className="p-4 bg-emerald-50/50 rounded-xl border border-emerald-100">
                   <p className="text-xs font-medium text-emerald-600">제출한 논술 답안</p>
                   <h3 className="text-2xl font-bold text-emerald-900 mt-1">{studentDetail.submissions.length}건</h3>
                 </div>
-                <div className="p-4 bg-purple-50/50 rounded-xl border border-purple-100">
-                  <p className="text-xs font-medium text-purple-600">취득한 수료증</p>
-                  <h3 className="text-2xl font-bold text-purple-900 mt-1">{studentDetail.certificates.length}장</h3>
+                <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
+                  <p className="text-xs font-medium text-indigo-600">취득한 수료증</p>
+                  <h3 className="text-2xl font-bold text-indigo-900 mt-1">{studentDetail.certificates.length}장</h3>
                 </div>
                 <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-100">
                   <p className="text-xs font-medium text-amber-700">반 과제</p>
@@ -220,7 +220,7 @@ export default function ParentPortal() {
                     {studentDetail.classAssignments.slice(0, 6).map((assignment: any) => {
                       const evaluation = assignment.aiFeedback?.evaluationJson ? (() => { try { return JSON.parse(assignment.aiFeedback.evaluationJson); } catch { return null; } })() : null;
                       const statusLabel = assignment.submissionStatus === "reviewed" ? "교사 채점 완료" : assignment.submissionStatus === "submitted" ? "교사 검토 대기" : assignment.isOverdue ? "마감 경과·미제출" : "제출 전";
-                      const statusClass = assignment.submissionStatus === "reviewed" ? "bg-emerald-100 text-emerald-700" : assignment.submissionStatus === "submitted" ? "bg-blue-100 text-blue-700" : assignment.isOverdue ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700";
+                      const statusClass = assignment.submissionStatus === "reviewed" ? "bg-emerald-100 text-emerald-700" : assignment.submissionStatus === "submitted" ? "bg-indigo-100 text-indigo-700" : assignment.isOverdue ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700";
                       return <div key={assignment.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div><p className="font-semibold text-slate-900">{assignment.title}</p><p className="mt-1 text-xs text-slate-500">{assignment.groupName} · 마감 {assignment.dueAt ? new Date(assignment.dueAt).toLocaleString("ko-KR") : "미지정"}</p></div>
@@ -240,7 +240,7 @@ export default function ParentPortal() {
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-blue-600" /> 학부모 응원 및 지도 코멘트
+                  <MessageSquare className="h-4 w-4 text-indigo-600" /> 학부모 응원 및 지도 코멘트
                 </CardTitle>
                 <CardDescription>자녀에게 전달할 격려 메시지나 학습 메모를 남기세요.</CardDescription>
               </CardHeader>
@@ -250,10 +250,10 @@ export default function ParentPortal() {
                     placeholder="예: 오늘 논술 과제 수고했어! 논리 전개 방식을 조금 더 다듬어보자."
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
-                    className="w-full min-h-[120px] rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full min-h-[120px] rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     required
                   />
-                  <Button type="submit" disabled={addCommentMutation.isPending} className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white">
+                  <Button type="submit" disabled={addCommentMutation.isPending} className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
                     <Send className="h-4 w-4" /> {addCommentMutation.isPending ? "등록 중..." : "코멘트 전송 및 기록"}
                   </Button>
                 </form>
@@ -270,7 +270,7 @@ export default function ParentPortal() {
                 ) : (
                   <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
                     {studentDetail.user.adminNotes.split("\n").map((note: string, idx: number) => (
-                      <div key={idx} className="p-3 rounded-lg bg-blue-50/40 border border-blue-100 text-xs text-slate-700 leading-relaxed">
+                      <div key={idx} className="p-3 rounded-lg bg-indigo-50/40 border border-indigo-100 text-xs text-slate-700 leading-relaxed">
                         {note}
                       </div>
                     ))}
@@ -301,7 +301,7 @@ export default function ParentPortal() {
               </div>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setLinkModalOpen(false)}>취소</Button>
-                <Button type="submit" disabled={linkMutation.isPending} className="bg-blue-600 hover:bg-blue-700 text-white">
+                <Button type="submit" disabled={linkMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
                   {linkMutation.isPending ? "연동 중..." : "연동 신청"}
                 </Button>
               </div>

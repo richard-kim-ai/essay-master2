@@ -16,7 +16,7 @@ type Paragraph = { id: string; content: string; correctOrder: number };
 type ReorderingContent = { prompt: string; paragraphs: Paragraph[]; explanation: string; difficultyProfile?: { learningFocus?: string } };
 
 const difficultyLabel = { easy: "기초", medium: "표준", hard: "심화" } as const;
-const difficultyTone = { easy: "bg-emerald-50 text-emerald-700 border-emerald-200", medium: "bg-blue-50 text-blue-700 border-blue-200", hard: "bg-violet-50 text-violet-700 border-violet-200" } as const;
+const difficultyTone = { easy: "bg-emerald-50 text-emerald-700 border-emerald-200", medium: "bg-indigo-50 text-indigo-700 border-indigo-200", hard: "bg-indigo-50 text-indigo-700 border-indigo-200" } as const;
 
 export default function ParagraphReordering() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();

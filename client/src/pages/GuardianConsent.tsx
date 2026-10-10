@@ -54,7 +54,7 @@ export default function GuardianConsent() {
   if (data.state === "approved") {
     return shell(
       <Card className="p-8 text-center">
-        <h2 className="text-lg font-bold text-emerald-700">법정대리인 동의가 완료되었습니다.</h2>
+        <h2 className="text-lg font-bold text-indigo-700">법정대리인 동의가 완료되었습니다.</h2>
         <p className="mt-2 text-sm text-slate-600">이제 자녀가 로그인해 서비스를 이용할 수 있습니다. 동의 철회·열람·정정은 {CONTACT_EMAIL}으로 요청해 주세요.</p>
       </Card>,
     );
@@ -106,7 +106,7 @@ export default function GuardianConsent() {
         </label>
       </div>
       <Button
-        className="w-full bg-emerald-600 hover:bg-emerald-700"
+        className="w-full bg-indigo-600 hover:bg-indigo-700"
         disabled={!canSubmit}
         onClick={() => confirm.mutate({ token, guardianName: guardianName.trim(), agreeCollection: true, agreeGuardian: true })}
       >

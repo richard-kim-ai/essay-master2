@@ -77,8 +77,8 @@ const LEARNING_PROMISES = [
 ] as const;
 
 const HERO_VALUE_CARDS = [
-  { label: "AI 실시간 첨삭", tone: "bg-blue-50" },
-  { label: "전문 교사 피드백", tone: "bg-purple-50" },
+  { label: "AI 실시간 첨삭", tone: "bg-indigo-50" },
+  { label: "전문 교사 피드백", tone: "bg-indigo-50" },
   { label: "맞춤형 학습 경로", tone: "bg-pink-50" },
   { label: "진도 추적 대시보드", tone: "bg-amber-50" },
 ] as const;
@@ -98,7 +98,7 @@ export default function Home() {
             <div className="max-w-2xl">
               <h1 className="text-balance text-5xl font-black leading-[1.15] tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-7xl">
                 논술 마스터와 함께
-                <span className="block bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">글쓰기 실력 UP</span>
+                <span className="block bg-gradient-to-r from-indigo-600 to-indigo-600 bg-clip-text text-transparent">글쓰기 실력 UP</span>
               </h1>
               <p className="mt-8 max-w-xl text-pretty text-xl leading-9 text-slate-600">
                 AI 기반 맞춤형 첨삭과 전문 교사의 피드백으로 논술 실력을 한 단계 업그레이드하세요.
@@ -107,7 +107,7 @@ export default function Home() {
                 <Link
                   href={isAuthenticated ? primaryAction.href : "/login?trial=1"}
                   data-home-cta="primary"
-                  className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl bg-blue-600 px-6 text-base font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 sm:w-auto sm:px-7 sm:text-lg"
+                  className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl bg-indigo-600 px-6 text-base font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300 sm:w-auto sm:px-7 sm:text-lg"
                 >
                   {primaryActionLabel}<ArrowRight className="ml-2 h-5 w-5" />
                 </Link>
@@ -115,7 +115,7 @@ export default function Home() {
                   <Link
                     href="/sample"
                     data-home-cta="course-finder"
-                    className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-white px-5 text-sm font-bold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 sm:w-auto sm:px-6 sm:text-base"
+                    className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl border border-indigo-200 bg-white px-5 text-sm font-bold text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-auto sm:px-6 sm:text-base"
                   >
                     나에게 맞는 과정 찾기
                   </Link>

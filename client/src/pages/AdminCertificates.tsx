@@ -183,7 +183,7 @@ export default function AdminCertificates() {
             <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">유효</p><p className="mt-1 text-2xl font-bold text-emerald-700">{filteredSummary.active}건</p></div>
             <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">발행취소</p><p className="mt-1 text-2xl font-bold text-rose-700">{filteredSummary.revoked}건</p></div>
             <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">초등 / 중고등</p><p className="mt-1 text-2xl font-bold text-slate-800">{(filteredSummary.byCourse.elementary ?? 0) + (filteredSummary.byCourse.middle_high ?? 0)}건</p></div>
-            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">고등 / 대입</p><p className="mt-1 text-2xl font-bold text-purple-700">{filteredSummary.byCourse.high_univ ?? 0}건</p></div>
+            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">고등 / 대입</p><p className="mt-1 text-2xl font-bold text-indigo-700">{filteredSummary.byCourse.high_univ ?? 0}건</p></div>
             <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">일반 / 직장인</p><p className="mt-1 text-2xl font-bold text-amber-700">{filteredSummary.byCourse.general_adult ?? 0}건</p></div>
           </CardContent>
         </Card>

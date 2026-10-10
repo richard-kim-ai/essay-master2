@@ -23,7 +23,7 @@ export function OnboardingModal() {
   const steps = [
     {
       icon: BookOpen,
-      color: "text-blue-600 bg-blue-50",
+      color: "text-indigo-600 bg-indigo-50",
       title: "1단계: 단계별 커리큘럼 탐색",
       desc: "초등, 중고등, 고등/대입, 일반 과정까지 나에게 딱 맞는 맞춤형 커리큘럼을 선택하고 체계적인 논술 학습을 시작해보세요.",
     },
@@ -35,7 +35,7 @@ export function OnboardingModal() {
     },
     {
       icon: Award,
-      color: "text-purple-600 bg-purple-50",
+      color: "text-indigo-600 bg-indigo-50",
       title: "3단계: 성취 뱃지 및 수료증 발급",
       desc: "학습을 완료할 때마다 뱃지가 자동으로 수여되며, 고해상도 수료증과 소셜 미디어 공유 기능으로 성취감을 만끽하세요!",
     },

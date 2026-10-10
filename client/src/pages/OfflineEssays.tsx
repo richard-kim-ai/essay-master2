@@ -225,7 +225,7 @@ export default function OfflineEssays() {
           <div className="md:col-span-1 space-y-3">
             <Card className="p-4 shadow-sm">
               <h2 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                <FileText className="h-4 w-4 text-blue-600" /> 보관된 글 목록 ({essays.length})
+                <FileText className="h-4 w-4 text-indigo-600" /> 보관된 글 목록 ({essays.length})
               </h2>
               {essays.length === 0 ? (
                 <div className="py-8 text-center text-sm text-slate-500">
@@ -239,7 +239,7 @@ export default function OfflineEssays() {
                       onClick={() => handleSelectEssay(essay)}
                       className={`cursor-pointer rounded-xl p-3 text-left transition border ${
                         selectedEssay?.id === essay.id
-                          ? "bg-blue-50 border-blue-300 shadow-sm"
+                          ? "bg-indigo-50 border-indigo-300 shadow-sm"
                           : "bg-white border-slate-200 hover:bg-slate-50"
                       }`}
                     >
@@ -333,9 +333,9 @@ export default function OfflineEssays() {
                     )}
 
                     {selectedEssay.feedback && !isEditing && (
-                      <div className="rounded-xl bg-blue-50/70 p-4 border border-blue-200">
-                        <h3 className="font-semibold text-blue-900 mb-1 text-sm">선생님 / AI 첨삭 내용</h3>
-                        <p className="text-sm text-blue-800 whitespace-pre-wrap">{selectedEssay.feedback}</p>
+                      <div className="rounded-xl bg-indigo-50/70 p-4 border border-indigo-200">
+                        <h3 className="font-semibold text-indigo-900 mb-1 text-sm">선생님 / AI 첨삭 내용</h3>
+                        <p className="text-sm text-indigo-800 whitespace-pre-wrap">{selectedEssay.feedback}</p>
                       </div>
                     )}
                   </div>

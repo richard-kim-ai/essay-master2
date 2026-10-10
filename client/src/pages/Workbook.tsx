@@ -271,22 +271,22 @@ function TheoryPassageBlock({ theory }: { theory: TheoryLessonPayload }) {
   if (!theory.lesson_passage?.text) return null;
   const passage = theory.lesson_passage;
   return (
-    <div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700">
+    <div className="rounded-lg border border-indigo-100 bg-white p-4 text-sm leading-6 text-slate-700">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <p className="font-semibold text-slate-900">{passage.label || "강의 지문"}</p>
-        {passage.source_type && <p className="text-xs font-semibold text-violet-700">{passage.source_type}</p>}
+        {passage.source_type && <p className="text-xs font-semibold text-indigo-700">{passage.source_type}</p>}
       </div>
       <p className="mt-3 whitespace-pre-line">{passage.text}</p>
       {Array.isArray(passage.tasks) && passage.tasks.length > 0 && (
-        <div className="mt-4 border-t border-violet-100 pt-3">
-          <p className="text-xs font-bold text-violet-800">수업 중 과제</p>
+        <div className="mt-4 border-t border-indigo-100 pt-3">
+          <p className="text-xs font-bold text-indigo-800">수업 중 과제</p>
           <ul className="mt-2 space-y-1">
             {passage.tasks.map((task) => <li key={task}>• {task}</li>)}
           </ul>
         </div>
       )}
       {(passage.model_answer || passage.feedback) && (
-        <div className="mt-4 rounded-lg bg-violet-50 p-3">
+        <div className="mt-4 rounded-lg bg-indigo-50 p-3">
           {passage.model_answer && <p><span className="font-semibold text-slate-900">예시 답안: </span>{passage.model_answer}</p>}
           {passage.feedback && <p className="mt-2 text-slate-600"><span className="font-semibold text-slate-900">피드백: </span>{passage.feedback}</p>}
         </div>
@@ -500,10 +500,10 @@ export default function Workbook() {
               </div>
 
               {activeTheory && (
-                <section className="space-y-4 rounded-xl border border-violet-200 bg-violet-50/60 p-6">
-                  <p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p>
+                <section className="space-y-4 rounded-xl border border-indigo-200 bg-indigo-50/60 p-6">
+                  <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">추가 학습 내용</p>
                   <h3 className="text-xl font-bold text-slate-900">{activeTheory.core_concept || "핵심 개념 보충"}</h3>
-                  <div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700">
+                  <div className="rounded-lg border border-indigo-100 bg-white p-4 text-sm leading-6 text-slate-700">
                     <p className="font-semibold text-slate-900">핵심 원리</p>
                     <p className="mt-1">{activeTheory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p>
                     <p className="mt-3 font-semibold text-slate-900">적용 예시</p>
@@ -527,22 +527,22 @@ export default function Workbook() {
 
               {activeTheoryEntries.slice(1).map(({ theoryContentId, theory }) => {
                 const completed = theoryProgress.some((item) => item.theoryContentId === theoryContentId);
-                return <section key={theoryContentId} className="rounded-xl border border-violet-200 bg-violet-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-violet-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-violet-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><TheoryPassageBlock theory={theory} /><TheoryPracticeBlock theory={theory} /><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />저장 중</> : recentlyCompletedTheoryId === theoryContentId ? <><CheckCircle className="mr-1.5 h-4 w-4 animate-bounce" />저장 완료</> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button></div>{recentlyCompletedTheoryId === theoryContentId && <p className="mt-3 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">학습 완료가 저장되었습니다. 다음 레슨으로 이동하거나 계속 학습해 보세요.</p>}</div></section>;
+                return <section key={theoryContentId} className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-6 space-y-4"><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">추가 학습 내용</p><h3 className="text-xl font-bold text-slate-900">{theory.core_concept || "핵심 개념 보충"}</h3><div className="rounded-lg border border-indigo-100 bg-white p-4 text-sm leading-6 text-slate-700"><p className="font-semibold text-slate-900">핵심 원리</p><p className="mt-1">{theory.textbook_anchor?.text || "기본 교재의 핵심 원리를 다시 확인해 보세요."}</p><p className="mt-3 font-semibold text-slate-900">적용 예시</p><p className="mt-1">{theory.textbook_similar_example?.text || "새로운 소재에 핵심 원리를 적용해 보세요."}</p></div><TheoryPassageBlock theory={theory} /><TheoryPracticeBlock theory={theory} /><div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold text-amber-800">확인 문제</p><p className="mt-1 text-sm font-medium text-slate-800">{theory.in_lesson_check?.question}</p><p className="mt-1 text-sm leading-6 text-slate-600">{theory.in_lesson_check?.answer} {theory.answer_feedback}</p></div><Button size="sm" disabled={completed || completeTheoryCheckMutation.isPending} onClick={() => completeTheoryCheckMutation.mutate({ theoryContentId })} className={completed ? "shrink-0 bg-emerald-600 text-white hover:bg-emerald-600" : "shrink-0 bg-amber-600 text-white hover:bg-amber-700"}>{completeTheoryCheckMutation.isPending ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" />저장 중</> : recentlyCompletedTheoryId === theoryContentId ? <><CheckCircle className="mr-1.5 h-4 w-4 animate-bounce" />저장 완료</> : <><CheckCircle className="mr-1.5 h-4 w-4" />학습 완료</>}</Button></div>{recentlyCompletedTheoryId === theoryContentId && <p className="mt-3 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-semibold text-emerald-800">학습 완료가 저장되었습니다. 다음 레슨으로 이동하거나 계속 학습해 보세요.</p>}</div></section>;
               })}
 
-              <div className="rounded-xl border border-violet-200 bg-violet-50/70 p-5">
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex gap-3">
-                  <div className="rounded-xl bg-violet-100 p-2.5 text-violet-700"><Sparkles className="h-5 w-5" /></div>
+                  <div className="rounded-xl bg-indigo-100 p-2.5 text-indigo-700"><Sparkles className="h-5 w-5" /></div>
                   <div><p className="font-bold text-slate-900">AI 학습 가이드</p><p className="mt-1 text-sm leading-6 text-slate-600">이번 레슨의 개념을 답안에 적용하는 방법을 안내합니다. 기출문제의 정답은 풀이 후에 확인할 수 있습니다.</p></div>
                 </div>
-                <Button size="sm" onClick={handleLessonGuide} disabled={lessonGuideMutation.isPending} className="shrink-0 bg-violet-700 text-white hover:bg-violet-800">
+                <Button size="sm" onClick={handleLessonGuide} disabled={lessonGuideMutation.isPending} className="shrink-0 bg-indigo-700 text-white hover:bg-indigo-800">
                   {lessonGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />준비 중</> : <><Sparkles className="mr-2 h-4 w-4" />학습 가이드 보기</>}
                 </Button>
               </div>
-              {lessonGuide && <div className="mt-5 grid gap-4 border-t border-violet-200 pt-5 md:grid-cols-2">
-                <div className="space-y-3"><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">이번 레슨 목표</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.learningGoal}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">생각 순서</p><ol className="mt-2 space-y-2 text-sm leading-6 text-slate-700">{lessonGuide.thinkingSteps.map((item, index) => <li key={item} className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-200 text-xs font-bold text-violet-800">{index + 1}</span>{item}</li>)}</ol></div></div>
-                <div className="space-y-3"><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">문장 틀</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.sentenceFrame}</p></div><div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-bold text-violet-800">새 연습 예시</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.practiceExample}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">제출 전 점검</p><ul className="mt-2 space-y-1 text-sm leading-6 text-slate-700">{lessonGuide.selfCheck.map((item) => <li key={item}>• {item}</li>)}</ul></div></div>
+              {lessonGuide && <div className="mt-5 grid gap-4 border-t border-indigo-200 pt-5 md:grid-cols-2">
+                <div className="space-y-3"><div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">이번 레슨 목표</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.learningGoal}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">생각 순서</p><ol className="mt-2 space-y-2 text-sm leading-6 text-slate-700">{lessonGuide.thinkingSteps.map((item, index) => <li key={item} className="flex gap-2"><span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-200 text-xs font-bold text-indigo-800">{index + 1}</span>{item}</li>)}</ol></div></div>
+                <div className="space-y-3"><div className="rounded-lg border border-indigo-200 bg-white p-3"><p className="text-xs font-bold text-indigo-800">문장 틀</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.sentenceFrame}</p></div><div className="rounded-lg border border-indigo-200 bg-white p-3"><p className="text-xs font-bold text-indigo-800">새 연습 예시</p><p className="mt-1 text-sm leading-6 text-slate-800">{lessonGuide.practiceExample}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">제출 전 점검</p><ul className="mt-2 space-y-1 text-sm leading-6 text-slate-700">{lessonGuide.selfCheck.map((item) => <li key={item}>• {item}</li>)}</ul></div></div>
               </div>}
             </div>
 
