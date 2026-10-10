@@ -58,7 +58,7 @@ export default function MasterAdminConsole() {
     saveGroup.mutate({ name: groupForm.name.trim(), groupType: groupForm.groupType, courseType: groupForm.courseType, teacherId: groupForm.teacherId ? Number(groupForm.teacherId) : null, description: groupForm.description || null, isActive: true });
   };
 
-  if (authLoading) return <div className="min-h-screen p-12 text-center text-slate-600">관리자 권한을 확인하는 중입니다...</div>;
+  if (authLoading) return <div className="p-12 text-center text-slate-600">관리자 권한을 확인하는 중입니다...</div>;
   if (!isAdmin) return <div className="mx-auto max-w-xl px-4 py-20 text-center"><ShieldCheck className="mx-auto h-11 w-11 text-slate-400" /><h1 className="mt-4 text-xl font-bold text-slate-900">관리자 전용 회원 관리</h1><p className="mt-2 text-sm text-slate-600">학생·교사·관리자 계정과 반 편성은 관리자 계정으로만 관리할 수 있습니다.</p><Link href="/login"><Button className="mt-6 bg-slate-900 hover:bg-slate-800">관리자 로그인</Button></Link></div>;
 
   return <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">

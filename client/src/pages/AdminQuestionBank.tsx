@@ -145,7 +145,7 @@ export default function AdminQuestionBank() {
   }, [maintenanceSettings?.retentionDays]);
 
   if (user?.role !== "admin") {
-    return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-700">관리자 전용 페이지입니다. 접근 권한이 없습니다.</div>;
+    return <div className="bg-slate-50 p-12 text-center text-slate-700">관리자 전용 페이지입니다. 접근 권한이 없습니다.</div>;
   }
 
   const questionsWithStats = (questions || []).map(q => {

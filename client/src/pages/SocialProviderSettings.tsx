@@ -46,11 +46,11 @@ export default function SocialProviderSettings() {
 
   const updateDraft = (provider: string, patch: Partial<Draft>) => setDrafts((current) => ({ ...current, [provider]: { ...current[provider], ...patch } }));
 
-  if (loading) return <div className="min-h-screen bg-slate-50 p-8 text-center text-slate-600">권한을 확인하는 중...</div>;
-  if (!isAdmin) return <div className="min-h-screen bg-slate-50 px-4 py-16"><Card className="mx-auto max-w-md p-8 text-center"><ShieldCheck className="mx-auto h-12 w-12 text-slate-400" /><h1 className="mt-4 text-xl font-bold text-slate-900">관리자 전용 설정</h1><p className="mt-2 text-sm leading-6 text-slate-600">Google·카카오·네이버와 PWA 푸시 키는 관리자만 설정할 수 있습니다.</p><Button className="mt-6" onClick={() => { window.location.href = "/login"; }}>로그인 화면으로 이동</Button></Card></div>;
+  if (loading) return <div className="bg-slate-50 p-8 text-center text-slate-600">권한을 확인하는 중...</div>;
+  if (!isAdmin) return <div className="bg-slate-50 px-4 py-16"><Card className="mx-auto max-w-md p-8 text-center"><ShieldCheck className="mx-auto h-12 w-12 text-slate-400" /><h1 className="mt-4 text-xl font-bold text-slate-900">관리자 전용 설정</h1><p className="mt-2 text-sm leading-6 text-slate-600">Google·카카오·네이버와 PWA 푸시 키는 관리자만 설정할 수 있습니다.</p><Button className="mt-6" onClick={() => { window.location.href = "/login"; }}>로그인 화면으로 이동</Button></Card></div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl">
         <div className="mb-8 flex items-start gap-4"><div className="rounded-2xl bg-blue-100 p-3 text-blue-700"><ShieldCheck className="h-7 w-7" /></div><div><h1 className="text-3xl font-bold text-slate-900">소셜 로그인 설정</h1><p className="mt-2 text-slate-600">관리자만 클라이언트 정보와 활성화 상태를 관리할 수 있습니다.</p></div></div>
         <Card className="mb-6 border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-900"><strong>보안 안내</strong><br />Client Secret은 서버에서 암호화해 저장하며 화면에는 다시 표시하지 않습니다. 새 값을 입력하지 않고 저장하면 기존 Secret이 유지됩니다. 설정값은 초기 상태에서 비어 있고 모든 제공자는 비활성화되어 있습니다.</Card>

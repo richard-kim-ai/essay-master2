@@ -109,7 +109,7 @@ export default function AdminAcademicPermissions() {
   if (!isAdmin) return <div className="mx-auto max-w-lg p-12 text-center"><ShieldCheck className="mx-auto mb-3 h-12 w-12 text-amber-500" /><h1 className="text-xl font-bold">관리자 권한이 필요합니다</h1></div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-7 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-7 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

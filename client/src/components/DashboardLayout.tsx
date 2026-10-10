@@ -18,10 +18,10 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50 w-full">
-      <main className="w-full mx-auto">
+    <div className="bg-slate-50/50 w-full">
+      <div className="w-full mx-auto">
         {children}
-      </main>
+      </div>
     </div>
   );
 }

@@ -157,12 +157,12 @@ export default function AdminDashboard() {
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-600">권한을 확인하는 중입니다...</div>;
+    return <div className="bg-slate-50 p-12 text-center text-slate-600">권한을 확인하는 중입니다...</div>;
   }
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-20">
+      <div className="bg-slate-50 px-4 py-20">
         <Card className="mx-auto max-w-md p-8 text-center shadow-md">
           <ShieldCheck className="mx-auto h-12 w-12 text-amber-500 mb-4" />
           <h1 className="text-2xl font-bold text-slate-900">관리자 전용 페이지</h1>
@@ -183,7 +183,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/80 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
+    <div className="bg-slate-50/80 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">

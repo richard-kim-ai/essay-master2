@@ -43,12 +43,12 @@ export default function AdminStudentDetail() {
   };
 
   if (authLoading) {
-    return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-600">불러오는 중입니다...</div>;
+    return <div className="bg-slate-50 p-12 text-center text-slate-600">불러오는 중입니다...</div>;
   }
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-20 text-center">
+      <div className="bg-slate-50 px-4 py-20 text-center">
         <h1 className="text-xl font-bold text-slate-800">접근 권한이 없습니다.</h1>
         <Link href="/">
           <Button className="mt-4">홈으로 돌아가기</Button>
@@ -58,12 +58,12 @@ export default function AdminStudentDetail() {
   }
 
   if (isLoading) {
-    return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-600">학생 상세 정보를 불러오는 중입니다...</div>;
+    return <div className="bg-slate-50 p-12 text-center text-slate-600">학생 상세 정보를 불러오는 중입니다...</div>;
   }
 
   if (!student) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-20 text-center">
+      <div className="bg-slate-50 px-4 py-20 text-center">
         <h1 className="text-xl font-bold text-slate-800">해당 학생을 찾을 수 없습니다.</h1>
         <Link href="/admin">
           <Button className="mt-4">관리자 대시보드로 돌아가기</Button>
@@ -73,7 +73,7 @@ export default function AdminStudentDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="flex items-center justify-between">
           <Link href="/admin">

@@ -308,7 +308,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/70 py-6 sm:py-8">
+    <div className="bg-slate-50/70 py-6 sm:py-8">
       {/* Main Content */}
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <h1 className="mb-5 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">학습 대시보드</h1>

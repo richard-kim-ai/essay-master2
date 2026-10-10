@@ -362,7 +362,7 @@ export default function Workbook() {
 
   const hasCanonicalWorkbook = Boolean(WORKBOOK_CONTENT[courseType]?.[level]);
   if (!hasCanonicalWorkbook && dynamicCurriculumLoading) {
-    return <div className="min-h-screen bg-slate-50 px-4 py-16 text-center text-slate-600"><Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-indigo-600" />검수된 레슨 정보를 불러오는 중입니다.</div>;
+    return <div className="bg-slate-50 px-4 py-16 text-center text-slate-600"><Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-indigo-600" />검수된 레슨 정보를 불러오는 중입니다.</div>;
   }
 
   const dynamicLevel = dynamicCurriculum.find((item) => item.level === level);
@@ -457,7 +457,7 @@ export default function Workbook() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <Link href="/curriculum">

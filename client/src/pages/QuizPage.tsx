@@ -151,7 +151,7 @@ export default function QuizPage() {
 
   if (questions.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-50 py-12 px-4 text-center">
+      <div className="bg-slate-50 py-12 px-4 text-center">
         <p className="text-slate-600">등록된 퀴즈 문항이 없습니다. 관리자 문제은행에서 문항을 추가해주세요.</p>
         <Link href="/curriculum"><Button className="mt-4">커리큘럼으로 돌아가기</Button></Link>
       </div>
@@ -160,7 +160,7 @@ export default function QuizPage() {
 
   if (finished) {
     return (
-      <div className="min-h-screen bg-slate-50 py-16 px-4">
+      <div className="bg-slate-50 py-16 px-4">
         <div className="max-w-md mx-auto text-center space-y-6 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
           <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
             🏆
@@ -186,7 +186,7 @@ export default function QuizPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <Link href="/curriculum">

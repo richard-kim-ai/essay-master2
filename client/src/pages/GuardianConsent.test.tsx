@@ -6,6 +6,9 @@ import { GuardianConsentFields, EMPTY_GUARDIAN } from "@/components/GuardianCons
 const state = vi.hoisted(() => ({ search: "", data: undefined as unknown, isLoading: false }));
 
 vi.mock("wouter", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
   useSearch: () => state.search,
 }));
 

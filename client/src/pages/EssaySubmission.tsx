@@ -138,7 +138,7 @@ export default function EssaySubmission() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="bg-gray-50">
       {/* Layout의 Navigation으로 대체되므로 중복 헤더 제거 완료 */}
 
       {/* Main Content */}

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Mail, ArrowLeft, Send } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import Footer from "@/components/Footer";
+import AuthLayout from "@/components/AuthLayout";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -26,8 +26,7 @@ export default function ForgotPassword() {
   };
 
   return (
-    <>
-    <div className="flex min-h-screen items-center justify-center bg-blue-50 p-4">
+    <AuthLayout>
       <Card className="w-full max-w-md p-6 sm:p-8">
         {sent ? (
           <div className="text-center">
@@ -49,8 +48,6 @@ export default function ForgotPassword() {
           </>
         )}
       </Card>
-    </div>
-    <Footer variant="compact" />
-    </>
+    </AuthLayout>
   );
 }

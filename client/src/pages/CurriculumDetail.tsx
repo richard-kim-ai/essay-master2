@@ -36,7 +36,7 @@ export default function CurriculumDetail() {
   if (!item) return <div className="p-12 text-center text-slate-600">강의 정보를 찾을 수 없습니다.</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl space-y-6">
         <Link href="/curriculum"><Button variant="ghost" className="gap-2 px-0 text-slate-600 hover:text-indigo-700"><ArrowLeft className="h-4 w-4" /> 커리큘럼으로 돌아가기</Button></Link>
         <Card className="overflow-hidden border-indigo-100 shadow-sm">

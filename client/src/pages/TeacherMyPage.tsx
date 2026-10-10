@@ -97,7 +97,7 @@ export default function TeacherMyPage() {
     });
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-8">
         <div className="flex flex-col gap-4 rounded-2xl p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between sm:p-8" style={{ backgroundImage: "linear-gradient(110deg, #172a88 0%, #2563eb 52%, #173a9a 100%)", color: "#ffffff" }}>
           <div>

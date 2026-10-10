@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Mail, Lock, User, ArrowRight, BookOpen, CheckCircle2, Sparkles } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import Footer from "@/components/Footer";
+import AuthLayout from "@/components/AuthLayout";
 import { PolicyConsentChecklist, type PolicyConsentValue } from "@/components/PolicyConsentChecklist";
 import { COURSE_OPTIONS, COURSE_TYPES, type CourseType } from "@shared/course";
 import { GUARDIAN_CONSENT_COURSE, calculateAge } from "@shared/guardian";
@@ -71,18 +71,9 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-green-100 px-4 py-10 sm:py-16">
-      <div className="mx-auto w-full max-w-md">
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-green-800"><BookOpen className="h-6 w-6 text-white" /></span>
-            <span className="text-3xl font-bold text-slate-900">논술 마스터</span>
-          </Link>
-          <p className="mt-4 text-slate-600">회원가입 후 이메일 인증을 완료해 주세요.</p>
-        </div>
-
+    <AuthLayout tagline="회원가입 후 이메일 인증을 완료해 주세요.">
         <Card className="bg-white p-6 shadow-xl sm:p-8">
-          <h1 className="text-2xl font-bold text-slate-900">샘플가입</h1>
+          <h1 className="text-2xl font-bold text-slate-900">회원가입</h1>
           <p className="mt-2 text-sm text-slate-500">인증이 완료된 계정으로 학습 기록을 안전하게 저장합니다.</p>
           {cameFromSample && (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-900">
@@ -125,8 +116,6 @@ export default function Signup() {
         </Card>
 
         <div className="mt-8 space-y-3 text-sm text-slate-700"><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />AI 기반 맞춤형 피드백</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />14개 이상의 학습 도구</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-emerald-600" />이메일 인증으로 안전한 학습 기록</div></div>
-      </div>
-      <Footer variant="compact" />
-    </div>
+    </AuthLayout>
   );
 }

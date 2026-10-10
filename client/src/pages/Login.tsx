@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Mail, Lock, ArrowRight, BookOpen } from "lucide-react";
+import { Mail, Lock, ArrowRight } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import Footer from "@/components/Footer";
+import AuthLayout from "@/components/AuthLayout";
 
 const PROVIDER_LABELS = { google: "Google", kakao: "카카오", naver: "네이버" } as const;
 
@@ -53,18 +53,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-indigo-100 px-4 py-10 sm:py-16">
-      <div className="mx-auto w-full max-w-md">
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-800">
-              <BookOpen className="h-6 w-6 text-white" />
-            </span>
-            <span className="text-3xl font-bold text-slate-900">논술 마스터</span>
-          </Link>
-          <p className="mt-4 text-slate-600">AI 기반 맞춤형 논술 학습 플랫폼</p>
-        </div>
-
+    <AuthLayout tagline="AI 기반 맞춤형 논술 학습 플랫폼">
         <Card className="bg-white p-6 shadow-xl sm:p-8">
           <h1 className="text-2xl font-bold text-slate-900">로그인</h1>
           <p className="mt-2 text-sm text-slate-500">학습 기록을 이어서 확인해 보세요.</p>
@@ -151,8 +140,6 @@ export default function Login() {
             </div>
           </div>
         </Card>
-      </div>
-      <Footer variant="compact" />
-    </div>
+    </AuthLayout>
   );
 }

@@ -67,8 +67,8 @@ export default function ThesisChecklist() {
   if (!isAuthenticated) return <div className="py-12 text-center text-slate-600">로그인 후 주제문 점검을 이용할 수 있습니다.</div>;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 px-4 py-8 sm:px-6 lg:px-8">
-      <main className="mx-auto max-w-5xl">
+    <div className="bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl">
         <header className="mb-6">{workbookReturnPath && <Link href={workbookReturnPath}><Button variant="ghost" className="mb-3 h-auto px-0 text-violet-800 hover:bg-transparent hover:text-violet-950">← 학습 중인 레슨으로 돌아가기</Button></Link>}<Badge className="bg-violet-100 text-violet-800 hover:bg-violet-100">{courseLabel} 과정</Badge><h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">주제문 점검</h1><p className="mt-2 text-base leading-7 text-slate-600">입력한 주제문을 여덟 가지 기준으로 살피고, 보완 방향과 개선 예시를 안내합니다.</p></header>
         <div className="grid gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.4fr)]">
           <Card className="h-fit border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-6">
@@ -86,7 +86,7 @@ export default function ThesisChecklist() {
           </section>
         </div>
         <Card className="mt-6 border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5"><h2 className="font-bold text-slate-900">좋은 주제문을 만드는 간단한 공식</h2><p className="mt-2 text-sm leading-6 text-slate-700"><strong>대상</strong> + <strong>판단·주장</strong> + <strong>판단 기준 또는 조건</strong>을 한 문장으로 연결해 보세요. 분석 결과의 예시는 출발점이므로 그대로 제출하기보다 자신의 근거와 표현으로 다시 다듬는 것이 좋습니다.</p></Card>
-      </main>
+      </div>
     </div>
   );
 }

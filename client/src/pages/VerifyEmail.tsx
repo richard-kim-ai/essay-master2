@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { MailCheck, Loader2, RefreshCw, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import Footer from "@/components/Footer";
+import AuthLayout from "@/components/AuthLayout";
 
 export default function VerifyEmail() {
   const [, setLocation] = useLocation();
@@ -45,16 +45,15 @@ export default function VerifyEmail() {
   };
 
   if (token && !checked) {
-    return <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4"><Card className="w-full max-w-md p-8 text-center"><Loader2 className="mx-auto h-10 w-10 animate-spin text-blue-600" /><p className="mt-4 font-medium text-slate-800">이메일 인증을 확인하고 있습니다.</p></Card></div>;
+    return <AuthLayout><Card className="w-full max-w-md p-8 text-center"><Loader2 className="mx-auto h-10 w-10 animate-spin text-indigo-600" /><p className="mt-4 font-medium text-slate-800">이메일 인증을 확인하고 있습니다.</p></Card></AuthLayout>;
   }
 
   if (verified) {
-    return <div className="flex min-h-screen items-center justify-center bg-emerald-50 p-4"><Card className="w-full max-w-md p-8 text-center"><MailCheck className="mx-auto h-14 w-14 text-emerald-600" /><h1 className="mt-5 text-2xl font-bold text-slate-900">인증 완료</h1><p className="mt-2 text-slate-600">이제 로그인하고 논술 학습을 시작할 수 있습니다.</p><Button onClick={() => setLocation("/login")} className="mt-6 w-full gap-2 bg-emerald-600 hover:bg-emerald-700">로그인하러 가기<ArrowRight className="h-4 w-4" /></Button></Card></div>;
+    return <AuthLayout><Card className="w-full max-w-md p-8 text-center"><MailCheck className="mx-auto h-14 w-14 text-indigo-600" /><h1 className="mt-5 text-2xl font-bold text-slate-900">인증 완료</h1><p className="mt-2 text-slate-600">이제 로그인하고 논술 학습을 시작할 수 있습니다.</p><Button onClick={() => setLocation("/login")} className="mt-6 w-full gap-2 bg-indigo-600 hover:bg-indigo-700">로그인하러 가기<ArrowRight className="h-4 w-4" /></Button></Card></AuthLayout>;
   }
 
   return (
-    <>
-    <div className="flex min-h-screen items-center justify-center bg-blue-50 p-4">
+    <AuthLayout>
       <Card className="w-full max-w-md p-6 sm:p-8">
         <MailCheck className="h-12 w-12 text-blue-600" />
         <h1 className="mt-5 text-2xl font-bold text-slate-900">이메일을 인증해 주세요</h1>
@@ -65,8 +64,6 @@ export default function VerifyEmail() {
         </form>
         <Link href="/login" className="mt-5 block text-center text-sm font-medium text-blue-600 hover:underline">로그인으로 돌아가기</Link>
       </Card>
-    </div>
-    <Footer variant="compact" />
-    </>
+    </AuthLayout>
   );
 }

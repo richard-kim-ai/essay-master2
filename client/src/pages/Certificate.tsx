@@ -120,7 +120,7 @@ export default function Certificate() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="bg-slate-50 flex items-center justify-center p-4">
         <Card className="max-w-md w-full p-6 text-center shadow-md">
           <Award className="w-12 h-12 text-blue-600 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-slate-900">로그인이 필요합니다</h2>
@@ -220,7 +220,7 @@ export default function Certificate() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl mx-auto space-y-12">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">수료증</h1>
