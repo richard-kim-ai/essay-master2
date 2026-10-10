@@ -110,6 +110,24 @@ async function sendUserVerificationEmail(
   });
 }
 
+const GUARDIAN_RESEND_COOLDOWN_MS = 5 * 60 * 1000;
+
+// 새 동의 링크를 발급(이전 링크는 즉시 무효)하고 보호자에게 동의 요청 메일을 보낸다.
+async function issueGuardianConsentLink(
+  req: { protocol: string; headers: Record<string, unknown> },
+  consent: { id: number; guardianEmail: string; guardianName: string },
+  childName: string,
+) {
+  const token = createVerificationToken();
+  await db.refreshGuardianConsentToken(consent.id, hashVerificationToken(token), new Date(Date.now() + GUARDIAN_CONSENT_TTL_MS));
+  await sendGuardianConsentEmail({
+    to: consent.guardianEmail,
+    guardianName: consent.guardianName,
+    childName,
+    consentUrl: `${requestOrigin(req)}/guardian-consent?token=${encodeURIComponent(token)}`,
+  });
+}
+
 const signupConsentSchema = z.object({
   policyKey: z.string().min(1).max(80),
   policyVersion: z.string().min(1).max(32),
@@ -2244,8 +2262,50 @@ export const appRouter = router({
         return { success: true } as const;
       }),
 
+    // 아동이 보호자 동의 메일을 다시 받도록 요청한다. 계정 존재 여부를 알려주지 않도록 항상 같은 응답을 하고, 5분에 한 번만 발송한다.
+    resendConsent: publicProcedure
+      .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()) }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await db.getUserByEmail(input.email);
+        const consent = user ? await db.getLatestGuardianConsentForUser(user.id) : null;
+        if (user && consent && consent.status === "pending" && Date.now() - consent.updatedAt.getTime() > GUARDIAN_RESEND_COOLDOWN_MS) {
+          try {
+            await issueGuardianConsentLink(ctx.req, consent, user.name || "학생");
+          } catch (error) {
+            // 발송 실패 여부로 계정 존재를 알 수 없도록 같은 응답을 유지한다.
+            console.error("[Guardian] resend failed", error);
+          }
+        }
+        return { success: true } as const;
+      }),
+
     // 동의 관리대장(관리자용): 동의 일시·확인 수단·문구 버전 등을 확인한다.
     adminList: adminProcedure.query(async () => db.listGuardianConsents()),
+
+    // 관리자가 동의 대기 중인 보호자에게 동의 메일을 다시 보낸다.
+    adminResend: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const consent = await db.getGuardianConsentById(input.id);
+        if (!consent || consent.status !== "pending") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "동의 대기 중인 요청만 다시 보낼 수 있습니다." });
+        }
+        const child = await db.getUserById(consent.userId);
+        await issueGuardianConsentLink(ctx.req, consent, child?.name || "학생");
+        return { success: true } as const;
+      }),
+
+    // 법정대리인의 동의 철회 요청을 관리자가 처리한다. 철회되면 아동 계정은 로그인할 수 없다.
+    adminWithdraw: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const consent = await db.getGuardianConsentById(input.id);
+        if (!consent || consent.status === "withdrawn") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "철회할 수 있는 동의 기록이 없습니다." });
+        }
+        await db.withdrawGuardianConsent(input.id);
+        return { success: true } as const;
+      }),
   }),
 
   parent: router({

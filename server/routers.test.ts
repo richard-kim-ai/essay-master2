@@ -324,6 +324,25 @@ describe("appRouter", () => {
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     });
 
+    it("보호자 동의 메일 재발송 요청은 가입 여부와 상관없이 같은 응답을 한다", async () => {
+      await expect(publicCaller().guardian.resendConsent({ email: "nobody@example.com" })).resolves.toEqual({ success: true });
+    });
+
+    it("재발송·철회는 관리자만 처리할 수 있다", async () => {
+      const userCaller = appRouter.createCaller(createMockContext());
+      await expect(userCaller.guardian.adminResend({ id: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(userCaller.guardian.adminWithdraw({ id: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(publicCaller().guardian.adminWithdraw({ id: 1 })).rejects.toBeTruthy();
+    });
+
+    it("관리자가 존재하지 않는 동의 기록을 처리하려 하면 거절한다", async () => {
+      const adminCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "admin" } as any,
+      }));
+      await expect(adminCaller.guardian.adminResend({ id: 999999 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(adminCaller.guardian.adminWithdraw({ id: 999999 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
     it("동의 관리대장은 관리자만 조회할 수 있다", async () => {
       await expect(publicCaller().guardian.adminList()).rejects.toBeTruthy();
       const userCaller = appRouter.createCaller(createMockContext());

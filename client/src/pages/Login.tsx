@@ -14,6 +14,13 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [modalType, setModalType] = useState<"terms" | "privacy" | null>(null);
 
+  // 보호자(법정대리인) 동의가 끝나지 않아 로그인이 막힌 경우 동의 메일 재발송을 안내한다.
+  const [guardianPending, setGuardianPending] = useState(false);
+  const resendGuardian = trpc.guardian.resendConsent.useMutation({
+    onSuccess: () => toast.success("보호자 이메일로 동의 요청을 다시 보냈습니다. 5분 안에 다시 요청하면 발송되지 않을 수 있습니다."),
+    onError: (error) => toast.error(error.message || "재발송 요청에 실패했습니다."),
+  });
+
   const socialProviders = trpc.social.providers.useQuery();
   const loginMutation = trpc.auth.loginWithEmail.useMutation({
     onSuccess: () => {
@@ -25,6 +32,7 @@ export default function Login() {
         setLocation(`/verify-email?email=${encodeURIComponent(email)}`);
         return;
       }
+      setGuardianPending(error.message.includes("보호자(법정대리인)의 동의"));
       toast.error(error.message || "로그인에 실패했습니다.");
     },
   });
@@ -55,6 +63,22 @@ export default function Login() {
           <h1 className="text-2xl font-bold text-slate-900">로그인</h1>
           <p className="mt-2 text-sm text-slate-500">학습 기록을 이어서 확인해 보세요.</p>
 
+          {guardianPending && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="alert">
+              <p className="font-semibold">보호자(법정대리인)의 동의를 기다리는 중입니다.</p>
+              <p className="mt-1 text-xs leading-relaxed">보호자 이메일로 발송된 동의 요청 메일에서 동의를 완료하면 로그인할 수 있습니다. 메일이 없거나 링크가 만료되었다면 다시 받을 수 있습니다.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2 bg-white"
+                disabled={!email || resendGuardian.isPending}
+                onClick={() => resendGuardian.mutate({ email })}
+              >
+                {resendGuardian.isPending ? "요청 중..." : "보호자 동의 메일 다시 받기"}
+              </Button>
+            </div>
+          )}
           <form onSubmit={handleLogin} className="mt-6 space-y-4">
             <label className="block text-sm font-medium text-slate-700">
               이메일

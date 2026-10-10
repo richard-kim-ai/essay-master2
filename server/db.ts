@@ -3273,6 +3273,35 @@ export async function approveGuardianConsent(id: number, evidence: Record<string
   await db.update(guardianConsents).set({ status: "approved", approvedAt: now, tokenExpiresAt: now, evidenceJson: JSON.stringify(evidence) }).where(eq(guardianConsents.id, id));
 }
 
+export async function getGuardianConsentById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(guardianConsents).where(eq(guardianConsents.id, id)).limit(1);
+  return row ?? null;
+}
+
+// 아동 계정의 가장 최근 동의 기록(재발송 대상 확인용)
+export async function getLatestGuardianConsentForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(guardianConsents).where(eq(guardianConsents.userId, userId)).orderBy(desc(guardianConsents.id)).limit(1);
+  return row ?? null;
+}
+
+// 동의 메일을 다시 보낼 때 새 링크를 발급한다. 이전 링크는 즉시 무효가 된다.
+export async function refreshGuardianConsentToken(id: number, tokenHash: string, tokenExpiresAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(guardianConsents).set({ tokenHash, tokenExpiresAt }).where(and(eq(guardianConsents.id, id), eq(guardianConsents.status, "pending")));
+}
+
+// 법정대리인의 동의 철회 요청을 처리한다. 철회되면 아동 계정은 다시 로그인할 수 없다. 처리 시각은 updatedAt에 남는다.
+export async function withdrawGuardianConsent(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(guardianConsents).set({ status: "withdrawn", tokenExpiresAt: new Date() }).where(eq(guardianConsents.id, id));
+}
+
 // 동의 관리대장 조회(관리자용). 토큰 해시와 증적 원문은 내려보내지 않는다.
 export async function listGuardianConsents() {
   const db = await getDb();
@@ -3296,6 +3325,7 @@ export async function listGuardianConsents() {
       consentMethod: row.consentMethod,
       approvedAt: row.approvedAt,
       requestedAt: row.createdAt,
+      updatedAt: row.updatedAt,
     };
   });
 }
