@@ -31,6 +31,7 @@ import {
   workbookLessonConnections,
   siteSettings,
   parentStudentLinks,
+  guardianConsents,
   userBadges,
   learningToolAttempts,
   questionBank,
@@ -3230,6 +3231,73 @@ export async function respondToParentLinkRequest(studentId: number, linkId: numb
   const status = accept ? "approved" : "rejected";
   await db.update(parentStudentLinks).set({ status, respondedAt: new Date() }).where(eq(parentStudentLinks.id, linkId));
   return { linkId, status } as const;
+}
+
+// ===== 만 14세 미만 법정대리인 동의(개인정보 보호법 제22조의2) =====
+
+export async function createGuardianConsent(input: {
+  userId: number;
+  childBirthDate: string;
+  guardianName: string;
+  guardianRelation: string;
+  guardianEmail: string;
+  tokenHash: string;
+  tokenExpiresAt: Date;
+  consentVersion: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(guardianConsents).values(input);
+}
+
+export async function getGuardianConsentByTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(guardianConsents).where(eq(guardianConsents.tokenHash, tokenHash)).limit(1);
+  return row ?? null;
+}
+
+// 가장 최근 동의 기록의 상태. 동의 대상이 아닌 회원은 null이다.
+export async function getLatestGuardianConsentStatusForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select({ status: guardianConsents.status }).from(guardianConsents).where(eq(guardianConsents.userId, userId)).orderBy(desc(guardianConsents.id)).limit(1);
+  return row?.status ?? null;
+}
+
+// 동의 확정: 상태를 approved로 바꾸고 증적을 남기며, 같은 링크로 다시 처리되지 않게 토큰 만료 시각을 지금으로 당긴다.
+export async function approveGuardianConsent(id: number, evidence: Record<string, unknown>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const now = new Date();
+  await db.update(guardianConsents).set({ status: "approved", approvedAt: now, tokenExpiresAt: now, evidenceJson: JSON.stringify(evidence) }).where(eq(guardianConsents.id, id));
+}
+
+// 동의 관리대장 조회(관리자용). 토큰 해시와 증적 원문은 내려보내지 않는다.
+export async function listGuardianConsents() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(guardianConsents).orderBy(desc(guardianConsents.id));
+  if (rows.length === 0) return [];
+  const children = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, rows.map((row) => row.userId)));
+  return rows.map((row) => {
+    const child = children.find((item) => item.id === row.userId);
+    return {
+      id: row.id,
+      childId: row.userId,
+      childName: child?.name ?? null,
+      childEmail: child?.email ?? null,
+      childBirthDate: row.childBirthDate,
+      guardianName: row.guardianName,
+      guardianRelation: row.guardianRelation,
+      guardianEmail: row.guardianEmail,
+      status: row.status,
+      consentVersion: row.consentVersion,
+      consentMethod: row.consentMethod,
+      approvedAt: row.approvedAt,
+      requestedAt: row.createdAt,
+    };
+  });
 }
 
 // 학생에게 학습 정보 열람이 허용된 학부모 목록(학생이 해제할 수 있도록 보여준다)

@@ -28,22 +28,19 @@ vi.mock("@/lib/trpc", () => ({
 
 import Signup from "./Signup";
 
-const NOTICE = "만 14세 미만 어린이는 보호자 동의가 필요합니다";
-
-describe("Signup guardian notice", () => {
+describe("Signup birth date and guardian input", () => {
   beforeEach(() => {
     routerState.search = "";
   });
 
-  it("초등 과정(기본 선택)에서는 만 14세 미만 보호자 동의 안내를 보여준다", () => {
+  it("학생 가입에는 생년월일 입력란과 만 14세 미만 안내가 보인다", () => {
     const html = renderToStaticMarkup(<Signup />);
-    expect(html).toContain(NOTICE);
-    expect(html).toContain("학부모 회원으로 가입해 자녀 계정을 연결");
+    expect(html).toContain('name="birthDate"');
+    expect(html).toContain("만 14세 미만은 보호자(법정대리인)의 동의가 필요합니다");
   });
 
-  it("초등이 아닌 과정으로 들어오면 보호자 동의 안내를 보여주지 않는다", () => {
-    routerState.search = "trial=1&course=middle_high";
+  it("생년월일을 입력하기 전에는 보호자 입력란을 보여주지 않는다", () => {
     const html = renderToStaticMarkup(<Signup />);
-    expect(html).not.toContain(NOTICE);
+    expect(html).not.toContain('aria-label="법정대리인 정보"');
   });
 });

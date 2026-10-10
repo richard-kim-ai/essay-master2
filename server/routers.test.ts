@@ -279,6 +279,58 @@ describe("appRouter", () => {
     });
   });
 
+  describe("guardian consent for under-14 signup", () => {
+    const baseSignup = {
+      name: "홍길동",
+      email: "child@example.com",
+      password: "password1234",
+      accountType: "student" as const,
+      courseType: "elementary" as const,
+      consents: [{ policyKey: "terms_of_service", policyVersion: "1", accepted: true }],
+    };
+    const publicCaller = () => appRouter.createCaller(createMockContext({ user: null as any }));
+    const underFourteen = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const adult = new Date(Date.now() - 30 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    it("학생 가입에는 생년월일이 필요하다", async () => {
+      await expect(publicCaller().auth.signup(baseSignup)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: "2020-13-45" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("만 14세 미만이면 보호자 정보가 필요하고 학생 이메일과 같은 이메일은 쓸 수 없다", async () => {
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: underFourteen })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining("법정대리인"),
+      });
+      await expect(
+        publicCaller().auth.signup({
+          ...baseSignup,
+          birthDate: underFourteen,
+          guardian: { name: "홍부모", relation: "부", email: "child@example.com" },
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("학생 이메일과 달라야") });
+    });
+
+    it("만 14세 이상은 보호자 정보 없이 검증을 통과한다(이후 단계에서 DB가 없어 실패해도 보호자 검증 오류는 아니다)", async () => {
+      const result = publicCaller().auth.signup({ ...baseSignup, birthDate: adult });
+      await expect(result).rejects.not.toMatchObject({ message: expect.stringContaining("법정대리인") });
+    });
+
+    it("존재하지 않는 동의 링크는 invalid로 응답하고 확정할 수 없다", async () => {
+      const token = "z".repeat(48);
+      await expect(publicCaller().guardian.getConsent({ token })).resolves.toEqual({ state: "invalid" });
+      await expect(
+        publicCaller().guardian.confirm({ token, guardianName: "홍부모", agreeCollection: true, agreeGuardian: true }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("동의 관리대장은 관리자만 조회할 수 있다", async () => {
+      await expect(publicCaller().guardian.adminList()).rejects.toBeTruthy();
+      const userCaller = appRouter.createCaller(createMockContext());
+      await expect(userCaller.guardian.adminList()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
   describe("public curriculum overview", () => {
     it("비로그인 방문자도 과정 구성을 조회할 수 있고 로그인 전용 조회는 계속 차단된다", async () => {
       const caller = appRouter.createCaller(createMockContext({ user: null as any }));

@@ -35,6 +35,7 @@ const AiGuideHistory = lazy(() => import("./pages/AiGuideHistory"));
 const WritingExampleLibrary = lazy(() => import("./pages/WritingExampleLibrary"));
 const MyPageHub = lazy(() => import("./pages/MyPageHub"));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
+const GuardianConsent = lazy(() => import("./pages/GuardianConsent"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SocialProviderSettings = lazy(() => import("./pages/SocialProviderSettings"));
@@ -74,6 +75,7 @@ function Router() {
         <Route path="/signup" component={Signup} />
         <Route path="/teacher-signup" component={TeacherSignup} />
         <Route path="/verify-email" component={VerifyEmail} />
+        <Route path="/guardian-consent" component={GuardianConsent} />
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/admin">{() => <Layout><AdminDashboard /></Layout>}</Route>

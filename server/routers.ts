@@ -21,12 +21,25 @@ const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
 const SAMPLE_AI_GLOBAL_DAILY_LIMIT = 300;
 
 import { resolveClientIp } from "./clientIp";
+import {
+  GUARDIAN_AGREEMENT_LABELS,
+  GUARDIAN_CONSENT_AGE,
+  GUARDIAN_CONSENT_INTRO,
+  GUARDIAN_CONSENT_METHOD,
+  GUARDIAN_CONSENT_SECTIONS,
+  GUARDIAN_CONSENT_TITLE,
+  GUARDIAN_CONSENT_VERSION,
+  GUARDIAN_RELATIONS,
+  calculateAge,
+  maskName,
+} from "@shared/guardian";
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
 import { TRPCError } from "@trpc/server";
 import {
   createVerificationToken,
+  sendGuardianConsentEmail,
   hashPassword,
   hashVerificationToken,
   sendPasswordResetEmail,
@@ -37,6 +50,7 @@ import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 import type { CourseType } from "@shared/course";
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
+const GUARDIAN_CONSENT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 const questionGenerationInput = z.object({
@@ -285,10 +299,38 @@ export const appRouter = router({
           accountType: z.enum(["student", "parent"]).default("student"),
           courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
           preferredTeacherId: z.number().int().positive().optional(),
+          // 학생 회원은 만 14세 미만 여부를 판정하기 위해 생년월일(YYYY-MM-DD)이 필요하다.
+          birthDate: z.string().trim().max(10).optional(),
+          guardian: z
+            .object({
+              name: z.string().trim().min(2).max(40),
+              relation: z.enum(GUARDIAN_RELATIONS),
+              email: z.string().trim().email().transform((value) => value.toLowerCase()),
+            })
+            .optional(),
           consents: z.array(signupConsentSchema).min(1),
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        let guardianConsentRequired = false;
+        if (input.accountType === "student") {
+          if (!input.birthDate) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "학생 회원은 생년월일을 입력해야 합니다." });
+          }
+          const age = calculateAge(input.birthDate);
+          if (age === null || age > 120) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "생년월일을 정확히 입력해 주세요." });
+          }
+          guardianConsentRequired = age < GUARDIAN_CONSENT_AGE;
+          if (guardianConsentRequired) {
+            if (!input.guardian) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: "만 14세 미만 학생은 법정대리인(보호자) 정보를 입력해야 합니다." });
+            }
+            if (input.guardian.email === input.email) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: "보호자 이메일은 학생 이메일과 달라야 합니다." });
+            }
+          }
+        }
         const approvedConsents = await validateSignupConsents(input.accountType, input.consents);
         if (input.accountType === "student" && !input.courseType) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "학생 회원은 학습 과정을 선택해야 합니다." });
@@ -312,7 +354,7 @@ export const appRouter = router({
           await db.updateVerificationToken(existing.id, tokenHash, expiresAt);
           await db.recordUserPolicyConsents(existing.id, approvedConsents);
           await sendUserVerificationEmail(ctx.req, existing, token);
-          return { requiresVerification: true } as const;
+          return { requiresVerification: true, requiresGuardianConsent: false, guardianEmailSent: false } as const;
         }
 
         const defaultAiTutor = input.accountType === "student" && !input.preferredTeacherId ? await db.getDefaultAiTutor() : null;
@@ -332,8 +374,36 @@ export const appRouter = router({
 
         if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "회원가입에 실패했습니다." });
         await db.recordUserPolicyConsents(user.id, approvedConsents);
+
+        // 만 14세 미만이면 법정대리인 동의 기록을 만들고 보호자에게 동의 확인 메일을 보낸다. 동의 전에는 로그인할 수 없다.
+        let guardianEmailSent = false;
+        if (guardianConsentRequired && input.guardian && input.birthDate) {
+          const guardianToken = createVerificationToken();
+          await db.createGuardianConsent({
+            userId: user.id,
+            childBirthDate: input.birthDate,
+            guardianName: input.guardian.name,
+            guardianRelation: input.guardian.relation,
+            guardianEmail: input.guardian.email,
+            tokenHash: hashVerificationToken(guardianToken),
+            tokenExpiresAt: new Date(Date.now() + GUARDIAN_CONSENT_TTL_MS),
+            consentVersion: GUARDIAN_CONSENT_VERSION,
+          });
+          try {
+            await sendGuardianConsentEmail({
+              to: input.guardian.email,
+              guardianName: input.guardian.name,
+              childName: user.name || input.name,
+              consentUrl: `${requestOrigin(ctx.req)}/guardian-consent?token=${encodeURIComponent(guardianToken)}`,
+            });
+            guardianEmailSent = true;
+          } catch (error) {
+            console.error("[Guardian] consent email failed", error);
+          }
+        }
+
         await sendUserVerificationEmail(ctx.req, user, token);
-        return { requiresVerification: true } as const;
+        return { requiresVerification: true, requiresGuardianConsent: guardianConsentRequired, guardianEmailSent } as const;
       }),
 
     teacherSignup: publicProcedure
@@ -467,6 +537,14 @@ export const appRouter = router({
 
         if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "이메일 또는 비밀번호를 확인해주세요." });
+        }
+        // 만 14세 미만 아동은 법정대리인이 동의하기 전까지 로그인할 수 없다.
+        const guardianStatus = await db.getLatestGuardianConsentStatusForUser(user.id);
+        if (guardianStatus && guardianStatus !== "approved") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "보호자(법정대리인)의 동의가 아직 완료되지 않았습니다. 보호자에게 발송된 메일에서 동의를 완료해 주세요. 메일을 받지 못했거나 링크가 만료되었다면 ceo@ufinsu.com으로 문의해 주세요.",
+          });
         }
         if (!user.emailVerifiedAt) {
           await db.markEmailVerified(user.id);
@@ -2112,6 +2190,64 @@ export const appRouter = router({
         return true;
       }),
   }),
+  // 만 14세 미만 아동의 법정대리인(보호자)이 메일 링크로 동의서를 확인하고 동의하는 흐름
+  guardian: router({
+    getConsent: publicProcedure
+      .input(z.object({ token: z.string().min(32).max(200) }))
+      .query(async ({ input }) => {
+        const consent = await db.getGuardianConsentByTokenHash(hashVerificationToken(input.token));
+        if (!consent) return { state: "invalid" as const };
+        if (consent.status === "approved") return { state: "approved" as const };
+        if (consent.status !== "pending") return { state: "invalid" as const };
+        if (consent.tokenExpiresAt.getTime() < Date.now()) return { state: "expired" as const };
+        const child = await db.getUserById(consent.userId);
+        // 보호자 화면에는 아동 정보를 일부만 보여준다(이름 가운데 가림, 출생연도만).
+        return {
+          state: "pending" as const,
+          childNameMasked: maskName(child?.name),
+          childBirthYear: consent.childBirthDate.slice(0, 4),
+          relation: consent.guardianRelation,
+          title: GUARDIAN_CONSENT_TITLE,
+          intro: GUARDIAN_CONSENT_INTRO,
+          sections: GUARDIAN_CONSENT_SECTIONS,
+          labels: GUARDIAN_AGREEMENT_LABELS,
+        };
+      }),
+
+    confirm: publicProcedure
+      .input(
+        z.object({
+          token: z.string().min(32).max(200),
+          guardianName: z.string().trim().min(2).max(40),
+          agreeCollection: z.literal(true),
+          agreeGuardian: z.literal(true),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const consent = await db.getGuardianConsentByTokenHash(hashVerificationToken(input.token));
+        if (!consent || consent.status !== "pending" || consent.tokenExpiresAt.getTime() < Date.now()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "동의 링크가 만료되었거나 이미 처리되었습니다." });
+        }
+        const normalize = (value: string) => value.replace(/\s+/g, "").toLowerCase();
+        if (normalize(input.guardianName) !== normalize(consent.guardianName)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "입력하신 성명이 가입 시 입력된 보호자 성명과 다릅니다." });
+        }
+        const userAgent = ctx.req.headers["user-agent"];
+        await db.approveGuardianConsent(consent.id, {
+          method: GUARDIAN_CONSENT_METHOD,
+          consentVersion: consent.consentVersion,
+          confirmedGuardianName: input.guardianName,
+          agreements: { agreeCollection: true, agreeGuardian: true },
+          ipHash: db.hashSampleClientIp(resolveClientIp(ctx.req)),
+          userAgent: (Array.isArray(userAgent) ? userAgent[0] : userAgent ?? "").slice(0, 200),
+        });
+        return { success: true } as const;
+      }),
+
+    // 동의 관리대장(관리자용): 동의 일시·확인 수단·문구 버전 등을 확인한다.
+    adminList: adminProcedure.query(async () => db.listGuardianConsents()),
+  }),
+
   parent: router({
     linkedStudents: protectedProcedure.query(async ({ ctx }) => {
       return await db.getLinkedStudentsForParent(ctx.user.id);

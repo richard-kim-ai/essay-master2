@@ -71,6 +71,31 @@ export const parentStudentLinks = mysqlTable("parent_student_links", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+// 만 14세 미만 아동 가입 시 법정대리인 동의 기록(개인정보 보호법 제22조의2). 동의 관리대장으로 쓴다.
+export const guardianConsents = mysqlTable("guardian_consents", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  // 아동 생년월일(YYYY-MM-DD). 만 14세 미만 판정의 근거로 이 기록에만 보관한다.
+  childBirthDate: varchar("childBirthDate", { length: 10 }).notNull(),
+  guardianName: varchar("guardianName", { length: 80 }).notNull(),
+  guardianRelation: varchar("guardianRelation", { length: 32 }).notNull(),
+  guardianEmail: varchar("guardianEmail", { length: 320 }).notNull(),
+  tokenHash: varchar("tokenHash", { length: 128 }).notNull(),
+  tokenExpiresAt: timestamp("tokenExpiresAt").notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "withdrawn"]).default("pending").notNull(),
+  // 어떤 문구와 확인 수단으로 동의받았는지 증명하기 위한 값
+  consentVersion: varchar("consentVersion", { length: 32 }).notNull(),
+  consentMethod: varchar("consentMethod", { length: 32 }).default("email_confirmation").notNull(),
+  approvedAt: timestamp("approvedAt"),
+  // 동의 시점의 증적(접속 IP 해시, 브라우저 정보 일부, 입력한 보호자 성명, 체크한 항목). 원문 IP는 저장하지 않는다.
+  evidenceJson: text("evidenceJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GuardianConsent = typeof guardianConsents.$inferSelect;
+export type InsertGuardianConsent = typeof guardianConsents.$inferInsert;
+
 export type ParentStudentLink = typeof parentStudentLinks.$inferSelect;
 export type InsertParentStudentLink = typeof parentStudentLinks.$inferInsert;
 
