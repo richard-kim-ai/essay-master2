@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { Progress } from "@/components/ui/progress";
 import { EvaluationLoadingState } from "@/components/EvaluationLoadingState";
 import { toast } from "sonner";
+import { CONTACT_MAILTO } from "@/lib/contact";
 
 const EVALUATION_STEPS = [
   { label: "답안 구조를 읽고 있어요", detail: "작성하신 글의 문단과 핵심 문장을 살펴보고 있습니다." },
@@ -163,7 +164,7 @@ export default function AIAutoFeedback() {
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold text-sm">AI</span>
               <div>
-                <p className="text-sm font-semibold">{quota.isTrial ? "7일 무료 체험 AI 논술 평가" : "공용 크레딧 일일 AI 첨삭 쿼터"}</p>
+                <p className="text-sm font-semibold">{quota.isTrial ? "7일 무료 체험 AI 논술 평가" : "일일 무료 AI 첨삭"}</p>
                 <p className="text-xs text-indigo-700">{quota.isTrial ? <>레슨 1 첫 서술형 제출 1회 · 사용: <span className="font-bold">{quota.used}회</span> / 잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span> · 체험 {quota.daysRemaining}일 남음</> : <>오늘 사용한 횟수: <span className="font-bold">{quota.used}회</span> / 무료 제공 <span className="font-bold">{quota.limit}회</span> (잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</>}</p>
               </div>
             </div>
@@ -172,7 +173,7 @@ export default function AIAutoFeedback() {
                 onClick={() => setShowUpgradeModal(true)}
                 className="text-xs bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold px-4 py-2 rounded-lg shadow-sm transition"
               >
-                프리미엄 업그레이드 / 충전
+                이용 안내
               </button>
             ) : (
               <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-3 py-1 rounded-full">
@@ -182,32 +183,24 @@ export default function AIAutoFeedback() {
           </div>
         )}
 
-        {/* Upgrade / Credit Modal */}
+        {/* AI 첨삭 이용 안내: 결제 기능이 없으므로 구매 버튼 없이 실제 이용 조건과 문의 경로만 안내한다. */}
         {showUpgradeModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ai-usage-guide-title">
             <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-slate-900">✨ 일일 AI 쿼터 소진 안내</h3>
-                <button onClick={() => setShowUpgradeModal(false)} className="text-slate-400 hover:text-slate-600 font-bold text-lg">×</button>
+                <h3 id="ai-usage-guide-title" className="text-xl font-bold text-slate-900">{quota?.isTrial ? "무료 체험 AI 평가 이용 안내" : "오늘의 AI 첨삭 횟수를 모두 사용했어요"}</h3>
+                <button onClick={() => setShowUpgradeModal(false)} aria-label="닫기" className="text-slate-400 hover:text-slate-600 font-bold text-lg">×</button>
               </div>
               <p className="text-sm text-slate-600 leading-relaxed">
-                오늘 제공된 무료 AI 자동 첨삭 횟수(5회)를 모두 소진하셨습니다. 더 많은 첨삭과 심층 분석을 원하시면 프리미엄 플랜으로 업그레이드하거나 추가 크레딧을 충전하세요!
+                {quota?.isTrial
+                  ? "7일 무료 체험에서는 레슨 1의 첫 서술형 답안에 대해 AI 논술 평가를 1회 제공합니다. 체험 이후의 이용 조건은 요금정책에서 확인하실 수 있어요."
+                  : `오늘 제공된 무료 AI 첨삭 횟수(${quota?.limit ?? 5}회)를 모두 사용했습니다. 내일 다시 이용할 수 있어요. 교사 첨삭이나 기관 도입이 필요하시면 문의해 주세요.`}
               </p>
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div className="border border-indigo-200 bg-indigo-50/50 rounded-xl p-4 text-center space-y-2">
-                  <p className="text-xs font-bold text-indigo-700 uppercase">Pro Pass</p>
-                  <p className="text-lg font-extrabold text-slate-900">₩9,900<span className="text-xs font-normal text-slate-500">/월</span></p>
-                  <p className="text-xs text-slate-600">일일 30회 + 심층 분석</p>
-                  <button onClick={() => { toast.success("프로 플랜 신청이 완료되었습니다! (시뮬레이션)"); setShowUpgradeModal(false); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-2 rounded-lg font-semibold">구독하기</button>
-                </div>
-                <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 text-center space-y-2">
-                  <p className="text-xs font-bold text-emerald-700 uppercase">Extra Credit</p>
-                  <p className="text-lg font-extrabold text-slate-900">₩3,000<span className="text-xs font-normal text-slate-500">/10회</span></p>
-                  <p className="text-xs text-slate-600">추가 10회 즉시 충전</p>
-                  <button onClick={() => { toast.success("추가 크레딧 충전이 완료되었습니다! (시뮬레이션)"); setShowUpgradeModal(false); }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs py-2 rounded-lg font-semibold">충전하기</button>
-                </div>
+              <div className="flex flex-col gap-2 pt-2 sm:flex-row">
+                <Link href="/pricing" className="flex-1"><Button className="w-full bg-indigo-600 hover:bg-indigo-700">요금정책 보기</Button></Link>
+                <a href={CONTACT_MAILTO} className="flex-1"><Button variant="outline" className="w-full">문의하기</Button></a>
               </div>
-              <button onClick={() => setShowUpgradeModal(false)} className="w-full text-center text-xs text-slate-500 hover:text-slate-700 pt-2">다음에 할게요</button>
+              <button onClick={() => setShowUpgradeModal(false)} className="w-full text-center text-xs text-slate-500 hover:text-slate-700 pt-2">닫기</button>
             </div>
           </div>
         )}
@@ -262,14 +255,14 @@ export default function AIAutoFeedback() {
                 {/* File Upload Option */}
                 <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 p-4">
                   <label className="block text-sm font-semibold text-indigo-900 mb-1">
-                    📁 답안 파일 업로드 (.txt, .pdf, .docx)
+                    📁 텍스트 파일 불러오기 (.txt)
                   </label>
                   <p className="text-xs text-slate-600 mb-3">
-                    작성한 논술 문서 파일을 업로드하면 텍스트가 자동으로 추출되어 입력됩니다.
+                    .txt 파일을 불러오면 내용이 아래 입력창에 채워집니다. PDF·Word 문서는 내용을 복사해서 아래 입력창에 붙여 넣어 주세요.
                   </p>
                   <input
                     type="file"
-                    accept=".txt,.pdf,.doc,.docx"
+                    accept=".txt,text/plain"
                     className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -286,12 +279,12 @@ export default function AIAutoFeedback() {
                       reader.onerror = () => {
                         toast.error("파일을 읽는 중 오류가 발생했습니다.");
                       };
-                      if (file.name.endsWith(".txt")) {
+                      if (file.name.toLowerCase().endsWith(".txt")) {
                         reader.readAsText(file, "utf-8");
                       } else {
-                        // PDF/DOCX 등 바이너리 파일 업로드 시뮬레이션 및 안내
-                        setContent(`[업로드된 파일: ${file.name} (${Math.round(file.size / 1024)}KB)]\n\n문서 내용 자동 추출 결과:\n학생이 업로드한 논술 과제 파일의 본문 내용입니다. 다각적 제시문 비교 및 논리적 타당성 검증에 관한 핵심 주장이 담겨 있습니다.`);
-                        toast.success(`'${file.name}' 파일이 업로드되어 본문이 채워졌습니다.`);
+                        // 파일 내용을 읽지 못하면 입력창을 채우지 않는다(임의 문장을 넣어 평가하지 않는다).
+                        e.target.value = "";
+                        toast.error("텍스트(.txt) 파일만 불러올 수 있어요. PDF·Word 문서는 내용을 복사해서 입력창에 붙여 넣어 주세요.");
                       }
                     }}
                   />

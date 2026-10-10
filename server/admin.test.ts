@@ -103,11 +103,12 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(source).toContain("검색 결과");
   });
 
-  it("AI 자동 첨삭 페이지가 문서 파일 업로드 및 텍스트 추출을 지원한다", () => {
+  it("AI 자동 첨삭 페이지는 .txt 파일의 실제 내용만 불러오고, 읽지 못하는 형식은 붙여넣기를 안내한다", () => {
     const aiFeedbackPath = new URL("../client/src/pages/AIAutoFeedback.tsx", import.meta.url);
     const source = readFileSync(aiFeedbackPath, "utf8");
-    expect(source).toContain("답안 파일 업로드");
+    expect(source).toContain("텍스트 파일 불러오기");
     expect(source).toContain("FileReader");
+    expect(source).toContain("PDF·Word 문서는 내용을 복사해서");
   });
 
   it("대시보드가 과정별 진도 프로그레스 바를 제공한다", () => {
