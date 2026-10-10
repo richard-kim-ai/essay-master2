@@ -360,13 +360,17 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(policySource).toContain("AI 품질 개선 동의는 선택 사항");
   });
 
-  it("인증 화면에서 마누스 계정 시작과 관리자 샘플 진입을 제공하지 않는다", () => {
+  it("인증 화면에서 마누스 계정 시작과 샘플 계정 진입을 제공하지 않고 서버가 샘플 계정을 자동 생성하지 않는다", () => {
     const loginSource = readFileSync(new URL("../client/src/pages/Login.tsx", import.meta.url), "utf8");
     const signupSource = readFileSync(new URL("../client/src/pages/Signup.tsx", import.meta.url), "utf8");
     const routerSource = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
     expect(loginSource).not.toContain("Manus 계정으로");
     expect(signupSource).not.toContain("Manus 계정으로");
     expect(loginSource).not.toContain("관리자 샘플");
-    expect(routerSource).toContain("관리자 샘플 계정은 제공되지 않습니다.");
+    expect(loginSource).not.toContain("@sample.com");
+    expect(loginSource).not.toContain("sample1234");
+    // 원클릭 샘플 로그인용 계정 자동 생성(누구나 아는 비밀번호로 교사 권한 계정이 만들어짐)은 제거됐다.
+    expect(routerSource).not.toContain("@sample.com");
+    expect(routerSource).not.toContain("openId: `sample_");
   });
 });

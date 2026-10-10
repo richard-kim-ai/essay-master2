@@ -527,30 +527,8 @@ export const appRouter = router({
     loginWithEmail: publicProcedure
       .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
-        if (input.email === "admin@sample.com") {
-          throw new TRPCError({ code: "UNAUTHORIZED", message: "관리자 샘플 계정은 제공되지 않습니다." });
-        }
-        let user = await db.getUserByEmail(input.email);
-        
-        // 만약 샘플 계정으로 로그인 시도 시 DB에 없으면 자동 생성 후 로그인 처리
-        if (!user && input.email.endsWith("@sample.com")) {
-          const sampleRole = input.email.startsWith("teacher") ? "teacher" : "user";
-          const sampleName = sampleRole === "teacher" ? "김선생(샘플교사)" : "이학생(샘플학생)";
-          user = await db.createEmailUser({
-            openId: `sample_${nanoid(20)}`,
-            name: sampleName,
-            email: input.email,
-            loginMethod: "email",
-            passwordHash: hashPassword(input.password),
-            role: sampleRole,
-            teacherLevel: sampleRole === "teacher" ? 2 : 1,
-            teacherStatus: sampleRole === "teacher" ? "approved" : "approved",
-          });
-          if (user) {
-            await db.markEmailVerified(user.id);
-            user = await db.getUserByEmail(input.email);
-          }
-        }
+        // 샘플 계정 자동 생성(원클릭 샘플 로그인)은 제거했다. 누구나 알 수 있는 비밀번호로 승인된 교사 권한 계정이 만들어지는 문제가 있었다.
+        const user = await db.getUserByEmail(input.email);
 
         if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "이메일 또는 비밀번호를 확인해주세요." });
@@ -563,12 +541,9 @@ export const appRouter = router({
             message: "보호자(법정대리인)의 동의가 아직 완료되지 않았습니다. 보호자에게 발송된 메일에서 동의를 완료해 주세요. 메일을 받지 못했거나 링크가 만료되었다면 ceo@ufinsu.com으로 문의해 주세요.",
           });
         }
-        // 이메일 인증을 마치지 않은 계정은 로그인할 수 없다. 샘플 체험 계정만 인증 없이 로그인된다.
+        // 이메일 인증을 마치지 않은 계정은 로그인할 수 없다.
         if (!user.emailVerifiedAt) {
-          if (!user.email?.includes("@sample.")) {
-            throw new TRPCError({ code: "FORBIDDEN", message: "EMAIL_NOT_VERIFIED" });
-          }
-          await db.markEmailVerified(user.id);
+          throw new TRPCError({ code: "FORBIDDEN", message: "EMAIL_NOT_VERIFIED" });
         }
 
         const sessionToken = await sdk.createSessionToken(user.openId, {

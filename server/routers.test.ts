@@ -358,6 +358,16 @@ describe("appRouter", () => {
     });
   });
 
+  describe("sample account login removal", () => {
+    const publicCaller = () => appRouter.createCaller(createMockContext({ user: null as any }));
+
+    it("누구나 아는 샘플 계정 정보로는 로그인할 수 없고 계정이 자동 생성되지 않는다", async () => {
+      await expect(publicCaller().auth.loginWithEmail({ email: "student@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(publicCaller().auth.loginWithEmail({ email: "teacher@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(publicCaller().auth.loginWithEmail({ email: "admin@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
   describe("public curriculum overview", () => {
     it("비로그인 방문자도 과정 구성을 조회할 수 있고 로그인 전용 조회는 계속 차단된다", async () => {
       const caller = appRouter.createCaller(createMockContext({ user: null as any }));
