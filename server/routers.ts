@@ -1257,6 +1257,8 @@ export const appRouter = router({
       .input(z.object({
         sessionToken: z.string().trim().min(10).max(64),
         task: z.string().trim().min(1).max(500),
+        // 샘플에서 고른 과정. 평가가 과정 수준(초등~일반)에 맞게 이뤄지도록 평가 엔진에 전달한다.
+        courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional(),
         essayText: z.string().trim().min(1).max(SAMPLE_AI_TEXT_MAX_LENGTH),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1285,7 +1287,7 @@ export const appRouter = router({
         // AI 호출 전에 사용 기록을 먼저 남겨 동시에 여러 번 보내는 요청이 한도를 넘지 못하게 한다.
         await db.logSampleAiUsage(input.sessionToken, ipHash);
         return await evaluateWritingWithLLM({
-          metadata: { source: "sample_experience" },
+          metadata: { source: "sample_experience", ...(input.courseType ? { course_type: input.courseType } : {}) },
           task: input.task,
           submission: { essay_text: input.essayText },
         });

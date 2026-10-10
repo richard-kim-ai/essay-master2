@@ -1,13 +1,13 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-- [Local] 샘플 체험 과정 탭(초등/중고등/고등·대입/일반·직장인)별 학습 방식·연습·AI 논제 차별화(SampleExperience.tsx, sampleEvaluation courseType 전달) — 시작 2026-10-11 06:10
 
 
 
 
 
 ## 완료
+- [Local] 샘플 체험 과정 탭(초등/중고등/고등·대입/일반·직장인)별 학습 방식·연습·AI 논제 차별화(SampleExperience.tsx, sampleEvaluation courseType 전달) — 시작 2026-10-11 06:10, 완료 2026-10-11 06:50
 - [Local] 샘플 AI 첨삭 한도 우회 차단(server/routers.ts sampleEvaluation) 및 비로그인 커리큘럼 소개 보완(Curriculum.tsx, curriculum 공개 조회) — 시작 2026-10-11 05:00, 완료 2026-10-11 05:40
 - [Local] 학부모 연동·학생 상세 조회 권한/개인정보 노출 보완(server/db.ts, server/routers.ts parent 라우터) — 시작 2026-10-11 04:10, 완료 2026-10-11 04:40
 - [Codex] 분리 worktree를 현재 main 기준으로 통일 및 동기화 절차 정리 — 시작 2026-10-11, 완료 2026-10-11
