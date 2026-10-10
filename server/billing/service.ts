@@ -7,7 +7,7 @@ import { ambiguousInstitutionEntitlement, evaluateAiEntitlement, evaluateInstitu
 export const AI_ACTION_TRIAL = "trial_essay_feedback";
 export const AI_ACTION_PLAN = "essay_feedback";
 
-type EntitlementUser = { id: number; role: string; tag?: string | null; createdAt: Date | string };
+type EntitlementUser = { id: number; role: string; tag?: string | null; teacherStatus?: string | null; createdAt: Date | string };
 
 export async function getAiEntitlement(user: EntitlementUser): Promise<AiEntitlement> {
   // 관리자·교사·학부모는 사용 기록을 조회할 필요가 없다.

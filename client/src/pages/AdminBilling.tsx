@@ -44,6 +44,10 @@ function shiftMonth(month: string, delta: number) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function LoadError({ message }: { message?: string }) {
+  return <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-900" role="alert">정보를 불러오지 못했습니다{message ? `: ${message}` : ""}. 새 기능의 DB 반영(마이그레이션 0049·0050) 여부를 확인하고 다시 시도해 주세요. 불러오지 못한 값은 0원·0건이 아니라 알 수 없는 상태입니다.</div>;
+}
+
 function Pill({ label, style }: { label: string; style: string }) {
   return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${style}`}>{label}</span>;
 }
@@ -109,6 +113,7 @@ function OrdersTab({ summary }: { summary: { paidCount: number; paidTotalKrw: nu
     onError: (error) => toast.error(error.message || "환불 처리에 실패했습니다."),
   });
   const orders = ordersQuery.data ?? [];
+  if (ordersQuery.error) return <LoadError message={ordersQuery.error.message} />;
 
   return (
     <div className="space-y-4">
@@ -170,6 +175,7 @@ function OrdersTab({ summary }: { summary: { paidCount: number; paidTotalKrw: nu
 function SubscriptionsTab() {
   const subscriptionsQuery = trpc.billing.adminSubscriptions.useQuery();
   const rows = subscriptionsQuery.data ?? [];
+  if (subscriptionsQuery.error) return <LoadError message={subscriptionsQuery.error.message} />;
   return (
     <Card className="overflow-x-auto p-0">
       <table className="w-full min-w-[800px] text-left text-sm">
@@ -215,8 +221,13 @@ function SettlementsTab() {
   });
   const overview = overviewQuery.data;
   const rows = overview?.rows ?? [];
+  const reconcile = trpc.settlement.adminReconcile.useMutation({
+    onSuccess: (result) => { toast.success(`장부에 기록되지 않았던 활동 ${result.reconciled}건을 정리했습니다. 정산서를 다시 산출해 주세요.`); refresh(); },
+    onError: (error) => toast.error(error.message || "장부 정리에 실패했습니다."),
+  });
   const totalNet = rows.reduce((sum, row) => sum + (row.statement && row.statement.status !== "draft" ? row.statement.netKrw : row.estimate.netKrw), 0);
 
+  if (overviewQuery.error) return <LoadError message={overviewQuery.error.message} />;
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -256,7 +267,8 @@ function SettlementsTab() {
                   <td className="p-3 text-right font-semibold">{formatKrw(net)}</td>
                   <td className="p-3">{statement ? <Pill {...SETTLEMENT_STATUS[statement.status]} /> : <span className="text-xs text-slate-500">미산출</span>}</td>
                   <td className="p-3">
-                    {statement?.status === "draft" && <Button size="sm" variant="outline" disabled={!overview?.isClosed || confirm.isPending} onClick={() => confirm.mutate({ id: statement.id })}>확정</Button>}
+                    {row.unreconciled > 0 && <Button size="sm" variant="outline" className="mr-1.5 border-amber-300 text-amber-900" disabled={reconcile.isPending} onClick={() => reconcile.mutate({ month, teacherId: row.teacherId })}>장부 정리 ({row.unreconciled}건)</Button>}
+                    {statement?.status === "draft" && <Button size="sm" variant="outline" disabled={!overview?.isClosed || confirm.isPending || row.unreconciled > 0} onClick={() => confirm.mutate({ id: statement.id })}>확정</Button>}
                     {statement?.status === "confirmed" && <Button size="sm" onClick={() => setPaidTarget({ id: statement.id, label: `${row.name || row.email || "교사"} · ${month} · ${formatKrw(statement.netKrw)}` })}>지급 완료</Button>}
                   </td>
                 </tr>
@@ -289,6 +301,7 @@ function SettlementSettingsTab() {
   const utils = trpc.useUtils();
   const overviewQuery = trpc.settlement.adminOverview.useQuery({ month: currentMonthKst() });
   const overview = overviewQuery.data;
+  const settingsError = overviewQuery.error;
   const [rateDrafts, setRateDrafts] = useState<Record<string, string>>({});
   const [withholdingDraft, setWithholdingDraft] = useState<string | null>(null);
   const saveRate = trpc.settlement.adminSaveRate.useMutation({
@@ -300,6 +313,7 @@ function SettlementSettingsTab() {
     onError: (error) => toast.error(error.message || "원천징수율을 저장하지 못했습니다."),
   });
 
+  if (settingsError) return <LoadError message={settingsError.message} />;
   return (
     <div className="space-y-4">
       <Card className="space-y-4 p-5">

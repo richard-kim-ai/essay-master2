@@ -588,11 +588,9 @@ export const appRouter = router({
     resetPassword: publicProcedure
       .input(z.object({ token: z.string().min(32), password: z.string().min(8).max(128) }))
       .mutation(async ({ input }) => {
-        const user = await db.getUserByPasswordResetTokenHash(hashVerificationToken(input.token));
-        if (!user || !user.passwordResetTokenExpiresAt || user.passwordResetTokenExpiresAt.getTime() < Date.now()) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "재설정 링크가 만료되었거나 유효하지 않습니다." });
-        }
-        await db.resetUserPassword(user.id, hashPassword(input.password));
+        // 토큰 확인과 폐기를 한 번에 처리한다(같은 링크로 동시에 두 번 바꿀 수 없다).
+        const changed = await db.consumePasswordResetToken(hashVerificationToken(input.token), hashPassword(input.password));
+        if (!changed) throw new TRPCError({ code: "BAD_REQUEST", message: "재설정 링크가 만료되었거나 유효하지 않습니다." });
         return { success: true } as const;
       }),
 
@@ -1571,6 +1569,8 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), lessonNumber: z.number().int().min(1).max(20).optional(), submissionSource: z.enum(["lesson_one_essay"]).optional(), sourceVerificationFailed: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {
+        // 한도와 별개로 시간당 호출 횟수를 제한한다(비용이 큰 AI 호출의 남용 방지).
+        enforceRateLimit("ai-feedback", String(ctx.user.id), RATE_RULES.aiFeedbackByUser);
         const entitlement = await getAiEntitlement(ctx.user);
         if (entitlement.mode === "trial" && !isEligibleTrialEvaluation(input)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험의 AI 논술 평가는 레슨 1의 첫 서술형 제출에만 제공됩니다." });
@@ -1596,6 +1596,12 @@ export const appRouter = router({
           if (!reservation.reserved) throw new TRPCError({ code: "FORBIDDEN", message: entitlement.mode === "trial" ? "7일 무료 체험의 AI 논술 평가 1회를 사용했습니다. 이용권을 선택하면 계속 이용할 수 있습니다." : "이번 이용 기간의 AI 평가 횟수를 모두 사용했습니다." });
           reservationId = reservation.reservationId;
         }
+        // 예약한 사용 횟수는 AI 평가가 성공적으로 저장될 때만 유지한다(오류·대체 결과·저장 실패는 돌려준다). 여러 번 불러도 안전하다.
+        const releaseAll = async () => {
+          await billingDb.releaseAiUsage(reservationId).catch(() => undefined);
+          if (releaseInstitutionBudget) await releaseInstitutionBudget().catch(() => undefined);
+        };
+        try {
         const difficultyPreset = await db.getDifficultyOperationPreset();
         const request = { essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, difficultyMode: difficultyPreset.mode, sourceVerificationFailed: Boolean(input.sourceVerificationFailed) } as const;
         const heuristic = evaluateWritingHeuristic(request);
@@ -1604,10 +1610,16 @@ export const appRouter = router({
           if (releaseInstitutionBudget) await releaseInstitutionBudget().catch(() => undefined);
           throw error;
         });
+        // 평가 엔진이 모델 호출에 실패해 기본 규칙 결과만 돌려준 경우에는 사용 횟수를 차감하지 않는다.
+        if (semantic.fallback_used) {
+          await releaseAll();
+          reservationId = 0;
+          releaseInstitutionBudget = null;
+        }
         const feedback = { structureScore: semantic.dimension_scores.find((item) => item.competency === "macro_structure")?.score ?? semantic.total_score, logicScore: semantic.dimension_scores.find((item) => item.competency === "logical_inference")?.score ?? semantic.total_score, expressionScore: semantic.dimension_scores.find((item) => item.competency === "sentence_expression")?.score ?? semantic.total_score, overallScore: semantic.total_score, strengths: semantic.strengths, weaknesses: semantic.improvement_points, suggestions: semantic.feedback.revision_steps, overallComment: semantic.feedback.summary, revisedEssay: input.essayContent, sentenceCorrections: [], confidence: semantic.fallback_used ? 0.25 : 0.85, correction_status: semantic.fallback_used ? "fallback" as const : "completed" as const, fallback_used: semantic.fallback_used, provider_error: semantic.provider_error, latency_ms: 0, model_id: "builtin-llm-v1.1", token_usage: semantic.token_usage, estimated_cost_microusd: 0 };
         if (reservationId) await billingDb.recordAiUsageTokens(reservationId, feedback.token_usage);
         // 기관 계약 비용으로 쓴 평가는 개인 이용권·체험 사용량과 섞이지 않도록 따로 기록한다.
-        else await db.logAIUsage(ctx.user.id, entitlement.mode === "institution" ? "institution_essay_feedback" : AI_ACTION_PLAN, feedback.token_usage);
+        else if (!semantic.fallback_used) await db.logAIUsage(ctx.user.id, entitlement.mode === "institution" ? "institution_essay_feedback" : AI_ACTION_PLAN, feedback.token_usage);
         await db.createEvaluationModelOperation({ modelId: feedback.model_id, status: feedback.correction_status, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, errorSummary: feedback.provider_error });
         const savedFeedback = await db.createAIAutoFeedback({ userId: ctx.user.id, essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, overallComment: feedback.overallComment, structureScore: feedback.structureScore, logicScore: feedback.logicScore, expressionScore: feedback.expressionScore, overallScore: feedback.overallScore, revisedEssay: feedback.revisedEssay, suggestions: JSON.stringify(feedback.suggestions), strengths: JSON.stringify(feedback.strengths), weaknesses: JSON.stringify(feedback.weaknesses) });
         const feedbackId = Number((savedFeedback as { insertId?: number }).insertId || 0) || null;
@@ -1616,6 +1628,10 @@ export const appRouter = router({
         const reviewReasons = getHumanReviewReasons(feedback, heuristic.overallScore, Boolean(input.sourceVerificationFailed));
         if (reviewReasons.length && evaluationRecordId) await db.createEvaluationReviewQueueItem({ evaluationRecordId, userId: ctx.user.id, reasonsJson: JSON.stringify(reviewReasons) });
         return { ...(savedFeedback as object), ...feedback, id: feedbackId, evaluationRecordId, reviewQueued: reviewReasons.length > 0 };
+        } catch (error) {
+          await releaseAll();
+          throw error;
+        }
       }),
   }),
 

@@ -1,5 +1,5 @@
 // 결제·이용권·교사 정산의 데이터 접근. 화면 단위 규칙은 billingRouter.ts, 금액 계산은 shared/settlement.ts에 있다.
-import { and, count, desc, eq, gte, inArray, isNull, like, lt, or } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, like, lt, or, sql } from "drizzle-orm";
 import {
   aiUsageLogs,
   classAssignmentSubmissions,
@@ -14,6 +14,7 @@ import {
   workbookTeacherFeedback,
 } from "../drizzle/schema";
 import { getDb, getSiteSetting, saveSiteSetting } from "./db";
+import { getLedgerStart } from "./institutionDb";
 import {
   DEFAULT_WITHHOLDING_PCT,
   SETTLEMENT_ACTIVITIES,
@@ -149,8 +150,10 @@ export async function listOrdersAdmin(input: { status?: "pending" | "paid" | "fa
 export async function summarizeBilling(now = new Date()) {
   const db = await requireDb();
   const orders = await db.select({ status: paymentOrders.status, amountKrw: paymentOrders.amountKrw, isTest: paymentOrders.isTest }).from(paymentOrders);
-  const paid = orders.filter((order) => order.status === "paid");
-  const refunded = orders.filter((order) => order.status === "refunded");
+  // 실제 결제 금액에는 임시(테스트) 결제를 섞지 않는다. 테스트 주문은 따로 센다.
+  const paid = orders.filter((order) => order.status === "paid" && order.isTest !== 1);
+  const refunded = orders.filter((order) => order.status === "refunded" && order.isTest !== 1);
+  const testPaid = orders.filter((order) => order.status === "paid" && order.isTest === 1);
   const [{ value: activeSubscriptions }] = await db.select({ value: count() }).from(subscriptions)
     .where(and(inArray(subscriptions.status, ["active", "cancelled"]), gte(subscriptions.currentPeriodEnd, now)));
   return {
@@ -159,6 +162,7 @@ export async function summarizeBilling(now = new Date()) {
     refundedCount: refunded.length,
     refundedTotalKrw: refunded.reduce((sum, order) => sum + order.amountKrw, 0),
     testOrderCount: orders.filter((order) => order.isTest === 1).length,
+    testPaidTotalKrw: testPaid.reduce((sum, order) => sum + order.amountKrw, 0),
     activeSubscriptions: Number(activeSubscriptions),
   };
 }
@@ -264,7 +268,7 @@ export async function listApprovedTeachers() {
   return db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(and(eq(users.role, "teacher"), eq(users.teacherStatus, "approved")));
 }
 
-export type ActivityBreakdown = { included: ActivityCounts; excludedAuto: number; excludedManual: number };
+export type ActivityBreakdown = { included: ActivityCounts; excludedAuto: number; excludedManual: number; /** 장부 도입 이후인데 장부에 기록되지 않은 활동(정리 전에는 금액에 넣지 않고 확정도 막는다) */ unreconciled: number };
 
 /**
  * 한 달 동안 교사별 활동 건수. 정산 대상 여부는 활동이 처음 완료된 시점에 고정해 둔 장부(teacher_activity_accounting)를 따르고,
@@ -275,7 +279,7 @@ export async function countTeacherActivityBreakdown(start: Date, end: Date, teac
   const result = new Map<number, ActivityBreakdown>();
   const bucket = (id: number) => {
     let entry = result.get(id);
-    if (!entry) { entry = { included: emptyCounts(), excludedAuto: 0, excludedManual: 0 }; result.set(id, entry); }
+    if (!entry) { entry = { included: emptyCounts(), excludedAuto: 0, excludedManual: 0, unreconciled: 0 }; result.set(id, entry); }
     return entry;
   };
   const addIncluded = (id: number, type: string, value: number) => {
@@ -300,30 +304,38 @@ export async function countTeacherActivityBreakdown(start: Date, end: Date, teac
     else addIncluded(row.teacherId, row.activityType, value);
   }
 
-  // 장부에 없는 과거 활동(장부 도입 전)은 개별 정산 대상이다.
+  // 장부에 없는 활동: 장부 도입 전의 과거 활동은 이전처럼 개별 정산 대상이고,
+  // 장부 도입 이후의 활동인데 장부에 없으면 기록에 실패한 것이므로 정리 전까지 금액에 넣지 않는다(기관 업무가 개별 정산으로 새는 것을 막는다).
+  const ledgerStart = await getLedgerStart();
+  const recentOf = (column: Parameters<typeof gte>[0]) => (ledgerStart ? sql<number>`coalesce(sum(case when ${column} >= ${ledgerStart} then 1 else 0 end), 0)` : sql<number>`0`);
+  const addLegacy = (id: number, type: ActivityType, total: number, recent: number) => {
+    addIncluded(id, type, total - recent);
+    bucket(id).unreconciled += recent;
+  };
+
   const essayConditions = [gte(teacherFeedback.createdAt, start), lt(teacherFeedback.createdAt, end), isNull(teacherActivityAccounting.id)];
   if (teacherId !== undefined) essayConditions.push(eq(teacherFeedback.teacherId, teacherId));
-  const essayRows = await db.select({ teacherId: teacherFeedback.teacherId, value: count() }).from(teacherFeedback)
+  const essayRows = await db.select({ teacherId: teacherFeedback.teacherId, value: count(), recent: recentOf(teacherFeedback.createdAt) }).from(teacherFeedback)
     .leftJoin(teacherActivityAccounting, and(eq(teacherActivityAccounting.activityType, "essay_feedback"), eq(teacherActivityAccounting.sourceId, teacherFeedback.id)))
     .where(and(...essayConditions)).groupBy(teacherFeedback.teacherId);
-  for (const row of essayRows) addIncluded(row.teacherId, "essay_feedback", Number(row.value));
+  for (const row of essayRows) addLegacy(row.teacherId, "essay_feedback", Number(row.value), Number(row.recent));
 
   // 반 과제 채점(과거): 과제를 만든 교사가 채점 담당으로 본다.
   const reviewConditions = [eq(classAssignmentSubmissions.status, "reviewed"), gte(classAssignmentSubmissions.reviewedAt, start), lt(classAssignmentSubmissions.reviewedAt, end), isNull(teacherActivityAccounting.id)];
   if (teacherId !== undefined) reviewConditions.push(eq(classAssignments.createdBy, teacherId));
-  const reviewRows = await db.select({ teacherId: classAssignments.createdBy, value: count() })
+  const reviewRows = await db.select({ teacherId: classAssignments.createdBy, value: count(), recent: recentOf(classAssignmentSubmissions.reviewedAt) })
     .from(classAssignmentSubmissions)
     .innerJoin(classAssignments, eq(classAssignments.id, classAssignmentSubmissions.assignmentId))
     .leftJoin(teacherActivityAccounting, and(eq(teacherActivityAccounting.activityType, "assignment_review"), eq(teacherActivityAccounting.sourceId, classAssignmentSubmissions.id)))
     .where(and(...reviewConditions)).groupBy(classAssignments.createdBy);
-  for (const row of reviewRows) addIncluded(row.teacherId, "assignment_review", Number(row.value));
+  for (const row of reviewRows) addLegacy(row.teacherId, "assignment_review", Number(row.value), Number(row.recent));
 
   const workbookConditions = [gte(workbookTeacherFeedback.createdAt, start), lt(workbookTeacherFeedback.createdAt, end), isNull(teacherActivityAccounting.id)];
   if (teacherId !== undefined) workbookConditions.push(eq(workbookTeacherFeedback.teacherId, teacherId));
-  const workbookRows = await db.select({ teacherId: workbookTeacherFeedback.teacherId, value: count() }).from(workbookTeacherFeedback)
+  const workbookRows = await db.select({ teacherId: workbookTeacherFeedback.teacherId, value: count(), recent: recentOf(workbookTeacherFeedback.createdAt) }).from(workbookTeacherFeedback)
     .leftJoin(teacherActivityAccounting, and(eq(teacherActivityAccounting.activityType, "workbook_feedback"), eq(teacherActivityAccounting.sourceId, workbookTeacherFeedback.id)))
     .where(and(...workbookConditions)).groupBy(workbookTeacherFeedback.teacherId);
-  for (const row of workbookRows) addIncluded(row.teacherId, "workbook_feedback", Number(row.value));
+  for (const row of workbookRows) addLegacy(row.teacherId, "workbook_feedback", Number(row.value), Number(row.recent));
 
   return result;
 }
@@ -368,8 +380,12 @@ export async function upsertDraftSettlement(teacherId: number, periodMonth: stri
     withholdingKrw: totals.withholdingKrw,
     netKrw: totals.netKrw,
   };
-  if (existing) await db.update(teacherSettlements).set(values).where(eq(teacherSettlements.id, existing.id));
-  else await db.insert(teacherSettlements).values({ teacherId, periodMonth, status: "draft", ...values });
+  if (existing) {
+    // 갱신 조건에도 초안 상태를 넣어, 읽은 뒤 다른 요청이 확정해도 확정된 금액을 덮어쓰지 않는다.
+    const [result] = await db.update(teacherSettlements).set(values).where(and(eq(teacherSettlements.id, existing.id), eq(teacherSettlements.status, "draft")));
+    return Number((result as { affectedRows?: number }).affectedRows ?? 0) > 0;
+  }
+  await db.insert(teacherSettlements).values({ teacherId, periodMonth, status: "draft", ...values });
   return true;
 }
 

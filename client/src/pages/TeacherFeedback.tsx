@@ -68,10 +68,11 @@ export default function TeacherFeedback() {
       const fb = loaded;
       setFeedback(fb);
       setOverallComment(fb.overallComment || "");
-      setOverallScore(fb.overallScore || 75);
-      setStructureScore(fb.structureScore || 75);
-      setLogicScore(fb.logicScore || 75);
-      setExpressionScore(fb.expressionScore || 75);
+      // 0점도 정상 값이다(?? 로 비어 있을 때만 기본값 75).
+      setOverallScore(fb.overallScore ?? 75);
+      setStructureScore(fb.structureScore ?? 75);
+      setLogicScore(fb.logicScore ?? 75);
+      setExpressionScore(fb.expressionScore ?? 75);
     }
   }, [getFeedbackQuery.data]);
 

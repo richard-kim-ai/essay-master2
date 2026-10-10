@@ -34,6 +34,9 @@ vi.mock("./billingDb", () => ({
 
 vi.mock("./institutionDb", () => ({
   listTeacherActivitiesForMonth: vi.fn(),
+  getAccounting: vi.fn(),
+  resolveActivitySource: vi.fn(),
+  reconcileUnaccountedActivities: vi.fn(),
   ensureAccountingRow: vi.fn(),
   setManualExclusion: vi.fn(),
   resolveStudentFunding: vi.fn(async () => ({ kind: "none" })),
@@ -130,7 +133,9 @@ describe("AI 평가 이용 자격(entitlements)", () => {
 
   it("관리자·교사는 한도가 없고, 학부모는 이용할 수 없다", () => {
     expect(evaluateAiEntitlement({ user: { role: "admin", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).mode).toBe("unlimited");
-    expect(evaluateAiEntitlement({ user: { role: "teacher", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).mode).toBe("unlimited");
+    expect(evaluateAiEntitlement({ user: { role: "teacher", teacherStatus: "approved", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).mode).toBe("unlimited");
+    // 승인 전 교사는 한도 없이 쓸 수 없다.
+    expect(evaluateAiEntitlement({ user: { role: "teacher", teacherStatus: "pending", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).canUse).toBe(false);
     expect(evaluateAiEntitlement({ user: { role: "user", tag: "학부모", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).canUse).toBe(false);
   });
 });
@@ -267,7 +272,7 @@ describe("교사 정산(settlement) 접근", () => {
     expect(overview.estimate.grossKrw).toBe(4 * 3000 + 1 * 2000 + 2 * 1000);
     // 본인 교사 id로만 집계하고, 정산에서 제외된 활동(기관 계약·직접 제외)도 업무량에는 그대로 보여 준다.
     expect(billingDb.countTeacherActivityBreakdown).toHaveBeenCalledWith(expect.any(Date), expect.any(Date), 20);
-    expect(overview.workload).toEqual({ total: 7 + 5 + 1, included: 7, excludedAuto: 5, excludedManual: 1 });
+    expect(overview.workload).toEqual({ total: 7 + 5 + 1, included: 7, excludedAuto: 5, excludedManual: 1, unreconciled: 0 });
 
     for (const user of [student, parent, pendingTeacher, admin]) {
       await expect(callerFor(user).settlement.myOverview({})).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -328,7 +333,7 @@ describe("교사 정산 제외(setActivityExclusion)", () => {
   const input = { activityType: "essay_feedback" as const, sourceId: 9, excluded: true, reason: "교내 연수 지원 업무" };
 
   beforeEach(() => {
-    vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow() as any);
+    vi.mocked(institution.getAccounting).mockResolvedValue(ledgerRow() as any);
     vi.mocked(billingDb.getSettlement).mockResolvedValue(undefined);
   });
 
@@ -344,7 +349,7 @@ describe("교사 정산 제외(setActivityExclusion)", () => {
   });
 
   it("다른 교사의 활동은 바꿀 수 없다(관리자는 가능)", async () => {
-    vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow({ teacherId: 99 }) as any);
+    vi.mocked(institution.getAccounting).mockResolvedValue(ledgerRow({ teacherId: 99 }) as any);
     await expect(callerFor(teacher).settlement.setActivityExclusion(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await callerFor(admin).settlement.setActivityExclusion(input);
     expect(institution.setManualExclusion).toHaveBeenCalledTimes(1);
@@ -357,7 +362,7 @@ describe("교사 정산 제외(setActivityExclusion)", () => {
 
   it("기관 계약·소속으로 자동 제외된 활동은 바꿀 수 없다(되돌려서 정산받는 우회 불가)", async () => {
     for (const automaticExclusion of ["institution_contract", "institution_member", "teacher_member"]) {
-      vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow({ automaticExclusion }) as any);
+      vi.mocked(institution.getAccounting).mockResolvedValue(ledgerRow({ automaticExclusion }) as any);
       await expect(callerFor(teacher).settlement.setActivityExclusion({ ...input, excluded: false })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     }
     expect(institution.setManualExclusion).not.toHaveBeenCalled();
@@ -372,9 +377,9 @@ describe("교사 정산 제외(setActivityExclusion)", () => {
   });
 
   it("교사는 관리자가 제외한 활동을 스스로 되돌릴 수 없다", async () => {
-    vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow({ manualExcluded: 1, manualExcludedBy: 1 }) as any);
+    vi.mocked(institution.getAccounting).mockResolvedValue(ledgerRow({ manualExcluded: 1, manualExcludedBy: 1 }) as any);
     await expect(callerFor(teacher).settlement.setActivityExclusion({ ...input, excluded: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    vi.mocked(institution.ensureAccountingRow).mockResolvedValue(ledgerRow({ manualExcluded: 1, manualExcludedBy: 20 }) as any);
+    vi.mocked(institution.getAccounting).mockResolvedValue(ledgerRow({ manualExcluded: 1, manualExcludedBy: 20 }) as any);
     await callerFor(teacher).settlement.setActivityExclusion({ ...input, excluded: false });
     expect(institution.setManualExclusion).toHaveBeenCalledWith(expect.objectContaining({ excluded: false }));
   });
@@ -402,5 +407,51 @@ describe("교사 정산 제외(setActivityExclusion)", () => {
     const upsertOrder = vi.mocked(billingDb.upsertDraftSettlement).mock.invocationCallOrder[0];
     const confirmOrder = vi.mocked(billingDb.confirmSettlement).mock.invocationCallOrder[0];
     expect(upsertOrder).toBeLessThan(confirmOrder);
+  });
+});
+
+describe("정산 제외: 소유 확인·멱등·미정리 활동", () => {
+  const input = { activityType: "essay_feedback" as const, sourceId: 9, excluded: true, reason: "교내 연수 지원 업무" };
+  beforeEach(() => {
+    vi.mocked(billingDb.getSettlement).mockResolvedValue(undefined);
+    vi.mocked(institution.getAccounting).mockResolvedValue(undefined);
+  });
+
+  it("다른 교사의 과거 활동에는 소유자를 확인하기 전에 어떤 기록도 만들지 않는다", async () => {
+    vi.mocked(institution.resolveActivitySource).mockResolvedValue({ teacherId: 99, studentId: 3, groupId: null, occurredAt: new Date("2020-01-15") });
+    await expect(callerFor(teacher).settlement.setActivityExclusion(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(institution.ensureAccountingRow).not.toHaveBeenCalled();
+    expect(institution.setManualExclusion).not.toHaveBeenCalled();
+  });
+
+  it("존재하지 않는 활동은 찾을 수 없음으로 응답한다", async () => {
+    vi.mocked(institution.resolveActivitySource).mockResolvedValue(undefined);
+    await expect(callerFor(teacher).settlement.setActivityExclusion(input)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("본인의 과거 활동은 소유 확인 뒤에 장부에 기록하고 제외한다", async () => {
+    vi.mocked(institution.resolveActivitySource).mockResolvedValue({ teacherId: 20, studentId: 3, groupId: null, occurredAt: new Date("2020-01-15") });
+    vi.mocked(institution.ensureAccountingRow).mockResolvedValue({ id: 1, teacherId: 20, occurredAt: new Date("2020-01-15"), automaticExclusion: "none", manualExcluded: 0, manualExcludedBy: null } as any);
+    await callerFor(teacher).settlement.setActivityExclusion(input);
+    expect(institution.ensureAccountingRow).toHaveBeenCalledTimes(1);
+    expect(institution.setManualExclusion).toHaveBeenCalledTimes(1);
+  });
+
+  it("관리자가 제외한 활동을 교사가 다시 제외해 소유권을 가져간 뒤 되돌릴 수 없다", async () => {
+    vi.mocked(institution.getAccounting).mockResolvedValue({ id: 1, teacherId: 20, occurredAt: new Date("2020-01-15"), automaticExclusion: "none", manualExcluded: 1, manualExcludedBy: 1 } as any);
+    await expect(callerFor(teacher).settlement.setActivityExclusion(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(teacher).settlement.setActivityExclusion({ ...input, excluded: false })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(institution.setManualExclusion).not.toHaveBeenCalled();
+  });
+
+  it("장부에 기록되지 않은 최근 활동이 있으면 정산을 확정할 수 없고, 정리는 관리자만 한다", async () => {
+    vi.mocked(billingDb.getSettlementById).mockResolvedValue({ id: 2, teacherId: 20, periodMonth: "2020-01", status: "draft" } as any);
+    vi.mocked(billingDb.countTeacherActivityBreakdown).mockResolvedValue(new Map([[20, { included: { essay_feedback: 1, assignment_review: 0, workbook_feedback: 0 }, excludedAuto: 0, excludedManual: 0, unreconciled: 2 }]]));
+    await expect(callerFor(admin).settlement.adminConfirm({ id: 2 })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("장부 정리") });
+    expect(billingDb.confirmSettlement).not.toHaveBeenCalled();
+
+    for (const user of [student, teacher]) await expect(callerFor(user).settlement.adminReconcile({ month: "2020-01", teacherId: 20 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    vi.mocked(institution.reconcileUnaccountedActivities).mockResolvedValue(2);
+    await expect(callerFor(admin).settlement.adminReconcile({ month: "2020-01", teacherId: 20 })).resolves.toEqual({ reconciled: 2 });
   });
 });

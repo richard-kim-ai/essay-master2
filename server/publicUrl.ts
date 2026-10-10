@@ -22,6 +22,15 @@ export function configuredPublicOrigin(value = process.env.PUBLIC_BASE_URL): str
   }
 }
 
+let warnedMissingBaseUrl = false;
+
 export function publicBaseUrl(req: RequestLike, configured: string | undefined = process.env.PUBLIC_BASE_URL) {
-  return configuredPublicOrigin(configured) ?? requestOrigin(req);
+  const origin = configuredPublicOrigin(configured);
+  if (origin) return origin;
+  // 운영에서 서비스 주소가 설정되지 않으면 요청의 Host를 믿게 된다. 프록시가 Host를 검증하지 않는 환경에서는 메일 링크가 조작될 수 있어 경고한다.
+  if (process.env.NODE_ENV === "production" && !warnedMissingBaseUrl) {
+    warnedMissingBaseUrl = true;
+    console.warn("[security] PUBLIC_BASE_URL이 설정되지 않았습니다. 인증·비밀번호 재설정 메일의 링크 주소가 요청 Host에 의존합니다. 서비스 주소(https://...)를 PUBLIC_BASE_URL로 설정해 주세요.");
+  }
+  return requestOrigin(req);
 }

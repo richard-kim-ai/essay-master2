@@ -34,6 +34,10 @@ function BudgetCell({ limit, used }: { limit: number; used: number }) {
   );
 }
 
+function LoadError({ message }: { message?: string }) {
+  return <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-900" role="alert">정보를 불러오지 못했습니다{message ? `: ${message}` : ""}. 새 기능의 DB 반영(마이그레이션 0049·0050) 여부를 확인하고 다시 시도해 주세요. 불러오지 못한 값은 0원·0건이 아니라 알 수 없는 상태입니다.</div>;
+}
+
 // 관리자: 학교·기관 계약(예산), 반 연결, 기관 소속 회원(회원 단위 정산 제외)을 관리한다.
 export default function AdminInstitutionTab() {
   const utils = trpc.useUtils();
@@ -88,6 +92,9 @@ export default function AdminInstitutionTab() {
   });
 
   const activeContracts = contracts.filter((contract) => contract.status !== "closed");
+  // 조회에 실패했을 때 "계약 없음"으로 보이지 않도록 오류를 그대로 보여 주고 변경 기능을 막는다.
+  const loadError = contractsQuery.error ?? groupsQuery.error ?? membersQuery.error;
+  if (loadError) return <LoadError message={loadError.message} />;
 
   return (
     <div className="space-y-5">

@@ -7,8 +7,7 @@ vi.mock("./db", async (importOriginal) => {
     getUserByEmail: vi.fn(),
     updatePasswordResetToken: vi.fn(),
     updateVerificationToken: vi.fn(),
-    getUserByPasswordResetTokenHash: vi.fn(),
-    resetUserPassword: vi.fn(),
+    consumePasswordResetToken: vi.fn(),
     getLatestGuardianConsentStatusForUser: vi.fn(),
   };
 });
@@ -110,11 +109,12 @@ describe("비밀번호 재설정·이메일 인증 흐름", () => {
   });
 
   it("올바른 토큰으로 비밀번호를 바꾸면 재설정 함수가 호출되고, 만료된 토큰은 거절한다", async () => {
-    vi.mocked(db.getUserByPasswordResetTokenHash).mockResolvedValue({ id: 1, passwordResetTokenExpiresAt: new Date(Date.now() + 60_000) } as any);
+    vi.mocked(db.consumePasswordResetToken).mockResolvedValueOnce(true);
     await anonymousCaller().auth.resetPassword({ token: "a".repeat(64), password: "new-password-1" });
-    expect(db.resetUserPassword).toHaveBeenCalledWith(1, expect.stringContaining(":"));
+    expect(db.consumePasswordResetToken).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/), expect.stringContaining(":"));
 
-    vi.mocked(db.getUserByPasswordResetTokenHash).mockResolvedValue({ id: 1, passwordResetTokenExpiresAt: new Date(Date.now() - 1000) } as any);
+    // 만료·없는 토큰이거나 이미 한 번 쓴 토큰(갱신된 계정이 없음)은 거절한다.
+    vi.mocked(db.consumePasswordResetToken).mockResolvedValueOnce(false);
     await expect(anonymousCaller().auth.resetPassword({ token: "a".repeat(64), password: "new-password-1" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

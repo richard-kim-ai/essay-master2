@@ -1,6 +1,6 @@
 // 기관 계약·기관 소속 회원·예산 차감·교사 활동 장부(정산 제외)의 데이터 접근.
 // 정책 규칙은 shared/institution.ts, 예산을 쓰는 작업의 흐름은 institutionBudget.ts에 있다.
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, lt, lte, sql } from "drizzle-orm";
 import {
   classAssignmentSubmissions,
   classAssignments,
@@ -99,23 +99,28 @@ export async function listContractsAdmin() {
   }));
 }
 
-/** 예산 한도를 바꾼다. 이미 쓴 횟수(예약 포함)보다 작게 줄일 수는 없다. */
+/** 예산 한도를 바꾼다. 이미 쓴 횟수(예약 포함)보다 작게 줄일 수 없다(갱신 조건에 포함해 동시 차감과 어긋나지 않게 한다). */
 export async function updateContractBudgets(id: number, limits: Partial<Record<BudgetType, number>>, actorId: number, reason: string) {
   const db = await requireDb();
   const contract = await getContract(id);
   if (!contract) throw new Error("계약을 찾을 수 없습니다.");
   if (contract.status === "closed") throw new Error("종료된 계약은 수정할 수 없습니다.");
   const set: Record<string, number> = {};
+  const floors = [];
   for (const type of ["human", "ai", "management"] as const) {
     const value = limits[type];
     if (value === undefined) continue;
     if (!Number.isInteger(value) || value < 0 || value > MAX_BUDGET_UNITS) throw new Error("예산은 0 이상의 정수여야 합니다.");
-    const used = contract[BUDGET_COLUMNS[type].used];
-    if (value < used) throw new Error(`${budgetLabel(type)} 예산은 이미 사용한 ${used}보다 작게 줄일 수 없습니다.`);
     set[BUDGET_COLUMNS[type].limit] = value;
+    floors.push(lte(USED_COLUMN[type], value));
   }
   if (Object.keys(set).length === 0) return contract;
-  await db.update(institutionContracts).set(set).where(eq(institutionContracts.id, id));
+  const [result] = await db.update(institutionContracts).set(set).where(and(eq(institutionContracts.id, id), sql`${institutionContracts.status} <> 'closed'`, ...floors));
+  if (affectedRows(result) === 0) {
+    const latest = await getContract(id);
+    const tooLow = (["human", "ai", "management"] as const).find((type) => limits[type] !== undefined && latest && (limits[type] as number) < latest[BUDGET_COLUMNS[type].used]);
+    throw new Error(tooLow && latest ? `${budgetLabel(tooLow)} 예산은 이미 사용한 ${latest[BUDGET_COLUMNS[tooLow].used]}보다 작게 줄일 수 없습니다.` : "예산을 바꿀 수 없는 상태입니다. 다시 확인해 주세요.");
+  }
   await writeAudit(actorId, "budget_changed", "contract", id, reason, { before: { human: contract.humanLimit, ai: contract.aiLimit, management: contract.managementLimit }, after: set });
   return getContract(id);
 }
@@ -127,7 +132,9 @@ export async function setContractStatus(id: number, status: "active" | "suspende
   const contract = await getContract(id);
   if (!contract) throw new Error("계약을 찾을 수 없습니다.");
   if (!(STATUS_TRANSITIONS[contract.status] ?? []).includes(status)) throw new Error("이 상태에서는 선택한 상태로 바꿀 수 없습니다.");
-  await db.update(institutionContracts).set({ status }).where(eq(institutionContracts.id, id));
+  // 확인한 상태일 때만 바꾼다(동시에 종료·재활성화가 겹쳐도 종료된 계약이 다시 열리지 않는다).
+  const [result] = await db.update(institutionContracts).set({ status }).where(and(eq(institutionContracts.id, id), eq(institutionContracts.status, contract.status)));
+  if (affectedRows(result) === 0) throw new Error("계약 상태가 그 사이에 바뀌었습니다. 새로고침 후 다시 시도해 주세요.");
   await writeAudit(actorId, "contract_status", "contract", id, reason, { from: contract.status, to: status });
   return getContract(id);
 }
@@ -274,22 +281,25 @@ export function budgetOps(params: { contractId: number; budgetType: BudgetType; 
   return {
     async reserve() {
       const db = await requireDb();
-      const now = new Date();
       const used = USED_COLUMN[budgetType];
-      const [result] = await db.update(institutionContracts)
-        .set({ [BUDGET_COLUMNS[budgetType].used]: sql`${used} + 1` })
-        .where(and(eq(institutionContracts.id, contractId), eq(institutionContracts.status, "active"), lte(institutionContracts.periodStart, now), gt(institutionContracts.periodEnd, now), lt(used, LIMIT_COLUMN[budgetType])));
-      if (affectedRows(result) === 0) {
-        const contract = await getContract(contractId);
-        const availability = contract ? contractAvailability(contract, now) : { usable: false, reason: "기관 계약을 찾을 수 없습니다." };
-        throw new InstitutionBudgetError(availability.usable
-          ? `기관 계약의 ${budgetLabel(budgetType)} 예산을 모두 사용했습니다. 기관 담당자에게 문의해 주세요.`
-          : `${availability.reason} 기관 담당자에게 문의해 주세요.`);
-      }
-      const [inserted] = await db.insert(institutionUsage).values({
-        contractId, budgetType, actorId: params.actorId, studentId: params.studentId ?? null, groupId: params.groupId ?? null, sourceType: params.sourceType ?? null, status: "consumed",
+      // 차감과 사용 기록을 한 트랜잭션으로 묶는다(한쪽만 반영되어 되돌릴 수 없는 일이 없도록).
+      return db.transaction(async (tx) => {
+        const now = new Date();
+        const [result] = await tx.update(institutionContracts)
+          .set({ [BUDGET_COLUMNS[budgetType].used]: sql`${used} + 1` })
+          .where(and(eq(institutionContracts.id, contractId), eq(institutionContracts.status, "active"), lte(institutionContracts.periodStart, now), gt(institutionContracts.periodEnd, now), lt(used, LIMIT_COLUMN[budgetType])));
+        if (affectedRows(result) === 0) {
+          const [contract] = await tx.select().from(institutionContracts).where(eq(institutionContracts.id, contractId));
+          const availability = contract ? contractAvailability(contract, now) : { usable: false, reason: "기관 계약을 찾을 수 없습니다." };
+          throw new InstitutionBudgetError(availability.usable
+            ? `기관 계약의 ${budgetLabel(budgetType)} 예산을 모두 사용했습니다. 기관 담당자에게 문의해 주세요.`
+            : `${availability.reason} 기관 담당자에게 문의해 주세요.`);
+        }
+        const [inserted] = await tx.insert(institutionUsage).values({
+          contractId, budgetType, actorId: params.actorId, studentId: params.studentId ?? null, groupId: params.groupId ?? null, sourceType: params.sourceType ?? null, status: "consumed",
+        });
+        return { usageId: Number((inserted as { insertId?: number }).insertId) };
       });
-      return { usageId: Number((inserted as { insertId?: number }).insertId) };
     },
     async attachSource(usageId, sourceId) {
       const db = await requireDb();
@@ -297,10 +307,13 @@ export function budgetOps(params: { contractId: number; budgetType: BudgetType; 
     },
     async release(usageId) {
       const db = await requireDb();
-      const [result] = await db.update(institutionUsage).set({ status: "released" }).where(and(eq(institutionUsage.id, usageId), eq(institutionUsage.status, "consumed")));
-      if (affectedRows(result) === 0) return;
       const used = USED_COLUMN[budgetType];
-      await db.update(institutionContracts).set({ [BUDGET_COLUMNS[budgetType].used]: sql`GREATEST(${used} - 1, 0)` }).where(eq(institutionContracts.id, contractId));
+      // 사용 기록을 되돌림 상태로 바꾸는 것과 차감 취소를 한 트랜잭션으로 묶는다(어느 한쪽만 반영되면 재시도가 막힌다).
+      await db.transaction(async (tx) => {
+        const [result] = await tx.update(institutionUsage).set({ status: "released" }).where(and(eq(institutionUsage.id, usageId), eq(institutionUsage.status, "consumed")));
+        if (affectedRows(result) === 0) return;
+        await tx.update(institutionContracts).set({ [BUDGET_COLUMNS[budgetType].used]: sql`GREATEST(${used} - 1, 0)` }).where(eq(institutionContracts.id, contractId));
+      });
     },
   };
 }
@@ -364,36 +377,68 @@ export async function recordTeacherActivity(input: RecordActivityInput) {
   return getAccounting(input.activityType, input.sourceId);
 }
 
-/** 장부에 없는 과거 활동을 출처 테이블에서 찾아 기록한다(수동 제외를 하려는 시점에 필요하다). */
-export async function ensureAccountingRow(activityType: ActivityType, sourceId: number) {
-  const existing = await getAccounting(activityType, sourceId);
-  if (existing) return existing;
+export type ActivitySource = { teacherId: number; studentId: number; groupId: number | null; occurredAt: Date };
+
+/** 활동의 출처 테이블에서 담당 교사·학생·시각을 읽는다(읽기 전용). 소유자를 확인하기 전에는 아무것도 기록하지 않기 위해 따로 둔다. */
+export async function resolveActivitySource(activityType: ActivityType, sourceId: number): Promise<ActivitySource | undefined> {
   const db = await requireDb();
   if (activityType === "essay_feedback") {
     const [feedback] = await db.select().from(teacherFeedback).where(eq(teacherFeedback.id, sourceId));
     if (!feedback) return undefined;
     const [essay] = await db.select().from(essaySubmission).where(eq(essaySubmission.id, feedback.essayId));
-    if (!essay) return undefined;
-    return recordTeacherActivity({ activityType, sourceId, teacherId: feedback.teacherId, studentId: essay.userId, occurredAt: feedback.createdAt, legacy: true });
+    return essay ? { teacherId: feedback.teacherId, studentId: essay.userId, groupId: null, occurredAt: feedback.createdAt } : undefined;
   }
   if (activityType === "assignment_review") {
     const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, sourceId));
     if (!submission || submission.status !== "reviewed") return undefined;
     const [assignment] = await db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId));
-    if (!assignment) return undefined;
-    return recordTeacherActivity({ activityType, sourceId, teacherId: assignment.createdBy, studentId: submission.studentId, groupId: assignment.groupId, occurredAt: submission.reviewedAt ?? submission.submittedAt, legacy: true });
+    return assignment ? { teacherId: assignment.createdBy, studentId: submission.studentId, groupId: assignment.groupId, occurredAt: submission.reviewedAt ?? submission.submittedAt } : undefined;
   }
   const [feedback] = await db.select().from(workbookTeacherFeedback).where(eq(workbookTeacherFeedback.id, sourceId));
   if (!feedback) return undefined;
   const [answer] = await db.select().from(curriculumWorkbookAnswers).where(eq(curriculumWorkbookAnswers.id, feedback.answerId));
-  if (!answer) return undefined;
-  return recordTeacherActivity({ activityType, sourceId, teacherId: feedback.teacherId, studentId: answer.userId, occurredAt: feedback.createdAt, legacy: true });
+  return answer ? { teacherId: feedback.teacherId, studentId: answer.userId, groupId: null, occurredAt: feedback.createdAt } : undefined;
+}
+
+/** 장부 도입 시점(정책이 적용되어 처음 기록된 시각). 이 시각 이후의 활동은 장부에 있어야 하고, 없으면 기록에 실패한 것이다. */
+export async function getLedgerStart(): Promise<Date | null> {
+  const db = await requireDb();
+  const [row] = await db.select({ first: sql<Date | null>`min(${teacherActivityAccounting.createdAt})` }).from(teacherActivityAccounting).where(like(teacherActivityAccounting.policySnapshotJson, '%"legacy":false%'));
+  return row?.first ? new Date(row.first) : null;
+}
+
+/** 장부에 없는 과거(장부 도입 전) 활동을 개별 정산 대상으로 기록한다(수동 제외를 하려는 시점에 필요하다). */
+export async function ensureAccountingRow(activityType: ActivityType, sourceId: number) {
+  const existing = await getAccounting(activityType, sourceId);
+  if (existing) return existing;
+  const source = await resolveActivitySource(activityType, sourceId);
+  if (!source) return undefined;
+  return recordTeacherActivity({ activityType, sourceId, teacherId: source.teacherId, studentId: source.studentId, groupId: source.groupId, occurredAt: source.occurredAt, legacy: true });
+}
+
+/**
+ * 장부 기록에 실패했던 최근 활동(장부 도입 이후인데 장부에 없는 것)을 지금의 정책으로 기록해 정리한다.
+ * 정리하기 전에는 이런 활동이 정산 금액에 들어가지 않고, 정산 확정도 막힌다.
+ */
+export async function reconcileUnaccountedActivities(teacherId: number, start: Date, end: Date) {
+  const ledgerStart = await getLedgerStart();
+  if (!ledgerStart) return 0;
+  const activities = await listTeacherActivitiesForMonth(teacherId, start, end);
+  let reconciled = 0;
+  for (const activity of activities) {
+    if (!activity.unreconciled) continue;
+    await recordTeacherActivity({ activityType: activity.activityType as ActivityType, sourceId: activity.sourceId, teacherId, studentId: activity.studentId, groupId: activity.groupId, occurredAt: new Date(activity.occurredAt) });
+    reconciled += 1;
+  }
+  return reconciled;
 }
 
 export async function setManualExclusion(input: { activityType: ActivityType; sourceId: number; excluded: boolean; reason: string; actorId: number }) {
   const db = await requireDb();
   const row = await ensureAccountingRow(input.activityType, input.sourceId);
   if (!row) throw new Error("활동을 찾을 수 없습니다.");
+  // 이미 원하는 상태이면 아무것도 바꾸지 않는다(처음 제외한 사람과 사유가 덮어써지지 않는다).
+  if (input.excluded === (row.manualExcluded === 1)) return row;
   await db.update(teacherActivityAccounting).set(input.excluded
     ? { manualExcluded: 1, manualExclusionReason: input.reason.slice(0, 500), manualExcludedBy: input.actorId, manualExcludedAt: new Date() }
     : { manualExcluded: 0, manualExclusionReason: null, manualExcludedBy: null, manualExcludedAt: null })
@@ -438,7 +483,8 @@ export async function listTeacherActivitiesForMonth(teacherId: number, start: Da
     ...reviews.map((row) => ({ ...legacyBase, activityType: "assignment_review", sourceId: row.sourceId, occurredAt: row.occurredAt as Date, studentId: row.studentId, studentName: row.studentName, groupId: row.groupId as number | null })),
     ...workbooks.map((row) => ({ ...legacyBase, activityType: "workbook_feedback", sourceId: row.sourceId, occurredAt: row.occurredAt, studentId: row.studentId, studentName: row.studentName })),
   ];
-  return [...ledger.map((row) => ({ ...row, legacy: false })), ...legacy.map((row) => ({ ...row, legacy: true }))]
+  const ledgerStart = await getLedgerStart();
+  return [...ledger.map((row) => ({ ...row, legacy: false, unreconciled: false })), ...legacy.map((row) => ({ ...row, legacy: true, unreconciled: Boolean(ledgerStart && new Date(row.occurredAt).getTime() >= ledgerStart.getTime()) }))]
     .sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime());
 }
 

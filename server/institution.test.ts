@@ -121,6 +121,19 @@ describe("예산 차감 흐름(runWithBudget)", () => {
   });
 });
 
+describe("교사의 AI 평가 이용 자격", () => {
+  it("승인된 교사와 관리자만 한도 없이 쓰고, 승인 전·반려된 교사는 쓸 수 없다", async () => {
+    const base = { id: 20, createdAt: new Date("2020-01-01") };
+    await expect(getAiEntitlement({ ...base, role: "teacher", teacherStatus: "approved" })).resolves.toMatchObject({ mode: "unlimited", canUse: true });
+    await expect(getAiEntitlement({ ...base, role: "admin" })).resolves.toMatchObject({ mode: "unlimited", canUse: true });
+    for (const teacherStatus of ["pending", "rejected", undefined]) {
+      const result = await getAiEntitlement({ ...base, role: "teacher", teacherStatus });
+      expect(result).toMatchObject({ mode: "none", canUse: false });
+      expect(result.reason).toContain("승인");
+    }
+  });
+});
+
 describe("AI 평가 이용 자격: 기관 계약 우선", () => {
   const learner = { id: 10, role: "user", tag: "중고등", createdAt: new Date("2020-01-01") };
 

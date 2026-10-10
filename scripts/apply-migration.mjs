@@ -38,7 +38,12 @@ if (!databaseUrl) {
 const sql = readFileSync(resolve(fileArg), "utf8");
 const statements = sql.split("--> statement-breakpoint").map((statement) => statement.trim()).filter(Boolean);
 const isCreateTable = (statement) => /^CREATE TABLE/i.test(statement);
-const isAddColumn = (statement) => /^ALTER TABLE `[^`]+` ADD `[^`]+` /i.test(statement) && !/\b(DROP|MODIFY|CHANGE|RENAME)\b/i.test(statement);
+// ALTER는 "컬럼 하나 추가" 한 가지만 허용한다(쉼표로 이어진 다른 ALTER·변경 절이나 추가 문장이 붙어 있으면 거절).
+const isAddColumn = (statement) =>
+  /^ALTER TABLE `[^`]+` ADD `[^`]+` [^;]*;?$/i.test(statement) &&
+  (statement.match(/\bALTER\b/gi) ?? []).length === 1 &&
+  !/,\s*(ADD|ALTER|DROP|MODIFY|CHANGE|RENAME)\b/i.test(statement) &&
+  !/\b(DROP|MODIFY|CHANGE|RENAME)\b/i.test(statement);
 const forbidden = statements.filter((statement) => !isCreateTable(statement) && !isAddColumn(statement));
 if (forbidden.length > 0) {
   console.error("허용되지 않은 문장이 있어 중단합니다(CREATE TABLE·ADD 컬럼만 허용, 수동 검토 필요):");

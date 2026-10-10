@@ -100,6 +100,7 @@ export default function TeacherSettlement() {
             <Card className="p-4"><p className="text-xs font-semibold text-slate-500">기관 계약·소속(자동 제외)</p><p className="mt-1 text-2xl font-bold text-slate-700">{overview.workload.excludedAuto}건</p></Card>
             <Card className="p-4"><p className="text-xs font-semibold text-slate-500">직접 제외</p><p className="mt-1 text-2xl font-bold text-slate-700">{overview.workload.excludedManual}건</p></Card>
           </div>
+          {overview.workload.unreconciled > 0 && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950" role="status">활동 {overview.workload.unreconciled}건은 운영팀이 정산 대상 여부를 확인하는 중이라 아직 금액에 반영되지 않았습니다.</p>}
           <p className="text-xs leading-5 text-slate-500">학교·기관과 계약한 반(또는 기관 소속 학생)의 활동은 계약으로 별도 처리되어 개별 정산에서 자동으로 제외됩니다. 제외된 활동도 업무량에는 그대로 표시됩니다.</p>
         </section>
       )}
@@ -140,6 +141,7 @@ export default function TeacherSettlement() {
       <section aria-labelledby="activity-list" className="space-y-2">
         <h2 id="activity-list" className="text-lg font-bold text-slate-900">활동 내역과 정산 제외</h2>
         <p className="text-sm leading-6 text-slate-600">내가 지도하는 반의 활동 중 개별 정산에서 빼야 하는 것(예: 교내 지원 업무)은 사유와 함께 제외할 수 있습니다. 기관 계약·소속으로 자동 제외된 활동은 바꿀 수 없고, 정산이 확정된 달은 변경할 수 없습니다.{activitiesQuery.data?.frozen ? " 이 달은 이미 확정되어 변경할 수 없습니다." : ""}</p>
+        {activitiesQuery.error && <Card className="p-4 text-sm text-rose-700" role="alert">활동 내역을 불러오지 못했습니다: {activitiesQuery.error.message}</Card>}
         <Card className="overflow-x-auto p-0">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="p-3">일시</th><th className="p-3">활동</th><th className="p-3">학생</th><th className="p-3">정산</th><th className="p-3">작업</th></tr></thead>
@@ -160,7 +162,7 @@ export default function TeacherSettlement() {
                   </td>
                 </tr>
               ))}
-              {!activitiesQuery.isLoading && (activitiesQuery.data?.activities ?? []).length === 0 && <tr><td colSpan={5} className="p-6 text-center text-slate-500">이 달의 활동이 없습니다.</td></tr>}
+              {!activitiesQuery.isLoading && !activitiesQuery.error && (activitiesQuery.data?.activities ?? []).length === 0 && <tr><td colSpan={5} className="p-6 text-center text-slate-500">이 달의 활동이 없습니다.</td></tr>}
             </tbody>
           </table>
         </Card>
@@ -198,7 +200,7 @@ export default function TeacherSettlement() {
                   <td className="p-3 text-slate-600">{formatDate(row.paidAt)}</td>
                 </tr>
               ))}
-              {!statementsQuery.isLoading && statements.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">아직 확정된 정산 내역이 없습니다. 월이 끝나면 운영팀이 정산을 확정합니다.</td></tr>}
+              {!statementsQuery.isLoading && !statementsQuery.error && statements.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">아직 확정된 정산 내역이 없습니다. 월이 끝나면 운영팀이 정산을 확정합니다.</td></tr>}
             </tbody>
           </table>
         </Card>

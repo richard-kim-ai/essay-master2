@@ -68,7 +68,7 @@ import {
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
-import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
+import { eq, and, desc, gt, gte, inArray, lt } from "drizzle-orm";
 import { computeLessonProgress } from "./lessonProgress";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
@@ -1377,6 +1377,19 @@ export async function getUserByPasswordResetTokenHash(tokenHash: string) {
   if (!db) return undefined;
   const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.passwordResetTokenHash, tokenHash)));
   return result[0];
+}
+
+/**
+ * 재설정 토큰으로 비밀번호를 바꾼다. 토큰 일치·만료 확인과 폐기를 한 번의 갱신으로 처리해, 같은 토큰으로 동시에 두 번 바꿀 수 없다.
+ * 바뀐 계정이 정확히 하나일 때만 true.
+ */
+export async function consumePasswordResetToken(tokenHash: string, passwordHash: string) {
+  const db = await getDb();
+  if (!db) return false;
+  const [result] = await db.update(users)
+    .set({ passwordHash, passwordResetTokenHash: null, passwordResetTokenExpiresAt: null })
+    .where(and(eq(users.passwordResetTokenHash, tokenHash), gt(users.passwordResetTokenExpiresAt, new Date())));
+  return Number((result as { affectedRows?: number }).affectedRows ?? 0) === 1;
 }
 
 export async function resetUserPassword(userId: number, passwordHash: string) {

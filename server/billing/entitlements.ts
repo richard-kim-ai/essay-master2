@@ -39,7 +39,7 @@ export function isSubscriptionInEffect(subscription: SubscriptionSnapshot | null
 }
 
 export function evaluateAiEntitlement(input: {
-  user: { role: string; tag?: string | null; createdAt: Date | string };
+  user: { role: string; tag?: string | null; teacherStatus?: string | null; createdAt: Date | string };
   subscription: SubscriptionSnapshot | null | undefined;
   /** 이용권 기간 안에서 쓴 AI 평가 횟수 */
   usedInPlanPeriod: number;
@@ -50,8 +50,13 @@ export function evaluateAiEntitlement(input: {
   const now = input.now ?? new Date();
   const { user, subscription } = input;
 
-  if (user.role === "admin" || user.role === "teacher") {
+  if (user.role === "admin") {
     return { mode: "unlimited", canUse: true, limit: 0, used: 0, remaining: 0, daysRemaining: 0 };
+  }
+  // 교사는 관리자 승인 뒤에만 한도 없이 쓴다(가입만 하고 승인 전인 교사는 쓸 수 없다).
+  if (user.role === "teacher") {
+    if (user.teacherStatus === "approved") return { mode: "unlimited", canUse: true, limit: 0, used: 0, remaining: 0, daysRemaining: 0 };
+    return { mode: "none", canUse: false, limit: 0, used: 0, remaining: 0, daysRemaining: 0, reason: "교사 계정은 관리자 승인 후에 AI 논술 평가를 이용할 수 있습니다." };
   }
   if (user.tag === "학부모") {
     return { mode: "none", canUse: false, limit: 0, used: 0, remaining: 0, daysRemaining: 0, reason: "학부모 계정은 AI 논술 평가를 이용할 수 없습니다. 자녀 계정에서 이용해 주세요." };
