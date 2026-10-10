@@ -1,13 +1,9 @@
 import React from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import InstallPrompt from "@/components/InstallPrompt";
-import Navigation from "@/components/Navigation";
-import OfflineStatus from "@/components/OfflineStatus";
 import {
   getHomePrimaryAction,
 } from "@/lib/homeExperience";
 import { getTrialStatus } from "@/lib/trialExperience";
-import Footer from "@/components/Footer";
 import { Link } from "wouter";
 import {
   ArrowRight,
@@ -95,11 +91,8 @@ export default function Home() {
   const primaryActionLabel = "지금 시작하기";
 
   return (
-    <div className="min-h-screen bg-[#fbfcff] text-slate-950">
-      <Navigation />
-      <OfflineStatus />
-
-      <main>
+    <div className="bg-[#fbfcff] text-slate-950">
+      <div>
         <section className="relative overflow-hidden border-b border-slate-100 bg-[radial-gradient(circle_at_90%_18%,rgba(224,231,255,0.9),transparent_34rem),radial-gradient(circle_at_4%_90%,rgba(219,234,254,0.78),transparent_30rem)]">
           <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:px-8 lg:py-24">
             <div className="max-w-2xl">
@@ -240,10 +233,7 @@ export default function Home() {
             </Link>
           </div>
         </section>
-      </main>
-
-      <Footer />
-      <InstallPrompt />
+      </div>
     </div>
   );
 }

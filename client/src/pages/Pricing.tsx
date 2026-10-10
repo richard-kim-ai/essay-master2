@@ -2,8 +2,6 @@ import React from "react";
 import { ArrowRight, CheckCircle2, Clock3, LockKeyhole, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
-import Footer from "@/components/Footer";
-import Navigation from "@/components/Navigation";
 
 const TRIAL_BENEFITS = [
   "선택한 과정의 커리큘럼과 레슨 탐색",
@@ -60,9 +58,8 @@ const PRIVACY_CONTROLS = [
 
 export default function Pricing() {
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#f7f9fc] text-slate-950">
-      <Navigation />
-      <main className="relative isolate">
+    <div className="overflow-x-hidden bg-[#f7f9fc] text-slate-950">
+      <div className="relative isolate">
         <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[30rem] bg-[radial-gradient(circle_at_15%_5%,rgba(99,102,241,0.14),transparent_38%),radial-gradient(circle_at_85%_18%,rgba(56,189,248,0.12),transparent_38%)]" />
         <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-12 sm:px-6 sm:pb-24 sm:pt-16 lg:px-8">
           <section className="mx-auto max-w-3xl text-center" aria-labelledby="pricing-page-title">
@@ -119,8 +116,7 @@ export default function Pricing() {
             <div className="flex flex-col rounded-[2rem] bg-slate-950 p-6 text-slate-100 shadow-sm sm:p-9"><MessageCircle className="h-7 w-7 text-cyan-300" aria-hidden="true" /><h2 className="mt-5 text-2xl font-black tracking-[-0.035em]">정식 이용 및 기관 도입</h2><p className="mt-3 text-sm leading-7 text-slate-300 sm:text-base">개인 학습 이용권과 교사·기관 운영 정책은 과정 구성, AI 평가량, 사람 첨삭 범위에 따라 달라집니다. 결제 기능이 준비되기 전에는 체험 후 운영 문의로 도입 조건을 확인할 수 있습니다.</p><div className="mt-auto flex flex-col gap-3 pt-8"><Link href="/sample" className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-300 px-5 text-sm font-extrabold text-slate-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">샘플 체험하기</Link><a href={CONTACT_MAILTO} className="inline-flex h-11 items-center justify-center rounded-xl border border-cyan-300/60 px-5 text-sm font-extrabold text-cyan-100 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">도입·운영 문의 {CONTACT_EMAIL}</a><span className="inline-flex items-center justify-center text-sm font-semibold text-cyan-200">공개 요금 비교 기준 보기</span></div></div>
           </section>
         </div>
-      </main>
-      <Footer />
+      </div>
     </div>
   );
 }

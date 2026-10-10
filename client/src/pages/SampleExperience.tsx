@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { CheckCircle2, ChevronRight, Loader2, LockKeyhole, Sparkles, Wand2 } from "lucide-react";
 import { Link } from "wouter";
-import Navigation from "@/components/Navigation";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { SAMPLE_COURSE_CONTENT } from "@/lib/sampleCourseContent";
-import Footer from "@/components/Footer";
 
 const SAMPLE_COURSES = [
   ["elementary", "초등 논술", "생각을 문장으로 표현하는 첫 단계"],
@@ -88,9 +86,8 @@ export default function SampleExperience() {
   const result = evaluateMutation.data;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-950">
-      <Navigation />
-      <main className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 text-slate-950">
+      <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
         <section className="max-w-3xl">
           <p className="text-sm font-extrabold tracking-[0.14em] text-indigo-700">SAMPLE EXPERIENCE</p>
           <h1 className="mt-3 text-4xl font-black tracking-[-0.045em] sm:text-5xl">회원가입 전, 학습 방식을 먼저 둘러보세요.</h1>
@@ -205,7 +202,7 @@ export default function SampleExperience() {
             </div>
           )}
         </section>
-      </main>
+      </div>
       <Dialog open={showTrialInvite} onOpenChange={setShowTrialInvite}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -216,7 +213,6 @@ export default function SampleExperience() {
           <DialogFooter className="gap-2 sm:gap-0"><Button variant="outline" onClick={() => setShowTrialInvite(false)}>AI 첨삭 실체험 해보기</Button><Link href={signupHref}><Button>7일 무료 체험 시작</Button></Link></DialogFooter>
         </DialogContent>
       </Dialog>
-      <Footer />
     </div>
   );
 }

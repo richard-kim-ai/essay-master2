@@ -7,24 +7,42 @@ const appSource = read("./App.tsx");
 
 // App.tsx에서 Layout으로 감싼 라우트의 페이지 파일 목록(./pages/X 와 @/pages/X 두 가지 import 형태를 모두 처리)
 function layoutWrappedPages(): string[] {
-  const lazy = new Map<string, string>();
+  const files = new Map<string, string>();
+  // lazy import와 일반 import 두 가지 모두 처리
   for (const match of appSource.matchAll(/const (\w+) = lazy\(\(\) => import\("(?:\.\/|@\/)pages\/(\w+)"\)\)/g)) {
-    lazy.set(match[1], match[2]);
+    files.set(match[1], match[2]);
+  }
+  for (const match of appSource.matchAll(/import (\w+) from "(?:\.\/|@\/)pages\/(\w+)"/g)) {
+    files.set(match[1], match[2]);
   }
   const components = new Set<string>();
-  for (const match of appSource.matchAll(/<Route path="[^"]*">\{\(\) => <Layout><(\w+) \/>/g)) {
+  for (const match of appSource.matchAll(/<Route path="[^"]*">\{\(\) => <Layout(?: variant="\w+")?><(\w+) \/>/g)) {
     components.add(match[1]);
   }
-  return [...components].map((name) => lazy.get(name)).filter((file): file is string => Boolean(file));
+  return [...components].map((name) => files.get(name)).filter((file): file is string => Boolean(file));
 }
+
+const PUBLIC_PAGES = ["Home", "Pricing", "SampleExperience"];
 
 const AUTH_PAGES = ["Login", "Signup", "TeacherSignup", "VerifyEmail", "ForgotPassword", "ResetPassword", "GuardianConsent", "NotFound"];
 
 describe("layout consistency", () => {
   const pages = layoutWrappedPages();
 
-  it("Layout으로 감싼 페이지를 모두 찾는다", () => {
-    expect(pages.length).toBeGreaterThanOrEqual(39);
+  it("Layout으로 감싼 페이지를 모두 찾는다(공개 화면 3개 포함)", () => {
+    expect(pages.length).toBeGreaterThanOrEqual(42);
+    for (const file of PUBLIC_PAGES) expect(pages).toContain(file);
+  });
+
+  it("공개 화면(홈·요금 정책·샘플 체험)은 Layout의 공개용 변형으로 감싼다", () => {
+    for (const route of ['path="/"', 'path="/pricing"', 'path="/sample"']) {
+      expect(appSource, `${route}`).toMatch(new RegExp(`<Route ${route}>\\{\\(\\) => <Layout variant="public">`));
+    }
+  });
+
+  it("Layout 안의 페이지는 헤더·푸터를 직접 넣지 않는다(Layout이 맡는다)", () => {
+    const offenders = pages.filter((file) => /<Navigation\b|<Footer\b/.test(read(`./pages/${file}.tsx`)));
+    expect(offenders).toEqual([]);
   });
 
   it("Layout 안의 페이지는 전체 높이(min-h-screen)를 다시 잡지 않는다(Layout이 높이를 맡는다)", () => {

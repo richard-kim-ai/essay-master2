@@ -94,9 +94,9 @@ function Router() {
         <Route path="/admin/academic-permissions">{() => <Layout><AdminAcademicPermissions /></Layout>}</Route>
         <Route path="/master-admin">{() => <Layout><MasterAdminConsole /></Layout>}</Route>
         <Route path="/parent-portal">{() => <Layout><ParentPortal /></Layout>}</Route>
-        <Route path="/" component={Home} />
-        <Route path="/pricing" component={Pricing} />
-        <Route path="/sample" component={SampleExperience} />
+        <Route path="/">{() => <Layout variant="public"><Home /></Layout>}</Route>
+        <Route path="/pricing">{() => <Layout variant="public"><Pricing /></Layout>}</Route>
+        <Route path="/sample">{() => <Layout variant="public"><SampleExperience /></Layout>}</Route>
         <Route path="/curriculum/:courseType/:level">{() => <Layout><CurriculumDetail /></Layout>}</Route>
         <Route path="/curriculum">{() => <Layout><Curriculum /></Layout>}</Route>
         <Route path="/essay-archive">{() => <Layout><EssayArchive /></Layout>}</Route>

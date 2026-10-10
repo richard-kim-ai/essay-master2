@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BOTTOM_NOTICE_PRIORITY, useBottomNotice } from "@/lib/bottomNotice";
 import { Bell, BellRing, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -27,7 +28,10 @@ export default function PushPermissionPrompt() {
     }).catch(() => undefined);
   }, [config.data?.enabled, isAuthenticated]);
 
-  if (!visible || subscribed || !config.data?.publicKey) return null;
+  // 하단 고정 안내는 한 번에 하나만 보인다.
+  const wantsToShow = visible && !subscribed && Boolean(config.data?.publicKey);
+  const active = useBottomNotice("pushPermission", BOTTOM_NOTICE_PRIORITY.pushPermission, wantsToShow);
+  if (!wantsToShow || !active || !config.data?.publicKey) return null;
 
   const subscribe = async () => {
     try {

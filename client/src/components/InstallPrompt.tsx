@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BOTTOM_NOTICE_PRIORITY, useBottomNotice } from "@/lib/bottomNotice";
 import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -21,7 +22,9 @@ export default function InstallPrompt() {
     return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
   }, []);
 
-  if (!installEvent || dismissed) return null;
+  // 하단 고정 안내는 한 번에 하나만 보인다(회원가입 배너·푸시 알림 안내가 우선).
+  const active = useBottomNotice("installApp", BOTTOM_NOTICE_PRIORITY.installApp, Boolean(installEvent) && !dismissed);
+  if (!installEvent || dismissed || !active) return null;
 
   const install = async () => {
     await installEvent.prompt();
