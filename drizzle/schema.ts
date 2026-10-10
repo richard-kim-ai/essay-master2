@@ -663,6 +663,17 @@ export const aiUsageLogs = mysqlTable("ai_usage_logs", {
 export type AIUsageLog = typeof aiUsageLogs.$inferSelect;
 export type InsertAIUsageLog = typeof aiUsageLogs.$inferInsert;
 
+// 비로그인 샘플 체험 AI 첨삭 남용 방지용 익명 카운터 (개인 학습 기록과 분리, 세션당/IP당 한도 확인용)
+export const sampleAiUsageLog = mysqlTable("sample_ai_usage_log", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionToken: varchar("sessionToken", { length: 64 }).notNull(),
+  ipHash: varchar("ipHash", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SampleAiUsageLog = typeof sampleAiUsageLog.$inferSelect;
+export type InsertSampleAiUsageLog = typeof sampleAiUsageLog.$inferInsert;
+
 // 관리자 메모 히스토리 테이블
 export const adminMemoHistory = mysqlTable("admin_memo_history", {
   id: int("id").autoincrement().primaryKey(),

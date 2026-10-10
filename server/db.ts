@@ -1,4 +1,5 @@
 import { drizzle } from "drizzle-orm/mysql2";
+import { createHash } from "node:crypto";
 import {
   InsertUser,
   users,
@@ -22,6 +23,7 @@ import {
   appSecretConfig,
   pushSubscription,
   aiUsageLogs,
+  sampleAiUsageLog,
   dynamicCurriculum,
   lessonTheoryContent,
   lessonTheoryDrafts,
@@ -1185,6 +1187,40 @@ export async function getTodayAIUsageCount(userId: number): Promise<number> {
     .where(and(eq(aiUsageLogs.userId, userId), gte(aiUsageLogs.createdAt, todayStart)));
 
   return logs.length;
+}
+
+// ========== 샘플 체험 AI 첨삭 남용 방지 (비로그인, 세션/IP 카운터) ==========
+// 개인 학습 기록(aiUsageLogs)과는 분리된 익명 카운터입니다. userId가 없고,
+// 세션 토큰(브라우저 sessionStorage 발급)과 해시된 IP만으로 한도를 확인합니다.
+
+export function hashSampleClientIp(ip: string): string {
+  return createHash("sha256").update(`${ENV.cookieSecret || "development-only-secret"}:${ip}`).digest("hex");
+}
+
+export async function getSampleAiUsageCountBySession(sessionToken: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select()
+    .from(sampleAiUsageLog)
+    .where(eq(sampleAiUsageLog.sessionToken, sessionToken));
+  return rows.length;
+}
+
+export async function getSampleAiUsageCountByIpSince(ipHash: string, since: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select()
+    .from(sampleAiUsageLog)
+    .where(and(eq(sampleAiUsageLog.ipHash, ipHash), gte(sampleAiUsageLog.createdAt, since)));
+  return rows.length;
+}
+
+export async function logSampleAiUsage(sessionToken: string, ipHash: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(sampleAiUsageLog).values({ sessionToken, ipHash });
 }
 
 export async function getAIUsageCountByAction(userId: number, actionType: string): Promise<number> {

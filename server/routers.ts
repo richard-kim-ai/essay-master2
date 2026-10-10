@@ -12,6 +12,17 @@ import { getHumanEvaluationQualityMetrics } from "./evaluationMetrics";
 import { evaluateWritingHeuristic, getHumanReviewReasons } from "./writingCorrectionEngine";
 import { evaluateWritingWithLLM } from "./writingEvaluationEngine";
 import { getTrialAccess, isEligibleTrialEvaluation, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
+
+// 샘플 체험(비로그인) AI 첨삭 실체험 남용 방지 한도
+const SAMPLE_AI_SESSION_LIMIT = 3;
+const SAMPLE_AI_IP_DAILY_LIMIT = 10;
+const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
+
+function getClientIp(req: { headers: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } ; ip?: string }): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0]?.trim();
+  return forwardedIp || req.ip || req.socket?.remoteAddress || "unknown";
+}
 import { decryptSecret, encryptSecret } from "./security";
 import { removeSubscription, saveSubscription, sendPushToUser } from "./push";
 import { sdk } from "./_core/sdk";
@@ -1224,6 +1235,38 @@ export const appRouter = router({
       await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
       return result;
     }),
+  }),
+
+  // ========== 샘플 체험(비로그인) AI 첨삭 실체험 ==========
+  // 계정에 저장되지 않는 익명 1회성 평가입니다. 세션 토큰 + IP 해시로 한도를 확인합니다.
+  sampleEvaluation: router({
+    evaluate: publicProcedure
+      .input(z.object({
+        sessionToken: z.string().trim().min(10).max(64),
+        task: z.string().trim().min(1).max(500),
+        essayText: z.string().trim().min(1).max(SAMPLE_AI_TEXT_MAX_LENGTH),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const sessionCount = await db.getSampleAiUsageCountBySession(input.sessionToken);
+        if (sessionCount >= SAMPLE_AI_SESSION_LIMIT) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "이번 방문에서 체험 가능한 AI 첨삭을 모두 사용했습니다." });
+        }
+
+        const ipHash = db.hashSampleClientIp(getClientIp(ctx.req));
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const ipCount = await db.getSampleAiUsageCountByIpSince(ipHash, since);
+        if (ipCount >= SAMPLE_AI_IP_DAILY_LIMIT) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "오늘 이 네트워크에서 체험 가능한 AI 첨삭을 모두 사용했습니다." });
+        }
+
+        const result = await evaluateWritingWithLLM({
+          metadata: { source: "sample_experience" },
+          task: input.task,
+          submission: { essay_text: input.essayText },
+        });
+        await db.logSampleAiUsage(input.sessionToken, ipHash);
+        return result;
+      }),
   }),
 
   // ========== AI Auto Feedback Routes ==========
