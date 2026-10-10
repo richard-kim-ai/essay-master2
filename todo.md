@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 샘플 체험 과정 탭(초등/중고등/고등·대입/일반·직장인)별 학습 방식·연습·AI 논제 차별화(SampleExperience.tsx, sampleEvaluation courseType 전달) — 시작 2026-10-11 06:10
 
 
 
