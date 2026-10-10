@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AdminInstitutionTab from "@/components/AdminInstitutionTab";
 import { trpc } from "@/lib/trpc";
 import { PLANS, formatKrw } from "@shared/plans";
 import { currentMonthKst, type ActivityType } from "@shared/settlement";
@@ -76,11 +77,13 @@ export default function AdminBilling() {
           <TabsTrigger value="orders">결제 내역</TabsTrigger>
           <TabsTrigger value="subscriptions">이용권</TabsTrigger>
           <TabsTrigger value="settlements">교사 정산</TabsTrigger>
+          <TabsTrigger value="institutions">기관 계약</TabsTrigger>
           <TabsTrigger value="settings">정산 설정</TabsTrigger>
         </TabsList>
         <TabsContent value="orders"><OrdersTab summary={summary} /></TabsContent>
         <TabsContent value="subscriptions"><SubscriptionsTab /></TabsContent>
         <TabsContent value="settlements"><SettlementsTab /></TabsContent>
+        <TabsContent value="institutions"><AdminInstitutionTab /></TabsContent>
         <TabsContent value="settings"><SettlementSettingsTab /></TabsContent>
       </Tabs>
     </div>
@@ -235,7 +238,7 @@ function SettlementsTab() {
             <tr>
               <th className="p-3">교사</th>
               {(overview?.activities ?? []).map((activity) => <th key={activity.type} className="p-3 text-right">{activity.label}</th>)}
-              <th className="p-3 text-right">총액</th><th className="p-3 text-right">지급 금액</th><th className="p-3">상태</th><th className="p-3">작업</th>
+              <th className="p-3 text-right">제외(기관·직접)</th><th className="p-3 text-right">총액</th><th className="p-3 text-right">지급 금액</th><th className="p-3">상태</th><th className="p-3">작업</th>
             </tr>
           </thead>
           <tbody>
@@ -248,6 +251,7 @@ function SettlementsTab() {
                 <tr key={row.teacherId} className="border-t border-slate-100">
                   <td className="p-3"><p className="font-semibold text-slate-900">{row.name || "-"}</p><p className="text-xs text-slate-500">{row.email || "-"}</p></td>
                   {(overview?.activities ?? []).map((activity) => <td key={activity.type} className="p-3 text-right">{row.counts[activity.type as ActivityType]}건</td>)}
+                  <td className="p-3 text-right text-slate-500">{row.excludedAuto}·{row.excludedManual}건</td>
                   <td className="p-3 text-right">{formatKrw(gross)}</td>
                   <td className="p-3 text-right font-semibold">{formatKrw(net)}</td>
                   <td className="p-3">{statement ? <Pill {...SETTLEMENT_STATUS[statement.status]} /> : <span className="text-xs text-slate-500">미산출</span>}</td>
@@ -258,7 +262,7 @@ function SettlementsTab() {
                 </tr>
               );
             })}
-            {!overviewQuery.isLoading && rows.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-slate-500">승인된 교사가 없습니다.</td></tr>}
+            {!overviewQuery.isLoading && rows.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-slate-500">승인된 교사가 없습니다.</td></tr>}
           </tbody>
         </table>
       </Card>

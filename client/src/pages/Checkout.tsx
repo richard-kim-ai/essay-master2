@@ -61,6 +61,7 @@ export default function Checkout() {
     );
   }
 
+  const institutional = subscriptionQuery.data?.entitlement?.mode === "institution";
   const isTest = plansQuery.data?.isTest ?? true;
   const plan = getPlan(selected) ?? PLANS[0];
   const subscription = subscriptionQuery.data?.subscription ?? null;
@@ -74,6 +75,12 @@ export default function Checkout() {
         <h1 className="text-3xl font-bold text-slate-900">이용권 결제</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">학습량에 맞는 이용권을 선택하세요. 이용권은 결제일부터 {plan.periodDays}일 동안 유효하며, AI 논술 평가 횟수는 이용 기간 안에서 사용할 수 있습니다.</p>
       </div>
+
+      {institutional && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm leading-6 text-indigo-950" role="status">
+          <p><strong>{subscriptionQuery.data?.entitlement?.contractName ?? "기관"} 계약으로 이용 중입니다.</strong> AI 논술 평가는 기관 계약의 예산으로 제공되므로 개별 결제가 필요하지 않습니다. 계약 이용이 어려운 경우 기관 담당자에게 문의해 주세요.</p>
+        </div>
+      )}
 
       {isTest && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950" role="status">
@@ -117,7 +124,7 @@ export default function Checkout() {
           <p className="text-lg font-bold text-slate-900">{plan.name} · {formatKrw(plan.priceKrw)}</p>
           {subscription && <p className="text-xs text-slate-500">새로 결제하면 현재 이용권은 종료되고 새 이용권이 지금부터 시작됩니다.</p>}
         </div>
-        <Button className="bg-indigo-600 hover:bg-indigo-700" disabled={checkout.isPending} onClick={() => checkout.mutate({ planKey: plan.key })}>{checkout.isPending ? "결제 중..." : isTest ? "임시 결제하기" : "결제하기"}</Button>
+        <Button className="bg-indigo-600 hover:bg-indigo-700" disabled={checkout.isPending || institutional} onClick={() => checkout.mutate({ planKey: plan.key })}>{checkout.isPending ? "결제 중..." : isTest ? "임시 결제하기" : "결제하기"}</Button>
       </Card>
 
       <section aria-labelledby="order-history">

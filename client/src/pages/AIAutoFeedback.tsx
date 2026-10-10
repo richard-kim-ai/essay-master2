@@ -157,9 +157,12 @@ export default function AIAutoFeedback() {
         <h1 className="text-4xl font-bold text-slate-900 mb-8">AI 자동 첨삭</h1>
 
         {quota && (() => {
+          const institutional = quota.mode === "institution";
           const needsPlan = quota.mode === "none" || ((quota.mode === "plan" || quota.mode === "trial") && quota.remaining === 0);
-          const title = quota.mode === "trial" ? "7일 무료 체험 AI 논술 평가" : quota.mode === "plan" ? `${quota.planKey === "growth" ? "성장" : "스타터"} 이용권 AI 논술 평가` : quota.mode === "unlimited" ? "AI 논술 평가" : "AI 논술 평가는 이용권이 필요합니다";
-          const detail = quota.mode === "trial"
+          const title = institutional ? `${quota.contractName ?? "기관"} 계약 이용` : quota.mode === "trial" ? "7일 무료 체험 AI 논술 평가" : quota.mode === "plan" ? `${quota.planKey === "growth" ? "성장" : "스타터"} 이용권 AI 논술 평가` : quota.mode === "unlimited" ? "AI 논술 평가" : "AI 논술 평가는 이용권이 필요합니다";
+          const detail = institutional
+            ? (quota.canUse ? <>계약 기간 {quota.periodEnd ? new Date(quota.periodEnd).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" }) : "-"} 전까지 · AI 첨삭 사용 <span className="font-bold">{quota.used}회</span> / {quota.limit}회 (잔여 <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</> : (quota.reason ?? "기관 담당자에게 문의해 주세요."))
+            : quota.mode === "trial"
             ? <>레슨 1 첫 서술형 제출 1회 · 사용 <span className="font-bold">{quota.used}회</span> / 잔여 <span className="font-bold text-emerald-600">{quota.remaining}회</span> · 체험 {quota.daysRemaining}일 남음</>
             : quota.mode === "plan"
               ? <>이용 기간 {quota.periodEnd ? new Date(quota.periodEnd).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" }) : "-"}까지 · 사용 <span className="font-bold">{quota.used}회</span> / {quota.limit}회 (잔여 <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</>
@@ -171,7 +174,7 @@ export default function AIAutoFeedback() {
                 <div>
                   <p className="text-sm font-semibold">{title}</p>
                   <p className="text-xs text-indigo-700">{detail}</p>
-                  {quota.reason && quota.mode !== "none" && quota.remaining === 0 && <p className="mt-1 text-xs text-amber-800">{quota.reason}</p>}
+                  {quota.reason && !institutional && quota.mode !== "none" && quota.remaining === 0 && <p className="mt-1 text-xs text-amber-800">{quota.reason}</p>}
                 </div>
               </div>
               {needsPlan && user?.role === "user" ? (

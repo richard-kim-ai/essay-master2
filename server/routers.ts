@@ -1538,6 +1538,7 @@ export const appRouter = router({
           mode: entitlement.mode,
           canUse: entitlement.canUse,
           planKey: entitlement.planKey ?? null,
+          contractName: entitlement.contractName ?? null,
           periodEnd: entitlement.periodEnd ?? null,
           reason: entitlement.reason ?? null,
         };
