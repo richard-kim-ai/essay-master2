@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Manus] GitHub richard-kim-ai/essay-master2 main(87e1407) 병합·검증·게시 — 시작 2026-10-11 05:21
 
 
 
