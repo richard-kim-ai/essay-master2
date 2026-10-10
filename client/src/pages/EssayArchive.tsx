@@ -82,8 +82,8 @@ export default function EssayArchive() {
     const stat = (statsData || []).find(s => s.id === q.id);
     return {
       ...q,
-      totalAttempts: stat?.totalAttempts || Math.floor(Math.random() * 20) + 10,
-      correctRate: stat?.correctRate ?? (q.difficulty === "easy" ? 82 : q.difficulty === "medium" ? 58 : 34),
+      totalAttempts: stat?.totalAttempts ?? 0,
+      correctRate: stat?.correctRate ?? 0,
       isBookmarked: bookmarkedSet.has(q.id),
     };
   });
@@ -287,7 +287,7 @@ export default function EssayArchive() {
                   <div className="flex items-center gap-2 text-xs text-slate-500">
                     <span>응시: {q.totalAttempts}회</span>
                     <span>•</span>
-                    <span>정답률: <strong className="text-indigo-600">{q.correctRate}%</strong></span>
+                    <span>정답률: <strong className="text-indigo-600">{q.totalAttempts > 0 ? `${q.correctRate}%` : "집계 전"}</strong></span>
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                     <p className="mb-1 text-[11px] font-bold text-indigo-700">학습 포인트</p>

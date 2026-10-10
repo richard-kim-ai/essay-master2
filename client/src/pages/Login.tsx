@@ -30,6 +30,13 @@ export default function Login() {
   const nextPath = sanitizeNextPath(new URLSearchParams(search).get("next"));
   // 소셜 로그인은 next가 주소에 있을 때만 넘긴다(없으면 기존처럼 첫 화면으로 이동).
   const socialNext = sanitizeNextPath(new URLSearchParams(search).get("next"), "");
+  // 소셜 로그인이 실패하거나 막혔을 때(서버가 /login?social=… 로 돌려보냄) 이유를 알려 준다.
+  const SOCIAL_MESSAGES: Record<string, string> = {
+    error: "소셜 로그인에 실패했습니다. 잠시 후 다시 시도하거나 이메일로 로그인해 주세요.",
+    unavailable: "지금은 이 소셜 로그인을 사용할 수 없습니다. 이메일로 로그인해 주세요.",
+    guardian: "보호자(법정대리인)의 동의가 아직 완료되지 않았습니다. 보호자에게 발송된 메일에서 동의를 완료한 뒤 로그인해 주세요.",
+  };
+  const socialMessage = SOCIAL_MESSAGES[new URLSearchParams(search).get("social") ?? ""];
   const loginMutation = trpc.auth.loginWithEmail.useMutation({
     onSuccess: () => {
       toast.success("로그인되었습니다.");
@@ -59,6 +66,7 @@ export default function Login() {
         <Card className="bg-white p-6 shadow-xl sm:p-8">
           <h1 className="text-2xl font-bold text-slate-900">로그인</h1>
           <p className="mt-2 text-sm text-slate-500">학습 기록을 이어서 확인해 보세요.</p>
+          {socialMessage && <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="alert">{socialMessage}</p>}
 
           {guardianPending && (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="alert">

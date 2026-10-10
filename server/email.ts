@@ -1,4 +1,5 @@
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import { ENV } from "./_core/env";
 
 const PASSWORD_KEY_LENGTH = 64;
@@ -14,6 +15,18 @@ export function verifyPassword(password: string, storedHash: string) {
   if (!salt || !expectedHex) return false;
 
   const actual = scryptSync(password, salt, PASSWORD_KEY_LENGTH);
+  const expected = Buffer.from(expectedHex, "hex");
+  return expected.length === actual.length && timingSafeEqual(actual, expected);
+}
+
+// 로그인처럼 동시에 많이 호출되는 곳에서는 서버 전체를 멈추지 않도록 비동기로 검증한다.
+const scryptAsync = promisify(scrypt) as (password: string, salt: string, keylen: number) => Promise<Buffer>;
+
+export async function verifyPasswordAsync(password: string, storedHash: string) {
+  const [salt, expectedHex] = storedHash.split(":");
+  if (!salt || !expectedHex) return false;
+
+  const actual = await scryptAsync(password, salt, PASSWORD_KEY_LENGTH);
   const expected = Buffer.from(expectedHex, "hex");
   return expected.length === actual.length && timingSafeEqual(actual, expected);
 }
@@ -163,4 +176,52 @@ function escapeHtml(value: string) {
     };
     return entities[character] ?? character;
   });
+}
+
+/** 관리자가 보내는 공지 메일. 본문은 일반 텍스트로 받아 HTML로 안전하게 바꿔 보낸다. */
+export async function sendAnnouncementEmail({
+  to,
+  name,
+  subject,
+  body,
+}: {
+  to: string;
+  name: string;
+  subject: string;
+  body: string;
+}) {
+  if (!ENV.resendApiKey || !ENV.emailFrom) {
+    throw new Error("Email delivery is not configured");
+  }
+
+  const paragraphs = body
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${ENV.resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: ENV.emailFrom,
+      to: [to],
+      subject: subject.slice(0, 150),
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.7;color:#172033;max-width:560px;margin:0 auto">
+          <h1 style="color:#4338ca">논술 마스터</h1>
+          <p>${escapeHtml(name)}님, 안녕하세요.</p>
+          ${paragraphs}
+          <p style="font-size:13px;color:#64748b">이 메일은 논술 마스터 운영팀이 회원님께 보낸 공지입니다.</p>
+        </div>
+      `,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Announcement email failed: ${response.status} ${detail}`);
+  }
 }

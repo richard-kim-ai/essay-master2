@@ -1368,35 +1368,31 @@ export async function getProgressByUserAndCurriculum(userId: number, curriculumI
   return result[0];
 }
 
-export async function setUserPasswordResetToken(userId: number, tokenHash: string) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
-}
-
+// 비밀번호 재설정 토큰은 이메일 인증 토큰과 별도 컬럼에 만료시각과 함께 저장한다(서로의 링크로 쓸 수 없다).
 export async function getUserByPasswordResetTokenHash(tokenHash: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.verificationTokenHash, tokenHash)));
+  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.passwordResetTokenHash, tokenHash)));
   return result[0];
 }
 
 export async function resetUserPassword(userId: number, passwordHash: string) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ passwordHash, verificationTokenHash: null }).where(eq(users.id, userId));
+  // 재설정 토큰은 한 번만 쓸 수 있다.
+  await db.update(users).set({ passwordHash, passwordResetTokenHash: null, passwordResetTokenExpiresAt: null }).where(eq(users.id, userId));
 }
 
-export async function updateVerificationToken(userId: number, tokenHash: string, _expiresAt?: Date) {
+export async function updateVerificationToken(userId: number, tokenHash: string, expiresAt: Date) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+  await db.update(users).set({ verificationTokenHash: tokenHash, verificationTokenExpiresAt: expiresAt }).where(eq(users.id, userId));
 }
 
-export async function updatePasswordResetToken(userId: number, tokenHash: string, _expiresAt?: Date) {
+export async function updatePasswordResetToken(userId: number, tokenHash: string, expiresAt: Date) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+  await db.update(users).set({ passwordResetTokenHash: tokenHash, passwordResetTokenExpiresAt: expiresAt }).where(eq(users.id, userId));
 }
 
 export async function getUserByVerificationTokenHash(tokenHash: string) {
@@ -1409,7 +1405,7 @@ export async function getUserByVerificationTokenHash(tokenHash: string) {
 export async function markEmailVerified(userId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ emailVerifiedAt: new Date(), verificationTokenHash: null }).where(eq(users.id, userId));
+  await db.update(users).set({ emailVerifiedAt: new Date(), verificationTokenHash: null, verificationTokenExpiresAt: null }).where(eq(users.id, userId));
 }
 
 
@@ -2144,6 +2140,13 @@ export async function createTeacherAiStyleExample(input: {
     approvalStatus: "draft",
   });
   const [example] = await db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.teacherId, input.teacherId)).orderBy(desc(teacherAiStyleExamples.id));
+  return example;
+}
+
+export async function getTeacherAiStyleExampleById(exampleId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [example] = await db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.id, exampleId));
   return example;
 }
 
@@ -5091,6 +5094,13 @@ export async function getWorkbookMistakesByUser(userId: number) {
       questionTitle: questionById.get(mistake.questionBankId)?.title ?? "학습 도구 문항",
     })),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function getWorkbookAnswerById(answerId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(curriculumWorkbookAnswers).where(eq(curriculumWorkbookAnswers.id, answerId));
+  return row;
 }
 
 export async function addWorkbookTeacherFeedback(answerId: number, teacherId: number, comment: string, gradeScore: number) {

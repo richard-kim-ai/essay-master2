@@ -16,6 +16,15 @@ vi.mock("./db", async (importOriginal) => {
     createFeedbackComment: vi.fn(),
     recordLessonProgress: vi.fn(),
     issueCertificate: vi.fn(),
+    getWorkbookAnswerById: vi.fn(),
+    addWorkbookTeacherFeedback: vi.fn(),
+    getTeacherAiStyleExampleById: vi.fn(),
+    updateTeacherAiStyleExampleStatus: vi.fn(),
+    promoteUserLevel: vi.fn(),
+    getApprovedTeachersForRecommendation: vi.fn(),
+    getSiteSetting: vi.fn(),
+    getQuestionFeedbacksSummary: vi.fn(),
+    logAIUsage: vi.fn(),
   };
 });
 vi.mock("./_core/notification", () => ({ notifyOwner: vi.fn() }));
@@ -157,5 +166,91 @@ describe("학습 진행(progress)과 수료증(certificate)", () => {
     const issued = vi.mocked(db.issueCertificate).mock.calls[0][0] as Record<string, unknown>;
     expect(issued).not.toHaveProperty("pdfUrl");
     expect(issued).toMatchObject({ userId: 10, courseType: "middle_high", level: 1 });
+  });
+});
+
+describe("워크북 교사 첨삭(점수 결정) 권한", () => {
+  const answer = { id: 30, userId: 10, questionId: 1, score: 20 };
+  beforeEach(() => {
+    vi.mocked(db.getWorkbookAnswerById).mockResolvedValue(answer as any);
+    vi.mocked(db.addWorkbookTeacherFeedback).mockResolvedValue({ success: true });
+  });
+  const input = { answerId: 30, comment: "좋습니다", gradeScore: 100 };
+
+  it("학생은 본인 답안이든 남의 답안이든 점수를 정할 수 없다", async () => {
+    await expect(callerFor(owner).curriculum.addTeacherFeedback(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(otherStudent).curriculum.addTeacherFeedback(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.addWorkbookTeacherFeedback).not.toHaveBeenCalled();
+  });
+
+  it("담당이 아닌 교사·승인 전 교사는 점수를 정할 수 없고, 담당 교사와 관리자는 정할 수 있다", async () => {
+    await expect(callerFor(otherTeacher).curriculum.addTeacherFeedback(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(pendingTeacher).curriculum.addTeacherFeedback(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await callerFor(assignedTeacher).curriculum.addTeacherFeedback(input);
+    await callerFor(admin).curriculum.addTeacherFeedback(input);
+    expect(db.addWorkbookTeacherFeedback).toHaveBeenCalledTimes(2);
+  });
+
+  it("점수는 0~100 정수만 받는다", async () => {
+    await expect(callerFor(assignedTeacher).curriculum.addTeacherFeedback({ ...input, gradeScore: 101 })).rejects.toThrow();
+    await expect(callerFor(assignedTeacher).curriculum.addTeacherFeedback({ ...input, gradeScore: -1 })).rejects.toThrow();
+  });
+});
+
+describe("관리 기능과 AI 도구 권한", () => {
+  it("교사 레벨 변경은 관리자만, 교사 계정에 대해서만 할 수 있다", async () => {
+    vi.mocked(db.getUserById).mockResolvedValue({ id: 20, role: "teacher" } as any);
+    await expect(callerFor(assignedTeacher).questionBank.promoteUser({ userId: 20, targetLevel: 3 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(pendingTeacher).questionBank.promoteUser({ userId: 20, targetLevel: 3 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(admin).questionBank.promoteUser({ userId: 20, targetLevel: 99 })).rejects.toThrow();
+    await callerFor(admin).questionBank.promoteUser({ userId: 20, targetLevel: 3 });
+    expect(db.promoteUserLevel).toHaveBeenCalledWith(20, 3);
+
+    vi.mocked(db.getUserById).mockResolvedValue({ id: 10, role: "user" } as any);
+    await expect(callerFor(admin).questionBank.promoteUser({ userId: 10, targetLevel: 3 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("교사는 본인 AI 스타일 예시만 바꾸고, 관리자 승인·반려는 관리자만 할 수 있다", async () => {
+    vi.mocked(db.getTeacherAiStyleExampleById).mockResolvedValue({ id: 9, teacherId: 20 } as any);
+    vi.mocked(db.updateTeacherAiStyleExampleStatus).mockResolvedValue({ id: 9 } as any);
+    await expect(callerFor(otherTeacher).teacherAi.updateStyleExampleStatus({ exampleId: 9, status: "teacher_approved" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(assignedTeacher).teacherAi.updateStyleExampleStatus({ exampleId: 9, status: "admin_approved" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(pendingTeacher).teacherAi.updateStyleExampleStatus({ exampleId: 9, status: "teacher_approved" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await callerFor(assignedTeacher).teacherAi.updateStyleExampleStatus({ exampleId: 9, status: "teacher_approved" });
+    await callerFor(admin).teacherAi.updateStyleExampleStatus({ exampleId: 9, status: "admin_approved" });
+    expect(db.updateTeacherAiStyleExampleStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("글 평가 엔진(한도를 거치지 않는 도구)은 승인된 교사와 관리자만 쓸 수 있다", async () => {
+    const input = { metadata: {}, task: "주제", submission: { essay_text: "본문" } };
+    for (const user of [owner, otherStudent, pendingTeacher, { id: 12, role: "user", tag: "학부모" } as TestUser]) {
+      await expect(callerFor(user).writingEvaluationEngine.evaluate(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    expect(db.logAIUsage).not.toHaveBeenCalled();
+  });
+});
+
+describe("비로그인·학습자에게 내려가는 정보", () => {
+  it("교사 추천 목록(가입 전에도 열림)에는 교사 이메일을 담지 않는다", async () => {
+    vi.mocked(db.getApprovedTeachersForRecommendation).mockResolvedValue([{ id: 20, name: "김교사", email: "teacher@example.com", teacherLevel: 2, courseMatch: true }] as any);
+    const result = await callerFor(null).auth.recommendedTeachers({ courseType: "elementary" });
+    expect(result).toEqual([{ id: 20, name: "김교사", teacherLevel: 2, courseMatch: true }]);
+    expect(JSON.stringify(result)).not.toContain("teacher@example.com");
+  });
+
+  it("사이트 설정은 약관·개인정보처리방침만 비로그인에 공개하고, 그 밖의 키는 관리자만 읽는다", async () => {
+    vi.mocked(db.getSiteSetting).mockResolvedValue("내용" as any);
+    await expect(callerFor(null).admin.getSiteSettingAdmin({ settingKey: "terms_of_service" })).resolves.toBe("내용");
+    await expect(callerFor(null).admin.getSiteSettingAdmin({ settingKey: "privacy_policy" })).resolves.toBe("내용");
+    await expect(callerFor(null).admin.getSiteSettingAdmin({ settingKey: "difficulty_operation_mode" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(owner).admin.getSiteSettingAdmin({ settingKey: "anything" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(admin).admin.getSiteSettingAdmin({ settingKey: "anything" })).resolves.toBe("내용");
+  });
+
+  it("문항 신고 원문은 관리자만 보고, 학습자에게는 집계만 준다", async () => {
+    vi.mocked(db.getQuestionFeedbacksSummary).mockResolvedValue({ helpfulCount: 3, unhelpfulCount: 1, reports: [{ id: 1, reportText: "다른 사람의 신고" }] } as any);
+    await expect(callerFor(owner).questionBank.feedbackSummary({ questionId: 1 })).resolves.toEqual({ helpfulCount: 3, unhelpfulCount: 1, reports: [] });
+    const adminView = await callerFor(admin).questionBank.feedbackSummary({ questionId: 1 });
+    expect(adminView.reports).toHaveLength(1);
   });
 });

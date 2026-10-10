@@ -42,6 +42,20 @@ export default function AdminDashboard() {
   const [weeklyReportModalOpen, setWeeklyReportModalOpen] = useState(false);
 
   const utils = trpc.useUtils();
+  const sendBatchEmailMutation = trpc.admin.sendBatchAnnouncement.useMutation({
+    onSuccess: (result) => {
+      const detail = [result.failed ? `실패 ${result.failed}명` : "", result.skipped ? `이메일 없음·제외 ${result.skipped}명` : ""].filter(Boolean).join(", ");
+      if (result.sent > 0) toast.success(`${result.sent}명에게 공지 이메일을 발송했습니다.${detail ? ` (${detail})` : ""}`);
+      else toast.error(`발송된 메일이 없습니다.${detail ? ` (${detail})` : ""} 메일 발송 설정을 확인해 주세요.`);
+      if (result.sent > 0) {
+        setBatchEmailModalOpen(false);
+        setBatchEmailSubject("");
+        setBatchEmailBody("");
+        setSelectedStudentIds([]);
+      }
+    },
+    onError: (err) => toast.error(err.message || "공지 이메일 발송 중 오류가 발생했습니다."),
+  });
   const updateBatchTagMutation = trpc.admin.updateBatchTag.useMutation({
     onSuccess: () => {
       toast.success("선택된 학생들의 태그가 일괄 변경되었습니다.");
@@ -93,11 +107,8 @@ export default function AdminDashboard() {
       toast.error("제목과 내용을 모두 입력해주세요.");
       return;
     }
-    toast.success(`선택된 ${selectedStudentIds.length}명의 학생에게 공지 이메일이 발송되었습니다.`);
-    setBatchEmailModalOpen(false);
-    setBatchEmailSubject("");
-    setBatchEmailBody("");
-    setSelectedStudentIds([]);
+    // 실제 발송은 서버가 한다. 발송 결과(성공·실패·제외)는 서버 응답대로 알린다.
+    sendBatchEmailMutation.mutate({ studentIds: selectedStudentIds, subject: batchEmailSubject.trim(), body: batchEmailBody.trim() });
   };
 
   const filteredUsers = useMemo(() => {
@@ -530,8 +541,8 @@ export default function AdminDashboard() {
             <Button variant="outline" onClick={() => setBatchEmailModalOpen(false)}>
               취소
             </Button>
-            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleSendBatchEmail}>
-              이메일 발송하기
+            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleSendBatchEmail} disabled={sendBatchEmailMutation.isPending}>
+              {sendBatchEmailMutation.isPending ? "발송 중..." : "이메일 발송하기"}
             </Button>
           </DialogFooter>
         </DialogContent>

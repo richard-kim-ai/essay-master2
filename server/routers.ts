@@ -21,6 +21,8 @@ const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
 const SAMPLE_AI_GLOBAL_DAILY_LIMIT = 300;
 
 import { resolveClientIp } from "./clientIp";
+import { publicBaseUrl } from "./publicUrl";
+import { consumeRateLimit, RATE_RULES, type RateLimitRule } from "./rateLimit";
 import {
   GUARDIAN_AGREEMENT_LABELS,
   GUARDIAN_CONSENT_COURSE,
@@ -44,7 +46,8 @@ import {
   hashVerificationToken,
   sendPasswordResetEmail,
   sendVerificationEmail,
-  verifyPassword,
+  verifyPasswordAsync,
+  sendAnnouncementEmail,
 } from "./email";
 import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 import type { CourseType } from "@shared/course";
@@ -90,11 +93,17 @@ const theoryGenerationInput = z.object({
   context: z.string().trim().min(2).max(500).default("AUTO"),
 });
 
+// 인증·재설정·보호자 동의 메일의 링크 주소는 서버 설정(PUBLIC_BASE_URL)을 우선한다(요청자가 정한 주소를 쓰지 않는다).
 function requestOrigin(req: { protocol: string; headers: Record<string, unknown> }) {
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  const protocol = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.toString().split(",")[0])?.trim() || req.protocol || "https";
-  const host = req.headers.host?.toString() || "localhost:3000";
-  return `${protocol}://${host}`;
+  return publicBaseUrl(req);
+}
+
+// 로그인·메일 발송·가입처럼 반복 호출이 위험한 요청의 횟수를 제한한다.
+function enforceRateLimit(name: string, key: string, rule: RateLimitRule) {
+  const result = consumeRateLimit(name, key, rule);
+  if (!result.allowed) {
+    throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `요청이 너무 많습니다. ${Math.ceil(result.retryAfterSec / 60)}분 뒤에 다시 시도해 주세요.` });
+  }
 }
 
 async function sendUserVerificationEmail(
@@ -189,6 +198,15 @@ async function assertEssayReadAccess(user: { id: number; role: string; teacherSt
 
 const SCORE_0_100 = z.number().int().min(0).max(100);
 
+// 로그인하지 않아도 읽을 수 있는 사이트 설정(공개 문서)
+const PUBLIC_SITE_SETTING_KEYS = ["terms_of_service", "privacy_policy"];
+
+function assertApprovedTeacherOrAdmin(user: { role: string; teacherStatus?: string | null }) {
+  if (user.role === "admin") return;
+  if (user.role === "teacher" && user.teacherStatus === "approved") return;
+  throw new TRPCError({ code: "FORBIDDEN", message: "승인된 교사 또는 관리자만 사용할 수 있습니다." });
+}
+
 export const appRouter = router({
   system: systemRouter,
   policy: router({
@@ -213,20 +231,27 @@ export const appRouter = router({
         isEnabled: z.boolean(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin" && !(ctx.user.role === "teacher" && ctx.user.teacherStatus === "approved")) throw new TRPCError({ code: "FORBIDDEN", message: "승인된 교사 권한이 필요합니다." });
         return db.upsertTeacherAiProfile({ teacherId: ctx.user.id, ...input });
       }),
     myStyleExamples: protectedProcedure.query(async ({ ctx }) => db.listTeacherAiStyleExamples(ctx.user.id)),
     createStyleExample: protectedProcedure
       .input(z.object({ sourceFeedbackId: z.number().optional(), purpose: z.enum(["style_reference", "quality_evaluation", "training_candidate"]), sourceText: z.string().min(20).max(12000), approvedFeedback: z.string().min(20).max(12000), tags: z.string().max(255).optional() }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin" && !(ctx.user.role === "teacher" && ctx.user.teacherStatus === "approved")) throw new TRPCError({ code: "FORBIDDEN", message: "승인된 교사 권한이 필요합니다." });
         return db.createTeacherAiStyleExample({ teacherId: ctx.user.id, ...input });
       }),
     updateStyleExampleStatus: protectedProcedure
       .input(z.object({ exampleId: z.number(), status: z.enum(["draft", "teacher_approved", "admin_approved", "rejected", "withdrawn"]) }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "teacher" && ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        if (ctx.user.role !== "admin" && !(ctx.user.role === "teacher" && ctx.user.teacherStatus === "approved")) throw new TRPCError({ code: "FORBIDDEN", message: "승인된 교사 권한이 필요합니다." });
+        const example = await db.getTeacherAiStyleExampleById(input.exampleId);
+        if (!example) throw new TRPCError({ code: "NOT_FOUND", message: "예시를 찾을 수 없습니다." });
+        if (ctx.user.role !== "admin") {
+          // 교사는 본인 예시만 다루고, 관리자 승인·반려는 관리자만 정한다.
+          if (example.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "본인이 작성한 예시만 변경할 수 있습니다." });
+          if (input.status === "admin_approved" || input.status === "rejected") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 승인·반려는 관리자만 할 수 있습니다." });
+        }
         return db.updateTeacherAiStyleExampleStatus(input.exampleId, input.status);
       }),
     draftsForEssay: protectedProcedure
@@ -320,7 +345,11 @@ export const appRouter = router({
     }),
     recommendedTeachers: publicProcedure
       .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]) }))
-      .query(async ({ input }) => db.getApprovedTeachersForRecommendation(input.courseType)),
+      .query(async ({ input }) => {
+        // 가입 전(비로그인)에도 열리는 목록이므로 교사의 이메일 같은 연락처는 내려주지 않는다.
+        const teachers = await db.getApprovedTeachersForRecommendation(input.courseType);
+        return teachers.map(({ email: _email, ...teacher }) => teacher);
+      }),
 
     signup: publicProcedure
       .input(
@@ -344,6 +373,7 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        enforceRateLimit("signup-ip", resolveClientIp(ctx.req), RATE_RULES.signupByIp);
         // 보호자(법정대리인) 동의는 초등 과정 가입자에게만 적용한다. 학년과 만 나이가 일치하지 않을 수 있어
         // 생년월일로 대상을 가르지 않고, 초등 과정이면 생년월일과 보호자 정보를 받아 보호자 이메일로 동의를 확인한다.
         const guardianConsentRequired = input.accountType === "student" && input.courseType === GUARDIAN_CONSENT_COURSE;
@@ -448,6 +478,7 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        enforceRateLimit("signup-ip", resolveClientIp(ctx.req), RATE_RULES.signupByIp);
         const approvedConsents = await validateSignupConsents("teacher", input.consents);
         const existing = await db.getUserByEmail(input.email);
         const token = createVerificationToken();
@@ -498,6 +529,8 @@ export const appRouter = router({
     resendVerification: publicProcedure
       .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()) }))
       .mutation(async ({ ctx, input }) => {
+        enforceRateLimit("mail-email", input.email, RATE_RULES.mailByEmail);
+        enforceRateLimit("mail-ip", resolveClientIp(ctx.req), RATE_RULES.mailByIp);
         const user = await db.getUserByEmail(input.email);
         if (user && !user.emailVerifiedAt) {
           const token = createVerificationToken();
@@ -512,8 +545,11 @@ export const appRouter = router({
       }),
 
     requestPasswordReset: publicProcedure
-      .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), origin: z.string().url() }))
-      .mutation(async ({ input }) => {
+      // origin은 이전 화면과의 호환을 위해 받기만 하고 쓰지 않는다. 링크 주소는 서버가 정한다.
+      .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), origin: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        enforceRateLimit("mail-email", input.email, RATE_RULES.mailByEmail);
+        enforceRateLimit("mail-ip", resolveClientIp(ctx.req), RATE_RULES.mailByIp);
         const user = await db.getUserByEmail(input.email);
         if (user?.email && user.passwordHash) {
           const token = createVerificationToken();
@@ -521,7 +557,7 @@ export const appRouter = router({
           await sendPasswordResetEmail({
             to: user.email,
             name: user.name || "학습자",
-            resetUrl: `${input.origin}/reset-password?token=${encodeURIComponent(token)}`,
+            resetUrl: `${publicBaseUrl(ctx.req)}/reset-password?token=${encodeURIComponent(token)}`,
           });
         }
         return { success: true } as const;
@@ -541,10 +577,13 @@ export const appRouter = router({
     loginWithEmail: publicProcedure
       .input(z.object({ email: z.string().trim().email().transform((value) => value.toLowerCase()), password: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
+        // 비밀번호 무차별 대입을 막기 위해 이메일별·접속지별 시도 횟수를 제한한다.
+        enforceRateLimit("login-email", input.email, RATE_RULES.loginByEmail);
+        enforceRateLimit("login-ip", resolveClientIp(ctx.req), RATE_RULES.loginByIp);
         // 샘플 계정 자동 생성(원클릭 샘플 로그인)은 제거했다. 누구나 알 수 있는 비밀번호로 승인된 교사 권한 계정이 만들어지는 문제가 있었다.
         const user = await db.getUserByEmail(input.email);
 
-        if (!user?.passwordHash || !verifyPassword(input.password, user.passwordHash)) {
+        if (!user?.passwordHash || !(await verifyPasswordAsync(input.password, user.passwordHash))) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "이메일 또는 비밀번호를 확인해주세요." });
         }
         // 초등 과정 가입 아동은 법정대리인(보호자)이 동의하기 전까지 로그인할 수 없다.
@@ -782,14 +821,19 @@ export const appRouter = router({
     addTeacherFeedback: protectedProcedure
       .input(
         z.object({
-          answerId: z.number(),
-          comment: z.string(),
-          gradeScore: z.number(),
+          answerId: z.number().int().positive(),
+          comment: z.string().trim().min(1).max(5000),
+          gradeScore: SCORE_0_100,
         })
       )
-      .mutation(({ ctx, input }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "user" && ctx.user.teacherStatus !== "approved") {
-          throw new Error("교사 권한이 필요합니다.");
+      .mutation(async ({ ctx, input }) => {
+        // 워크북 점수는 수료 판정의 근거이므로, 승인된 담당 교사와 관리자만 정할 수 있다(학생·학부모 불가).
+        const answer = await db.getWorkbookAnswerById(input.answerId);
+        if (!answer) throw new TRPCError({ code: "NOT_FOUND", message: "답안을 찾을 수 없습니다." });
+        if (ctx.user.role !== "admin") {
+          if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
+          const student = await db.getUserById(answer.userId);
+          if (!student || student.teacherId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "배정된 학생의 답안만 첨삭할 수 있습니다." });
         }
         return db.addWorkbookTeacherFeedback(input.answerId, ctx.user.id, input.comment, input.gradeScore);
       }),
@@ -1339,16 +1383,25 @@ export const appRouter = router({
   // ========== Master Prompt Writing Evaluation Routes ==========
   writingEvaluationEngine: router({
     evaluate: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      // 학습자용 한도(체험·일일·이용권)를 거치지 않는 도구이므로 승인된 교사와 관리자만 쓰고, 호출 횟수도 제한한다.
+      assertApprovedTeacherOrAdmin(ctx.user);
+      enforceRateLimit("eval-engine", String(ctx.user.id), RATE_RULES.evalEngineByUser);
       const result = await evaluateWritingWithLLM(input);
       await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
       return result;
     }),
     evaluateAndCorrect: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      // 학습자용 한도(체험·일일·이용권)를 거치지 않는 도구이므로 승인된 교사와 관리자만 쓰고, 호출 횟수도 제한한다.
+      assertApprovedTeacherOrAdmin(ctx.user);
+      enforceRateLimit("eval-engine", String(ctx.user.id), RATE_RULES.evalEngineByUser);
       const result = await evaluateWritingWithLLM(input);
       await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
       return result;
     }),
     reevaluate: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
+      // 학습자용 한도(체험·일일·이용권)를 거치지 않는 도구이므로 승인된 교사와 관리자만 쓰고, 호출 횟수도 제한한다.
+      assertApprovedTeacherOrAdmin(ctx.user);
+      enforceRateLimit("eval-engine", String(ctx.user.id), RATE_RULES.evalEngineByUser);
       const result = await evaluateWritingWithLLM(input);
       await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
       return result;
@@ -1805,7 +1858,9 @@ export const appRouter = router({
     feedbackSummary: protectedProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ ctx, input }) => {
-        return await db.getQuestionFeedbacksSummary(input.questionId);
+        const summary = await db.getQuestionFeedbacksSummary(input.questionId);
+        // 다른 사용자가 남긴 신고 원문은 관리자만 볼 수 있다. 학습자에게는 집계만 준다.
+        return ctx.user.role === "admin" ? summary : { ...summary, reports: [] };
       }),
     toggleBookmark: protectedProcedure
       .input(z.object({ questionId: z.number() }))
@@ -1854,9 +1909,12 @@ export const appRouter = router({
         return db.previewGeneratedQuestionBankItems({ course: input.course ?? input.courseType!, tool_type: input.tool_type ?? input.toolType!, theory_category: input.theory_category, difficulty: input.difficulty, question_count: input.question_count ?? input.count ?? 3, topic: input.topic });
       }),
     promoteUser: protectedProcedure
-      .input(z.object({ userId: z.number(), targetLevel: z.number() }))
+      .input(z.object({ userId: z.number().int().positive(), targetLevel: z.number().int().min(1).max(3) }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "admin" && ctx.user.role !== "teacher") throw new TRPCError({ code: "FORBIDDEN" });
+        // 교사 레벨은 첨삭·반 관리 권한을 정하므로 관리자만 바꿀 수 있고, 대상은 교사 계정이어야 한다.
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        const target = await db.getUserById(input.userId);
+        if (!target || target.role !== "teacher") throw new TRPCError({ code: "BAD_REQUEST", message: "교사 계정만 레벨을 변경할 수 있습니다." });
         return await db.promoteUserLevel(input.userId, input.targetLevel);
       }),
     similarQuestions: protectedProcedure
@@ -2133,8 +2191,39 @@ export const appRouter = router({
       }),
     getSiteSettingAdmin: publicProcedure
       .input(z.object({ settingKey: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        // 비로그인·학습자에게는 공개 문서(약관·개인정보처리방침)만 열어 준다. 그 밖의 설정은 관리자만 읽을 수 있다.
+        if (ctx.user?.role !== "admin" && !PUBLIC_SITE_SETTING_KEYS.includes(input.settingKey)) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "공개되지 않은 설정입니다." });
+        }
         return await db.getSiteSetting(input.settingKey);
+      }),
+    sendBatchAnnouncement: protectedProcedure
+      .input(z.object({
+        studentIds: z.array(z.number().int().positive()).min(1).max(100),
+        subject: z.string().trim().min(1).max(150),
+        body: z.string().trim().min(1).max(5000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        enforceRateLimit("announce", String(ctx.user.id), RATE_RULES.announceByAdmin);
+        const recipients = (await Promise.all(Array.from(new Set(input.studentIds)).map((id) => db.getUserById(id))))
+          .filter((user): user is NonNullable<typeof user> => Boolean(user));
+        let sent = 0;
+        let failed = 0;
+        let skipped = 0;
+        for (const recipient of recipients) {
+          if (!recipient.email) { skipped += 1; continue; }
+          try {
+            await sendAnnouncementEmail({ to: recipient.email, name: recipient.name || "회원", subject: input.subject, body: input.body });
+            sent += 1;
+          } catch (error) {
+            console.error("[announcement] send failed", recipient.id, error);
+            failed += 1;
+          }
+        }
+        skipped += input.studentIds.length - recipients.length;
+        return { sent, failed, skipped };
       }),
     saveSiteSettingAdmin: protectedProcedure
       .input(z.object({ settingKey: z.string(), content: z.string() }))
