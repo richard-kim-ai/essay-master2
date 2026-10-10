@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowRight, CheckCircle2, Clock3, ExternalLink, LockKeyhole, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, LockKeyhole, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import Navigation from "@/components/Navigation";
 
@@ -114,7 +114,7 @@ export default function Pricing() {
               <div className="mt-7 grid gap-3 sm:grid-cols-2">{PRIVACY_CONTROLS.map((control) => <div key={control.title} className="rounded-xl bg-slate-50 p-4"><h3 className="text-sm font-extrabold text-slate-900">{control.title}</h3><p className="mt-2 text-sm leading-6 text-slate-600">{control.text}</p></div>)}</div>
               <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"><strong>출시 전 필수 확인:</strong> 개인정보 보유 기간, 외부 AI 제공자·DPA, 청소년·학부모 동의, 삭제 요청 처리, 접근 로그와 API 키 회전 정책을 운영 문서와 실제 설정에 맞춰 확정해야 합니다.</div>
             </div>
-            <div className="flex flex-col rounded-[2rem] bg-slate-950 p-6 text-slate-100 shadow-sm sm:p-9"><MessageCircle className="h-7 w-7 text-cyan-300" aria-hidden="true" /><h2 className="mt-5 text-2xl font-black tracking-[-0.035em]">정식 이용 및 기관 도입</h2><p className="mt-3 text-sm leading-7 text-slate-300 sm:text-base">개인 학습 이용권과 교사·기관 운영 정책은 과정 구성, AI 평가량, 사람 첨삭 범위에 따라 달라집니다. 결제 기능이 준비되기 전에는 체험 후 운영 문의로 도입 조건을 확인할 수 있습니다.</p><div className="mt-auto flex flex-col gap-3 pt-8"><Link href="/sample" className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-300 px-5 text-sm font-extrabold text-slate-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">샘플 체험하기</Link><a href="https://www.grammarly.com/plans" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-cyan-200 hover:text-white">공개 요금 비교 기준 보기 <ExternalLink className="h-4 w-4" aria-hidden="true" /></a></div></div>
+            <div className="flex flex-col rounded-[2rem] bg-slate-950 p-6 text-slate-100 shadow-sm sm:p-9"><MessageCircle className="h-7 w-7 text-cyan-300" aria-hidden="true" /><h2 className="mt-5 text-2xl font-black tracking-[-0.035em]">정식 이용 및 기관 도입</h2><p className="mt-3 text-sm leading-7 text-slate-300 sm:text-base">개인 학습 이용권과 교사·기관 운영 정책은 과정 구성, AI 평가량, 사람 첨삭 범위에 따라 달라집니다. 결제 기능이 준비되기 전에는 체험 후 운영 문의로 도입 조건을 확인할 수 있습니다.</p><div className="mt-auto flex flex-col gap-3 pt-8"><Link href="/sample" className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-300 px-5 text-sm font-extrabold text-slate-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950">샘플 체험하기</Link><span className="inline-flex items-center justify-center text-sm font-semibold text-cyan-200">공개 요금 비교 기준 보기</span></div></div>
           </section>
         </div>
       </main>
