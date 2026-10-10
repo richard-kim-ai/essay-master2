@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] UX 점검 1~3단계: 로그인 이메일(/login) 통일(헤더·main.tsx 전역 리다이렉트·로그인 필요 화면 공통 LoginRequired·next 복귀), 헤더 회원가입/모바일 메뉴 보완, 학부모 포털 진입, 공통 Footer(회사 정보는 추후 입력) — 시작 2026-10-11 16:10
 
 
 
