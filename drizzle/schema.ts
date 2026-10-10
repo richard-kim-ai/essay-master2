@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -1041,3 +1041,82 @@ export const appNotifications = mysqlTable("app_notifications", {
 
 export type AppNotification = typeof appNotifications.$inferSelect;
 export type InsertAppNotification = typeof appNotifications.$inferInsert;
+
+// ========== 결제·이용권 ==========
+// 결제 주문. provider가 "mock"이면 실제 결제가 아닌 임시(테스트) 결제다(isTest=1). 실제 결제 연동 뒤에는 provider만 바뀐다.
+export const paymentOrders = mysqlTable("payment_orders", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  planKey: varchar("planKey", { length: 40 }).notNull(),
+  amountKrw: int("amountKrw").notNull(),
+  currency: varchar("currency", { length: 8 }).default("KRW").notNull(),
+  status: mysqlEnum("status", ["pending", "paid", "failed", "cancelled", "refunded"]).default("pending").notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  providerOrderId: varchar("providerOrderId", { length: 80 }).notNull().unique(),
+  providerPaymentKey: varchar("providerPaymentKey", { length: 200 }),
+  isTest: int("isTest").default(0).notNull(),
+  failureReason: varchar("failureReason", { length: 255 }),
+  paidAt: timestamp("paidAt"),
+  refundedAt: timestamp("refundedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PaymentOrder = typeof paymentOrders.$inferSelect;
+export type InsertPaymentOrder = typeof paymentOrders.$inferInsert;
+
+// 이용권. 결제가 확정되면 만들어지고, 기간(currentPeriodEnd) 안에서만 유효하다.
+export const subscriptions = mysqlTable("subscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  planKey: varchar("planKey", { length: 40 }).notNull(),
+  status: mysqlEnum("status", ["active", "cancelled", "expired"]).default("active").notNull(),
+  currentPeriodStart: timestamp("currentPeriodStart").notNull(),
+  currentPeriodEnd: timestamp("currentPeriodEnd").notNull(),
+  /** 결제 시점의 AI 평가 한도(요금제가 나중에 바뀌어도 이미 결제한 이용권의 한도는 유지) */
+  aiEvaluationsLimit: int("aiEvaluationsLimit").notNull(),
+  orderId: int("orderId"),
+  cancelledAt: timestamp("cancelledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = typeof subscriptions.$inferInsert;
+
+// ========== 교사 정산 ==========
+// 첨삭 활동 유형별 건당 단가(원). 행이 없는 유형은 shared/settlement.ts의 기본 단가를 쓴다.
+export const teacherSettlementRates = mysqlTable("teacher_settlement_rates", {
+  id: int("id").autoincrement().primaryKey(),
+  activityType: varchar("activityType", { length: 40 }).notNull().unique(),
+  unitAmountKrw: int("unitAmountKrw").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TeacherSettlementRate = typeof teacherSettlementRates.$inferSelect;
+
+// 교사별·월별 정산서. draft(산출 중, 다시 산출 가능) → confirmed(확정, 항목·단가 고정) → paid(지급 완료).
+export const teacherSettlements = mysqlTable("teacher_settlements", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull(),
+  periodMonth: varchar("periodMonth", { length: 7 }).notNull(), // YYYY-MM
+  itemsJson: text("itemsJson").notNull(),
+  grossKrw: int("grossKrw").notNull(),
+  withholdingPct: varchar("withholdingPct", { length: 8 }).notNull(),
+  withholdingKrw: int("withholdingKrw").notNull(),
+  netKrw: int("netKrw").notNull(),
+  status: mysqlEnum("status", ["draft", "confirmed", "paid"]).default("draft").notNull(),
+  note: text("note"),
+  confirmedBy: int("confirmedBy"),
+  confirmedAt: timestamp("confirmedAt"),
+  paidBy: int("paidBy"),
+  paidAt: timestamp("paidAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  teacherMonthUnique: uniqueIndex("uq_teacher_settlements_teacher_month").on(table.teacherId, table.periodMonth),
+}));
+
+export type TeacherSettlement = typeof teacherSettlements.$inferSelect;
+export type InsertTeacherSettlement = typeof teacherSettlements.$inferInsert;

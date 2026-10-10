@@ -22,6 +22,9 @@ const SAMPLE_AI_GLOBAL_DAILY_LIMIT = 300;
 
 import { resolveClientIp } from "./clientIp";
 import { publicBaseUrl } from "./publicUrl";
+import { billingRouter, settlementRouter } from "./billingRouter";
+import * as billingDb from "./billingDb";
+import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement } from "./billing/service";
 import { consumeRateLimit, RATE_RULES, type RateLimitRule } from "./rateLimit";
 import {
   GUARDIAN_AGREEMENT_LABELS,
@@ -209,6 +212,8 @@ function assertApprovedTeacherOrAdmin(user: { role: string; teacherStatus?: stri
 
 export const appRouter = router({
   system: systemRouter,
+  billing: billingRouter,
+  settlement: settlementRouter,
   policy: router({
     forSignup: publicProcedure
       .input(z.object({ accountType: z.enum(["student", "parent", "teacher"]) }))
@@ -1458,15 +1463,21 @@ export const appRouter = router({
       db.getAIAutoFeedbackByUser(ctx.user.id)
     ),
 
+    // 이용 자격: 이용권(기간 안) > 7일 무료 체험 > 이용권 필요. 관리자·교사는 한도가 없다.
     getTodayQuota: protectedProcedure.query(async ({ ctx }) => {
-        const trial = getTrialAccess(ctx.user.createdAt);
-        if (ctx.user.role === "user" && trial.isActive) {
-          const used = await db.getAIUsageCountByAction(ctx.user.id, "trial_essay_feedback");
-          return { used, limit: TRIAL_AI_EVALUATION_LIMIT, remaining: Math.max(0, TRIAL_AI_EVALUATION_LIMIT - used), isTrial: true, daysRemaining: trial.daysRemaining };
-        }
-        const count = await db.getTodayAIUsageCount(ctx.user.id);
-        const limit = 5; // 일일 무료 공용 크레딧 제한
-        return { used: count, limit, remaining: Math.max(0, limit - count), isTrial: false, daysRemaining: 0 };
+        const entitlement = await getAiEntitlement(ctx.user);
+        return {
+          used: entitlement.used,
+          limit: entitlement.limit,
+          remaining: entitlement.remaining,
+          isTrial: entitlement.mode === "trial",
+          daysRemaining: entitlement.daysRemaining,
+          mode: entitlement.mode,
+          canUse: entitlement.canUse,
+          planKey: entitlement.planKey ?? null,
+          periodEnd: entitlement.periodEnd ?? null,
+          reason: entitlement.reason ?? null,
+        };
       }),
 
     getWeeklyUsage: protectedProcedure.query(async ({ ctx }) => {
@@ -1496,21 +1507,31 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), lessonNumber: z.number().int().min(1).max(20).optional(), submissionSource: z.enum(["lesson_one_essay"]).optional(), sourceVerificationFailed: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const trial = getTrialAccess(ctx.user.createdAt);
-        const isTrialUser = ctx.user.role === "user" && trial.isActive;
-        if (isTrialUser && !isEligibleTrialEvaluation(input)) {
+        const entitlement = await getAiEntitlement(ctx.user);
+        if (entitlement.mode === "trial" && !isEligibleTrialEvaluation(input)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험의 AI 논술 평가는 레슨 1의 첫 서술형 제출에만 제공됩니다." });
         }
-        if (isTrialUser && await db.getAIUsageCountByAction(ctx.user.id, "trial_essay_feedback") >= TRIAL_AI_EVALUATION_LIMIT) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험에서는 AI 논술 평가를 1회 제공했습니다. 정식 이용 정책을 확인해 주세요." });
+        if (!entitlement.canUse) {
+          throw new TRPCError({ code: "FORBIDDEN", message: entitlement.reason ?? "AI 논술 평가를 이용할 수 없습니다. 요금정책에서 이용권을 확인해 주세요." });
         }
-        if (!isTrialUser && ctx.user.role !== "admin" && await db.getTodayAIUsageCount(ctx.user.id) >= 5) throw new TRPCError({ code: "FORBIDDEN", message: "일일 AI 자동 첨삭 횟수(5회)를 모두 소모했습니다. 내일 다시 이용해주세요." });
+        // 사용 횟수를 AI 호출 전에 먼저 예약한다(동시에 여러 번 보내도 한도를 넘지 못한다). 호출이 실패하면 되돌린다.
+        let reservationId = 0;
+        if (entitlement.mode === "trial" || entitlement.mode === "plan") {
+          const actionType = entitlement.mode === "trial" ? AI_ACTION_TRIAL : AI_ACTION_PLAN;
+          const reservation = await billingDb.reserveAiUsage({ userId: ctx.user.id, actionType, countedActionTypes: [actionType], since: entitlement.periodStart, limit: entitlement.limit });
+          if (!reservation.reserved) throw new TRPCError({ code: "FORBIDDEN", message: entitlement.mode === "trial" ? "7일 무료 체험의 AI 논술 평가 1회를 사용했습니다. 이용권을 선택하면 계속 이용할 수 있습니다." : "이번 이용 기간의 AI 평가 횟수를 모두 사용했습니다." });
+          reservationId = reservation.reservationId;
+        }
         const difficultyPreset = await db.getDifficultyOperationPreset();
         const request = { essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, difficultyMode: difficultyPreset.mode, sourceVerificationFailed: Boolean(input.sourceVerificationFailed) } as const;
         const heuristic = evaluateWritingHeuristic(request);
-        const semantic = await evaluateWritingWithLLM({ metadata: { title: input.essayTitle, course_type: input.courseType, level: input.level, difficulty_mode: difficultyPreset.mode }, task: input.essayTitle, submission: { essay_text: input.essayContent } });
+        const semantic = await evaluateWritingWithLLM({ metadata: { title: input.essayTitle, course_type: input.courseType, level: input.level, difficulty_mode: difficultyPreset.mode }, task: input.essayTitle, submission: { essay_text: input.essayContent } }).catch(async (error) => {
+          await billingDb.releaseAiUsage(reservationId);
+          throw error;
+        });
         const feedback = { structureScore: semantic.dimension_scores.find((item) => item.competency === "macro_structure")?.score ?? semantic.total_score, logicScore: semantic.dimension_scores.find((item) => item.competency === "logical_inference")?.score ?? semantic.total_score, expressionScore: semantic.dimension_scores.find((item) => item.competency === "sentence_expression")?.score ?? semantic.total_score, overallScore: semantic.total_score, strengths: semantic.strengths, weaknesses: semantic.improvement_points, suggestions: semantic.feedback.revision_steps, overallComment: semantic.feedback.summary, revisedEssay: input.essayContent, sentenceCorrections: [], confidence: semantic.fallback_used ? 0.25 : 0.85, correction_status: semantic.fallback_used ? "fallback" as const : "completed" as const, fallback_used: semantic.fallback_used, provider_error: semantic.provider_error, latency_ms: 0, model_id: "builtin-llm-v1.1", token_usage: semantic.token_usage, estimated_cost_microusd: 0 };
-        await db.logAIUsage(ctx.user.id, isTrialUser ? "trial_essay_feedback" : "essay_feedback", feedback.token_usage);
+        if (reservationId) await billingDb.recordAiUsageTokens(reservationId, feedback.token_usage);
+        else await db.logAIUsage(ctx.user.id, AI_ACTION_PLAN, feedback.token_usage);
         await db.createEvaluationModelOperation({ modelId: feedback.model_id, status: feedback.correction_status, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, errorSummary: feedback.provider_error });
         const savedFeedback = await db.createAIAutoFeedback({ userId: ctx.user.id, essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, overallComment: feedback.overallComment, structureScore: feedback.structureScore, logicScore: feedback.logicScore, expressionScore: feedback.expressionScore, overallScore: feedback.overallScore, revisedEssay: feedback.revisedEssay, suggestions: JSON.stringify(feedback.suggestions), strengths: JSON.stringify(feedback.strengths), weaknesses: JSON.stringify(feedback.weaknesses) });
         const feedbackId = Number((savedFeedback as { insertId?: number }).insertId || 0) || null;
