@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Codex] 분리 worktree를 현재 main 기준으로 통일 및 동기화 절차 정리 — 시작 2026-10-11
 
 
 
