@@ -8,7 +8,9 @@ vi.mock("wouter", () => ({
   ),
 }));
 
-import Footer from "./Footer";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import Footer, { FOOTER_MENU } from "./Footer";
 
 describe("Footer", () => {
   it("모든 화면에서 약관·개인정보처리방침·문의 메일·저작권을 보여준다", () => {
@@ -29,6 +31,21 @@ describe("Footer", () => {
 
     const compact = renderToStaticMarkup(<Footer variant="compact" />);
     expect(compact).not.toContain('href="/curriculum"');
+  });
+
+  it("푸터 메뉴는 헤더 메뉴와 같은 명칭·순서이고, 교사 회원가입 진입점이 있다", () => {
+    const nav = readFileSync(fileURLToPath(new URL("./Navigation.tsx", import.meta.url)), "utf8");
+    const headerLabels = Array.from(nav.matchAll(/\{ label: "([^"]+)", href: "(\/[^"]*)"/g)).map((match) => match[1]);
+    // 헤더: 커리큘럼 → 추천 아카이브 → 요금정책 → (학습 도구) 6개 도구
+    const footerLabels = FOOTER_MENU.flatMap((group) => group.links.map((link) => link.label));
+    const expectedOrder = ["커리큘럼", "추천 아카이브", "요금정책", "AI 문장 교정", "단락 재구성", "요약 연습", "오답 노트", "주제 설정", "주제문 점검"];
+    expect(headerLabels.slice(0, expectedOrder.length)).toEqual(expectedOrder);
+    expect(footerLabels.slice(0, expectedOrder.length)).toEqual(expectedOrder);
+
+    const html = renderToStaticMarkup(<Footer />);
+    expect(html).toContain('href="/teacher-signup"');
+    expect(html).toContain("교사 회원가입");
+    expect(html).toContain('href="/signup"');
   });
 
   it("사업자 정보가 비어 있으면 해당 문구를 표시하지 않는다(추후 입력 예정)", () => {

@@ -87,11 +87,12 @@ export default function Signup() {
           <form onSubmit={handleSignup} className="mt-6 space-y-4">
             <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
               <p className="text-xs font-bold text-indigo-900">가입 유형</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="mt-2 grid grid-cols-3 gap-2">
                 <Button type="button" size="sm" variant={accountType === "student" ? "default" : "outline"} className={accountType === "student" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-white"} onClick={() => setAccountType("student")}>학생 회원</Button>
                 <Button type="button" size="sm" variant={accountType === "parent" ? "default" : "outline"} className={accountType === "parent" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-white"} onClick={() => setAccountType("parent")}>학부모 회원</Button>
+                <Link href="/teacher-signup"><Button type="button" size="sm" variant="outline" className="w-full bg-white">교사 회원</Button></Link>
               </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-indigo-800">학부모 계정은 연결된 학생의 학습 상황 확인과 코멘트 기능에 사용됩니다.</p>
+              <p className="mt-2 text-[11px] leading-relaxed text-indigo-800">학부모 계정은 연결된 학생의 학습 상황 확인과 코멘트 기능에 사용됩니다. 교사 회원은 별도 가입 화면에서 신청하며, 관리자 승인 후 이용할 수 있습니다.</p>
             </div>
             {accountType === "student" && <><label className="block text-sm font-medium text-slate-700">학습 과정<select value={courseType} onChange={(event) => { setCourseType(event.target.value as CourseType); setPreferredTeacherId(""); }} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-indigo-500 focus:ring-2">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">로그인 후 선택한 과정의 커리큘럼과 레슨을 기본으로 안내합니다.</span></label><label className="block text-sm font-medium text-slate-700">추천 교사 선택 <span className="font-normal text-slate-400">(선택)</span><select value={preferredTeacherId} onChange={(event) => setPreferredTeacherId(event.target.value)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-indigo-500 focus:ring-2" disabled={recommendedTeachers.isLoading}><option value="">선택하지 않음 — AI 첨삭 전용 봇 기본 배정</option>{recommendedTeachers.data?.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name} · Level {teacher.teacherLevel}{teacher.courseMatch ? " · 선택 과정 추천" : ""}</option>)}</select><span className="mt-1 block text-[11px] font-normal text-slate-500">교사를 선택하지 않으면 AI 첨삭 전용 봇이 기본 담당으로 지정됩니다.</span></label></>}
             {needsGuardian && (
