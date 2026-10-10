@@ -1,5 +1,6 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { PREVIEW_ARCHIVE_QUESTIONS, PREVIEW_ARCHIVE_STATS } from "@/lib/previewSamples";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,13 +44,20 @@ export default function EssayArchive() {
   const [selectedQuestionForSimilar, setSelectedQuestionForSimilar] = useState<any | null>(null);
   const [isSimilarModalOpen, setIsSimilarModalOpen] = useState(false);
 
-  const { data: questions, isLoading } = trpc.questionBank.list.useQuery({
+  // 로그인하지 않았으면 서버 요청 없이 샘플 목록으로 화면만 보여준다(DashboardLayout의 미리보기).
+  const preview = !user;
+  const { data: fetchedQuestions, isLoading: fetching } = trpc.questionBank.list.useQuery({
     courseType: activeCourse,
     toolType: activeTool === "all" ? undefined : activeTool,
-  });
+  }, { enabled: !preview });
+  const questions = preview
+    ? PREVIEW_ARCHIVE_QUESTIONS.filter((q) => activeTool === "all" || q.toolType === activeTool)
+    : fetchedQuestions;
+  const isLoading = preview ? false : fetching;
 
-  const { data: statsData } = trpc.questionBank.publicStats.useQuery();
-  const { data: bookmarksList, refetch: refetchBookmarks } = trpc.questionBank.getBookmarks.useQuery();
+  const { data: fetchedStats } = trpc.questionBank.publicStats.useQuery(undefined, { enabled: !preview });
+  const statsData = preview ? PREVIEW_ARCHIVE_STATS : fetchedStats;
+  const { data: bookmarksList, refetch: refetchBookmarks } = trpc.questionBank.getBookmarks.useQuery(undefined, { enabled: !preview });
   const { data: similarQuestions } = trpc.questionBank.similarQuestions.useQuery(
     { questionId: selectedQuestionForSimilar?.id || 0 },
     { enabled: !!selectedQuestionForSimilar }
@@ -134,7 +142,7 @@ export default function EssayArchive() {
   ];
 
   return (
-    <DashboardLayout>
+    <DashboardLayout previewTitle="추천 아카이브">
       <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">

@@ -10,6 +10,7 @@ import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 import { toast } from "sonner";
 import { AlertCircle, CheckCircle2, Lightbulb, Loader2, RefreshCw, Sparkles, XCircle } from "lucide-react";
 import { Link } from "wouter";
+import PreviewGate from "@/components/PreviewGate";
 import { getWorkbookReturnPath } from "@/lib/workbookReturn";
 
 type CriterionId = "clear" | "arguable" | "specific" | "supportable" | "relevant" | "original" | "balanced" | "grammatical";
@@ -64,9 +65,10 @@ export default function ThesisChecklist() {
   const scoreTone = !analysis ? "text-slate-700" : analysis.score >= 80 ? "text-emerald-700" : analysis.score >= 60 ? "text-amber-700" : "text-rose-700";
 
   if (loading) return <div className="py-12 text-center text-slate-600">학습자 정보를 확인하고 있습니다...</div>;
-  if (!isAuthenticated) return <div className="py-12 text-center text-slate-600">로그인 후 주제문 점검을 이용할 수 있습니다.</div>;
+  const preview = !isAuthenticated;
 
   return (
+    <PreviewGate active={preview} title="주제문 점검">
     <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl">
         <header className="mb-6">{workbookReturnPath && <Link href={workbookReturnPath}><Button variant="ghost" className="mb-3 h-auto px-0 text-indigo-800 hover:bg-transparent hover:text-indigo-950">← 학습 중인 레슨으로 돌아가기</Button></Link>}<Badge className="bg-indigo-100 text-indigo-800 hover:bg-indigo-100">{courseLabel} 과정</Badge><h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">주제문 점검</h1><p className="mt-2 text-base leading-7 text-slate-600">입력한 주제문을 여덟 가지 기준으로 살피고, 보완 방향과 개선 예시를 안내합니다.</p></header>
@@ -88,5 +90,6 @@ export default function ThesisChecklist() {
         <Card className="mt-6 border-indigo-200 bg-gradient-to-r from-indigo-50 to-indigo-50 p-5"><h2 className="font-bold text-slate-900">좋은 주제문을 만드는 간단한 공식</h2><p className="mt-2 text-sm leading-6 text-slate-700"><strong>대상</strong> + <strong>판단·주장</strong> + <strong>판단 기준 또는 조건</strong>을 한 문장으로 연결해 보세요. 분석 결과의 예시는 출발점이므로 그대로 제출하기보다 자신의 근거와 표현으로 다시 다듬는 것이 좋습니다.</p></Card>
       </div>
     </div>
+    </PreviewGate>
   );
 }

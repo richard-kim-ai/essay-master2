@@ -8,7 +8,8 @@ import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
-import LoginRequired from "@/components/LoginRequired";
+import PreviewGate from "@/components/PreviewGate";
+import { PREVIEW_QUIZ_QUESTIONS } from "@/lib/previewSamples";
 import QuestionFeedbackBox from "@/components/QuestionFeedbackBox";
 import { readAdminPreviewCourse } from "@/lib/adminPreviewCourse";
 
@@ -18,7 +19,9 @@ export default function QuizPage() {
   useEffect(() => {
     if (user?.role === "admin") setCourseType(readAdminPreviewCourse());
   }, [user?.role]);
-  const { data: qList, isLoading: qLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "quiz", limit: 10 });
+  const preview = !isAuthenticated;
+  const { data: qListData, isLoading: qLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "quiz", limit: 10 }, { enabled: !preview });
+  const qList = preview ? PREVIEW_QUIZ_QUESTIONS : qListData;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [draftAnswer, setDraftAnswer] = useState("");
   const [optionsUnlocked, setOptionsUnlocked] = useState(false);
@@ -55,10 +58,6 @@ export default function QuizPage() {
     setFinished(false);
     setDetailedFeedback(null);
   }, [courseType]);
-
-  if (!isAuthenticated) {
-    return <LoginRequired />;
-  }
 
   if (qLoading) {
     return <div className="text-center py-12 text-slate-600">문제은행에서 맞춤 퀴즈를 불러오는 중입니다...</div>;
@@ -186,6 +185,7 @@ export default function QuizPage() {
   }
 
   return (
+    <PreviewGate active={preview} title="AI 문장 교정">
     <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
@@ -269,10 +269,11 @@ export default function QuizPage() {
               )}
             </div>
 
-            {currentQ && <QuestionFeedbackBox questionId={currentQ.id} />}
+            {currentQ && !preview && <QuestionFeedbackBox questionId={currentQ.id} />}
           </CardContent>
         </Card>
       </div>
     </div>
+    </PreviewGate>
   );
 }

@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
-import LoginRequired from "@/components/LoginRequired";
+import PreviewGate from "@/components/PreviewGate";
+import { PREVIEW_SUMMARY_QUESTIONS } from "@/lib/previewSamples";
 import { toast } from "sonner";
 import { BookOpen, Send, RotateCcw, CheckCircle2, Award } from "lucide-react";
 import { Link } from "wouter";
@@ -13,7 +14,9 @@ import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 export default function SummaryPractice() {
   const { isAuthenticated } = useAuth();
   const [courseType, setCourseType] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("middle_high");
-  const { data: qList, isLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "summary", limit: 1 });
+  const preview = !isAuthenticated;
+  const { data: qListData, isLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "summary", limit: 1 }, { enabled: !preview });
+  const qList = preview ? PREVIEW_SUMMARY_QUESTIONS : qListData;
 
   const [articleTitle, setArticleTitle] = useState("AI와 미래 사회의 명암");
   const [articleContent, setArticleContent] = useState("");
@@ -45,7 +48,6 @@ export default function SummaryPractice() {
     }
   }, [qList]);
 
-  if (!isAuthenticated) return <LoginRequired />;
   if (isLoading) return <div className="text-center py-12 text-slate-600">문제은행에서 요약 지문을 불러오는 중...</div>;
 
   const analyzeSummary = async () => {
@@ -106,6 +108,7 @@ export default function SummaryPractice() {
   };
 
   return (
+    <PreviewGate active={preview} title="요약 연습">
     <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
@@ -171,5 +174,6 @@ export default function SummaryPractice() {
         />
       </div>
     </div>
+    </PreviewGate>
   );
 }

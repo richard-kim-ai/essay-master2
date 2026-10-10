@@ -10,6 +10,7 @@ import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 import { toast } from "sonner";
 import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Copy, Lightbulb, Loader2, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
+import PreviewGate from "@/components/PreviewGate";
 import { getWorkbookReturnPath } from "@/lib/workbookReturn";
 import { findConflictingTopicCategories, getTopicCategoryGuidance, TOPIC_CATEGORY_GUIDANCE, type TopicCategory } from "@/lib/topicCategoryGuidance";
 
@@ -90,7 +91,7 @@ export default function TopicWizard() {
   };
 
   if (loading) return <div className="py-12 text-center text-slate-600">학습자 정보를 확인하고 있습니다...</div>;
-  if (!isAuthenticated) return <div className="py-12 text-center text-slate-600">로그인 후 주제 설정 도구를 이용할 수 있습니다.</div>;
+  const preview = !isAuthenticated;
 
   if (completed) {
     return (
@@ -114,6 +115,7 @@ export default function TopicWizard() {
   }
 
   return (
+    <PreviewGate active={preview} title="주제 설정">
     <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
         <header className="mb-6">{workbookReturnPath && <Link href={workbookReturnPath}><Button variant="ghost" className="mb-3 h-auto px-0 text-emerald-800 hover:bg-transparent hover:text-emerald-950"><ChevronLeft className="mr-1.5 h-4 w-4" />학습 중인 레슨으로 돌아가기</Button></Link>}<Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{courseLabel} 과정</Badge><h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">주제 설정</h1><p className="mt-2 text-base leading-7 text-slate-600">질문에 차례로 답하며 글쓰기의 출발점인 주제·주제문·개요를 완성해 보세요.</p></header>
@@ -129,5 +131,6 @@ export default function TopicWizard() {
         <div className="mt-5 flex gap-3"><Button variant="outline" onClick={() => { setGuide(null); setStep((previous) => Math.max(1, previous - 1) as Step); }} disabled={step === 1} className="flex-1"><ChevronLeft className="mr-2 h-4 w-4" />이전</Button>{step < 4 ? <Button onClick={handleNext} className="flex-1 bg-emerald-700 hover:bg-emerald-800">다음<ChevronRight className="ml-2 h-4 w-4" /></Button> : <Button onClick={() => { if (validateCurrentStep()) setCompleted(true); }} className="flex-1 bg-emerald-700 hover:bg-emerald-800"><CheckCircle2 className="mr-2 h-4 w-4" />완료 결과 보기</Button>}</div>
       </div>
     </div>
+    </PreviewGate>
   );
 }
