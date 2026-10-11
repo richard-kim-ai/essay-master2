@@ -9,7 +9,7 @@ import { REFUND_POLICY_KEY } from "./refundPolicy";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse, requireLearnerCourse } from "./questionBankAccess";
-import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback } from "./essayWorkspace";
+import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
@@ -1463,6 +1463,15 @@ export const appRouter = router({
     getByUser: protectedProcedure.query(({ ctx }) =>
       db.getEssaySubmissionsByUser(ctx.user.id)
     ),
+
+    // 교사(담당 학생)·관리자(전체)가 학생이 제출한 글을 목록으로 보고 첨삭할 글을 고른다.
+    reviewList: protectedProcedure
+      .input(z.object({
+        status: z.enum(["submitted", "reviewed", "all"]).default("submitted"),
+        studentId: z.number().int().positive().optional(),
+        search: z.string().trim().max(80).optional(),
+      }).default({ status: "submitted" }))
+      .query(({ ctx, input }) => listEssaysForReview(ctx.user, input)),
 
     getById: protectedProcedure
       .input(z.number())

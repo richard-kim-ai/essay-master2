@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TeacherFeedbackQueue from "@/components/TeacherFeedbackQueue";
+import StudentEssayReviewList from "@/components/StudentEssayReviewList";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Wallet, GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock, ArrowUpDown, AlertCircle, ShieldAlert, ShieldCheck } from "lucide-react";
@@ -135,6 +136,7 @@ export default function TeacherMyPage() {
         <Tabs defaultValue="students" className="space-y-6">
           <TabsList className="bg-white p-1 shadow-sm">
             <TabsTrigger value="requests" className="gap-2"><CheckCircle className="h-4 w-4" /> 첨삭 신청 대기열</TabsTrigger>
+            <TabsTrigger value="essays" className="gap-2"><FileEdit className="h-4 w-4" /> 학생 제출 글</TabsTrigger>
             <TabsTrigger value="students" className="gap-2"><Users className="h-4 w-4" /> 지도 학생 목록 및 정렬</TabsTrigger>
             <TabsTrigger value="classes" className="gap-2"><CheckCircle className="h-4 w-4" /> 담당 반 출결·과제</TabsTrigger>
             <TabsTrigger value="certificates" className="gap-2"><Award className="h-4 w-4" /> 수료 공동 승인</TabsTrigger>
@@ -143,6 +145,10 @@ export default function TeacherMyPage() {
 
           <TabsContent value="requests" className="space-y-6">
             <TeacherFeedbackQueue />
+          </TabsContent>
+
+          <TabsContent value="essays" className="space-y-6">
+            <StudentEssayReviewList scope="teacher" />
           </TabsContent>
 
           <TabsContent value="students" className="space-y-6">

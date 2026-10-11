@@ -49,6 +49,7 @@ const ROUTES: PageRoute[] = [
   { pattern: "/teacher/settlement", label: "정산", parent: "/teacher-mypage" },
   { pattern: "/parent-portal", label: "학부모 포털" },
   { pattern: "/admin", label: "관리자" },
+  { pattern: "/admin/student-essays", label: "학생 제출 글", parent: "/admin" },
   { pattern: "/admin/certificates", label: "수료증 관리", parent: "/admin" },
   { pattern: "/admin/curriculum", label: "커리큘럼 관리", parent: "/admin" },
   { pattern: "/admin/question-bank", label: "문제은행", parent: "/admin" },

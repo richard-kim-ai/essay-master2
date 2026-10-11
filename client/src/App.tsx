@@ -61,6 +61,7 @@ const ParentPortal = lazy(() => import("@/pages/ParentPortal"));
 const StudentAssignments = lazy(() => import("@/pages/StudentAssignments"));
 const Pricing = lazy(() => import("./pages/Pricing"));
 const MyWritings = lazy(() => import("./pages/MyWritings"));
+const AdminStudentEssays = lazy(() => import("./pages/AdminStudentEssays"));
 const SampleExperience = lazy(() => import("./pages/SampleExperience"));
 
 function RouteLoadingFallback() {
@@ -90,6 +91,7 @@ function Router() {
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/admin">{() => <Layout><AdminDashboard /></Layout>}</Route>
+        <Route path="/admin/student-essays">{() => <Layout><AdminStudentEssays /></Layout>}</Route>
         <Route path="/admin/certificates">{() => <Layout><AdminCertificates /></Layout>}</Route>
         <Route path="/admin/curriculum">{() => <Layout><AdminCurriculumManager /></Layout>}</Route>
         <Route path="/admin/question-bank">{() => <Layout><AdminQuestionBank /></Layout>}</Route>

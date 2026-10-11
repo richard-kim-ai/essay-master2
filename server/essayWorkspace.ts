@@ -1,10 +1,11 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   essaySubmission,
   users,
   teacherFeedback,
   aiAutoFeedback,
+  teacherFeedbackRequests,
 } from "../drizzle/schema";
 import { getDb } from "./db";
 
@@ -197,4 +198,86 @@ export async function requestEssayTeacherFeedback(
       )
     );
   return { status: "submitted" as const };
+}
+
+export type EssayReviewFilter = {
+  status?: "submitted" | "reviewed" | "all";
+  studentId?: number;
+  search?: string;
+};
+
+/**
+ * 교사·관리자가 첨삭할 학생 글 목록.
+ * - 관리자: 모든 학생의 제출 글. 승인된 교사: 자신이 담당하는 학생의 제출 글만.
+ * - 학생이 아직 제출하지 않은 초안은 보여 주지 않는다(제출·첨삭 완료된 글만).
+ * - 글마다 첨삭 여부와 최근 첨삭 신청(상태·완료 예정일)을 함께 돌려준다.
+ */
+export async function listEssaysForReview(
+  viewer: { id: number; role: string; teacherStatus?: string | null },
+  filter: EssayReviewFilter = {}
+) {
+  const isAdmin = viewer.role === "admin";
+  const isApprovedTeacher = viewer.role === "teacher" && viewer.teacherStatus === "approved";
+  if (!isAdmin && !isApprovedTeacher)
+    throw new TRPCError({ code: "FORBIDDEN", message: "승인된 교사 또는 관리자만 학생 글 목록을 볼 수 있습니다." });
+  const db = await getDb();
+  if (!db)
+    throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "서버에 연결할 수 없습니다." });
+
+  const status = filter.status ?? "submitted";
+  const conditions = [
+    status === "all" ? inArray(essaySubmission.status, ["submitted", "reviewed"]) : eq(essaySubmission.status, status),
+  ];
+  if (!isAdmin) conditions.push(eq(users.teacherId, viewer.id));
+  if (filter.studentId) conditions.push(eq(essaySubmission.userId, filter.studentId));
+
+  const rows = await db
+    .select({
+      essayId: essaySubmission.id,
+      title: essaySubmission.title,
+      status: essaySubmission.status,
+      submittedAt: essaySubmission.submittedAt,
+      updatedAt: essaySubmission.updatedAt,
+      aiFeedbackId: essaySubmission.aiFeedbackId,
+      content: essaySubmission.content,
+      studentId: users.id,
+      studentName: users.name,
+      studentEmail: users.email,
+    })
+    .from(essaySubmission)
+    .innerJoin(users, eq(users.id, essaySubmission.userId))
+    .where(and(...conditions))
+    .orderBy(desc(essaySubmission.submittedAt), desc(essaySubmission.updatedAt))
+    .limit(300);
+  if (!rows.length) return [];
+
+  const essayIds = rows.map((row) => row.essayId);
+  const feedbacks = await db
+    .select({ essayId: teacherFeedback.essayId, id: teacherFeedback.id, teacherId: teacherFeedback.teacherId, updatedAt: teacherFeedback.updatedAt, overallScore: teacherFeedback.overallScore })
+    .from(teacherFeedback)
+    .where(inArray(teacherFeedback.essayId, essayIds));
+  const requests = await db
+    .select({ essayId: teacherFeedbackRequests.essayId, status: teacherFeedbackRequests.status, dueAt: teacherFeedbackRequests.dueAt, createdAt: teacherFeedbackRequests.createdAt })
+    .from(teacherFeedbackRequests)
+    .where(inArray(teacherFeedbackRequests.essayId, essayIds))
+    .orderBy(desc(teacherFeedbackRequests.createdAt));
+  const feedbackByEssay = new Map(feedbacks.map((feedback) => [feedback.essayId, feedback]));
+  const latestRequestByEssay = new Map<number, (typeof requests)[number]>();
+  for (const request of requests) if (!latestRequestByEssay.has(request.essayId)) latestRequestByEssay.set(request.essayId, request);
+
+  const needle = filter.search?.trim().toLowerCase();
+  return rows
+    .filter((row) => !needle || [row.title, row.studentName, row.studentEmail].some((value) => (value ?? "").toLowerCase().includes(needle)))
+    .map(({ content, ...row }) => {
+      const feedback = feedbackByEssay.get(row.essayId);
+      const request = latestRequestByEssay.get(row.essayId);
+      return {
+        ...row,
+        preview: content.replace(/\s+/g, " ").trim().slice(0, 140),
+        hasTeacherFeedback: Boolean(feedback),
+        teacherFeedbackScore: feedback?.overallScore ?? null,
+        requestStatus: request?.status ?? null,
+        requestDueAt: request?.dueAt ?? null,
+      };
+    });
 }
