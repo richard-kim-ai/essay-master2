@@ -26,7 +26,7 @@ export default function Signup() {
 
   const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "" });
   const [accountType, setAccountType] = useState<"student" | "parent">("student");
-  const [courseType, setCourseType] = useState<CourseType>(cameFromSample ? (sampleCourseParam as CourseType) : "elementary");
+  const [courseType, setCourseType] = useState<CourseType | "">(cameFromSample ? (sampleCourseParam as CourseType) : "");
   const [consents, setConsents] = useState<PolicyConsentValue[]>([]);
   const [guardianInfo, setGuardianInfo] = useState<GuardianInfoValue>(EMPTY_GUARDIAN_INFO);
   // 초등 과정 학생은 생년월일과 법정대리인(보호자) 정보를 입력하고, 보호자가 이메일로 동의해야 한다.
@@ -55,12 +55,13 @@ export default function Signup() {
     if (!formData.name || !formData.email || !formData.password) return toast.error("모든 필드를 입력해주세요.");
     if (formData.password.length < 8) return toast.error("비밀번호는 8자 이상이어야 합니다.");
     if (formData.password !== formData.confirmPassword) return toast.error("비밀번호가 일치하지 않습니다.");
+    if (accountType === "student" && !courseType) return toast.error("학습 과정을 선택해 주세요.");
     if (needsGuardian) {
       const problem = validateGuardianInfo(guardianInfo, formData.email);
       if (problem) return toast.error(`보호자 정보를 확인해 주세요. ${problem}`);
     }
     if (consents.length === 0) return toast.error("필수 문서를 확인하고 동의해주세요.");
-    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password, accountType, courseType: accountType === "student" ? courseType : undefined, birthDate: needsGuardian ? guardianInfo.birthDate : undefined, guardian: needsGuardian ? { name: guardianInfo.guardian.name.trim(), relation: guardianInfo.guardian.relation, email: guardianInfo.guardian.email.trim() } : undefined, consents });
+    signupMutation.mutate({ name: formData.name, email: formData.email, password: formData.password, accountType, courseType: accountType === "student" && courseType ? courseType : undefined, birthDate: needsGuardian ? guardianInfo.birthDate : undefined, guardian: needsGuardian ? { name: guardianInfo.guardian.name.trim(), relation: guardianInfo.guardian.relation, email: guardianInfo.guardian.email.trim() } : undefined, consents });
   };
 
   return (
@@ -88,7 +89,7 @@ export default function Signup() {
             </div>
             {accountType === "student" && (
               <label className="block text-sm font-medium text-slate-700">학습 과정
-                <select value={courseType} onChange={(event) => setCourseType(event.target.value as CourseType)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-indigo-500 focus:ring-2">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select>
+                <select value={courseType} onChange={(event) => setCourseType(event.target.value as CourseType)} className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-indigo-500 focus:ring-2"><option value="" disabled>학습 과정을 선택해 주세요</option>{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select>
                 <span className="mt-1 block text-[11px] font-normal text-slate-500">담당 교사는 가입 후 마이페이지에서 선택할 수 있습니다. 선택 전에는 AI 첨삭 봇이 기본 담당입니다.</span>
               </label>
             )}

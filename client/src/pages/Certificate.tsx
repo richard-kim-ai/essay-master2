@@ -6,6 +6,8 @@ import { Award, Eye, CheckCircle2, AlertCircle, FileImage, Share2, Link2, Extern
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { courseLabelOf, createArchiveImage, downloadCertificatePdf, drawCertificateCanvas, type CertificateExportData } from "@/lib/certificateExport";
+import { COURSE_OPTIONS, type CourseType } from "@shared/course";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
 import {
   Dialog,
   DialogContent,
@@ -15,33 +17,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type CourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
-
-function courseTypeFromTag(tag?: string | null): CourseType {
-  if (tag?.includes("중고등")) return "middle_high";
-  if (tag?.includes("고등")) return "high_univ";
-  if (tag?.includes("일반")) return "general_adult";
-  return "elementary";
-}
-
 export default function Certificate() {
   const { user, isAuthenticated } = useAuth();
+  const { effectiveCourse, courseLabel, canPersist, needsSelection } = useLearningCourse();
   const [certificates, setCertificates] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Preview Modal state
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [selectedCourse, setSelectedCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("elementary");
+  const [selectedCourse, setSelectedCourse] = useState<CourseType>("elementary");
   const [selectedLevel, setSelectedLevel] = useState<number>(1);
 
   const [sharingId, setSharingId] = useState<number | null>(null);
-  const activeCourse = courseTypeFromTag(user?.tag);
-  const isLearnerAccount = user?.role === "user";
+  const activeCourse = effectiveCourse;
+  const isLearnerAccount = canPersist;
 
   const getCertificatesQuery = trpc.certificate.getUserCertificates.useQuery(undefined, {
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && Boolean(activeCourse),
   });
-  const eligibilityQuery = trpc.certificate.eligibility.useQuery(undefined, { enabled: isAuthenticated });
+  const eligibilityQuery = trpc.certificate.eligibility.useQuery(undefined, { enabled: canPersist });
   const issueMutation = trpc.certificate.issue.useMutation();
   const saveArchiveMutation = trpc.certificate.saveArchive.useMutation();
 
@@ -64,6 +58,9 @@ export default function Certificate() {
         </Card>
       </div>
     );
+  }
+  if (needsSelection) {
+    return <div className="bg-slate-50 flex items-center justify-center p-4"><Card className="max-w-md w-full p-6 text-center shadow-md"><Award className="w-12 h-12 text-indigo-600 mx-auto mb-4" /><h2 className="text-xl font-bold text-slate-900">가입 과정 확인이 필요합니다</h2><p className="text-sm text-slate-600 mt-2">수료증은 가입한 과정의 학습 기록으로만 확인할 수 있습니다.</p><Button onClick={() => window.location.href = "/mypage"} className="mt-6 w-full bg-indigo-600 hover:bg-indigo-700">마이페이지에서 과정 확인</Button></Card></div>;
   }
 
   // Check if user already has certificate for this course & level
@@ -121,7 +118,7 @@ export default function Certificate() {
     }
   };
 
-  const handleOpenPreview = (courseType: "elementary" | "middle_high" | "high_univ" | "general_adult", level: number) => {
+  const handleOpenPreview = (courseType: CourseType, level: number) => {
     if (!isLearnerAccount) {
       toast.info("관리자 계정은 수료증을 직접 신청하지 않습니다. 수료증 관리 화면으로 이동합니다.");
       window.location.href = "/admin/certificates";
@@ -179,7 +176,7 @@ export default function Certificate() {
       <div className="max-w-6xl mx-auto space-y-12">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">수료증</h1>
-          <p className="text-sm text-slate-600 mt-1">가입 과정의 수료 기준을 충족한 뒤 수료증을 미리보기 및 발급받으세요.</p>
+          <p className="text-sm text-slate-600 mt-1">{courseLabel} 논술 과정의 수료 기준을 충족한 뒤 수료증을 미리보기 및 발급받으세요.</p>
           {!isLearnerAccount && <div className="mt-4 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm font-medium text-indigo-950">관리자 계정은 수료증 신청 대신 발급·승인 관리 화면을 이용합니다.</p><Button size="sm" className="bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => { window.location.href = "/admin/certificates"; }}>수료증 관리로 이동</Button></div>}
         </div>
 
@@ -388,9 +385,9 @@ export default function Certificate() {
                 <Card key={cert.id} id={`cert-card-${cert.id}`} className="border-indigo-100 shadow-sm bg-gradient-to-br from-white to-indigo-50/20">
                   <CardHeader className="pb-3">
                     <span className="text-[11px] uppercase tracking-wider font-bold text-indigo-600">
-                      {cert.courseType === "elementary" ? "초등 과정" : cert.courseType === "middle_high" ? "중고등 과정" : cert.courseType === "high_univ" ? "고등/대입 과정" : "일반/직장인 과정"}
+                      {COURSE_OPTIONS.find((course) => course.value === cert.courseType)?.label || "논술"} 과정
                     </span>
-                    <CardTitle className="text-lg font-bold text-slate-900">{cert.title || `${cert.courseType} Level ${cert.level || 1} 수료증`}</CardTitle>
+                    <CardTitle className="text-lg font-bold text-slate-900">{cert.title || `${COURSE_OPTIONS.find((course) => course.value === cert.courseType)?.label || "논술"} 과정 Level ${cert.level || 1} 수료증`}</CardTitle>
                     <CardDescription className="text-xs font-slate-600 font-semibold">인증번호: {cert.certNumber || `CERT-2026-${cert.id}`}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -404,7 +401,7 @@ export default function Certificate() {
                         <Button
                           size="sm"
                           className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1"
-                          onClick={() => exportCertificate({ title: cert.title || `Level ${cert.level || 1} 수료증`, courseLabel: cert.courseType === "elementary" ? "초등 논술 과정" : cert.courseType === "middle_high" ? "중고등 논술 과정" : cert.courseType === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정", recipient: user?.name || "학습자", certificateNumber: cert.certNumber || `CERT-2026-${cert.id}`, issuedAt: new Date(cert.createdAt).toLocaleDateString() }, `Certificate_${cert.certNumber || cert.id}`)}
+                          onClick={() => exportCertificate({ title: cert.title || `Level ${cert.level || 1} 수료증`, courseLabel: `${COURSE_OPTIONS.find((course) => course.value === cert.courseType)?.label || "논술"} 논술 과정`, recipient: user?.name || "학습자", certificateNumber: cert.certNumber || `CERT-2026-${cert.id}`, issuedAt: new Date(cert.createdAt).toLocaleDateString() }, `Certificate_${cert.certNumber || cert.id}`)}
                         >
                           <FileImage className="w-3.5 h-3.5" /> 이미지 저장
                         </Button>

@@ -12,6 +12,7 @@ function createMockContext(overrides?: Partial<TrpcContext>): TrpcContext {
       name: "Test User",
       loginMethod: "manus",
       role: "user",
+      tag: "중고등",
       createdAt: new Date(),
       updatedAt: new Date(),
       lastSignedIn: new Date(),
@@ -52,6 +53,7 @@ describe("appRouter", () => {
   describe("curriculum", () => {
     it("should get curriculum by type", async () => {
       const ctx = createMockContext();
+      ctx.user = {...ctx.user!,tag:"초등"};
       const caller = appRouter.createCaller(ctx);
 
       const result = await caller.curriculum.getByType("elementary");
@@ -104,10 +106,8 @@ describe("appRouter", () => {
       const ctx = createMockContext();
       const caller = appRouter.createCaller(ctx);
 
-      // 점수·완료 여부는 서버가 계산한다. 가입 과정(태그 없음 = 중고등)이 아닌 과정은 기록하지 않는다.
-      const result = await caller.progress.upsert({ courseType: "elementary", level: 1 });
-
-      expect(result).toBeNull();
+      // 점수·완료 여부는 서버가 계산하고, 명시된 가입 과정이 아닌 요청은 저장 전에 차단한다.
+      await expect(caller.progress.upsert({ courseType: "elementary", level: 1 })).rejects.toMatchObject({code:"FORBIDDEN"});
     });
 
     it("should get user progress", async () => {

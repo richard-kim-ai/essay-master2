@@ -1,24 +1,53 @@
-export type WorkbookCourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
+export type WorkbookCourseType =
+  | "elementary"
+  | "middle_high"
+  | "high_univ"
+  | "general_adult";
 
-const WORKBOOK_RETURN_PATTERN = /^\/workbook\/(elementary|middle_high|high_univ|general_adult)\/([1-9]\d*)(?:\?lesson=(\d+))?$/;
+const WORKBOOK_RETURN_PATTERN =
+  /^\/workbook\/(elementary|middle_high|high_univ|general_adult)\/([1-9]\d*)(?:\?lesson=(\d+))?$/;
 
 function isWorkbookCourseType(value: string): value is WorkbookCourseType {
-  return ["elementary", "middle_high", "high_univ", "general_adult"].includes(value);
+  return ["elementary", "middle_high", "high_univ", "general_adult"].includes(
+    value
+  );
 }
 
-export function buildWorkbookReturnPath(courseType: string, level: number, lessonIndex: number) {
-  if (!isWorkbookCourseType(courseType) || !Number.isInteger(level) || level < 1 || !Number.isInteger(lessonIndex) || lessonIndex < 0) return null;
+export function buildWorkbookReturnPath(
+  courseType: string,
+  level: number,
+  lessonIndex: number
+) {
+  if (
+    !isWorkbookCourseType(courseType) ||
+    !Number.isInteger(level) ||
+    level < 1 ||
+    !Number.isInteger(lessonIndex) ||
+    lessonIndex < 0
+  )
+    return null;
   return `/workbook/${courseType}/${level}?lesson=${lessonIndex}`;
 }
 
-export function buildToolPathWithWorkbookReturn(toolPath: "/topic-wizard" | "/thesis-checklist", returnPath: string | null) {
+export function buildToolPathWithWorkbookReturn(
+  toolPath: "/topic-wizard" | "/thesis-checklist",
+  returnPath: string | null
+) {
   if (!returnPath || !WORKBOOK_RETURN_PATTERN.test(returnPath)) return toolPath;
   return `${toolPath}?${new URLSearchParams({ return_to: returnPath }).toString()}`;
 }
 
-export function getWorkbookReturnPath(search: string) {
+/** Passing the current course prevents cross-course return links; omitted keeps the legacy contract. */
+export function getWorkbookReturnPath(
+  search: string,
+  expectedCourseType?: WorkbookCourseType | null
+) {
   const returnPath = new URLSearchParams(search).get("return_to");
-  return returnPath && WORKBOOK_RETURN_PATTERN.test(returnPath) ? returnPath : null;
+  const match = returnPath?.match(WORKBOOK_RETURN_PATTERN);
+  if (!match) return null;
+  if (expectedCourseType !== undefined && match[1] !== expectedCourseType)
+    return null;
+  return returnPath;
 }
 
 export function getInitialWorkbookLesson(search: string) {

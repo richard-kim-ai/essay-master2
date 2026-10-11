@@ -72,7 +72,9 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("빈 반에도 첫 학생을 편성하고, 중복 편성만 건너뛴다", () => {
     const source = readFileSync(dbPath, "utf8");
     expect(source).toContain("if (existing.length > 0) return existing[0]");
-    expect(source).toContain("db.insert(learningGroupMembers).values({ groupId, studentId, addedBy })");
+    expect(source).toContain("const [inserted] = await db");
+    expect(source).toContain(".insert(learningGroupMembers)");
+    expect(source).toContain(".values({ groupId, studentId, addedBy });");
   });
 
   it("학생용 신규 과정 상세 페이지가 AI 태그·생성 예문·샘플 PDF 다운로드를 제공한다", () => {
@@ -114,10 +116,10 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("대시보드가 과정별 진도 프로그레스 바를 제공한다", () => {
     const dashboardPath = new URL("../client/src/pages/Dashboard.tsx", import.meta.url);
     const source = readFileSync(dashboardPath, "utf8");
-    expect(source).toContain("초등 과정 진도");
-    expect(source).toContain("중고등 과정 진도");
-    expect(source).toContain("고등/대입 과정 진도");
-    expect(source).toContain("일반/직장인 과정 진도");
+    expect(source).toContain("useLearningCourse");
+    expect(source).toContain("courseLabel");
+    expect(source).toContain("enabled: canPersist");
+    expect(source).not.toContain('getByType.useQuery("elementary"');
   });
 
   it("문제은행 관리자 콘솔이 정답률 통계와 AI 난이도 최적화 기능을 제공한다", () => {

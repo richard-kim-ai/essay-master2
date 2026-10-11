@@ -88,11 +88,11 @@ describe("학생 아카이브의 가입 과정 접근", () => {
     expect(db.getQuestionBankList).toHaveBeenCalledWith("high_univ", undefined);
     expect(result).toHaveLength(3);
     await caller(role).questionBank.similarQuestions({ questionId: 12 });
-    expect(db.getQuestionBankItemById).not.toHaveBeenCalled();
+    expect(db.getQuestionBankItemById).toHaveBeenCalledWith(12);
     expect(db.getSimilarQuestions).toHaveBeenCalledWith(12, undefined);
   });
-  it("학부모는 학생으로 오인하여 임의의 과정으로 제한하지 않는다", async () => {
-    await caller("user", "학부모").questionBank.list({ courseType: "high_univ" });
-    expect(db.getQuestionBankList).toHaveBeenCalledWith("high_univ", undefined);
+  it("학부모는 일반 학습 자료 경로를 이용할 수 없다", async () => {
+    await expect(caller("user", "학부모").questionBank.list({ courseType: "high_univ" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.getQuestionBankList).not.toHaveBeenCalled();
   });
 });

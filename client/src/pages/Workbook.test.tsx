@@ -11,6 +11,18 @@ vi.mock("@/_core/hooks/useAuth", () => ({
   useAuth: () => ({ isAuthenticated: true }),
 }));
 
+vi.mock("@/hooks/useLearningCourse", () => ({
+  useLearningCourse: () => ({
+    effectiveCourse: "middle_high",
+    courseLabel: "중고등",
+    scopeKey: "test-user:middle_high",
+    canLearn: true,
+    canPersist: true,
+    needsSelection: false,
+    mode: "learner",
+  }),
+}));
+
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     useUtils: () => ({ theoryContent: { getMyProgress: { invalidate: vi.fn() } } }),

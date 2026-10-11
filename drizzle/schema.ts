@@ -29,7 +29,7 @@ export const users = mysqlTable("users", {
   teacherId: int("teacherId"), // 학생이 배정된 담당 교사 ID
   preferredTeacherId: int("preferredTeacherId"), // 학생 가입 시 선택한 추천 교사 ID (관리자 배정 전 희망값)
   adminNotes: text("adminNotes"),
-  tag: varchar("tag", { length: 64 }).default("일반").notNull(),
+  tag: varchar("tag", { length: 64 }).default("과정 미선택").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -395,6 +395,9 @@ export const progress = mysqlTable("progress", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   curriculumId: int("curriculumId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]),
+  curriculumSource: mysqlEnum("curriculumSource", ["static", "dynamic"]),
+  level: int("level"),
   score: int("score").default(0),
   completed: int("completed").default(0), // 0 or 1
   completedAt: timestamp("completedAt"),
@@ -402,6 +405,7 @@ export const progress = mysqlTable("progress", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
   idxUserId: index("idx_progress_userId").on(table.userId),
+  uniqueLearningModule: uniqueIndex("uq_progress_learning_module").on(table.userId, table.courseType, table.curriculumSource, table.curriculumId),
 }));
 
 export type Progress = typeof progress.$inferSelect;

@@ -330,7 +330,7 @@ export default function Navigation() {
                           <span>마이페이지 허브 (통합 홈)</span>
                         </DropdownMenuItem>
                       </Link>
-                      <Link href="/dashboard">
+                      <Link href="/dashboard-detail">
                         <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
                           <BarChart3 className="w-4 h-4 mr-2 text-indigo-600" />
                           <span>학습 대시보드</span>
@@ -437,6 +437,12 @@ export default function Navigation() {
                             </button>
                           </Link>
                         )}
+                        <Link href="/mypage">
+                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                            <User className="w-4 h-4 text-indigo-600" />
+                            <span>마이페이지 허브</span>
+                          </button>
+                        </Link>
                         <Link href="/dashboard-detail">
                           <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
                             <BarChart3 className="w-4 h-4 text-indigo-600" />

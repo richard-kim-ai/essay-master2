@@ -1,3 +1,4 @@
+import {useRef} from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,9 @@ import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight, Sparkles, Loader2, Clock3, BrainCircuit } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { COURSE_OPTIONS, type CourseType } from "@shared/course";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
 import {
   LineChart,
   Line,
@@ -34,15 +37,8 @@ const BADGE_TOOL_LINKS: Record<string, string> = {
   topic_wizard: "/topic-wizard",
 };
 
-function courseTypeFromTag(tag?: string | null) {
-  if (tag?.includes("중고등")) return "middle_high";
-  if (tag?.includes("고등")) return "high_univ";
-  if (tag?.includes("일반")) return "general_adult";
-  return "elementary";
-}
-
-function BadgeSection({ courseType }: { courseType: string }) {
-  const { data: badges, isLoading } = trpc.badges.getByUser.useQuery();
+function BadgeSection({ courseType, enabled }: { courseType: CourseType; enabled: boolean }) {
+  const { data: badges, isLoading } = trpc.badges.getByUser.useQuery(undefined, { enabled });
 
   if (isLoading) return <div className="text-sm text-slate-500">뱃지 불러오는 중...</div>;
 
@@ -91,23 +87,17 @@ function BadgeSection({ courseType }: { courseType: string }) {
 
 export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
-  const isSampleMode = !isAuthenticated;
-  const [sampleCourse, setSampleCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => {
-    if (typeof window === "undefined") return "elementary";
-    const stored = window.localStorage.getItem("essaymaster-sample-course");
-    return ["elementary", "middle_high", "high_univ", "general_adult"].includes(stored || "") ? stored as "elementary" | "middle_high" | "high_univ" | "general_adult" : "elementary";
-  });
+  const { effectiveCourse, courseLabel, canLearn, canPersist, canSelectCourse, needsSelection, mode, scopeKey, setCourseType } = useLearningCourse();
+  const isSampleMode = mode === "public-preview";
+  const isStaffPreview = mode === "staff-preview";
+  const activeCourseType = effectiveCourse;
+  const queryCourse = activeCourseType ?? "elementary";
   const { data: progressData } = trpc.progress.getByUser.useQuery(undefined, {
-    enabled: isAuthenticated,
+    enabled: canPersist,
   });
-  const { data: elementaryCurr } = trpc.curriculum.getDynamicByType.useQuery("elementary", { enabled: isAuthenticated });
-  const { data: middleHighCurr } = trpc.curriculum.getDynamicByType.useQuery("middle_high", { enabled: isAuthenticated });
-  const { data: highUnivCurr } = trpc.curriculum.getDynamicByType.useQuery("high_univ", { enabled: isAuthenticated });
-  const { data: generalAdultCurr } = trpc.curriculum.getDynamicByType.useQuery("general_adult", { enabled: isAuthenticated });
-  const { data: elementaryStatic } = trpc.curriculum.getByType.useQuery("elementary", { enabled: isAuthenticated });
-  const { data: middleHighStatic } = trpc.curriculum.getByType.useQuery("middle_high", { enabled: isAuthenticated });
-  const { data: highUnivStatic } = trpc.curriculum.getByType.useQuery("high_univ", { enabled: isAuthenticated });
-  const { data: generalAdultStatic } = trpc.curriculum.getByType.useQuery("general_adult", { enabled: isAuthenticated });
+  // 대시보드는 현재 과정 하나만 조회한다. 학습자 계정에서 8개 과정 쿼리를 수행하지 않는다.
+  const { data: currentCurriculum } = trpc.curriculum.getDynamicByType.useQuery(queryCourse, { enabled: canLearn && !isSampleMode });
+  const { data: publicCurriculum } = trpc.curriculum.getPublicOverview.useQuery(queryCourse, { enabled: canLearn && isSampleMode });
   const [selectedCourse, setSelectedCourse] = useState<{ title: string; rows: any[]; percent: number; color: string } | null>(null);
   const DASHBOARD_FALLBACK = {
     elementary: [
@@ -134,15 +124,15 @@ export default function Dashboard() {
     ],
   };
   const { data: quizData } = trpc.quiz.getByUser.useQuery(undefined, {
-    enabled: isAuthenticated,
+    enabled: canPersist,
   });
-  const { data: certificates = [] } = trpc.certificate.getUserCertificates.useQuery(undefined, { enabled: isAuthenticated });
-  const { data: earnedBadges = [] } = trpc.badges.getByUser.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: certificates = [] } = trpc.certificate.getUserCertificates.useQuery(undefined, { enabled: canPersist });
+  const { data: earnedBadges = [] } = trpc.badges.getByUser.useQuery(undefined, { enabled: canPersist });
   const [isReportExporting, setIsReportExporting] = useState(false);
   const { data: weeklyUsageData } = trpc.aiAutoFeedback.getWeeklyUsage.useQuery(undefined, {
-    enabled: isAuthenticated,
+    enabled: canPersist,
   });
-  const { data: trialQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: trialQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery(undefined, { enabled: canPersist });
   const [difficultyGuide, setDifficultyGuide] = useState<{
     headline: string;
     summary: string;
@@ -153,10 +143,23 @@ export default function Dashboard() {
     presetMode: "standard" | "advanced";
     source: "ai" | "fallback";
   } | null>(null);
-  const difficultyGuideMutation = trpc.questionBank.difficultyLearningGuide.useMutation({
-    onSuccess: (guide) => setDifficultyGuide(guide),
-    onError: (error) => toast.error(error.message || "AI 추천 학습 가이드를 준비하지 못했습니다."),
-  });
+  const activeScopeRef = useRef(scopeKey);
+  activeScopeRef.current = scopeKey;
+  const difficultyGuideMutation = trpc.questionBank.difficultyLearningGuide.useMutation();
+  const requestDifficultyGuide = () => {
+    if (!canPersist) return;
+    const requestScope = scopeKey;
+    difficultyGuideMutation.mutate(undefined,{
+      onSuccess:guide=>{if(activeScopeRef.current===requestScope)setDifficultyGuide(guide);},
+      onError:error=>{if(activeScopeRef.current===requestScope)toast.error(error.message||"AI 추천 학습 가이드를 준비하지 못했습니다.");}
+    });
+  };
+
+  useEffect(() => {
+    setSelectedCourse(null);
+    setDifficultyGuide(null);
+    return ()=>{activeScopeRef.current="disposed";};
+  }, [scopeKey]);
 
   // 비로그인 방문자도 샘플 대시보드를 탐색할 수 있도록 가상 사용자 지정
   const effectiveUser = user || {
@@ -182,36 +185,26 @@ export default function Dashboard() {
   };
   const completedIds = new Set(progressData?.filter((p) => isProgressComplete(p)).map((p) => p.curriculumId) || []);
 
+  const progressForModule = (module: any) => progressData?.find((item: any) => {
+    if (item.curriculumId !== module.id && item.curriculumId !== module.level) return false;
+    // New records carry source metadata. Fixtures and legacy records without it remain readable.
+    if (item.courseType != null && item.courseType !== activeCourseType) return false;
+    if (module.id != null && item.curriculumSource != null && item.curriculumSource !== "dynamic") return false;
+    return true;
+  });
+
   const calcCourseProgress = (currList: any[] = []) => {
     const total = currList.length;
     if (total === 0) return { percent: 0, completedCount: 0, total: 0 };
-    const completedCount = currList.filter((item) => completedIds.has(item.id) || completedIds.has(item.level)).length;
+    const completedCount = currList.filter((item) => isProgressComplete(progressForModule(item))).length;
     const percent = Math.round((completedCount / total) * 100);
     return { percent, completedCount, total };
   };
 
-  const courseRows = {
-    elementary: elementaryCurr?.length ? elementaryCurr : elementaryStatic?.length ? elementaryStatic : DASHBOARD_FALLBACK.elementary,
-    middle_high: middleHighCurr?.length ? middleHighCurr : middleHighStatic?.length ? middleHighStatic : DASHBOARD_FALLBACK.middle_high,
-    high_univ: highUnivCurr?.length ? highUnivCurr : highUnivStatic?.length ? highUnivStatic : DASHBOARD_FALLBACK.high_univ,
-    general_adult: generalAdultCurr?.length ? generalAdultCurr : generalAdultStatic?.length ? generalAdultStatic : DASHBOARD_FALLBACK.general_adult,
-  };
-  const elemProgress = calcCourseProgress(courseRows.elementary);
-  const mhProgress = calcCourseProgress(courseRows.middle_high);
-  const huProgress = calcCourseProgress(courseRows.high_univ);
-  const gaProgress = calcCourseProgress(courseRows.general_adult);
-
-  // 사용자가 가입 시 선택한 과정(user.tag 등)에 맞추어 마이페이지 진도 카드를 정렬하거나 필터링합니다.
-  const allCourseCards = [
-    { key: "elementary", title: "초등 과정 진도", rows: courseRows.elementary, progress: elemProgress, color: "indigo" },
-    { key: "middle_high", title: "중고등 과정 진도", rows: courseRows.middle_high, progress: mhProgress, color: "blue" },
-    { key: "high_univ", title: "고등/대입 과정 진도", rows: courseRows.high_univ, progress: huProgress, color: "purple" },
-    { key: "general_adult", title: "일반/직장인 과정 진도", rows: courseRows.general_adult, progress: gaProgress, color: "amber" },
-  ];
-
-  const activeCourseType = isSampleMode ? sampleCourse : courseTypeFromTag(user?.tag);
-  const courseCards = allCourseCards.filter((card) => card.key === activeCourseType);
-  const displayCards = courseCards.length > 0 ? courseCards : allCourseCards;
+  const currentRows = currentCurriculum?.length ? currentCurriculum : publicCurriculum?.length ? publicCurriculum : DASHBOARD_FALLBACK[queryCourse];
+  const currentProgress = calcCourseProgress(currentRows);
+  const colorByCourse: Record<CourseType, string> = { elementary: "indigo", middle_high: "blue", high_univ: "purple", general_adult: "amber" };
+  const displayCards = activeCourseType ? [{ key: activeCourseType, title: `${courseLabel} 논술 과정 진도`, rows: currentRows, progress: currentProgress, color: colorByCourse[activeCourseType] }] : [];
 
   const totalProgress = progressData?.length || 0;
 
@@ -275,16 +268,16 @@ export default function Dashboard() {
     const date = timestamp ? new Date(timestamp) : null;
     return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : null;
   }).filter(Boolean)).size;
-  const activeCourseCard = displayCards[0] || allCourseCards[0];
-  const visibleCertificates = certificates.filter((certificate: any) => isSampleMode || certificate.courseType === activeCourseType);
-  const visibleBadges = earnedBadges.filter((badge: any) => isSampleMode || badge.courseType === activeCourseType);
+  const activeCourseCard = displayCards[0];
+  const visibleCertificates = certificates.filter((certificate: any) => certificate.courseType === activeCourseType);
+  const visibleBadges = earnedBadges.filter((badge: any) => badge.courseType === activeCourseType);
   const handleExportAchievementReport = async () => {
     setIsReportExporting(true);
     try {
       const { exportAchievementReportPdf } = await import("@/lib/achievementReportPdf");
       await exportAchievementReportPdf({
         learnerName: effectiveUser.name || "학습자",
-        courseLabel: getCourseTitleLabel(activeCourseType),
+        courseLabel: getCourseTitleLabel(activeCourseType ?? queryCourse),
         courseProgress: activeCourseCard?.progress.percent || 0,
         completedLevels: activeCourseCard?.progress.completedCount || 0,
         totalLevels: activeCourseCard?.progress.total || 0,
@@ -320,7 +313,8 @@ export default function Dashboard() {
             </div>
           </section>
         )}
-        {isSampleMode && <div className="mb-6 flex flex-col gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">샘플 학습 과정 선택</p><p className="mt-1 text-sm text-indigo-700">선택한 과정의 커리큘럼·뱃지·수료증 예시만 보고 학습을 시작할 수 있습니다.</p></div><select aria-label="샘플 학습 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as typeof sampleCourse; setSampleCourse(course); window.localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select></div>}
+        {needsSelection && <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950"><p className="font-bold">가입 과정이 확인되지 않았습니다.</p><p className="mt-1 text-sm">학습 기록을 보려면 마이페이지에서 과정을 설정해 주세요.</p><Link href="/mypage" className="mt-3 inline-flex text-sm font-bold text-indigo-700 underline underline-offset-4">마이페이지에서 과정 확인</Link></div>}
+        {canSelectCourse && <div className="mb-6 flex flex-col gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">{isStaffPreview ? "운영 탐색 과정 선택" : "공개 학습 과정 선택"}</p><p className="mt-1 text-sm text-indigo-700">선택한 과정의 커리큘럼과 예시만 확인할 수 있으며 학습 기록은 저장되지 않습니다.</p></div><select aria-label={isStaffPreview ? "운영 탐색 과정" : "공개 학습 과정"} value={queryCourse} onChange={(event) => setCourseType(event.target.value as CourseType)} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select></div>}
 
         {/* Course Progress Breakdown Bars (개인화된 가입 과정에 맞춤 표시) */}
         <div className="mb-5 grid gap-4">
@@ -347,14 +341,14 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {!isSampleMode && (
+        {canPersist && (
           <Card className="mb-5 overflow-hidden border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-indigo-50 shadow-sm">
-            <CardHeader className="gap-3 border-b border-indigo-100 px-5 pt-5 sm:px-6 sm:pt-6">
+            <CardHeader className="grid-cols-1 gap-3 border-b border-indigo-100 px-5 pt-5 sm:grid-cols-[1fr_auto] sm:px-6 sm:pt-6">
               <div>
                 <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-900"><Sparkles className="h-5 w-5 text-indigo-600" /> AI 추천 학습 가이드</CardTitle>
                 <CardDescription className="mt-1">현재 운영 난이도, 과정별 문항 분포·정답률, 나의 서버 검증 수행 기록을 바탕으로 다음 학습을 안내합니다.</CardDescription>
               </div>
-              <CardAction className="col-auto row-auto w-full sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:w-auto"><Button onClick={() => difficultyGuideMutation.mutate()} disabled={difficultyGuideMutation.isPending} className="w-full bg-indigo-700 text-white hover:bg-indigo-800 sm:w-auto">
+              <CardAction className="col-auto row-auto w-full sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:w-auto"><Button onClick={requestDifficultyGuide} disabled={difficultyGuideMutation.isPending} className="w-full bg-indigo-700 text-white hover:bg-indigo-800 sm:w-auto">
                 {difficultyGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />분석 중</> : <><Sparkles className="mr-2 h-4 w-4" />맞춤 가이드 만들기</>}
               </Button></CardAction>
             </CardHeader>
@@ -378,7 +372,7 @@ export default function Dashboard() {
             <div className="space-y-3 py-2">
               {selectedCourse?.rows?.length ? selectedCourse.rows.map((module: any) => {
                 const moduleId = module.id ?? module.level;
-                const moduleProgress = progressData?.find((item) => item.curriculumId === moduleId || item.curriculumId === module.level);
+                const moduleProgress = progressForModule(module);
                 const status = progressStatus(moduleProgress);
                 const complete = status === "complete";
                 const inProgress = status === "in_progress";
@@ -458,15 +452,15 @@ export default function Dashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <BadgeSection courseType={activeCourseType} />
+              {activeCourseType && <BadgeSection courseType={activeCourseType} enabled={canPersist} />}
             </CardContent>
           </Card>
 
           {/* 학생 성취 갤러리 위젯 (My Achievement Gallery) */}
           <Card className="border-emerald-100 bg-gradient-to-br from-white to-emerald-50/30 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardHeader className="flex flex-col items-start gap-3 pb-2 sm:flex-row sm:justify-between">
               <div>
-                <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <CardTitle className="text-lg font-bold text-slate-900 flex flex-wrap items-center gap-2">
                   <span>🏆 나의 성취 갤러리 (Achievement Gallery)</span>
                   <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2.5 py-0.5 rounded-full">수료증 및 뱃지 모음</span>
                 </CardTitle>
@@ -582,9 +576,9 @@ export default function Dashboard() {
             </Card>
 
             <Card className="border-sky-100 shadow-sm bg-gradient-to-br from-white to-sky-50/30">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardHeader className="flex flex-col items-start gap-3 pb-2 sm:flex-row sm:justify-between">
                 <div>
-                  <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <CardTitle className="text-lg font-bold text-slate-900 flex flex-wrap items-center gap-2">
                     <span>🤖 주간 AI 첨삭 사용량 통계</span>
                     <span className="text-xs bg-sky-100 text-sky-800 font-semibold px-2.5 py-0.5 rounded-full">최근 7일</span>
                   </CardTitle>

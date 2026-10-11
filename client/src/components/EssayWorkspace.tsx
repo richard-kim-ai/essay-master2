@@ -37,12 +37,9 @@ import {
   newLocalEssay,
   type StoredEssay,
 } from "@/lib/essayStorage";
-import {
-  getCourseTypeFromUserTag,
-  COURSE_OPTIONS,
-  type CourseType,
-} from "@shared/course";
+import { COURSE_OPTIONS } from "@shared/course";
 import { EvaluationLoadingState } from "@/components/EvaluationLoadingState";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
 
 function feedbackList(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter(v => typeof v === "string");
@@ -77,7 +74,17 @@ export default function EssayWorkspace({
   const user = auth.user || (!navigator.onLine ? lastOfflineUser : null);
   const authLoading = auth.loading;
   const [, navigate] = useLocation();
-  const store = useEssayWorkspace(user?.id, Boolean(auth.user));
+  const {
+    effectiveCourse,
+    courseLabel,
+    scopeKey,
+    canLearn,
+    canPersist,
+    canSelectCourse,
+    setCourseType,
+  } = useLearningCourse();
+  // 과정이 없는 계정도 기기 글은 보존한다. 서버 보관·첨삭은 과정이 있는 학습자만 사용한다.
+  const store = useEssayWorkspace(user?.id, Boolean(auth.user) && canPersist);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -87,24 +94,23 @@ export default function EssayWorkspace({
   const [legacy, setLegacy] = useState<any[]>([]);
   const [showImport, setShowImport] = useState(false);
   const [teacherResult, setTeacherResult] = useState("");
-  const [course, setCourse] = useState<CourseType>("middle_high");
   const teacherRequest = trpc.essaySubmission.requestTeacher.useMutation();
   const aiRequest = trpc.aiAutoFeedback.create.useMutation();
   const selected = store.rows.find(
     row => row.localId === selectedId && row.userId === user?.id
   );
-  const enrolled =
-    user?.role === "user" && user.tag !== "학부모"
-      ? getCourseTypeFromUserTag(user.tag)
-      : course;
+  const requestScopeRef = useRef(scopeKey);
+  if (requestScopeRef.current !== scopeKey) requestScopeRef.current = scopeKey;
+  const canRequestFeedback = !!auth.user && canLearn && !!effectiveCourse;
   const quota = trpc.aiAutoFeedback.getTodayQuota.useQuery(undefined, {
-    enabled: !!auth.user && store.online,
+    enabled: canRequestFeedback && store.online,
   });
   const unsaved =
     !!selected && (title !== selected.title || content !== selected.content);
   const locked = !!selected && selected.status !== "draft";
   const disabled = busy !== null || store.syncing;
 
+  useEffect(() => () => { requestScopeRef.current = "disposed"; }, []);
   useEffect(() => {
     if (!auth.user) {
       if (!auth.loading && navigator.onLine)
@@ -133,6 +139,9 @@ export default function EssayWorkspace({
     );
     return () => window.clearInterval(timer);
   }, [busy]);
+  useEffect(() => {
+    setTeacherResult("");
+  }, [scopeKey]);
   useEffect(() => {
     setSelectedId(null);
     setTitle("");
@@ -264,6 +273,12 @@ export default function EssayWorkspace({
     }
   };
   const readyForRequest = async () => {
+    if (!canRequestFeedback) {
+      toast.info(
+        "학습 과정이 지정된 로그인 계정에서만 첨삭을 요청할 수 있습니다. 작성한 글은 기기에 계속 저장됩니다."
+      );
+      return null;
+    }
     if (!auth.user || !store.online || !navigator.onLine) {
       toast.info("로그인된 온라인 상태에서 첨삭을 요청할 수 있습니다.");
       return null;
@@ -289,11 +304,13 @@ export default function EssayWorkspace({
     return row;
   };
   const requestTeacher = async () => {
+    const requestScope = scopeKey;
     setBusy("teacher");
     try {
       const row = await readyForRequest();
       if (!row) return;
       const result = await teacherRequest.mutateAsync({ essayId: row.id! });
+      if (requestScopeRef.current !== requestScope) return;
       store.commit(
         store
           .latestRows()
@@ -307,16 +324,19 @@ export default function EssayWorkspace({
         "담당 교사에게 첨삭을 요청했습니다. 완료 후 이 화면에서 피드백을 확인할 수 있습니다."
       );
       await store.synchronize();
+      if (requestScopeRef.current !== requestScope) return;
       toast.success("교사 첨삭을 요청했습니다.");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "교사 첨삭을 요청하지 못했습니다."
-      );
+      if (requestScopeRef.current === requestScope)
+        toast.error(
+          err instanceof Error ? err.message : "교사 첨삭을 요청하지 못했습니다."
+        );
     } finally {
-      setBusy(null);
+      if (requestScopeRef.current === requestScope) setBusy(null);
     }
   };
   const requestAi = async () => {
+    const requestScope = scopeKey;
     setBusy("ai");
     try {
       const row = await readyForRequest();
@@ -325,14 +345,16 @@ export default function EssayWorkspace({
         toast.info("AI 첨삭은 20자 이상 작성한 글에서 이용할 수 있습니다.");
         return;
       }
+      if (!effectiveCourse) return;
       const result = await aiRequest.mutateAsync({
         essayId: row.id!,
         essayTitle: row.title,
         essayContent: row.content.trim(),
-        courseType: enrolled,
+        courseType: effectiveCourse,
         level: 1,
       });
       // 자유 글은 레슨 1 체험 제출로 위장하지 않는다. 서버의 이용권·동의·한도를 그대로 적용한다.
+      if (requestScopeRef.current !== requestScope) return;
       store.commit(
         store
           .latestRows()
@@ -343,18 +365,21 @@ export default function EssayWorkspace({
           )
       );
       await store.synchronize();
+      if (requestScopeRef.current !== requestScope) return;
       await quota.refetch();
+      if (requestScopeRef.current !== requestScope) return;
       toast.success(
         result.fallback_used
           ? "기본 분석 결과가 제공되었습니다. AI 평가를 다시 요청할 수 있습니다."
           : "AI 피드백을 받았습니다."
       );
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "AI 첨삭을 요청하지 못했습니다."
-      );
+      if (requestScopeRef.current === requestScope)
+        toast.error(
+          err instanceof Error ? err.message : "AI 첨삭을 요청하지 못했습니다."
+        );
     } finally {
-      setBusy(null);
+      if (requestScopeRef.current === requestScope) setBusy(null);
     }
   };
   const doImport = () => {
@@ -409,13 +434,17 @@ export default function EssayWorkspace({
           <Button
             variant="outline"
             onClick={() => void store.synchronize()}
-            disabled={!store.online || !store.ready || disabled}
+            disabled={!canPersist || !store.online || !store.ready || disabled}
             className="bg-white gap-2"
           >
             <RefreshCw
               className={`h-4 w-4 ${store.syncing ? "animate-spin" : ""}`}
             />
-            {store.syncing ? "동기화 중" : "서버 동기화"}
+            {store.syncing
+              ? "동기화 중"
+              : canPersist
+                ? "서버 동기화"
+                : "과정 지정 후 동기화"}
           </Button>
           <Button
             onClick={add}
@@ -627,7 +656,7 @@ export default function EssayWorkspace({
                         <Save className="h-4 w-4" />
                         {store.syncing
                           ? "저장 · 동기화 중"
-                          : store.online
+                          : canPersist && store.online
                             ? "저장 · 서버 동기화"
                             : "기기에 저장"}
                       </Button>
@@ -655,13 +684,17 @@ export default function EssayWorkspace({
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {user.role !== "user" && (
+                  {canSelectCourse && effectiveCourse && (
                     <label className="text-sm font-semibold">
-                      평가 과정
+                      미리볼 평가 과정
                       <select
                         aria-label="평가 과정"
-                        value={course}
-                        onChange={e => setCourse(e.target.value as CourseType)}
+                        value={effectiveCourse}
+                        onChange={e =>
+                          setCourseType(
+                            e.target.value as typeof effectiveCourse
+                          )
+                        }
                         className="ml-3 rounded-md border px-2 py-1"
                       >
                         {COURSE_OPTIONS.map(c => (
@@ -671,6 +704,19 @@ export default function EssayWorkspace({
                         ))}
                       </select>
                     </label>
+                  )}
+                  {!canSelectCourse && effectiveCourse && (
+                    <p className="text-xs text-slate-600">
+                      현재 과정:{" "}
+                      <span className="font-semibold">{courseLabel}</span>
+                    </p>
+                  )}
+                  {!canRequestFeedback && (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                      학습 과정이 지정된 로그인 계정에서 AI 또는 교사 첨삭을
+                      요청할 수 있습니다. 현재 작성한 글은 기기에 저장할 수
+                      있습니다.
+                    </p>
                   )}
                   {quota.data?.isTrial && (
                     <p className="text-xs text-slate-600">
@@ -682,6 +728,7 @@ export default function EssayWorkspace({
                     <Button
                       onClick={() => void requestAi()}
                       disabled={
+                        !canRequestFeedback ||
                         !store.online ||
                         disabled ||
                         !content.trim() ||
@@ -696,6 +743,7 @@ export default function EssayWorkspace({
                     <Button
                       onClick={() => void requestTeacher()}
                       disabled={
+                        !canRequestFeedback ||
                         !store.online ||
                         disabled ||
                         locked ||

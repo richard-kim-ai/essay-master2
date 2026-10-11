@@ -1,0 +1,1 @@
+ALTER TABLE `users` MODIFY COLUMN `tag` varchar(64) NOT NULL DEFAULT '과정 미선택';

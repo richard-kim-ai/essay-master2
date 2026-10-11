@@ -159,10 +159,10 @@ describe("학습 진행(progress)과 수료증(certificate)", () => {
   });
 
   it("가입 과정이 아닌 다른 과정, 관리자·교사·학부모 계정은 진행을 기록하지 않는다", async () => {
-    await expect(callerFor(owner).progress.upsert({ courseType: "elementary", level: 1 })).resolves.toBeNull();
+    await expect(callerFor(owner).progress.upsert({ courseType: "elementary", level: 1 })).rejects.toMatchObject({code:"FORBIDDEN"});
     await expect(callerFor(admin).progress.upsert({ courseType: "middle_high", level: 1 })).resolves.toBeNull();
     await expect(callerFor(assignedTeacher).progress.upsert({ courseType: "middle_high", level: 1 })).resolves.toBeNull();
-    await expect(callerFor({ id: 12, role: "user", tag: "학부모" }).progress.upsert({ courseType: "middle_high", level: 1 })).resolves.toBeNull();
+    await expect(callerFor({ id: 12, role: "user", tag: "학부모" }).progress.upsert({ courseType: "middle_high", level: 1 })).rejects.toMatchObject({code:"FORBIDDEN"});
     expect(db.recordLessonProgress).not.toHaveBeenCalled();
   });
 
@@ -258,6 +258,7 @@ describe("비로그인·학습자에게 내려가는 정보", () => {
   });
 
   it("문항 신고 원문은 관리자만 보고, 학습자에게는 집계만 준다", async () => {
+    vi.spyOn(db,"getQuestionBankItemById").mockResolvedValue({id:1,courseType:"middle_high",toolType:"quiz",isActive:1} as any);
     vi.mocked(db.getQuestionFeedbacksSummary).mockResolvedValue({ helpfulCount: 3, unhelpfulCount: 1, reports: [{ id: 1, reportText: "다른 사람의 신고" }] } as any);
     await expect(callerFor(owner).questionBank.feedbackSummary({ questionId: 1 })).resolves.toEqual({ helpfulCount: 3, unhelpfulCount: 1, reports: [] });
     const adminView = await callerFor(admin).questionBank.feedbackSummary({ questionId: 1 });

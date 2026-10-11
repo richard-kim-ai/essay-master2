@@ -6,32 +6,33 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseCurriculumTheoryExample } from "@/lib/curriculumTheoryExample";
-
-const courseLabels = {
-  elementary: "초등 논술",
-  middle_high: "중고등 논술",
-  high_univ: "고등 / 대입",
-  general_adult: "일반 / 직장인",
-} as const;
-
-type CourseType = keyof typeof courseLabels;
+import { isCourseType, type CourseType } from "@shared/course";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
 
 export default function CurriculumDetail() {
   const { isAuthenticated } = useAuth();
   const [, params] = useRoute("/curriculum/:courseType/:level");
-  const courseType = (params?.courseType as CourseType) || "middle_high";
-  const level = Number(params?.level || 1);
-  const { data: curriculum, isLoading } = trpc.curriculum.getDynamicByType.useQuery(courseType, { enabled: isAuthenticated });
+  const { effectiveCourse, courseLabel, canLearn, needsSelection } = useLearningCourse();
+  const routeCourse = params?.courseType;
+  const courseType = isCourseType(routeCourse) ? routeCourse : null;
+  const level = Number(params?.level);
+  const hasValidRoute = Boolean(courseType && Number.isInteger(level) && level > 0);
+  const isCourseMatch = Boolean(courseType && effectiveCourse === courseType);
+  const mayReadCourse = isAuthenticated && canLearn && hasValidRoute && isCourseMatch;
+  const { data: curriculum, isLoading } = trpc.curriculum.getDynamicByType.useQuery((courseType ?? "elementary") as CourseType, { enabled: mayReadCourse });
   const { data: workbookLessonBundle } = trpc.curriculum.getWorkbookLessonBundle.useQuery({
-    courseType,
+    courseType: (courseType ?? "elementary") as CourseType,
     level,
     lessonIndex: 0,
-  }, { enabled: isAuthenticated });
+  }, { enabled: mayReadCourse });
   const item = curriculum?.find((entry) => entry.level === level);
   const firstTheoryContent = workbookLessonBundle?.theoryContent[0];
   const theoryExample = parseCurriculumTheoryExample(firstTheoryContent?.contentData);
 
   if (!isAuthenticated) return <LoginRequired />;
+  if (!hasValidRoute) return <div className="p-12 text-center text-slate-600">올바르지 않은 과정 또는 레벨 주소입니다. <Link href="/curriculum" className="font-semibold text-indigo-700">커리큘럼으로 돌아가기</Link></div>;
+  if (needsSelection) return <div className="p-12 text-center text-slate-600">가입 과정이 확인되지 않아 강의를 열 수 없습니다. <Link href="/mypage" className="font-semibold text-indigo-700">마이페이지에서 과정 확인</Link></div>;
+  if (!isCourseMatch) return <div className="p-12 text-center text-slate-600">현재 선택한 과정의 강의만 열 수 있습니다. <Link href="/curriculum" className="font-semibold text-indigo-700">현재 과정 커리큘럼으로 돌아가기</Link></div>;
   if (isLoading) return <div className="p-12 text-center text-slate-600">강의 정보를 불러오는 중입니다...</div>;
   if (!item) return <div className="p-12 text-center text-slate-600">강의 정보를 찾을 수 없습니다.</div>;
 
@@ -41,7 +42,7 @@ export default function CurriculumDetail() {
         <Link href="/curriculum"><Button variant="ghost" className="gap-2 px-0 text-slate-600 hover:text-indigo-700"><ArrowLeft className="h-4 w-4" /> 커리큘럼으로 돌아가기</Button></Link>
         <Card className="overflow-hidden border-indigo-100 shadow-sm">
           <CardHeader className="space-y-4 p-6 sm:p-8">
-            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-indigo-700"><span className="rounded-full bg-indigo-100 px-3 py-1">{courseLabels[courseType]}</span><span className="rounded-full bg-slate-100 px-3 py-1">Level {item.level}</span></div>
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-indigo-700"><span className="rounded-full bg-indigo-100 px-3 py-1">{courseLabel} 논술</span><span className="rounded-full bg-slate-100 px-3 py-1">Level {item.level}</span></div>
             <CardTitle className="text-3xl leading-tight text-slate-900 sm:text-4xl">{item.title}</CardTitle>
             <CardDescription className="text-base leading-7 text-slate-600">{item.description}</CardDescription>
             {item.aiSummary && <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-4"><div className="mb-1 flex items-center gap-2 text-sm font-bold text-indigo-700"><Sparkles className="h-4 w-4" /> AI 강의 요약</div><p className="text-sm leading-7 text-slate-700">{item.aiSummary}</p></div>}

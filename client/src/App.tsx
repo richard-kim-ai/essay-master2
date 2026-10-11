@@ -2,11 +2,13 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { lazy, Suspense } from "react";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Layout from "./components/Layout";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import CourseEnrollment from "./components/CourseEnrollment";
+import { LearningCourseProvider, useLearningCourse } from "./hooks/useLearningCourse";
 
 const Curriculum = lazy(() => import("./pages/Curriculum"));
 const EssayArchive = lazy(() => import("./pages/EssayArchive"));
@@ -72,6 +74,10 @@ function RouteLoadingFallback() {
 }
 
 function Router() {
+  const course = useLearningCourse();
+  const [path] = useLocation();
+  const learningPaths = ["/mypage", "/dashboard", "/curriculum", "/workbook", "/quiz", "/summary-practice", "/paragraph-reordering", "/topic-wizard", "/thesis-checklist", "/essay-archive", "/ai-auto-feedback", "/mistake-notebook", "/ai-guide-history", "/writing-examples", "/certificate"];
+  if (course.needsSelection && learningPaths.some(prefix => path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}-`))) return <Layout><CourseEnrollment /></Layout>;
   return (
     <Suspense fallback={<RouteLoadingFallback />}>
       <Switch>
@@ -141,7 +147,7 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <LearningCourseProvider><Router /></LearningCourseProvider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

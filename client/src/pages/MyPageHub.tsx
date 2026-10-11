@@ -11,41 +11,55 @@ import StudentLearningSettings from "@/components/StudentLearningSettings";
 import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { ADMIN_PREVIEW_COURSES, readAdminPreviewCourse, saveAdminPreviewCourse } from "@/lib/adminPreviewCourse";
+import { COURSE_OPTIONS, type CourseType } from "@shared/course";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
+import { readEssays } from "@/lib/essayStorage";
 
 export default function MyPageHub() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const { effectiveCourse, courseLabel, canPersist, canSelectCourse, mode, setCourseType } = useLearningCourse();
   // 학부모 계정은 학생용 허브가 아니라 학부모 포털로 이동한다.
   useEffect(() => {
     if (user?.tag === "학부모") setLocation("/parent-portal");
   }, [user?.tag, setLocation]);
-  const isAdminPreview = user?.role === "admin";
-  const [adminPreviewCourse, setAdminPreviewCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => readAdminPreviewCourse());
-  const activeCourse = isAdminPreview ? adminPreviewCourse : user?.tag?.includes("중고등") ? "middle_high" : user?.tag?.includes("고등") ? "high_univ" : user?.tag?.includes("일반") ? "general_adult" : "elementary";
-  const courseLabels = { elementary: "초등 논술", middle_high: "중고등 논술", high_univ: "고등/대입 논술", general_adult: "일반/직장인 논술" };
+  const isStaffPreview = mode === "staff-preview";
+  const activeCourse = effectiveCourse;
 
-  const { data: progressList } = trpc.progress.getByUser.useQuery();
-  const { data: offlineEssays = [] } = trpc.essaySubmission.getByUser.useQuery();
-  const { data: certificates = [] } = trpc.certificate.getUserCertificates.useQuery();
-  const { data: badges = [] } = trpc.curriculum.getUserBadges.useQuery();
-  const { data: weeklySummary } = trpc.curriculum.getWeeklySummary.useQuery();
+  const { data: progressList } = trpc.progress.getByUser.useQuery(undefined, { enabled: canPersist });
+  const { data: certificates = [] } = trpc.certificate.getUserCertificates.useQuery(undefined, { enabled: canPersist });
+  const { data: badges = [] } = trpc.curriculum.getUserBadges.useQuery(undefined, { enabled: canPersist });
+  const { data: weeklySummary } = trpc.curriculum.getWeeklySummary.useQuery(undefined, { enabled: canPersist });
+  const [offlineEssayCount, setOfflineEssayCount] = useState(0);
   const visibleCertificates = certificates.filter((certificate: any) => certificate.courseType === activeCourse);
   const visibleBadges = badges.filter((badge: any) => badge.courseType === activeCourse);
 
   // Weekly Goal State (stored in localStorage per user)
-  const goalKey = `essay_weekly_goal_${user?.id || 1}`;
-  const [targetGoal, setTargetGoal] = useState<number>(() => {
-    const saved = localStorage.getItem(goalKey);
-    return saved ? parseInt(saved, 10) : 5;
-  });
+  const goalKey = `essay_weekly_goal_${user?.id ?? "anonymous"}`;
+  const [targetGoal, setTargetGoal] = useState<number>(5);
   const [isEditingGoal, setIsEditingGoal] = useState(false);
-  const [tempGoal, setTempGoal] = useState(targetGoal.toString());
+  const [tempGoal, setTempGoal] = useState("5");
 
   // Selected Badge for Detail Modal
   const [selectedBadge, setSelectedBadge] = useState<any | null>(null);
 
-  const completedCount = progressList ? progressList.filter((p: any) => p.status === "completed").length : 0;
+  // 계정 전환 시 로컬 목표·모달·오프라인 글 수를 새 사용자 기준으로 다시 읽는다.
+  useEffect(() => {
+    const saved = localStorage.getItem(goalKey);
+    const nextGoal = saved ? Number.parseInt(saved, 10) : 5;
+    const safeGoal = Number.isFinite(nextGoal) && nextGoal > 0 ? nextGoal : 5;
+    setTargetGoal(safeGoal);
+    setTempGoal(String(safeGoal));
+    setIsEditingGoal(false);
+    setSelectedBadge(null);
+    try {
+      setOfflineEssayCount(user?.id ? readEssays(user.id).length : 0);
+    } catch {
+      setOfflineEssayCount(0);
+    }
+  }, [user?.id, goalKey]);
+
+  const completedCount = progressList ? progressList.filter((p: any) => p.status === "completed" || p.completed === 1 || Number(p.completed) >= 100).length : 0;
   const progressPercent = targetGoal > 0 ? Math.min(Math.round((completedCount / targetGoal) * 100), 100) : 0;
 
   const handleSaveGoal = () => {
@@ -81,7 +95,7 @@ export default function MyPageHub() {
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
                   {user?.role === "admin" ? "총괄 관리자" : user?.role === "teacher" ? "첨삭 교사" : "일반 학습자"}
                 </span>
-                  <span className="text-xs text-indigo-200">{isAdminPreview ? `관리자 미리보기 · ${courseLabels[activeCourse]}` : user?.tag || "일반 과정"}</span>
+                  <span className="text-xs text-indigo-200">{isStaffPreview ? `운영 미리보기 · ${courseLabel} 논술` : courseLabel ? `${courseLabel} 논술` : "과정 설정 필요"}</span>
               </div>
               <h1 className="mt-1 truncate text-xl font-extrabold tracking-tight md:text-2xl">
                 {user?.name || "사용자"}님의 마이페이지
@@ -129,7 +143,7 @@ export default function MyPageHub() {
           </div>
         </div>
 
-        {isAdminPreview && <Card className="border-indigo-200 bg-indigo-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">관리자 탐색·테스트 과정</p><p className="mt-1 text-sm text-indigo-700">선택 과정은 관리자 화면의 커리큘럼과 학습 도구 미리보기에만 적용되며, 학습자 계정·진도·뱃지에는 영향을 주지 않습니다.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select aria-label="관리자 탐색 과정" value={adminPreviewCourse} onChange={(event) => { const course = event.target.value as typeof adminPreviewCourse; setAdminPreviewCourse(course); saveAdminPreviewCourse(course); toast.success(`${courseLabels[course]} 미리보기로 전환했습니다.`); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900">{ADMIN_PREVIEW_COURSES.map((course) => <option key={course.value} value={course.value}>{course.label}</option>)}</select><Button onClick={() => setLocation("/curriculum")} className="bg-indigo-700 text-white hover:bg-indigo-800">커리큘럼 탐색</Button><Button variant="outline" onClick={() => setLocation("/quiz")} className="border-indigo-200 text-indigo-800 hover:bg-indigo-100">퀴즈 테스트</Button></div></CardContent></Card>}
+        {isStaffPreview && <Card className="border-indigo-200 bg-indigo-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">운영 탐색·테스트 과정</p><p className="mt-1 text-sm text-indigo-700">선택 과정은 이 계정의 미리보기에만 적용되며, 학습자 진도·수료증·뱃지를 변경하지 않습니다.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select aria-label="운영 탐색 과정" value={activeCourse ?? "elementary"} disabled={!canSelectCourse} onChange={(event) => { const course = event.target.value as CourseType; setCourseType(course); toast.success(`${COURSE_OPTIONS.find((item) => item.value === course)?.label} 논술 미리보기로 전환했습니다.`); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900">{COURSE_OPTIONS.map((course) => <option key={course.value} value={course.value}>{course.label} 논술</option>)}</select><Button onClick={() => setLocation("/curriculum")} className="bg-indigo-700 text-white hover:bg-indigo-800">커리큘럼 탐색</Button><Button variant="outline" onClick={() => setLocation("/quiz")} className="border-indigo-200 text-indigo-800 hover:bg-indigo-100">퀴즈 테스트</Button></div></CardContent></Card>}
 
         {user?.role === "user" && user?.tag !== "학부모" && <StudentLearningSettings />}
         {user?.role === "user" && user?.tag !== "학부모" && <ParentLinkRequests />}
@@ -144,10 +158,10 @@ export default function MyPageHub() {
               <p className="text-xs text-slate-500 font-medium">이번 주 총 학습 시간</p>
               <div className="flex items-center gap-2 mt-0.5">
                 <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
-                  {weeklySummary?.studyTimeString || "3시간 45분"}
+                  {weeklySummary?.studyTimeString || "0분"}
                 </p>
                 <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                  +{weeklySummary?.timeDiffMinutes || 45}분 ↗
+                  +{weeklySummary?.timeDiffMinutes ?? 0}분
                 </span>
               </div>
             </div>
@@ -160,10 +174,10 @@ export default function MyPageHub() {
               <p className="text-xs text-slate-500 font-medium">워크북 기출 정답률</p>
               <div className="flex items-center gap-2 mt-0.5">
                 <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
-                  {weeklySummary?.accuracyRate ?? 85}%
+                  {weeklySummary?.accuracyRate ?? 0}%
                 </p>
                 <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                  +{weeklySummary?.accuracyDiffPercent || 6}% ↗
+                  +{weeklySummary?.accuracyDiffPercent ?? 0}%
                 </span>
               </div>
             </div>
@@ -272,7 +286,7 @@ export default function MyPageHub() {
               <div>
                 <p className="text-xs text-slate-500">보관된 논술 글</p>
                 <p className="text-2xl font-extrabold text-slate-900 mt-1">
-                  {offlineEssays.length}편 저장됨
+                  {offlineEssayCount}편 저장됨
                 </p>
               </div>
               <p className="text-xs text-slate-600">오프라인 상태에서 작성하거나 임시 저장한 논술 글을 관리하세요.</p>
@@ -392,7 +406,7 @@ export default function MyPageHub() {
                 </p>
               </div>
               <div className="border-t border-slate-200 pt-2 flex items-center justify-between text-xs text-slate-500">
-                <span>과정 구분: {selectedBadge?.courseType || "일반"}</span>
+                <span>과정 구분: {COURSE_OPTIONS.find((course) => course.value === selectedBadge?.courseType)?.label || "일반"}</span>
                 <span className="text-emerald-600 font-semibold">인증 완료</span>
               </div>
             </div>

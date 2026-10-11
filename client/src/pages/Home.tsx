@@ -5,6 +5,7 @@ import {
 } from "@/lib/homeExperience";
 import { getTrialStatus } from "@/lib/trialExperience";
 import { applyHomeSeo } from "@/lib/homeSeo";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
 import { Link } from "wouter";
 import {
   ArrowRight,
@@ -87,6 +88,7 @@ const HERO_VALUE_CARDS = [
 export default function Home() {
   useEffect(() => applyHomeSeo(), []);
   const { user, isAuthenticated } = useAuth();
+  const { effectiveCourse, courseLabel, canPersist, needsSelection } = useLearningCourse();
   const primaryAction = getHomePrimaryAction(isAuthenticated, user?.role);
   const trial = getTrialStatus(user?.createdAt);
   const isLearnerTrial = isAuthenticated && user?.role === "user" && trial?.isActive;
@@ -124,6 +126,13 @@ export default function Home() {
                 )}
               </div>
               {!isAuthenticated && <p className="mt-4 text-sm font-medium text-slate-500">과정 탐색은 로그인 없이 체험할 수 있으며, 로그인 후에는 7일간 무료로 학습을 이어갈 수 있습니다.</p>}
+              {canPersist && effectiveCourse && (
+                <div className="mt-5 flex flex-wrap items-center gap-3" data-home-course="learner">
+                  <span className="rounded-full bg-indigo-100 px-3 py-1.5 text-sm font-bold text-indigo-800">내 과정 · {courseLabel} 논술</span>
+                  <Link href={`/workbook/${effectiveCourse}/1`} className="inline-flex items-center text-sm font-bold text-indigo-700 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-900">내 과정 학습 계속하기 <ArrowRight className="ml-1 h-4 w-4" /></Link>
+                </div>
+              )}
+              {isAuthenticated && needsSelection && <p className="mt-5 text-sm font-medium text-amber-700">가입 과정이 확인되지 않았습니다. <Link href="/mypage" className="underline underline-offset-4">마이페이지에서 과정 확인</Link></p>}
               {isLearnerTrial && (
                 <div className="mt-6 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
                   <span className="font-bold">7일 무료 체험 중</span>

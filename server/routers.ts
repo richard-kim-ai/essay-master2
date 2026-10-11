@@ -1,3 +1,4 @@
+import {chooseLearningCourse, chooseLearningCourseInput} from "./courseEnrollment";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { storagePut } from "./storage";
@@ -6,7 +7,7 @@ import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_
 import * as db from "./db";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
-import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse } from "./questionBankAccess";
+import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse, requireLearnerCourse } from "./questionBankAccess";
 import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -60,7 +61,7 @@ import {
   verifyPasswordAsync,
   sendAnnouncementEmail,
 } from "./email";
-import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
+import { getCourseTag, parseCourseTypeFromUserTag, isLearnerAccount, getCourseTypeFromUserTag } from "@shared/course";
 import type { CourseType } from "@shared/course";
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -382,6 +383,11 @@ export const appRouter = router({
       .mutation(async ({ input }) => db.updateTeacherAiStyleExampleStatus(input.exampleId, input.status)),
   }),
   auth: router({
+    chooseLearningCourse: protectedProcedure.input(chooseLearningCourseInput).mutation(async ({ctx,input}) => {
+      const result = await chooseLearningCourse(ctx.user,input,requestOrigin(ctx.req));
+      if (result.requiresGuardianConsent) ctx.res.clearCookie(COOKIE_NAME,{...getSessionCookieOptions(ctx.req),maxAge:-1});
+      return result;
+    }),
     me: publicProcedure.query(({ ctx }) => {
       if (!ctx.user) return null;
       const {
@@ -404,7 +410,7 @@ export const appRouter = router({
     myTeacher: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 담당 교사를 선택할 수 있습니다." });
       const [candidates, current, aiTutor] = await Promise.all([
-        db.getApprovedTeachersForRecommendation(getCourseTypeFromUserTag(ctx.user.tag)),
+        db.getApprovedTeachersForRecommendation(requireLearnerCourse(ctx.user)),
         ctx.user.teacherId ? db.getUserById(ctx.user.teacherId) : Promise.resolve(undefined),
         db.getDefaultAiTutor(),
       ]);
@@ -420,7 +426,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 담당 교사를 선택할 수 있습니다." });
         if (input.teacherId) {
-          const candidates = await db.getApprovedTeachersForRecommendation(getCourseTypeFromUserTag(ctx.user.tag));
+          const candidates = await db.getApprovedTeachersForRecommendation(requireLearnerCourse(ctx.user));
           if (!candidates.some((teacher) => teacher.id === input.teacherId)) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "선택한 교사를 찾을 수 없습니다." });
           }
@@ -828,7 +834,7 @@ export const appRouter = router({
   curriculum: router({
     getByType: protectedProcedure
       .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
-      .query(({ input }) => db.getCurriculumByType(input)),
+      .query(({ ctx, input }) => { resolveQuestionBankCourse(ctx.user, input);return db.getCurriculumByType(input); }),
 
     // 비로그인 방문자도 과정 구성을 확인할 수 있도록 공개해도 되는 필드만 반환한다(썸네일·PDF 경로·내부 id 제외).
     getPublicOverview: publicProcedure
@@ -847,7 +853,7 @@ export const appRouter = router({
 
     getDynamicByType: protectedProcedure
       .input(z.enum(["elementary", "middle_high", "high_univ", "general_adult"]))
-      .query(({ input }) => db.getDynamicCurriculumByType(input)),
+      .query(({ ctx, input }) => { resolveQuestionBankCourse(ctx.user, input);return db.getDynamicCurriculumByType(input); }),
 
     getTheoryContent: protectedProcedure
       .input(z.object({
@@ -855,11 +861,11 @@ export const appRouter = router({
         lessonLevel: z.number().int().min(1).max(5).optional(),
         theoryCategory: z.string().trim().min(1).max(32).optional(),
       }))
-      .query(({ input }) => db.getLessonTheoryContentList(input)),
+      .query(({ ctx, input }) => { resolveQuestionBankCourse(ctx.user, input.courseType);return db.getLessonTheoryContentList(input); }),
 
     getById: protectedProcedure
       .input(z.number())
-      .query(({ input }) => db.getCurriculumById(input)),
+      .query(async ({ ctx, input }) => { const row = await db.getCurriculumById(input);if (row) resolveQuestionBankCourse(ctx.user, row.courseType);return row; }),
 
     getWorkbookQuestions: protectedProcedure
       .input(
@@ -898,7 +904,7 @@ export const appRouter = router({
           userAnswer: z.string(),
         })
       )
-      .mutation(({ ctx, input }) => db.submitCurriculumWorkbookAnswer(ctx.user.id, input.questionId, input.userAnswer)),
+      .mutation(({ ctx, input }) => db.submitCurriculumWorkbookAnswer(ctx.user.id, input.questionId, input.userAnswer, requireLearnerCourse(ctx.user))),
 
     getMistakes: protectedProcedure.query(({ ctx }) => db.getWorkbookMistakesByUser(ctx.user.id)),
 
@@ -928,7 +934,7 @@ export const appRouter = router({
         return saved;
       }),
 
-    getStats: protectedProcedure.query(({ ctx }) => db.getWorkbookStatsByUser(ctx.user.id)),
+    getStats: protectedProcedure.query(({ ctx }) => db.getWorkbookStatsByUser(ctx.user.id, requireLearnerCourse(ctx.user))),
 
     removeMistake: protectedProcedure
       .input(z.object({ mistakeId: z.number(), source: z.enum(["workbook", "learning_tool"]).default("workbook") }))
@@ -936,8 +942,8 @@ export const appRouter = router({
         ? db.removeLearningToolMistake(input.mistakeId, ctx.user.id)
         : db.removeWorkbookMistake(input.mistakeId, ctx.user.id)),
 
-    getRecommendedQuestions: protectedProcedure.query(async ({ ctx }) => {
-      const course = studentQuestionCourse(ctx.user);
+    getRecommendedQuestions: protectedProcedure.input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional() }).optional()).query(async ({ ctx, input }) => {
+      const course = resolveQuestionBankCourse(ctx.user, input?.courseType);
       const questions = await db.getRecommendedQuestionsForUser(ctx.user.id, course);
       return (course ? questions.filter(q => q.courseType === course) : questions).map(q => toLearnerWorkbookQuestion(q, ctx.user));
     }),
@@ -952,7 +958,7 @@ export const appRouter = router({
 
     getUserBadges: protectedProcedure.query(({ ctx }) => db.getUserBadgesByUser(ctx.user.id)),
 
-    getWeeklySummary: protectedProcedure.query(({ ctx }) => db.getWeeklyStudySummary(ctx.user.id)),
+    getWeeklySummary: protectedProcedure.query(({ ctx }) => db.getWeeklyStudySummary(ctx.user.id, requireLearnerCourse(ctx.user))),
 
     awardReviewKing: protectedProcedure.mutation(({ ctx }) => db.awardReviewKingBadge(ctx.user.id)),
 
@@ -1026,19 +1032,19 @@ export const appRouter = router({
 
     completeCheck: protectedProcedure
       .input(z.object({ theoryContentId: z.number().int().positive() }))
-      .mutation(({ ctx, input }) => db.completeTheoryCheck(ctx.user.id, input.theoryContentId)),
+      .mutation(({ ctx, input }) => db.completeTheoryCheck(ctx.user.id, input.theoryContentId, requireLearnerCourse(ctx.user))),
   }),
 
   // ========== Progress Routes ==========
   progress: router({
     getByUser: protectedProcedure.query(({ ctx }) =>
-      db.getProgressByUser(ctx.user.id)
+      db.getProgressByUser(ctx.user.id, studentQuestionCourse(ctx.user))
     ),
 
     getByUserAndCurriculum: protectedProcedure
       .input(z.number())
       .query(({ ctx, input }) =>
-        db.getProgressByUserAndCurriculum(ctx.user.id, input)
+        db.getProgressByUserAndCurriculum(ctx.user.id, input, studentQuestionCourse(ctx.user))
       ),
 
     // 점수·완료 여부는 클라이언트가 정하지 않는다. 서버가 채점해 저장한 워크북 답안으로 계산한다.
@@ -1046,7 +1052,8 @@ export const appRouter = router({
       .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(20) }))
       .mutation(async ({ ctx, input }) => {
         // 관리자·교사·학부모 계정의 미리보기, 그리고 가입 과정이 아닌 다른 과정을 둘러보는 경우에는 학습 기록을 남기지 않는다.
-        if (ctx.user.role !== "user" || ctx.user.tag === "학부모" || input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) return null;
+        if (ctx.user.role !== "user") return null;
+        if (input.courseType !== requireLearnerCourse(ctx.user)) throw new TRPCError({code:"FORBIDDEN",message:"가입한 과정의 진도만 저장할 수 있습니다."});
         try {
           return await db.recordLessonProgress(ctx.user, input.level);
         } catch (error: any) {
@@ -1078,10 +1085,10 @@ export const appRouter = router({
       return db.getAiLessonGuideHistoriesByUser(ctx.user.id);
     }),
     publishedWritingExamples: protectedProcedure
-      .input(z.object({ search: z.string().trim().max(120).optional(), skillTag: z.string().trim().max(80).optional() }).optional())
+      .input(z.object({ search: z.string().trim().max(120).optional(), skillTag: z.string().trim().max(80).optional(), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]).optional() }).optional())
       .query(async ({ ctx, input }) => {
-        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 예시문 라이브러리를 조회할 수 있습니다." });
-        return db.getPublishedWritingExamples({ courseType: getCourseTypeFromUserTag(ctx.user.tag), search: input?.search, skillTag: input?.skillTag });
+        const course = resolveQuestionBankCourse(ctx.user, input?.courseType);
+        return db.getPublishedWritingExamples({ courseType: course ?? requireLearnerCourse(ctx.user), search: input?.search, skillTag: input?.skillTag });
       }),
   }),
 
@@ -1298,7 +1305,7 @@ export const appRouter = router({
       .input(z.object({ quizId: z.number().int().positive(), userAnswer: z.string().trim().min(1).max(4000) }))
       .mutation(({ ctx, input }) => {
         if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 퀴즈 결과를 저장할 수 있습니다." });
-        return db.verifyAndSaveQuizAttempt(ctx.user.id, input.quizId, input.userAnswer, getCourseTypeFromUserTag(ctx.user.tag));
+        return db.verifyAndSaveQuizAttempt(ctx.user.id, input.quizId, input.userAnswer, requireLearnerCourse(ctx.user));
       }),
 
     getDetailedSentenceFeedback: protectedProcedure
@@ -1309,12 +1316,12 @@ export const appRouter = router({
           userId: ctx.user.id,
           quizId: input.quizId,
           studentSentence: input.studentSentence,
-          expectedCourseType: getCourseTypeFromUserTag(ctx.user.tag),
+          expectedCourseType: requireLearnerCourse(ctx.user),
         });
       }),
 
     getByUser: protectedProcedure.query(({ ctx }) =>
-      db.getQuizAnswersByUser(ctx.user.id)
+      db.getQuizAnswersByUser(ctx.user.id, studentQuestionCourse(ctx.user))
     ),
   }),
 
@@ -1324,7 +1331,7 @@ export const appRouter = router({
       db.getCertificatesByUser(ctx.user.id)
     ),
 
-    eligibility: protectedProcedure.query(({ ctx }) => db.getStudentCertificateEligibility(ctx.user.id, ctx.user)),
+    eligibility: protectedProcedure.query(({ ctx }) => {requireLearnerCourse(ctx.user);return db.getStudentCertificateEligibility(ctx.user.id, ctx.user);}),
 
     getByShareToken: publicProcedure
       .input(z.string())
@@ -1370,6 +1377,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "user" || ctx.user.tag === "학부모") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 수료증을 신청할 수 있습니다." });
+        resolveQuestionBankCourse(ctx.user, input.courseType);
         try {
           // 발급 근거(완료율·평균 점수)는 서버가 계산한 진행 기록이다. pdfUrl 등 파일 주소는 클라이언트에서 받지 않는다.
           return await db.issueCertificate({
@@ -1623,7 +1631,7 @@ export const appRouter = router({
   // ========== AI Auto Feedback Routes ==========
   aiAutoFeedback: router({
     getByUser: protectedProcedure.query(({ ctx }) =>
-      db.getAIAutoFeedbackByUser(ctx.user.id)
+      db.getAIAutoFeedbackByUser(ctx.user.id, studentQuestionCourse(ctx.user))
     ),
 
     // 이용 자격: 이용권(기간 안) > 7일 무료 체험 > 이용권 필요. 관리자·교사는 한도가 없다.
@@ -1673,6 +1681,7 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), lessonNumber: z.number().int().min(1).max(20).optional(), submissionSource: z.enum(["lesson_one_essay"]).optional(), sourceVerificationFailed: z.boolean().optional(), essayId: z.number().int().positive().optional() }))
       .mutation(async ({ ctx, input }) => {
+        resolveQuestionBankCourse(ctx.user, input.courseType);
         let sourceContent = input.essayContent;
         if (input.essayId) {
           const essay = await db.getEssaySubmissionById(input.essayId);
@@ -1783,7 +1792,7 @@ export const appRouter = router({
       .input(z.object({ courseType: z.string(), badgeType: z.string(), badgeName: z.string() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 학습 뱃지를 획득할 수 있습니다." });
-        if (input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+        if (input.courseType !== requireLearnerCourse(ctx.user)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 학습 도구를 완료해야 해당 과정 뱃지를 획득할 수 있습니다." });
         }
         if (!(["quiz", "summary", "reordering_10_session"] as const).includes(input.badgeType as "quiz" | "summary" | "reordering_10_session")) {
@@ -1804,7 +1813,7 @@ export const appRouter = router({
         return toLearnerQuestions(studentQuestionCourse(ctx.user) ? rows.filter(q => q.courseType === course && q.isActive === 1) : rows, ctx.user);
       }),
     publicStats: publicProcedure.query(async ({ ctx }) => {
-      return await db.getQuestionBankPublicStats(studentQuestionCourse(ctx.user));
+      return await db.getQuestionBankPublicStats(ctx.user ? resolveQuestionBankCourse(ctx.user) : undefined);
     }),
     random: protectedProcedure
       .input(z.object({ courseType: z.string(), toolType: z.string(), limit: z.number().default(10) }))
@@ -1822,12 +1831,12 @@ export const appRouter = router({
       .input(z.object({ questionId: z.number().int().positive(), orderedParagraphIds: z.array(z.string().min(1)).min(3).max(12) }))
       .mutation(({ ctx, input }) => {
         if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 단락 재구성 결과를 저장할 수 있습니다." });
-        return db.verifyAndRecordReorderingAttempt(ctx.user.id, input.questionId, input.orderedParagraphIds, getCourseTypeFromUserTag(ctx.user.tag));
+        return db.verifyAndRecordReorderingAttempt(ctx.user.id, input.questionId, input.orderedParagraphIds, requireLearnerCourse(ctx.user));
       }),
     difficultyLearningGuide: protectedProcedure
       .mutation(async ({ ctx }) => {
         if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 맞춤 학습 가이드를 받을 수 있습니다." });
-        return db.generateDifficultyLearningGuide(ctx.user.id, getCourseTypeFromUserTag(ctx.user.tag));
+        return db.generateDifficultyLearningGuide(ctx.user.id, requireLearnerCourse(ctx.user));
       }),
     recordMistake: protectedProcedure
       .input(z.object({
@@ -1838,14 +1847,15 @@ export const appRouter = router({
         score: z.number().min(0).max(100),
         aiFeedback: z.string().min(1).max(6000),
       }))
-      .mutation(({ ctx, input }) => {
+      .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "user") {
           return { stored: true, skipped: true, reason: "관리자·교사 점검 결과는 학습자 오답 노트에 저장하지 않습니다." };
         }
-        if (input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+        if (input.courseType !== requireLearnerCourse(ctx.user)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 학습 도구 결과만 저장할 수 있습니다." });
         }
-        return db.recordLearningToolMistake({ userId: ctx.user.id, ...input });
+        const question = await assertQuestionBankItemAccess(ctx.user, input.questionBankId, input.toolType);
+        return db.recordLearningToolMistake({ userId: ctx.user.id, ...input, courseType: question.courseType });
       }),
     topicWizardGuide: protectedProcedure
       .input(z.object({
@@ -1857,7 +1867,7 @@ export const appRouter = router({
         outline: z.string().max(4000).optional(),
       }))
       .mutation(({ ctx, input }) => {
-        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+        if (ctx.user.role === "user" && input.courseType !== requireLearnerCourse(ctx.user)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 AI 가이드만 이용할 수 있습니다." });
         }
         return db.generateTopicWizardGuide(input);
@@ -1872,11 +1882,11 @@ export const appRouter = router({
         lessonExample: z.string().min(2).max(3000),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+        if (ctx.user.role === "user" && input.courseType !== requireLearnerCourse(ctx.user)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 AI 레슨 가이드만 이용할 수 있습니다." });
         }
         const guide = await db.generateLessonWritingGuide(input);
-        const history = await db.saveAiLessonGuideHistory({ userId: ctx.user.id, ...input, guide });
+        const history = ctx.user.role === "user" ? await db.saveAiLessonGuideHistory({ userId: ctx.user.id, ...input, guide }) : null;
         return { ...guide, historyId: history?.id ?? null };
       }),
     analyzeThesis: protectedProcedure
@@ -1886,7 +1896,7 @@ export const appRouter = router({
         topic: z.string().max(500).optional(),
       }))
       .mutation(({ ctx, input }) => {
-        if (ctx.user.role === "user" && input.courseType !== getCourseTypeFromUserTag(ctx.user.tag)) {
+        if (ctx.user.role === "user" && input.courseType !== requireLearnerCourse(ctx.user)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "가입한 과정의 주제문 분석만 이용할 수 있습니다." });
         }
         return db.analyzeThesisStatement(input);
@@ -2079,6 +2089,7 @@ export const appRouter = router({
         comment: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await assertQuestionBankItemAccess(ctx.user, input.questionId);
         return await db.submitQuestionFeedback({
           userId: ctx.user.id,
           questionId: input.questionId,
@@ -2090,6 +2101,7 @@ export const appRouter = router({
     feedbackSummary: protectedProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ ctx, input }) => {
+        await assertQuestionBankItemAccess(ctx.user, input.questionId);
         const summary = await db.getQuestionFeedbacksSummary(input.questionId);
         // 다른 사용자가 남긴 신고 원문은 관리자만 볼 수 있다. 학습자에게는 집계만 준다.
         return ctx.user.role === "admin" ? summary : { ...summary, reports: [] };
@@ -2122,8 +2134,9 @@ export const appRouter = router({
     gradeEssay: protectedProcedure
       .input(z.object({ questionId: z.number(), userAnswer: z.string() }))
       .mutation(async ({ ctx, input }) => {
+        await assertQuestionBankItemAccess(ctx.user, input.questionId, "summary");
         if (ctx.user.role !== "user") return await db.gradeEssayWithAi(input.questionId, input.userAnswer);
-        return await db.gradeAndRecordSummaryAttempt(ctx.user.id, input.questionId, input.userAnswer, getCourseTypeFromUserTag(ctx.user.tag));
+        return await db.gradeAndRecordSummaryAttempt(ctx.user.id, input.questionId, input.userAnswer, requireLearnerCourse(ctx.user));
       }),
     curriculumDifficultyStats: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
@@ -2246,7 +2259,11 @@ export const appRouter = router({
         if (ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
-        return await db.updateUsersTag(input.studentIds, input.tag);
+        const course = parseCourseTypeFromUserTag(input.tag);
+        if (!course) throw new TRPCError({code:"BAD_REQUEST",message:"유효한 학습 과정을 선택해 주세요."});
+        const targets = await Promise.all(input.studentIds.map(id => db.getUserById(id)));
+        if (targets.some(user => !user || !isLearnerAccount(user))) throw new TRPCError({code:"FORBIDDEN",message:"학습자 계정의 과정만 변경할 수 있습니다."});
+        return await db.updateUsersTag(input.studentIds, getCourseTag(course));
       }),
     updateTeacherStatus: protectedProcedure
       .input(z.object({ userId: z.number(), teacherStatus: z.enum(["pending", "approved", "rejected"]) }))

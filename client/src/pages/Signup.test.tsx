@@ -37,13 +37,21 @@ describe("Signup birth date and guardian input", () => {
     routerState.providers = [];
   });
 
-  it("초등 과정(기본 선택)에서는 보호자 정보를 팝업으로 입력하도록 안내하고, 입력란은 펼쳐 두지 않는다", () => {
+  it("초등 과정을 명시 선택해서 들어오면 보호자 정보를 팝업으로 입력하도록 안내한다", () => {
+    routerState.search = "course=elementary";
     const html = renderToStaticMarkup(<Signup />);
     expect(html).toContain('aria-label="보호자 정보"');
     expect(html).toContain("보호자 정보 입력");
     expect(html).toContain("초등 과정은 보호자(법정대리인)의 동의가 필요합니다");
     expect(html).not.toContain('name="birthDate"');
     expect(html).not.toContain('aria-label="법정대리인 정보"');
+  });
+
+  it("첫 방문에는 임의의 가입 과정 없이 명시 선택을 안내한다", () => {
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).toContain("학습 과정을 선택해 주세요");
+    expect(html).not.toContain('aria-label="보호자 정보"');
+    expect(html).toContain('value="" disabled="" selected=""');
   });
 
   it("초등이 아닌 과정으로 들어오면 보호자 영역을 보여주지 않는다", () => {

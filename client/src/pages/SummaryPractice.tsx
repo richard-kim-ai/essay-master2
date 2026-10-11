@@ -1,11 +1,14 @@
-import { useState, useEffect } from "react";
+import React from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import PreviewGate from "@/components/PreviewGate";
-import { PREVIEW_SUMMARY_QUESTIONS } from "@/lib/previewSamples";
+import { getPreviewSummaryQuestions } from "@/lib/previewSamples";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
+import { COURSE_OPTIONS } from "@shared/course";
 import { toast } from "sonner";
 import { BookOpen, Send, RotateCcw, CheckCircle2, Award } from "lucide-react";
 import { Link } from "wouter";
@@ -13,55 +16,94 @@ import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 
 export default function SummaryPractice() {
   const { isAuthenticated } = useAuth();
-  const [courseType, setCourseType] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("middle_high");
-  const preview = !isAuthenticated;
-  const { data: qListData, isLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "summary", limit: 1 }, { enabled: !preview });
-  const qList = preview ? PREVIEW_SUMMARY_QUESTIONS : qListData;
+  const { effectiveCourse, courseLabel, scopeKey, loading, canSelectCourse, canLearn, canPersist, needsSelection, mode, setCourseType } = useLearningCourse();
+  const preview = mode === "public-preview";
+  // 과정이 없으면 query는 disabled이며 fallback은 tRPC 입력 타입을 맞추기 위해서만 사용한다.
+  const queryCourse = effectiveCourse ?? "elementary";
+  const { data: qListData, isLoading } = trpc.questionBank.random.useQuery(
+    { courseType: queryCourse, toolType: "summary", limit: 1 },
+    { enabled: Boolean(isAuthenticated && canLearn && !loading) },
+  );
+  const rawQuestions = preview && effectiveCourse ? getPreviewSummaryQuestions(effectiveCourse) : qListData;
+  const qList = (rawQuestions || []).filter((question) => question.courseType === effectiveCourse && question.toolType === "summary" && (preview ? question.id < 0 : question.id > 0));
 
-  const [articleTitle, setArticleTitle] = useState("AI와 미래 사회의 명암");
+  const [articleTitle, setArticleTitle] = useState("");
   const [articleContent, setArticleContent] = useState("");
   const [summary, setSummary] = useState("");
   const [feedback, setFeedback] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
   const [earnedBadgeName, setEarnedBadgeName] = useState("");
+  const scopeRef = useRef(scopeKey);
+  const questionIdRef = useRef<number | null>(null);
+  // effect 실행 전 완료되는 이전 요청도 새 범위에서 상태를 바꾸지 못하게 한다.
+  scopeRef.current = scopeKey;
 
   const awardBadgeMutation = trpc.badges.award.useMutation();
   const gradeEssayMutation = trpc.questionBank.gradeEssay.useMutation();
   const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
   const utils = trpc.useUtils();
 
-  const currentQId = qList && qList.length > 0 ? qList[0].id : 1;
+  const currentQuestion = qList[0];
+  const currentQId = currentQuestion?.id;
+  questionIdRef.current = currentQId ?? null;
 
   useEffect(() => {
-    if (qList && qList.length > 0) {
+    scopeRef.current = scopeKey;
+    questionIdRef.current = null;
+    setArticleTitle("");
+    setArticleContent("");
+    setSummary("");
+    setFeedback(null);
+    setIsAnalyzing(false);
+    setShowCelebration(false);
+    setEarnedBadgeName("");
+    return () => { scopeRef.current = "disposed"; };
+  }, [scopeKey]);
+
+  useEffect(() => {
+    questionIdRef.current = currentQuestion?.id ?? null;
+    setIsAnalyzing(false);
+    if (currentQuestion) {
       try {
-        const parsed = JSON.parse(qList[0].contentData);
-        setArticleTitle(qList[0].title);
+        const parsed = JSON.parse(currentQuestion.contentData);
+        setArticleTitle(currentQuestion.title);
         setArticleContent(parsed.prompt || parsed.content || "요약할 제시문 본문 내용입니다.");
         setSummary("");
         setFeedback(null);
       } catch {
-        setArticleTitle("기본 제시문");
-        setArticleContent("현대 사회에서 비판적 사고력과 논리적 글쓰기는 매우 중요합니다.");
+        setArticleTitle(currentQuestion.title);
+        setArticleContent("문항 본문을 불러오지 못했습니다. 관리자에게 문의해 주세요.");
       }
     }
-  }, [qList]);
+  }, [currentQuestion]);
 
+  if (loading) return <div role="status" className="text-center py-12 text-slate-600">학습 과정을 확인하고 있습니다...</div>;
+  if (needsSelection) return <div className="bg-slate-50 py-12 px-4 text-center"><p className="font-semibold text-slate-800">수강 과정 선택이 필요합니다.</p><p className="mt-2 text-sm text-slate-500">가입 과정이 확인되면 요약 연습을 시작할 수 있습니다.</p><Link href="/curriculum"><Button className="mt-4">커리큘럼으로 돌아가기</Button></Link></div>;
+  if (!canLearn || !effectiveCourse) return <div className="bg-slate-50 py-12 px-4 text-center"><p className="font-semibold text-slate-800">이 계정은 학습 과정이 배정되지 않았습니다.</p><p className="mt-2 text-sm text-slate-500">학습자 계정으로 로그인하거나 담당자에게 과정 배정을 요청해 주세요.</p></div>;
   if (isLoading) return <div className="text-center py-12 text-slate-600">문제은행에서 요약 지문을 불러오는 중...</div>;
+  if (!currentQuestion) return <div className="mx-auto max-w-xl py-12 text-center text-slate-700">{courseLabel} 과정의 요약 문항을 준비하고 있습니다.</div>;
 
   const analyzeSummary = async () => {
-    if (!summary.trim() || summary.length < 15) {
+    if (!summary.trim() || summary.trim().length < 15) {
       toast.error("핵심 내용이 포함된 15자 이상의 요약문을 작성해주세요.");
       return;
     }
+    if (!currentQuestion || !currentQId || currentQuestion.courseType !== effectiveCourse || currentQuestion.toolType !== "summary" || (preview ? currentQuestion.id >= 0 : currentQuestion.id <= 0)) return;
+    // 공개 미리보기는 PreviewGate가 입력을 막지만, 직접 호출해도 인증·AI 요청이 일어나지 않도록 막는다.
+    if (preview) return;
 
+    const requestScope = scopeRef.current;
+    const question = currentQuestion;
+    const submittedSummary = summary.trim();
     setIsAnalyzing(true);
     try {
+      // staff의 원본 문항 AI 검토 정책은 유지한다. 문항은 현재 effectiveCourse query에서 온 것만 사용한다.
       const res = await gradeEssayMutation.mutateAsync({
-        questionId: currentQId,
-        userAnswer: summary,
+        questionId: question.id,
+        userAnswer: submittedSummary,
       });
+      if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
 
       setFeedback({
         score: res.overallScore,
@@ -72,36 +114,40 @@ export default function SummaryPractice() {
       setIsAnalyzing(false);
       toast.success("AI 실시간 채점 및 분석이 완료되었습니다!");
 
-      if (res.overallScore < 100 && qList?.[0]) {
+      if (res.overallScore < 100 && canPersist) {
         try {
           await recordMistakeMutation.mutateAsync({
-            questionBankId: qList[0].id,
-            courseType,
+            questionBankId: question.id,
+            courseType: effectiveCourse,
             toolType: "summary",
-            userAnswer: summary,
+            userAnswer: submittedSummary,
             score: res.overallScore,
             aiFeedback: res.feedback || "핵심 쟁점과 결론의 조건을 다시 확인해 보세요.",
           });
         } catch {
-          toast.error("요약 결과를 오답 노트에 저장하지 못했습니다.");
+          if (scopeRef.current === requestScope && questionIdRef.current === question.id) toast.error("요약 결과를 오답 노트에 저장하지 못했습니다.");
         }
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
       }
 
-      if (res.overallScore >= 80) {
-        const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 요약 전문가 뱃지`;
+      if (res.overallScore >= 80 && canPersist) {
+        const bName = `${courseLabel} 요약 전문가 뱃지`;
         try {
-          await awardBadgeMutation.mutateAsync({ courseType, badgeType: "summary", badgeName: bName });
+          await awardBadgeMutation.mutateAsync({ courseType: effectiveCourse, badgeType: "summary", badgeName: bName });
+          if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
           setEarnedBadgeName(bName);
           setShowCelebration(true);
           utils.badges.getByUser.invalidate();
           toast.success("서로 다른 요약 3문항에서 80점 이상을 달성해 뱃지를 획득했습니다.");
         } catch {
+          if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
           toast.info("요약 뱃지는 서로 다른 3문항에서 80점 이상을 달성하면 수여됩니다.");
         }
-      } else {
+      } else if (scopeRef.current === requestScope && questionIdRef.current === question.id && canPersist) {
         toast.info("이번 점수는 뱃지 기준(80점 이상)에 도달하지 않았습니다. 핵심 주장과 근거를 다시 정리해 보세요.");
       }
     } catch (err: any) {
+      if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
       setIsAnalyzing(false);
       toast.error(err.message || "AI 채점 중 오류가 발생했습니다.");
     }
@@ -111,14 +157,15 @@ export default function SummaryPractice() {
     <PreviewGate active={preview} title="요약 연습">
     <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/curriculum"><Button variant="ghost" className="text-slate-600 pl-0">← 커리큘럼으로 돌아가기</Button></Link>
-          <div className="flex gap-2">
-            {(["elementary", "middle_high", "high_univ", "general_adult"] as const).map(c => (
-              <Button key={c} size="sm" variant={courseType === c ? "default" : "outline"} className={courseType === c ? "bg-indigo-600 text-white" : ""} onClick={() => setCourseType(c)}>
-                {c === "elementary" ? "초등" : c === "middle_high" ? "중고등" : c === "high_univ" ? "고등/대입" : "일반"}
+          <div className="flex flex-wrap gap-2">
+            {canSelectCourse && COURSE_OPTIONS.map(({ value, label }) => (
+              <Button key={value} size="sm" variant={effectiveCourse === value ? "default" : "outline"} className={effectiveCourse === value ? "bg-indigo-600 text-white" : ""} onClick={() => setCourseType(value)}>
+                {label}
               </Button>
             ))}
+            {!canSelectCourse && <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">{courseLabel} 과정</span>}
           </div>
         </div>
 
@@ -170,7 +217,7 @@ export default function SummaryPractice() {
           isOpen={showCelebration}
           onClose={() => setShowCelebration(false)}
           badgeName={earnedBadgeName}
-          courseName={courseType === "elementary" ? "초등 논술" : courseType === "middle_high" ? "중고등 논술" : courseType === "high_univ" ? "고등/대입" : "일반/직장인"}
+          courseName={`${courseLabel} 논술`}
         />
       </div>
     </div>
