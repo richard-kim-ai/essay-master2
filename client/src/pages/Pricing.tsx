@@ -52,7 +52,8 @@ const PRIVACY_CONTROLS = [
   { title: "최소 수집", text: "계정과 학습 제공에 필요한 정보와 답안만 목적에 맞게 처리합니다." },
   { title: "접근 권한", text: "학생 답안은 본인과 배정된 교사, 업무 권한이 있는 관리자만 확인할 수 있습니다." },
   { title: "AI 전송 안내", text: "AI 평가에 필요한 최소한의 텍스트만 외부 AI 제공자에게 전송합니다." },
-  { title: "삭제·철회", text: "학습 데이터 삭제와 AI 품질 개선 활용 철회는 마이페이지 및 관리자 메일 신청을 통해 요청할 수 있습니다." },
+  { title: "동의 철회", text: "AI 품질 개선을 위한 학습 데이터 활용 동의는 마이페이지에서 언제든 직접 철회할 수 있으며, 철회하면 바로 적용됩니다." },
+  { title: "데이터 삭제", text: "학습 데이터 삭제는 관리자에게 메일로 신청해 주세요. 본인 확인 후 처리합니다." },
 ] as const;
 
 function SectionHeading({ eyebrow, id, title, children }: { eyebrow: string; id: string; title: string; children?: React.ReactNode }) {

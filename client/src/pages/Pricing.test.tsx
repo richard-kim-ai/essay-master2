@@ -59,11 +59,15 @@ describe("Pricing policy page", () => {
   });
 });
 
-describe("개인정보 삭제·철회 안내 문구", () => {
-  it("메일 주소 대신 마이페이지 및 관리자 메일 신청으로 요청한다고 안내한다", () => {
+describe("개인정보 동의 철회·데이터 삭제 안내 문구", () => {
+  it("동의 철회(마이페이지에서 직접)와 데이터 삭제(관리자 메일 신청)를 별도 항목으로 안내한다", () => {
     const html = renderToStaticMarkup(<Pricing />);
-    expect(html).toContain("학습 데이터 삭제와 AI 품질 개선 활용 철회는 마이페이지 및 관리자 메일 신청을 통해 요청할 수 있습니다.");
-    expect(html).not.toContain("요청하실 수 있습니다");
+    expect(html).toContain("동의 철회");
+    expect(html).toContain("AI 품질 개선을 위한 학습 데이터 활용 동의는 마이페이지에서 언제든 직접 철회할 수 있으며");
+    expect(html).toContain("데이터 삭제");
+    expect(html).toContain("학습 데이터 삭제는 관리자에게 메일로 신청해 주세요.");
+    // 두 요청을 한 문장으로 합치던 예전 표현이 없다.
+    expect(html).not.toContain("삭제와 AI 품질 개선 활용 철회는");
   });
 
   it("도입·운영 문의 버튼은 메일 링크는 유지하되 화면에 이메일 주소를 글자로 보여 주지 않는다", () => {
