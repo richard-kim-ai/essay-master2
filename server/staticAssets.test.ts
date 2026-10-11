@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { chooseEncoding, compressJsonResponses, serveIndexHtml, servePrecompressed, setStaticHeaders } from "./_core/staticAssets";
+import { chooseEncoding, compressJsonResponses, rejectMissingStaticFiles, serveIndexHtml, servePrecompressed, setStaticHeaders } from "./_core/staticAssets";
 
 const JS_SOURCE = "console.log('hello world');".repeat(200);
 const HTML_SOURCE = "<!doctype html><html><body><div id=root></div>" + "x".repeat(2000) + "</body></html>";
@@ -45,6 +45,7 @@ beforeAll(async () => {
   app.get("/api/small", compressJsonResponses(), (_req, res) => void res.json({ ok: true }));
   app.use(servePrecompressed(root));
   app.use(express.static(root, { index: false, setHeaders: (res, filePath) => setStaticHeaders(res, filePath) }));
+  app.use(rejectMissingStaticFiles);
   app.use("*", serveIndexHtml(root));
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -120,6 +121,34 @@ describe("index.html", () => {
     expect(res.status).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-cache");
     expect(res.body.toString()).toBe(HTML_SOURCE);
+  });
+});
+
+describe("없는 정적 파일(재배포로 사라진 옛 assets)", () => {
+  it("없는 JS·CSS·assets 경로는 index.html이 아니라 404로 응답한다(Unexpected token '<' 방지)", async () => {
+    for (const missing of ["/assets/old-hash-999.js", "/assets/old-hash-999.css", "/missing-chunk.js", "/assets/no-extension"]) {
+      const res = await request(missing, { "Accept-Encoding": "identity" });
+      expect(res.status, missing).toBe(404);
+      expect(res.headers["content-type"], missing).toContain("text/plain");
+      expect(res.headers["cache-control"], missing).toBe("no-store");
+      expect(res.body.toString(), missing).not.toContain("<!doctype");
+    }
+  });
+
+  it("있는 파일은 그대로 내려가고 화면 경로는 계속 index.html로 응답한다", async () => {
+    const asset = await request("/assets/app-abc123.js", { "Accept-Encoding": "identity" });
+    expect(asset.status).toBe(200);
+    const page = await request("/curriculum/elementary/1", { "Accept-Encoding": "identity" });
+    expect(page.status).toBe(200);
+    expect(page.body.toString()).toBe(HTML_SOURCE);
+  });
+
+  it("서비스 워커는 HTML 응답을 저장하지 않고 assets/만 캐시 우선으로 쓰며, 옛 캐시 이름은 쓰지 않는다", () => {
+    const sw = fs.readFileSync(new URL("../client/public/sw.js", import.meta.url), "utf8");
+    expect(sw).toContain('"essay-master-shell-v2"');
+    expect(sw).not.toContain('"essay-master-shell-v1"');
+    expect(sw).toContain('startsWith("/assets/")) return;');
+    expect(sw).toContain('contentType.includes("text/html")');
   });
 });
 

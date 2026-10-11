@@ -18,7 +18,7 @@ describe("Essay Master Integration & Security Flows", () => {
     const manifest = JSON.parse(manifestRaw);
     expect(manifest.name).toBe("논술 마스터");
     expect(manifest.display).toBe("standalone");
-    expect(swRaw).toContain("essay-master-shell-v1");
+    expect(swRaw).toContain("essay-master-shell-v2");
     expect(swRaw).toContain("caches.open");
   });
 

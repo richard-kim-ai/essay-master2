@@ -81,6 +81,22 @@ export function servePrecompressed(root: string): RequestHandler {
   };
 }
 
+const STATIC_FILE_PATTERN = /\.(?:m?js|css|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|json|webmanifest|txt)$/i;
+
+/**
+ * 없는 정적 파일(특히 재배포로 사라진 옛 해시 assets/*.js)에 index.html을 200으로 돌려주지 않고 404를 준다.
+ * HTML을 JS로 받은 브라우저가 "Unexpected token '<'"로 멈추는 것을 막고, 클라이언트가 새 빌드로 다시 불러오게 한다.
+ */
+export const rejectMissingStaticFiles: RequestHandler = (req, res, next) => {
+  const requestPath = req.path;
+  if (requestPath.startsWith("/assets/") || STATIC_FILE_PATTERN.test(requestPath)) {
+    res.status(404).setHeader("Cache-Control", "no-store");
+    res.type("text/plain").send("Not found");
+    return;
+  }
+  next();
+};
+
 /** SPA 진입 파일(index.html) 응답. 항상 새로 확인하게 하고 압축본이 있으면 압축본을 보낸다. */
 export function serveIndexHtml(root: string): RequestHandler {
   const indexFile = path.resolve(root, "index.html");

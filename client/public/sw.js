@@ -1,4 +1,5 @@
-const CACHE_NAME = "essay-master-shell-v1";
+// v2: 예전(v1) 캐시에 JS 자리에 저장된 HTML이 남아 "Unexpected token '<'"가 계속되는 것을 막기 위해 이름을 올려 옛 캐시를 비운다.
+const CACHE_NAME = "essay-master-shell-v2";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
@@ -63,11 +64,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // 해시가 붙은 assets/ 파일만 캐시 우선으로 쓴다. 개발 서버의 모듈 등 그 밖의 파일은 항상 네트워크에서 받는다(오래된 모듈이 남지 않게).
+  if (!url.pathname.startsWith("/assets/")) return;
+
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
-        if (response.ok && (url.pathname.startsWith("/assets/") || url.pathname.endsWith(".css") || url.pathname.endsWith(".js"))) {
+        // 없는 파일에 대신 내려온 HTML(index.html)은 저장하지 않는다.
+        const contentType = response.headers.get("content-type") || "";
+        if (response.ok && !contentType.includes("text/html")) {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }
