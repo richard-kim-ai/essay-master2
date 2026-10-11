@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 화면 폭 통일(PC max-w-7xl)과 페이지 이동 네비게이션 바(뒤로가기·경로 표시) — client/src/components/Layout.tsx, PageNavigator, 각 페이지 최상위 컨테이너 폭 — 시작 2026-10-12 00:45
 
 ## 완료
 
