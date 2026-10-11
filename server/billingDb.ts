@@ -7,6 +7,7 @@ import {
   paymentOrders,
   subscriptions,
   teacherActivityAccounting,
+  teacherFeedbackPasses,
   teacherFeedbackRequests,
   teacherFeedback,
   teacherSettlementRates,
@@ -212,10 +213,15 @@ export async function markOrderRefunded(orderId: number, now = new Date()) {
     const [result] = await tx.update(paymentOrders).set({ status: "refunded", refundedAt: now }).where(and(eq(paymentOrders.id, orderId), eq(paymentOrders.status, "paid")));
     if (Number((result as { affectedRows?: number }).affectedRows ?? 0) === 0) return false;
     await tx.update(subscriptions).set({ status: "expired", awaitingStart: 0, currentPeriodEnd: now }).where(and(eq(subscriptions.orderId, orderId), inArray(subscriptions.status, ["active", "cancelled"])));
-    // 교사 첨삭 주문이면 그 신청도 환불 처리한다(취소를 선점해 둔 상태이거나 관리자가 직접 환불하는 경우 모두 포함).
-    await tx.update(teacherFeedbackRequests)
-      .set({ status: "refunded", cancelledAt: now })
-      .where(and(eq(teacherFeedbackRequests.orderId, orderId), inArray(teacherFeedbackRequests.status, ["paid", "in_progress", "delivered", "cancelled"])));
+    // 교사 첨삭지도권 주문이면 권을 환불 처리하고(더 이상 신청에 쓸 수 없다), 그 권으로 진행 중이던 신청도 닫는다.
+    // 이미 결과가 전달된 신청은 그대로 둔다.
+    const [pass] = await tx.select({ id: teacherFeedbackPasses.id }).from(teacherFeedbackPasses).where(eq(teacherFeedbackPasses.orderId, orderId));
+    if (pass) {
+      await tx.update(teacherFeedbackPasses).set({ status: "refunded" }).where(eq(teacherFeedbackPasses.id, pass.id));
+      await tx.update(teacherFeedbackRequests)
+        .set({ status: "refunded", cancelledAt: now })
+        .where(and(eq(teacherFeedbackRequests.passId, pass.id), inArray(teacherFeedbackRequests.status, ["paid", "in_progress"])));
+    }
     return true;
   });
 }

@@ -76,32 +76,41 @@ export const PLANS: readonly Plan[] = [
   },
 ] as const;
 
-// ===== 교사 첨삭지도(건별 결제) =====
-// 이용권과 별개로, 이용권 결제자가 앱 안에서 건별로 추가 결제해 신청하는 상품이다(가격 및 환불정책 1·4조).
-// 값은 정책의 가격표와 같아야 한다.
-export type TeacherFeedbackKey = "tf_core" | "tf_standard" | "tf_comprehensive";
+// ===== 교사 첨삭지도권(횟수권) =====
+// 일반 첨삭(논리·구성·근거에 대한 피드백) 1종을 1·3·5회분으로 판매한다. 이용권(학습형·AI 기본형·AI 집중형·AI 추가권)을 이용 중인
+// 학습자만 구매할 수 있고, 신청할 때마다 1회씩 차감한다. 전달 전에 취소하면 횟수가 돌아온다.
+// 교사 지급은 계약급여로 따로 집행하므로 이 가격과 연결하지 않는다. 값은 '가격 및 환불정책'의 교사 첨삭 안내와 같아야 한다.
+export type TeacherFeedbackPassKey = "tf_pass_1" | "tf_pass_3" | "tf_pass_5";
 
-export interface TeacherFeedbackProduct {
-  key: TeacherFeedbackKey;
+export interface TeacherFeedbackPassProduct {
+  key: TeacherFeedbackPassKey;
   name: string;
   priceKrw: number;
+  /** 구매한 권으로 신청할 수 있는 교사 첨삭 횟수 */
+  sessions: number;
+  /** 구매일부터 이 기간(일) 안에 신청할 수 있다 */
+  periodDays: number;
   description: string;
+  featured?: boolean;
 }
 
-export const TEACHER_FEEDBACK_PRODUCTS: readonly TeacherFeedbackProduct[] = [
-  { key: "tf_core", name: "교사 핵심 첨삭지도", priceKrw: 3900, description: "선택한 평가항목에 대한 핵심 피드백" },
-  { key: "tf_standard", name: "교사 일반 첨삭지도", priceKrw: 6900, description: "논리·구성·근거에 대한 피드백" },
-  { key: "tf_comprehensive", name: "교사 종합 첨삭지도", priceKrw: 9900, description: "전체 평가와 문장 수정 제안을 포함한 종합 피드백" },
+/** 교사 첨삭지도권 유효기간(일). 구매일부터 센다. */
+export const TEACHER_FEEDBACK_PASS_PERIOD_DAYS = 90;
+
+export const TEACHER_FEEDBACK_PASSES: readonly TeacherFeedbackPassProduct[] = [
+  { key: "tf_pass_1", name: "교사 첨삭지도권 1회분", priceKrw: 6900, sessions: 1, periodDays: TEACHER_FEEDBACK_PASS_PERIOD_DAYS, description: "논리·구성·근거에 대한 교사 첨삭 1회" },
+  { key: "tf_pass_3", name: "교사 첨삭지도권 3회분", priceKrw: 19900, sessions: 3, periodDays: TEACHER_FEEDBACK_PASS_PERIOD_DAYS, description: "논리·구성·근거에 대한 교사 첨삭 3회", featured: true },
+  { key: "tf_pass_5", name: "교사 첨삭지도권 5회분", priceKrw: 31900, sessions: 5, periodDays: TEACHER_FEEDBACK_PASS_PERIOD_DAYS, description: "논리·구성·근거에 대한 교사 첨삭 5회" },
 ] as const;
 
-export function getTeacherFeedbackProduct(key: string): TeacherFeedbackProduct | undefined {
-  return TEACHER_FEEDBACK_PRODUCTS.find((product) => product.key === key);
+export function getTeacherFeedbackPass(key: string): TeacherFeedbackPassProduct | undefined {
+  return TEACHER_FEEDBACK_PASSES.find((product) => product.key === key);
 }
 
-/** 교사 첨삭을 신청할 수 있는 사람(요금 페이지 등 외부 안내용 문구). */
-export const TEACHER_FEEDBACK_ELIGIBILITY_NOTICE = "이용권 결제자만 신청할 수 있습니다.";
+/** 교사 첨삭지도권을 구매·신청할 수 있는 사람(요금 페이지 등 외부 안내용 문구). */
+export const TEACHER_FEEDBACK_ELIGIBILITY_NOTICE = "이용권 결제자만 구매·신청할 수 있습니다.";
 
-/** 교사 첨삭 신청·결제 기능을 열면 true로 바꾼다. false인 동안 요금 페이지에는 '신청 기능 준비 중'으로 표시한다. */
+/** 교사 첨삭지도권 구매·신청 기능을 열면 true로 바꾼다. false인 동안 요금 페이지에는 '신청 기능 준비 중'으로 표시한다. */
 export const TEACHER_FEEDBACK_PURCHASE_OPEN = true;
 
 /** 예전 요금제(결제 연동 전 임시 결제로 만든 기록). 새로 판매하지 않고, 이름만 알아볼 수 있게 남긴다. */
@@ -114,7 +123,7 @@ export function getPlan(key: string): Plan | undefined {
 
 /** 판매 중이 아닌 예전 상품 이름까지 포함해 표시용 이름을 돌려준다. */
 export function getPlanName(key: string): string {
-  return getPlan(key)?.name ?? TEACHER_FEEDBACK_PRODUCTS.find((product) => product.key === key)?.name ?? LEGACY_PLAN_NAMES[key] ?? key;
+  return getPlan(key)?.name ?? TEACHER_FEEDBACK_PASSES.find((product) => product.key === key)?.name ?? LEGACY_PLAN_NAMES[key] ?? key;
 }
 
 export function formatKrw(amount: number): string {

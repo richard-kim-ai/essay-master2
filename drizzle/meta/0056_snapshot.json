@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "4023645e-a285-4012-b26d-1b5615e6d6e3",
+  "id": "b6e1d89d-d342-4e76-8001-3296b50d861e",
   "prevId": "c81dc9d8-7c3c-4e23-b7fe-551075c94aaf",
   "tables": {
     "admin_audit_logs": {
@@ -5989,6 +5989,120 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "teacher_feedback_passes": {
+      "name": "teacher_feedback_passes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "productKey": {
+          "name": "productKey",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sessions": {
+          "name": "sessions",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sessionsUsed": {
+          "name": "sessionsUsed",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "priceKrw": {
+          "name": "priceKrw",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "orderId": {
+          "name": "orderId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('active','refunded')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "idx_tf_passes_userId": {
+          "name": "idx_tf_passes_userId",
+          "columns": [
+            "userId"
+          ],
+          "isUnique": false
+        },
+        "idx_tf_passes_orderId": {
+          "name": "idx_tf_passes_orderId",
+          "columns": [
+            "orderId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "teacher_feedback_passes_id": {
+          "name": "teacher_feedback_passes_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "teacher_feedback_requests": {
       "name": "teacher_feedback_requests",
       "columns": {
@@ -6013,23 +6127,9 @@
           "notNull": true,
           "autoincrement": false
         },
-        "productKey": {
-          "name": "productKey",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "priceKrw": {
-          "name": "priceKrw",
+        "passId": {
+          "name": "passId",
           "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scopeJson": {
-          "name": "scopeJson",
-          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -6048,13 +6148,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'paid'"
-        },
-        "orderId": {
-          "name": "orderId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
         },
         "dueAt": {
           "name": "dueAt",
@@ -6147,10 +6240,10 @@
           ],
           "isUnique": false
         },
-        "idx_tf_requests_orderId": {
-          "name": "idx_tf_requests_orderId",
+        "idx_tf_requests_passId": {
+          "name": "idx_tf_requests_passId",
           "columns": [
-            "orderId"
+            "passId"
           ],
           "isUnique": false
         }
