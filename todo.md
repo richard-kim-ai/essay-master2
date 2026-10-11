@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Manus] 이메일 발신자 설정 진단 및 발송 전용 Resend 키 오판 방지 테스트 보완 (server/email.config.test.ts) — 시작 2026-10-11 20:57
 
 
 ## 완료
