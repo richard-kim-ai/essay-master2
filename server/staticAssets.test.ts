@@ -1,3 +1,5 @@
+import { initTRPC } from "@trpc/server";
+import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import express from "express";
 import fs from "node:fs";
 import http from "node:http";
@@ -138,5 +140,61 @@ describe("JSON 응답 압축", () => {
     const plain = await request("/api/big", { "Accept-Encoding": "identity" });
     expect(plain.headers["content-encoding"]).toBeUndefined();
     expect(JSON.parse(plain.body.toString())).toEqual(BIG_JSON);
+  });
+});
+
+describe("실제 tRPC 어댑터 위에서의 압축(로그인 쿠키 보존)", () => {
+  const t = initTRPC.context<{ res: express.Response }>().create();
+  const router = t.router({
+    login: t.procedure.mutation(({ ctx }) => {
+      ctx.res.cookie("app_session_id", "token-value", { httpOnly: true, sameSite: "none", secure: true, maxAge: 1000 * 60 });
+      return { success: true } as const;
+    }),
+    big: t.procedure.query(({ ctx }) => {
+      ctx.res.cookie("app_session_id", "token-big", { httpOnly: true, path: "/" });
+      return BIG_JSON;
+    }),
+  });
+  let trpcServer: http.Server;
+  let trpcUrl: string;
+
+  beforeAll(async () => {
+    const app = express();
+    app.use(express.json());
+    app.use("/api/trpc", compressJsonResponses(), createExpressMiddleware({ router, createContext: ({ res }) => ({ res }) }));
+    trpcServer = http.createServer(app);
+    await new Promise<void>((resolve) => trpcServer.listen(0, "127.0.0.1", resolve));
+    trpcUrl = `http://127.0.0.1:${(trpcServer.address() as AddressInfo).port}`;
+  });
+  afterAll(async () => {
+    await new Promise((resolve) => trpcServer.close(resolve));
+  });
+
+  function call(method: "GET" | "POST", pathname: string, headers: Record<string, string> = {}) {
+    return new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }>((resolve, reject) => {
+      const req = http.request(`${trpcUrl}${pathname}`, { method, headers: { "content-type": "application/json", ...headers } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+      });
+      req.on("error", reject);
+      req.end(method === "POST" ? "{}" : undefined);
+    });
+  }
+
+  it("로그인 같은 작은 응답: 쿠키가 그대로 나가고 본문이 온전하다", async () => {
+    const res = await call("POST", "/api/trpc/login", { "Accept-Encoding": "gzip, br" });
+    expect(res.status).toBe(200);
+    expect(String(res.headers["set-cookie"])).toContain("app_session_id=token-value");
+    expect(String(res.headers["set-cookie"])).toContain("SameSite=None");
+    expect(JSON.parse(res.body.toString()).result.data).toEqual({ success: true });
+  });
+
+  it("큰 응답: gzip으로 압축되어도 쿠키가 유지되고 내용이 같다", async () => {
+    const res = await call("GET", "/api/trpc/big", { "Accept-Encoding": "gzip" });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-encoding"]).toBe("gzip");
+    expect(String(res.headers["set-cookie"])).toContain("app_session_id=token-big");
+    expect(JSON.parse(zlib.gunzipSync(res.body).toString()).result.data).toEqual(BIG_JSON);
   });
 });

@@ -96,24 +96,72 @@ export function serveIndexHtml(root: string): RequestHandler {
   };
 }
 
-/** 큰 JSON 응답을 gzip으로 압축한다. 본문을 한 번에 end()로 보내는 응답(tRPC)만 대상이다. */
+function normalizeEndArgs(args: unknown[]) {
+  let [chunk, encoding, callback] = args;
+  if (typeof chunk === "function") {
+    callback = chunk;
+    chunk = undefined;
+    encoding = undefined;
+  } else if (typeof encoding === "function") {
+    callback = encoding;
+    encoding = undefined;
+  }
+  return {
+    chunk,
+    encoding: typeof encoding === "string" ? (encoding as BufferEncoding) : undefined,
+    callback: typeof callback === "function" ? (callback as () => void) : undefined,
+  };
+}
+
+function chunkToBuffer(chunk: unknown, encoding?: BufferEncoding) {
+  return typeof chunk === "string" ? Buffer.from(chunk, encoding) : Buffer.from(chunk as Uint8Array);
+}
+
+/**
+ * JSON 응답을 gzip으로 압축한다(tRPC 응답). tRPC 어댑터는 본문을 write()로 나눠 쓰고 end()로 닫으므로,
+ * 첫 write 시점에 JSON 응답인지 정해 본문을 모은 뒤 end()에서 한 번에 압축한다.
+ * 크기가 작은 응답(로그인 등)은 압축 없이 그대로 보낸다. JSON이 아니거나 이미 압축된 응답은 건드리지 않는다.
+ */
 export function compressJsonResponses(minBytes = 1024): RequestHandler {
   return (req, res, next) => {
     if (!chooseEncoding<"gzip">(req.headers["accept-encoding"], ["gzip"])) return next();
+    const originalWrite = res.write.bind(res) as (...args: unknown[]) => boolean;
     const originalEnd = res.end.bind(res) as (...args: unknown[]) => Response;
-    res.end = ((chunk?: unknown, encodingArg?: unknown, callback?: unknown) => {
-      const body = typeof chunk === "string" ? Buffer.from(chunk, typeof encodingArg === "string" ? (encodingArg as BufferEncoding) : "utf8") : Buffer.isBuffer(chunk) ? chunk : null;
-      const contentType = String(res.getHeader("Content-Type") ?? "");
-      const done = typeof encodingArg === "function" ? encodingArg : typeof callback === "function" ? callback : undefined;
-      if (!body || body.length < minBytes || res.headersSent || res.getHeader("Content-Encoding") || res.statusCode === 204 || res.statusCode === 304 || !/json/i.test(contentType)) {
-        return originalEnd(...(chunk === undefined ? [] : [chunk]), ...(encodingArg === undefined ? [] : [encodingArg]), ...(callback === undefined ? [] : [callback]));
+    const chunks: Buffer[] = [];
+    let buffering: boolean | null = null;
+
+    const shouldBuffer = () => {
+      if (buffering === null) {
+        buffering =
+          !res.headersSent &&
+          /json/i.test(String(res.getHeader("Content-Type") ?? "")) &&
+          !res.getHeader("Content-Encoding") &&
+          res.statusCode !== 204 &&
+          res.statusCode !== 304;
       }
+      return buffering;
+    };
+
+    res.write = ((chunk: unknown, encodingArg?: unknown, callback?: unknown) => {
+      if (!shouldBuffer()) return originalWrite(chunk, encodingArg, callback);
+      const done = typeof encodingArg === "function" ? encodingArg : callback;
+      chunks.push(chunkToBuffer(chunk, typeof encodingArg === "string" ? (encodingArg as BufferEncoding) : undefined));
+      if (typeof done === "function") (done as () => void)();
+      return true;
+    }) as typeof res.write;
+
+    res.end = ((...args: unknown[]) => {
+      if (!shouldBuffer()) return originalEnd(...args);
+      const { chunk, encoding, callback } = normalizeEndArgs(args);
+      if (chunk !== undefined && chunk !== null) chunks.push(chunkToBuffer(chunk, encoding));
+      const body = Buffer.concat(chunks);
+      if (body.length < minBytes) return originalEnd(body, callback);
       zlib.gzip(body, (error, compressed) => {
-        if (error) return void originalEnd(body, done);
+        if (error) return void originalEnd(body, callback);
         res.setHeader("Content-Encoding", "gzip");
         res.setHeader("Vary", "Accept-Encoding");
         res.setHeader("Content-Length", compressed.length);
-        originalEnd(compressed, done);
+        originalEnd(compressed, callback);
       });
       return res;
     }) as typeof res.end;
