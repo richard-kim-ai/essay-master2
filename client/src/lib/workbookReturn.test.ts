@@ -9,9 +9,13 @@ describe("워크북 학습 위치 복귀 경로", () => {
 
   it("학습 도구 이동 경로에 복귀 위치를 포함하고, 유효한 복귀 경로만 읽는다", () => {
     const returnPath = "/workbook/high_univ/1?lesson=2";
-    expect(buildToolPathWithWorkbookReturn("/topic-wizard", returnPath)).toBe("/topic-wizard?return_to=%2Fworkbook%2Fhigh_univ%2F1%3Flesson%3D2");
-    expect(getWorkbookReturnPath("?return_to=%2Fworkbook%2Fhigh_univ%2F1%3Flesson%3D2")).toBe(returnPath);
+    const toolPath = buildToolPathWithWorkbookReturn("/topic-wizard", returnPath);
+    expect(toolPath).toBe("/topic-wizard?return_to=%2Fworkbook%2Fhigh_univ%2F1%3Flesson%3D2");
+    expect(new URLSearchParams(toolPath.split("?")[1]).get("return_to")).toBe(returnPath);
+    expect(toolPath).not.toContain("%252F");
+    expect(getWorkbookReturnPath(toolPath.slice(toolPath.indexOf("?")))).toBe(returnPath);
     expect(getWorkbookReturnPath("?return_to=https%3A%2F%2Funsafe.example")).toBeNull();
+    expect(buildToolPathWithWorkbookReturn("/thesis-checklist", "https://unsafe.example")).toBe("/thesis-checklist");
   });
 
   it("워크북 복귀 시 유효한 레슨 인덱스만 사용한다", () => {

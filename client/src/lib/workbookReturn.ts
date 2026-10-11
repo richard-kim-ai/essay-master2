@@ -12,7 +12,8 @@ export function buildWorkbookReturnPath(courseType: string, level: number, lesso
 }
 
 export function buildToolPathWithWorkbookReturn(toolPath: "/topic-wizard" | "/thesis-checklist", returnPath: string | null) {
-  return returnPath ? `${toolPath}?return_to=${encodeURIComponent(returnPath)}` : toolPath;
+  if (!returnPath || !WORKBOOK_RETURN_PATTERN.test(returnPath)) return toolPath;
+  return `${toolPath}?${new URLSearchParams({ return_to: returnPath }).toString()}`;
 }
 
 export function getWorkbookReturnPath(search: string) {
