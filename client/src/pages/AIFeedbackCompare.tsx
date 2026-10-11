@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { ArrowLeft, CheckCircle2, Lightbulb, MessageSquareText, Sparkles, Highlighter } from "lucide-react";
 import { Link, useParams } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { diffTexts, type DiffResult } from "@/lib/textDiff";
 
 function parseList(value: string | null | undefined) {
   if (!value) return [] as string[];
@@ -18,11 +19,23 @@ function parseList(value: string | null | undefined) {
   }
 }
 
+// 같은 글을 다시 그릴 때(체크 표시 등) 비교를 다시 계산하지 않도록 마지막 결과를 기억한다.
+let lastDiff: { original: string; revised: string; result: DiffResult } | null = null;
+function cachedDiff(original: string, revised: string): DiffResult {
+  if (lastDiff && lastDiff.original === original && lastDiff.revised === revised) return lastDiff.result;
+  const result = diffTexts(original, revised);
+  lastDiff = { original, revised, result };
+  return result;
+}
+
+const KIND_LABEL = { replace: "바꿈", insert: "추가", delete: "삭제" } as const;
+
 export default function AIFeedbackCompare() {
   const { isAuthenticated } = useAuth();
   const params = useParams<{ id: string }>();
   const feedbackId = Number(params.id || 0);
   const [highlightMode, setHighlightMode] = useState<boolean>(true);
+  const [checked, setChecked] = useState<Set<number>>(new Set());
 
   const { data: feedbackList, isLoading } = trpc.aiAutoFeedback.getByUser.useQuery(undefined, { enabled: isAuthenticated && feedbackId > 0 });
   const feedback = feedbackList?.find((item) => item.id === feedbackId);
@@ -37,39 +50,15 @@ export default function AIFeedbackCompare() {
   const revisedEssay = feedback.revisedEssay || feedback.essayContent;
   const originalEssay = feedback.essayContent || "";
 
-  // 하이라이트 렌더링 (원문에 없는 새로운 단어나 교정된 표현을 초록색 계열로 강조)
-  const renderHighlightedDiff = (original: string, revised: string, highlight: boolean) => {
-    if (!highlight) return <div className="whitespace-pre-wrap">{revised}</div>;
-
-    const originalWords = new Set(original.split(/\s+/));
-    const lines = revised.split("\n");
-
-    return (
-      <div className="space-y-1">
-        {lines.map((line, lIdx) => {
-          const words = line.split(" ");
-          return (
-            <div key={lIdx}>
-              {words.map((word, wIdx) => {
-                const isChanged = !originalWords.has(word) && word.length > 1;
-                return isChanged ? (
-                  <span
-                    key={wIdx}
-                    className="bg-emerald-200 text-emerald-950 px-1 py-0.5 rounded font-medium border-b-2 border-emerald-500 shadow-sm transition-colors"
-                    title="AI가 교정하거나 새롭게 제안한 표현입니다"
-                  >
-                    {word}{" "}
-                  </span>
-                ) : (
-                  <span key={wIdx}>{word} </span>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
+  // 원문과 첨삭 답안을 단어 단위로 비교한다: 삭제·바뀐 부분은 원문에서 빨강, 추가·바뀐 부분은 첨삭 답안에서 초록으로 표시하고 번호를 붙인다.
+  const diff = cachedDiff(originalEssay, revisedEssay);
+  const toggleChecked = (id: number) => setChecked((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const allChecked = diff.changes.length > 0 && checked.size >= diff.changes.length;
 
   return (
     <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
@@ -94,17 +83,69 @@ export default function AIFeedbackCompare() {
           </div>
         </div>
 
+        <Card className="border-slate-200 bg-white shadow-sm" data-testid="diff-summary">
+          <CardContent className="flex flex-wrap items-center gap-x-5 gap-y-2 p-4 text-sm">
+            {diff.identical ? (
+              <p className="font-semibold text-slate-700">AI가 원문을 고치지 않았거나 수정 답안이 원문과 같습니다. 아래 강점·보완점·제안을 참고해 주세요.</p>
+            ) : (
+              <>
+                <span className="font-extrabold text-slate-900">수정 {diff.changes.length}곳</span>
+                <span className="text-emerald-700">추가 {diff.addedWords}단어</span>
+                <span className="text-rose-700">삭제 {diff.removedWords}단어</span>
+                <span className="text-slate-600">원문의 약 {diff.changedPercent}% 변경</span>
+              </>
+            )}
+            <span className="ml-auto flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-600">
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-3 rounded bg-rose-200" aria-hidden="true" /> 삭제·바뀐 원문</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-3 rounded bg-emerald-200" aria-hidden="true" /> 추가·바뀐 표현</span>
+            </span>
+          </CardContent>
+        </Card>
+
         <div className="grid gap-6 xl:grid-cols-2">
           <Card className="border-slate-200 bg-white shadow-sm">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/80"><CardTitle className="flex items-center gap-2 text-lg text-slate-900"><MessageSquareText className="h-5 w-5 text-slate-600" /> 학생 원본 답안</CardTitle><CardDescription>AI 첨삭 전 작성한 원문입니다.</CardDescription></CardHeader>
-            <CardContent><div className="max-h-[620px] min-h-[360px] overflow-y-auto whitespace-pre-wrap rounded-xl bg-white p-5 text-sm leading-8 text-slate-700">{originalEssay}</div></CardContent>
+            <CardHeader className="border-b border-slate-100 bg-slate-50/80"><CardTitle className="flex items-center gap-2 text-lg text-slate-900"><MessageSquareText className="h-5 w-5 text-slate-600" /> 학생 원본 답안</CardTitle><CardDescription>AI 첨삭 전 작성한 원문입니다. 고쳐진 부분은 빨간 취소선과 번호로 표시했습니다.</CardDescription></CardHeader>
+            <CardContent><div data-testid="diff-original" className="max-h-[620px] min-h-[360px] overflow-y-auto whitespace-pre-wrap rounded-xl bg-white p-5 text-sm leading-8 text-slate-700">{diff.ops.map((op, index) => {
+              if (op.type === "insert") return null;
+              if (op.type === "equal" || !highlightMode) return <span key={index}>{op.before}</span>;
+              return <span key={index} className={`rounded bg-rose-100 px-0.5 text-rose-800 line-through decoration-rose-500 ${checked.has(op.changeId!) ? "opacity-40" : ""}`} title={`수정 ${op.changeId}번: 고쳐진 원문`}>{op.before?.trimEnd()}<sup className="ml-0.5 text-[10px] font-extrabold text-rose-600 no-underline">{op.changeId}</sup>{" "}</span>;
+            })}</div></CardContent>
           </Card>
 
           <Card className="border-indigo-200 bg-white shadow-sm">
-            <CardHeader className="border-b border-indigo-100 bg-indigo-50/60"><CardTitle className="flex items-center gap-2 text-lg text-indigo-950"><Sparkles className="h-5 w-5 text-indigo-600" /> AI 첨삭 답안 (하이라이트)</CardTitle><CardDescription>원문의 핵심 의도를 유지하며 수정·개선된 표현을 초록색으로 강조했습니다.</CardDescription></CardHeader>
-            <CardContent><div className="max-h-[620px] min-h-[360px] overflow-y-auto rounded-xl bg-indigo-50/30 p-5 text-sm leading-8 text-slate-800">{renderHighlightedDiff(originalEssay, revisedEssay, highlightMode)}</div></CardContent>
+            <CardHeader className="border-b border-indigo-100 bg-indigo-50/60"><CardTitle className="flex items-center gap-2 text-lg text-indigo-950"><Sparkles className="h-5 w-5 text-indigo-600" /> AI 첨삭 답안</CardTitle><CardDescription>추가되거나 바뀐 표현을 초록색 밑줄과 번호로 표시했습니다. 번호는 아래 수정 내역과 같습니다.</CardDescription></CardHeader>
+            <CardContent><div data-testid="diff-revised" className="max-h-[620px] min-h-[360px] overflow-y-auto whitespace-pre-wrap rounded-xl bg-indigo-50/30 p-5 text-sm leading-8 text-slate-800">{diff.ops.map((op, index) => {
+              if (op.type === "delete") return null;
+              if (op.type === "equal" || !highlightMode) return <span key={index}>{op.after}</span>;
+              return <span key={index} className={`rounded border-b-2 border-emerald-500 bg-emerald-100 px-0.5 font-medium text-emerald-950 ${checked.has(op.changeId!) ? "opacity-50" : ""}`} title={`수정 ${op.changeId}번: AI가 추가·변경한 표현`}>{op.after?.trimEnd()}<sup className="ml-0.5 text-[10px] font-extrabold text-emerald-700">{op.changeId}</sup>{" "}</span>;
+            })}</div></CardContent>
           </Card>
         </div>
+
+        {diff.changes.length > 0 && (
+          <Card className="border-slate-200 bg-white shadow-sm" data-testid="diff-changes">
+            <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-slate-100">
+              <div><CardTitle className="text-lg text-slate-900">수정 내역 ({checked.size}/{diff.changes.length} 확인)</CardTitle><CardDescription>하나씩 읽고 체크하면 본문에서 흐리게 표시됩니다.</CardDescription></div>
+              <Button size="sm" variant="outline" onClick={() => setChecked(allChecked ? new Set() : new Set(diff.changes.map((change) => change.id)))}>{allChecked ? "확인 모두 해제" : "모두 확인"}</Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ul className="divide-y divide-slate-100">
+                {diff.changes.map((change) => (
+                  <li key={change.id} className="flex items-start gap-3 px-5 py-3">
+                    <input type="checkbox" className="mt-1.5 h-4 w-4 shrink-0 accent-emerald-600" checked={checked.has(change.id)} onChange={() => toggleChecked(change.id)} aria-label={`수정 ${change.id}번 확인함`} />
+                    <span className="mt-0.5 inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 px-1.5 text-xs font-extrabold text-white">{change.id}</span>
+                    <div className="min-w-0 flex-1 text-sm leading-7">
+                      <Badge variant="outline" className="mr-2 align-middle">{KIND_LABEL[change.kind]}</Badge>
+                      {change.before && <span className="rounded bg-rose-100 px-1 text-rose-800 line-through decoration-rose-500">{change.before}</span>}
+                      {change.before && change.after && <span className="mx-2 text-slate-400" aria-hidden="true">→</span>}
+                      {change.after && <span className="rounded bg-emerald-100 px-1 font-medium text-emerald-900">{change.after}</span>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card><CardHeader><CardTitle className="text-base text-emerald-800">강점</CardTitle></CardHeader><CardContent>{strengths.length ? <ul className="space-y-2 text-sm text-slate-700">{strengths.map((item) => <li key={item} className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />{item}</li>)}</ul> : <p className="text-sm text-slate-500">기록된 강점이 없습니다.</p>}</CardContent></Card>

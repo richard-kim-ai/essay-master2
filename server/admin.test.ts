@@ -208,7 +208,7 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("AI 답안 비교 뷰에 변경점 하이라이트 기능이 포함되어 있다", () => {
     const comparePath = new URL("../client/src/pages/AIFeedbackCompare.tsx", import.meta.url);
     const compareSource = readFileSync(comparePath, "utf8");
-    expect(compareSource).toContain("renderHighlightedDiff");
+    expect(compareSource).toContain("diffTexts");
     expect(compareSource).toContain("하이라이트 켜짐");
   });
 
