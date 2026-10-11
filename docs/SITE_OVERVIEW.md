@@ -178,7 +178,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 시도 기록은 `learning_tool_attempts`에 저장.
 
 ### 5.5 수료증·배지
-레벨별 수료증(입력 검증·소유자 검사), 공유 토큰 조회, 관리자 발급·취소, 교사 요청·승인 정책(`certificate_approval_*`). 배지 `user_badges`, 주간 요약, 알림.
+레벨별 수료증(입력 검증·소유자 검사), 공유 토큰 조회, 관리자 발급·취소, 교사 요청·승인 정책(`certificate_approval_*`). 배지 `user_badges`, 주간 요약, 알림. **PDF는 발급하는 순간에만 브라우저에서 만들어 내려받고 서버에는 남기지 않으며**, 관리자 화면에는 압축 이미지(WebP/JPEG, 약 20kB)로 보관·조회(`certificate_archives`).
 
 ---
 
@@ -259,7 +259,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | 정책·동의 | `policy_documents`, `user_policy_consents`, `data_processing_requests` |
 | 커리큘럼·이론 | `curriculum`, `dynamic_curriculum`, `lesson_theory_content`, `lesson_theory_drafts`, `lesson_theory_progress`, `workbook_lesson_connections` |
 | 문제·워크북 | `question_bank`, `question_bank_trash`, `question_bank_maintenance_settings`, `question_bank_operation_logs`, `question_feedbacks`, `question_bookmarks`, `curriculum_workbook_questions`, `curriculum_workbook_answers`, `workbook_mistakes`, `workbook_teacher_feedback`, `learning_tool_mistakes`, `learning_tool_attempts`, `quiz_answer`, `sentence_feedback_cache` |
-| 진행·성과 | `progress`, `certificate`, `certificate_approval_policies`, `certificate_approval_requests`, `user_badges`, `ai_lesson_guide_histories` |
+| 진행·성과 | `progress`, `certificate`, `certificate_archives`, `certificate_approval_policies`, `certificate_approval_requests`, `user_badges`, `ai_lesson_guide_histories` |
 | 논술·첨삭 | `essay_submission`, `teacher_feedback`, `feedback_comment`, `teacher_feedback_templates`, `approved_writing_examples` |
 | AI | `ai_auto_feedback`, `ai_usage_logs`, `sample_ai_usage_log`, `evaluation_model_configs`, `writing_evaluation_records`, `evaluation_model_operations`, `evaluation_review_queue`, `evaluation_appeals`, `teacher_ai_profiles`, `teacher_ai_style_examples`, `teacher_ai_drafts`, `teacher_ai_draft_revisions` |
 | 반 운영 | `learning_groups`, `learning_group_members`, `class_attendance`, `class_announcements`, `class_assignments`, `class_assignment_submissions`, `class_assignment_ai_feedbacks` |
