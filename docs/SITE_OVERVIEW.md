@@ -324,4 +324,5 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | `docs/evaluation-master-prompt-v1.1.md`, `docs/AI_논술_글쓰기_평가엔진_v1.1_기술.md` | 글 평가 엔진 |
 | `docs/teacher-ai-draft-api.md` | 교사 AI 초안 |
 | `docs/runtime-efficiency-policy.md` | 런타임 효율 정책 |
+| `docs/loading-performance.md` | 화면 로딩 속도 최적화 기록·측정·남은 과제 |
 | `docs/development-work-boundaries.md`, `docs/worktree-management.md`, `docs/github-actions-sync.md` | 개발 경계·동기화 |
