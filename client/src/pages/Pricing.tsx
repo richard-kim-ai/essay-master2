@@ -46,6 +46,7 @@ const TEACHER_PASS_CARDS = TEACHER_FEEDBACK_PASSES.map((product) => ({
   perSession: formatKrw(Math.round(product.priceKrw / product.sessions)),
   periodDays: product.periodDays,
   description: product.description,
+  features: [product.description, `1회 약 ${formatKrw(Math.round(product.priceKrw / product.sessions))}`, `구매일부터 ${product.periodDays}일 이용`, "결과 전달 전 취소 시 1회 복원"],
   featured: Boolean(product.featured),
 }));
 
@@ -135,27 +136,27 @@ export default function Pricing() {
             <p className="mx-auto mt-5 max-w-3xl text-center text-xs leading-6 text-slate-500">표시 가격은 최종 결제금액이며, 청약철회·환불 기준은 화면 하단 푸터의 '가격·환불정책'에서 확인하세요. 교사·기관 도입은 아래 문의 영역에서 안내합니다.</p>
           </section>
 
-          <section className="mx-auto mt-16 max-w-5xl rounded-[2rem] border border-indigo-100 bg-white p-6 shadow-sm sm:p-9" aria-labelledby="teacher-pass-title" data-testid="teacher-feedback-pricing">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 id="teacher-pass-title" className="scroll-mt-24 text-xl font-black tracking-tight text-slate-950 sm:text-2xl">교사 첨삭지도권</h2>
+          <section className="mt-16" aria-labelledby="teacher-pass-title" data-testid="teacher-feedback-pricing">
+            <SectionHeading eyebrow="TEACHER FEEDBACK" id="teacher-pass-title" title="교사 첨삭지도권">
+              이용권(학습형·AI 기본형·AI 집중형·AI 추가권)을 이용 중인 학습자가 서비스 안에서 첨삭지도권을 구매하고, 교사 첨삭을 신청할 때마다 1회씩 사용합니다. 담당 교사가 논리·구성·근거에 대해 첨삭합니다.
+            </SectionHeading>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-extrabold text-amber-900">{TEACHER_FEEDBACK_ELIGIBILITY_NOTICE}</span>
               {!TEACHER_FEEDBACK_PURCHASE_OPEN && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-extrabold text-slate-600">신청 기능 준비 중</span>}
             </div>
-            <p className="mt-3 text-sm leading-7 text-slate-600">이용권(학습형·AI 기본형·AI 집중형·AI 추가권)을 이용 중인 학습자가 서비스 안에서 첨삭지도권을 구매하고, 교사 첨삭을 신청할 때마다 1회씩 사용합니다. 담당 교사가 논리·구성·근거에 대해 첨삭합니다. AI 이용권에는 교사의 개별 첨삭지도·상담이 포함되지 않으며, AI 이용 횟수에 따라 교사 지도비가 자동으로 청구되지 않습니다.</p>
-            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="mx-auto mt-8 grid max-w-5xl items-stretch gap-4 sm:grid-cols-3">
               {TEACHER_PASS_CARDS.map((product) => (
-                <article key={product.key} className={`relative flex flex-col rounded-2xl border p-5 ${product.featured ? "border-indigo-300 bg-indigo-50/60" : "border-slate-200 bg-slate-50/60"}`}>
+                <article key={product.key} className={`relative flex min-w-0 flex-col rounded-2xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-6 ${product.featured ? "border-indigo-300 bg-indigo-50/65" : "border-indigo-200 bg-indigo-50/55"}`}>
                   {product.featured && <span className="absolute right-4 top-4 rounded-full bg-indigo-700 px-2.5 py-1 text-[11px] font-extrabold text-white">추천</span>}
                   <div className="w-fit rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-extrabold text-indigo-700">첨삭지도권 {product.sessions}회분</div>
-                  <p className="mt-4 text-2xl font-black tracking-tight text-slate-950">{product.price}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">1회 약 {product.perSession} · 구매일부터 {product.periodDays}일</p>
-                  <p className="mt-3 flex-1 text-sm font-semibold leading-6 text-slate-700">{product.description}</p>
+                  <p className="mt-4 min-h-[3rem] text-sm leading-6 text-slate-600">일반 첨삭 {product.sessions}회를 구매일부터 {product.periodDays}일 안에 사용합니다.</p>
+                  <div className="mt-5 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 border-b border-slate-200/80 pb-5"><span className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{product.price}</span><span className="text-xs font-bold text-slate-500">/{product.sessions}회</span></div>
+                  <ul className="mt-5 flex-1 space-y-3">{product.features.map((feature) => <li key={feature} className="flex items-start gap-2 text-sm font-semibold leading-5 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" /><span>{feature}</span></li>)}</ul>
+                  <Link href="/checkout" className={`mt-5 h-10 px-4 text-sm ${PRIMARY_BUTTON}`}>첨삭지도권 구매하기</Link>
                 </article>
               ))}
             </div>
-            <p className="mt-5 text-xs leading-6 text-slate-500">
-              신청 전에 피드백 범위와 완료 예정일(신청일부터 3영업일, 담당 교사가 결과를 전달하기로 한 날짜)을 안내합니다. 결과를 전달하기 전에 취소하면 첨삭지도권 1회가 그대로 돌아옵니다.
-            </p>
+            <p className="mx-auto mt-5 max-w-3xl text-center text-xs leading-6 text-slate-500">신청 전에 피드백 범위와 완료 예정일(신청일부터 3영업일, 담당 교사가 결과를 전달하기로 한 날짜)을 안내합니다. AI 이용권에는 교사의 개별 첨삭지도·상담이 포함되지 않으며, AI 이용 횟수에 따라 교사 지도비가 자동으로 청구되지 않습니다.</p>
           </section>
 
           <section className="mt-16 grid items-stretch gap-6 lg:grid-cols-[1.12fr_0.88fr]" aria-labelledby="privacy-title">
