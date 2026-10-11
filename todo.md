@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Manus] 학생 아카이브 가입 과정만 선택·열람 및 추천·북마크 서버 접근 제한 (EssayArchive.tsx, questionBank 조회) — 시작 2026-10-11 21:27
 
 
 ## 완료
