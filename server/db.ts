@@ -75,6 +75,7 @@ import { computeLessonProgress } from "./lessonProgress";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
+import { DEFAULT_REFUND_POLICY, REFUND_POLICY_KEY } from "./refundPolicy";
 import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared/course";
 import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
 import { generateQuestionBankItems, qaQuestionItem, type AdaptiveStats, type GenerationRequestInput } from "./questionGeneration";
@@ -1992,9 +1993,11 @@ export async function adminDeleteCurriculumCategory(id: number) {
 
 export async function getSiteSetting(settingKey: string) {
   const db = await getDb();
-  if (!db) return defaultPolicyContent(settingKey);
+  // 가격·환불정책은 동의 문서 목록과 분리해 두고, 관리자가 저장하기 전에는 게시용 기본 문구를 보여 준다.
+  const fallback = settingKey === REFUND_POLICY_KEY ? DEFAULT_REFUND_POLICY : defaultPolicyContent(settingKey);
+  if (!db) return fallback;
   const [row] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, settingKey));
-  return row?.content ?? defaultPolicyContent(settingKey);
+  return row?.content ?? fallback;
 }
 
 export async function saveSiteSetting(settingKey: string, content: string, adminId: number) {

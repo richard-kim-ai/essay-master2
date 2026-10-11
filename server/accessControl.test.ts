@@ -248,10 +248,11 @@ describe("비로그인·학습자에게 내려가는 정보", () => {
     expect(JSON.stringify(result)).not.toContain("teacher@example.com");
   });
 
-  it("사이트 설정은 약관·개인정보처리방침만 비로그인에 공개하고, 그 밖의 키는 관리자만 읽는다", async () => {
+  it("사이트 설정은 약관·개인정보처리방침·가격환불정책만 비로그인에 공개하고, 그 밖의 키는 관리자만 읽는다", async () => {
     vi.mocked(db.getSiteSetting).mockResolvedValue("내용" as any);
     await expect(callerFor(null).admin.getSiteSettingAdmin({ settingKey: "terms_of_service" })).resolves.toBe("내용");
     await expect(callerFor(null).admin.getSiteSettingAdmin({ settingKey: "privacy_policy" })).resolves.toBe("내용");
+    await expect(callerFor(null).admin.getSiteSettingAdmin({ settingKey: "refund_policy" })).resolves.toBe("내용");
     await expect(callerFor(null).admin.getSiteSettingAdmin({ settingKey: "difficulty_operation_mode" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(callerFor(owner).admin.getSiteSettingAdmin({ settingKey: "anything" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(callerFor(admin).admin.getSiteSettingAdmin({ settingKey: "anything" })).resolves.toBe("내용");

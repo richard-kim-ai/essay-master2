@@ -4,6 +4,7 @@ import { storagePut } from "./storage";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
+import { REFUND_POLICY_KEY } from "./refundPolicy";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse } from "./questionBankAccess";
@@ -222,7 +223,7 @@ async function assertEssayReadAccess(user: { id: number; role: string; teacherSt
 const SCORE_0_100 = z.number().int().min(0).max(100);
 
 // 로그인하지 않아도 읽을 수 있는 사이트 설정(공개 문서)
-const PUBLIC_SITE_SETTING_KEYS = ["terms_of_service", "privacy_policy"];
+const PUBLIC_SITE_SETTING_KEYS = ["terms_of_service", "privacy_policy", REFUND_POLICY_KEY];
 
 function assertApprovedTeacherOrAdmin(user: { role: string; teacherStatus?: string | null }) {
   if (user.role === "admin") return;
