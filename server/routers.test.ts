@@ -100,17 +100,14 @@ describe("appRouter", () => {
   });
 
   describe("progress", () => {
-    it("should upsert user progress", async () => {
+    it("다른 과정을 둘러볼 때는 진행을 기록하지 않는다", async () => {
       const ctx = createMockContext();
       const caller = appRouter.createCaller(ctx);
 
-      const result = await caller.progress.upsert({
-        curriculumId: 1,
-        score: 85,
-        completed: 50,
-      });
+      // 점수·완료 여부는 서버가 계산한다. 가입 과정(태그 없음 = 중고등)이 아닌 과정은 기록하지 않는다.
+      const result = await caller.progress.upsert({ courseType: "elementary", level: 1 });
 
-      expect(result).toBeDefined();
+      expect(result).toBeNull();
     });
 
     it("should get user progress", async () => {
@@ -359,6 +356,16 @@ describe("appRouter", () => {
     });
   });
 
+  describe("sample account login removal", () => {
+    const publicCaller = () => appRouter.createCaller(createMockContext({ user: null as any }));
+
+    it("누구나 아는 샘플 계정 정보로는 로그인할 수 없고 계정이 자동 생성되지 않는다", async () => {
+      await expect(publicCaller().auth.loginWithEmail({ email: "student@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(publicCaller().auth.loginWithEmail({ email: "teacher@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(publicCaller().auth.loginWithEmail({ email: "admin@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
   describe("public curriculum overview", () => {
     it("비로그인 방문자도 과정 구성을 조회할 수 있고 로그인 전용 조회는 계속 차단된다", async () => {
       const caller = appRouter.createCaller(createMockContext({ user: null as any }));
@@ -487,9 +494,9 @@ describe("appRouter", () => {
       await expect(caller.teacherFeedback.create({ essayId: 1, overallScore: 85, overallComment: "근거를 더 구체적으로 작성해 보세요." })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
 
-    it("존재하지 않는 답안의 교사 첨삭 조회는 빈 결과를 반환한다", async () => {
+    it("존재하지 않는 글의 첨삭 조회는 찾을 수 없음으로 응답한다", async () => {
       const caller = appRouter.createCaller(createMockContext());
-      await expect(caller.teacherFeedback.getByEssay(0)).resolves.toBeUndefined();
+      await expect(caller.teacherFeedback.getByEssay(0)).rejects.toMatchObject({ code: "NOT_FOUND" });
     });
   });
 

@@ -1,13 +1,9 @@
 import React from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import InstallPrompt from "@/components/InstallPrompt";
-import Navigation from "@/components/Navigation";
-import OfflineStatus from "@/components/OfflineStatus";
 import {
   getHomePrimaryAction,
 } from "@/lib/homeExperience";
 import { getTrialStatus } from "@/lib/trialExperience";
-import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
 import { Link } from "wouter";
 import {
   ArrowRight,
@@ -81,8 +77,8 @@ const LEARNING_PROMISES = [
 ] as const;
 
 const HERO_VALUE_CARDS = [
-  { label: "AI 실시간 첨삭", tone: "bg-blue-50" },
-  { label: "전문 교사 피드백", tone: "bg-purple-50" },
+  { label: "AI 실시간 첨삭", tone: "bg-indigo-50" },
+  { label: "전문 교사 피드백", tone: "bg-indigo-50" },
   { label: "맞춤형 학습 경로", tone: "bg-pink-50" },
   { label: "진도 추적 대시보드", tone: "bg-amber-50" },
 ] as const;
@@ -95,17 +91,14 @@ export default function Home() {
   const primaryActionLabel = "지금 시작하기";
 
   return (
-    <div className="min-h-screen bg-[#fbfcff] text-slate-950">
-      <Navigation />
-      <OfflineStatus />
-
-      <main>
+    <div className="bg-[#fbfcff] text-slate-950">
+      <div>
         <section className="relative overflow-hidden border-b border-slate-100 bg-[radial-gradient(circle_at_90%_18%,rgba(224,231,255,0.9),transparent_34rem),radial-gradient(circle_at_4%_90%,rgba(219,234,254,0.78),transparent_30rem)]">
           <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:px-8 lg:py-24">
             <div className="max-w-2xl">
               <h1 className="text-balance text-5xl font-black leading-[1.15] tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-7xl">
                 논술 마스터와 함께
-                <span className="block bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">글쓰기 실력 UP</span>
+                <span className="block bg-gradient-to-r from-indigo-600 to-indigo-600 bg-clip-text text-transparent">글쓰기 실력 UP</span>
               </h1>
               <p className="mt-8 max-w-xl text-pretty text-xl leading-9 text-slate-600">
                 AI 기반 맞춤형 첨삭과 전문 교사의 피드백으로 논술 실력을 한 단계 업그레이드하세요.
@@ -114,7 +107,7 @@ export default function Home() {
                 <Link
                   href={isAuthenticated ? primaryAction.href : "/login?trial=1"}
                   data-home-cta="primary"
-                  className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl bg-blue-600 px-6 text-base font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 sm:w-auto sm:px-7 sm:text-lg"
+                  className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl bg-indigo-600 px-6 text-base font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300 sm:w-auto sm:px-7 sm:text-lg"
                 >
                   {primaryActionLabel}<ArrowRight className="ml-2 h-5 w-5" />
                 </Link>
@@ -122,7 +115,7 @@ export default function Home() {
                   <Link
                     href="/sample"
                     data-home-cta="course-finder"
-                    className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-white px-5 text-sm font-bold text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 sm:w-auto sm:px-6 sm:text-base"
+                    className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl border border-indigo-200 bg-white px-5 text-sm font-bold text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-auto sm:px-6 sm:text-base"
                   >
                     나에게 맞는 과정 찾기
                   </Link>
@@ -240,26 +233,7 @@ export default function Home() {
             </Link>
           </div>
         </section>
-      </main>
-
-      <footer className="bg-slate-950 px-4 py-10 text-slate-400 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row md:items-end">
-          <div>
-            <div className="flex items-center gap-2 font-extrabold text-white"><BookOpen className="h-5 w-5 text-cyan-300" />논술 마스터</div>
-            <p className="mt-3 max-w-sm text-sm leading-6">읽고, 생각하고, 설득력 있게 쓰는 과정을 함께하는 단계별 논술 학습 플랫폼입니다.</p>
-          </div>
-          <div className="flex flex-wrap justify-start gap-x-5 gap-y-3 text-sm font-semibold md:justify-end">
-            <Link href="/curriculum" className="hover:text-white">커리큘럼</Link>
-            <Link href="/essay-archive" className="hover:text-white">추천 아카이브</Link>
-            <Link href="/topic-wizard" className="hover:text-white">주제 설정</Link>
-            <Link href="/pricing" className="hover:text-white">요금정책</Link>
-            <Link href="/mypage" className="hover:text-white">마이페이지</Link>
-            <a href={CONTACT_MAILTO} className="hover:text-white">문의 {CONTACT_EMAIL}</a>
-          </div>
-        </div>
-        <div className="mx-auto mt-8 max-w-7xl border-t border-slate-800 pt-6 text-sm">© 2026 논술 마스터. All rights reserved.</div>
-      </footer>
-      <InstallPrompt />
+      </div>
     </div>
   );
 }

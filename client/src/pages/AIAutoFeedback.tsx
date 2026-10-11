@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -71,16 +72,14 @@ export default function AIAutoFeedback() {
   }, [loading]);
 
   const { data: quota, refetch: refetchQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery();
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const createFeedbackMutation = trpc.aiAutoFeedback.create.useMutation({
     onSuccess: () => {
       refetchQuota();
     },
-    onError: (err) => {
-      if (err.message && err.message.includes("쿼터")) {
-        setShowUpgradeModal(true);
-      }
+    onError: () => {
+      // 한도·이용권 문제는 서버 메시지를 그대로 보여 주기 위해 아래 제출 처리에서 안내하고, 남은 횟수는 다시 불러온다.
+      refetchQuota();
     },
   });
   const appealMutation = trpc.evaluationAppeals.create.useMutation({
@@ -93,7 +92,7 @@ export default function AIAutoFeedback() {
   });
 
   if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
+    return <LoginRequired />;
   }
 
   const handleGenerateFeedback = async () => {
@@ -145,71 +144,51 @@ export default function AIAutoFeedback() {
       toast.success("AI 첨삭이 완료되었습니다!");
     } catch (error) {
       console.error("Error generating feedback:", error);
-      toast.error("첨삭 중 오류가 발생했습니다.");
+      toast.error(error instanceof Error && error.message ? error.message : "첨삭 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="bg-slate-50 py-12">
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-8">AI 자동 첨삭</h1>
+        <h1 className="text-4xl font-bold text-slate-900 mb-8">AI 자동 첨삭</h1>
 
-        {quota && (
-          <div className="mb-6 flex items-center justify-between rounded-xl bg-blue-50 border border-blue-200 p-4 text-blue-900">
-            <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-sm">AI</span>
-              <div>
-                <p className="text-sm font-semibold">{quota.isTrial ? "7일 무료 체험 AI 논술 평가" : "공용 크레딧 일일 AI 첨삭 쿼터"}</p>
-                <p className="text-xs text-blue-700">{quota.isTrial ? <>레슨 1 첫 서술형 제출 1회 · 사용: <span className="font-bold">{quota.used}회</span> / 잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span> · 체험 {quota.daysRemaining}일 남음</> : <>오늘 사용한 횟수: <span className="font-bold">{quota.used}회</span> / 무료 제공 <span className="font-bold">{quota.limit}회</span> (잔여: <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</>}</p>
-              </div>
-            </div>
-            {quota.remaining === 0 && user?.role !== "admin" ? (
-              <button
-                onClick={() => setShowUpgradeModal(true)}
-                className="text-xs bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold px-4 py-2 rounded-lg shadow-sm transition"
-              >
-                프리미엄 업그레이드 / 충전
-              </button>
-            ) : (
-              <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-3 py-1 rounded-full">
-                이용 가능
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Upgrade / Credit Modal */}
-        {showUpgradeModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-gray-900">✨ 일일 AI 쿼터 소진 안내</h3>
-                <button onClick={() => setShowUpgradeModal(false)} className="text-gray-400 hover:text-gray-600 font-bold text-lg">×</button>
-              </div>
-              <p className="text-sm text-gray-600 leading-relaxed">
-                오늘 제공된 무료 AI 자동 첨삭 횟수(5회)를 모두 소진하셨습니다. 더 많은 첨삭과 심층 분석을 원하시면 프리미엄 플랜으로 업그레이드하거나 추가 크레딧을 충전하세요!
-              </p>
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div className="border border-indigo-200 bg-indigo-50/50 rounded-xl p-4 text-center space-y-2">
-                  <p className="text-xs font-bold text-indigo-700 uppercase">Pro Pass</p>
-                  <p className="text-lg font-extrabold text-gray-900">₩9,900<span className="text-xs font-normal text-gray-500">/월</span></p>
-                  <p className="text-xs text-gray-600">일일 30회 + 심층 분석</p>
-                  <button onClick={() => { toast.success("프로 플랜 신청이 완료되었습니다! (시뮬레이션)"); setShowUpgradeModal(false); }} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-2 rounded-lg font-semibold">구독하기</button>
-                </div>
-                <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 text-center space-y-2">
-                  <p className="text-xs font-bold text-emerald-700 uppercase">Extra Credit</p>
-                  <p className="text-lg font-extrabold text-gray-900">₩3,000<span className="text-xs font-normal text-gray-500">/10회</span></p>
-                  <p className="text-xs text-gray-600">추가 10회 즉시 충전</p>
-                  <button onClick={() => { toast.success("추가 크레딧 충전이 완료되었습니다! (시뮬레이션)"); setShowUpgradeModal(false); }} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs py-2 rounded-lg font-semibold">충전하기</button>
+        {quota && (() => {
+          const institutional = quota.mode === "institution";
+          const needsPlan = quota.mode === "none" || ((quota.mode === "plan" || quota.mode === "trial") && quota.remaining === 0);
+          const title = institutional ? `${quota.contractName ?? "기관"} 계약 이용` : quota.mode === "trial" ? "7일 무료 체험 AI 논술 평가" : quota.mode === "plan" ? `${quota.planKey === "growth" ? "성장" : "스타터"} 이용권 AI 논술 평가` : quota.mode === "unlimited" ? "AI 논술 평가" : "AI 논술 평가는 이용권이 필요합니다";
+          const detail = institutional
+            ? (quota.canUse ? <>계약 기간 {quota.periodEnd ? new Date(quota.periodEnd).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" }) : "-"} 전까지 · {quota.periodOnly
+              ? <>계약 기간 동안 횟수 제한 없이 이용 (AI 첨삭 사용 <span className="font-bold">{quota.used}회</span>)</>
+              : quota.overage > 0
+                ? <>AI 첨삭 사용 <span className="font-bold">{quota.used}회</span> (계약 횟수 {quota.limit}회를 {quota.overage}회 넘었습니다. 기관 담당자에게 문의해 주세요)</>
+                : <>AI 첨삭 사용 <span className="font-bold">{quota.used}회</span> / {quota.limit}회 (잔여 <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</>}</> : (quota.reason ?? "기관 담당자에게 문의해 주세요."))
+            : quota.mode === "trial"
+            ? <>레슨 1 첫 서술형 제출 1회 · 사용 <span className="font-bold">{quota.used}회</span> / 잔여 <span className="font-bold text-emerald-600">{quota.remaining}회</span> · 체험 {quota.daysRemaining}일 남음</>
+            : quota.mode === "plan"
+              ? <>이용 기간 {quota.periodEnd ? new Date(quota.periodEnd).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" }) : "-"}까지 · 사용 <span className="font-bold">{quota.used}회</span> / {quota.limit}회 (잔여 <span className="font-bold text-emerald-600">{quota.remaining}회</span>)</>
+              : quota.mode === "unlimited" ? "교사·관리자 계정은 사용 횟수에 제한이 없습니다." : (quota.reason ?? "");
+          return (
+            <div className="mb-6 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-indigo-900 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">AI</span>
+                <div>
+                  <p className="text-sm font-semibold">{title}</p>
+                  <p className="text-xs text-indigo-700">{detail}</p>
+                  {quota.reason && !institutional && quota.mode !== "none" && quota.remaining === 0 && <p className="mt-1 text-xs text-amber-800">{quota.reason}</p>}
                 </div>
               </div>
-              <button onClick={() => setShowUpgradeModal(false)} className="w-full text-center text-xs text-gray-500 hover:text-gray-700 pt-2">다음에 할게요</button>
+              {needsPlan && user?.role === "user" ? (
+                <Link href="/checkout"><Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">이용권 선택</Button></Link>
+              ) : quota.canUse ? (
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">이용 가능</span>
+              ) : null}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Input Section */}
@@ -224,7 +203,7 @@ export default function AIAutoFeedback() {
               <CardContent className="space-y-4">
                 {/* Course Type */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     과정 선택
                   </label>
                   <Select value={courseType} onValueChange={(value: any) => setCourseType(value)}>
@@ -242,7 +221,7 @@ export default function AIAutoFeedback() {
 
                 {/* Level */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     레벨 선택
                   </label>
                   <Select value={level} onValueChange={setLevel}>
@@ -261,14 +240,14 @@ export default function AIAutoFeedback() {
                 {/* File Upload Option */}
                 <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 p-4">
                   <label className="block text-sm font-semibold text-indigo-900 mb-1">
-                    📁 답안 파일 업로드 (.txt, .pdf, .docx)
+                    📁 텍스트 파일 불러오기 (.txt)
                   </label>
                   <p className="text-xs text-slate-600 mb-3">
-                    작성한 논술 문서 파일을 업로드하면 텍스트가 자동으로 추출되어 입력됩니다.
+                    .txt 파일을 불러오면 내용이 아래 입력창에 채워집니다. PDF·Word 문서는 내용을 복사해서 아래 입력창에 붙여 넣어 주세요.
                   </p>
                   <input
                     type="file"
-                    accept=".txt,.pdf,.doc,.docx"
+                    accept=".txt,text/plain"
                     className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -285,12 +264,12 @@ export default function AIAutoFeedback() {
                       reader.onerror = () => {
                         toast.error("파일을 읽는 중 오류가 발생했습니다.");
                       };
-                      if (file.name.endsWith(".txt")) {
+                      if (file.name.toLowerCase().endsWith(".txt")) {
                         reader.readAsText(file, "utf-8");
                       } else {
-                        // PDF/DOCX 등 바이너리 파일 업로드 시뮬레이션 및 안내
-                        setContent(`[업로드된 파일: ${file.name} (${Math.round(file.size / 1024)}KB)]\n\n문서 내용 자동 추출 결과:\n학생이 업로드한 논술 과제 파일의 본문 내용입니다. 다각적 제시문 비교 및 논리적 타당성 검증에 관한 핵심 주장이 담겨 있습니다.`);
-                        toast.success(`'${file.name}' 파일이 업로드되어 본문이 채워졌습니다.`);
+                        // 파일 내용을 읽지 못하면 입력창을 채우지 않는다(임의 문장을 넣어 평가하지 않는다).
+                        e.target.value = "";
+                        toast.error("텍스트(.txt) 파일만 불러올 수 있어요. PDF·Word 문서는 내용을 복사해서 입력창에 붙여 넣어 주세요.");
                       }
                     }}
                   />
@@ -298,7 +277,7 @@ export default function AIAutoFeedback() {
 
                 {/* Title */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     제목
                   </label>
                   <Input
@@ -310,7 +289,7 @@ export default function AIAutoFeedback() {
 
                 {/* Content */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     논술 내용
                   </label>
                   <Textarea
@@ -320,7 +299,7 @@ export default function AIAutoFeedback() {
                     rows={10}
                     className="resize-none"
                   />
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-slate-500 mt-2">
                     {content.length} / 5000 자
                   </p>
                 </div>
@@ -372,31 +351,31 @@ export default function AIAutoFeedback() {
                     {/* Overall Score */}
                     <div className="p-4 bg-indigo-50 rounded-lg">
                       <div className="text-center">
-                        <p className="text-sm text-gray-600 mb-2">종합 점수</p>
+                        <p className="text-sm text-slate-600 mb-2">종합 점수</p>
                         <p className="text-4xl font-bold text-indigo-600">
                           {feedback.overallScore}
                         </p>
-                        <p className="text-xs text-gray-500 mt-2">/ 100</p>
+                        <p className="text-xs text-slate-500 mt-2">/ 100</p>
                       </div>
                     </div>
 
                     {/* Detailed Scores */}
                     <div className="grid grid-cols-3 gap-3">
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-600 mb-1">구조</p>
-                        <p className="text-2xl font-bold text-gray-900">
+                      <div className="p-3 bg-slate-50 rounded-lg">
+                        <p className="text-xs text-slate-600 mb-1">구조</p>
+                        <p className="text-2xl font-bold text-slate-900">
                           {feedback.structureScore}
                         </p>
                       </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-600 mb-1">논리</p>
-                        <p className="text-2xl font-bold text-gray-900">
+                      <div className="p-3 bg-slate-50 rounded-lg">
+                        <p className="text-xs text-slate-600 mb-1">논리</p>
+                        <p className="text-2xl font-bold text-slate-900">
                           {feedback.logicScore}
                         </p>
                       </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-600 mb-1">표현</p>
-                        <p className="text-2xl font-bold text-gray-900">
+                      <div className="p-3 bg-slate-50 rounded-lg">
+                        <p className="text-xs text-slate-600 mb-1">표현</p>
+                        <p className="text-2xl font-bold text-slate-900">
                           {feedback.expressionScore}
                         </p>
                       </div>
@@ -432,7 +411,7 @@ export default function AIAutoFeedback() {
                     <CardContent>
                       <ul className="space-y-2">
                         {feedback.strengths.map((strength: string, idx: number) => (
-                          <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                          <li key={idx} className="flex items-start gap-2 text-sm text-slate-700">
                             <span className="text-green-600 mt-1">✓</span>
                             {strength}
                           </li>
@@ -454,7 +433,7 @@ export default function AIAutoFeedback() {
                     <CardContent>
                       <ul className="space-y-2">
                         {feedback.weaknesses.map((weakness: string, idx: number) => (
-                          <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                          <li key={idx} className="flex items-start gap-2 text-sm text-slate-700">
                             <span className="text-orange-600 mt-1">!</span>
                             {weakness}
                           </li>
@@ -473,7 +452,7 @@ export default function AIAutoFeedback() {
                     <CardContent>
                       <ul className="space-y-2">
                         {feedback.suggestions.map((suggestion: string, idx: number) => (
-                          <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                          <li key={idx} className="flex items-start gap-2 text-sm text-slate-700">
                             <span className="text-indigo-600 mt-1">{idx + 1}.</span>
                             {suggestion}
                           </li>
@@ -490,7 +469,7 @@ export default function AIAutoFeedback() {
                       <CardTitle>종합 평가</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-gray-700 leading-relaxed">
+                      <p className="text-slate-700 leading-relaxed">
                         {feedback.overallComment}
                       </p>
                     </CardContent>
@@ -502,10 +481,10 @@ export default function AIAutoFeedback() {
             ) : (
               <Card>
                 <CardContent className="py-12 text-center">
-                  <p className="text-gray-500">
+                  <p className="text-slate-500">
                     논술을 입력하고 "AI 첨삭 받기" 버튼을 클릭하면
                   </p>
-                  <p className="text-gray-500">
+                  <p className="text-slate-500">
                     첨삭 결과가 여기에 표시됩니다
                   </p>
                 </CardContent>

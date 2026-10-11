@@ -121,7 +121,7 @@ export default function StudentAssignments() {
                         <p className="text-xs font-semibold text-indigo-600">{assignment.groupName}</p>
                         <CardTitle className="mt-1 line-clamp-2 text-lg text-slate-900">{assignment.title}</CardTitle>
                       </div>
-                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${isReviewed ? "bg-emerald-100 text-emerald-700" : isSubmitted ? "bg-blue-100 text-blue-700" : assignment.isOverdue ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${isReviewed ? "bg-emerald-100 text-emerald-700" : isSubmitted ? "bg-indigo-100 text-indigo-700" : assignment.isOverdue ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
                         {isReviewed ? "채점 완료" : isSubmitted ? "채점 대기" : assignment.isOverdue ? "마감 경과" : "제출 필요"}
                       </span>
                     </div>

@@ -1,6 +1,7 @@
 import { ArrowLeft, BookOpen, Download, FileText, Sparkles } from "lucide-react";
 import { Link, useRoute } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,12 +31,12 @@ export default function CurriculumDetail() {
   const firstTheoryContent = workbookLessonBundle?.theoryContent[0];
   const theoryExample = parseCurriculumTheoryExample(firstTheoryContent?.contentData);
 
-  if (!isAuthenticated) return <div className="p-12 text-center text-slate-600">로그인이 필요합니다.</div>;
+  if (!isAuthenticated) return <LoginRequired />;
   if (isLoading) return <div className="p-12 text-center text-slate-600">강의 정보를 불러오는 중입니다...</div>;
   if (!item) return <div className="p-12 text-center text-slate-600">강의 정보를 찾을 수 없습니다.</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl space-y-6">
         <Link href="/curriculum"><Button variant="ghost" className="gap-2 px-0 text-slate-600 hover:text-indigo-700"><ArrowLeft className="h-4 w-4" /> 커리큘럼으로 돌아가기</Button></Link>
         <Card className="overflow-hidden border-indigo-100 shadow-sm">
@@ -48,7 +49,7 @@ export default function CurriculumDetail() {
           </CardHeader>
           <CardContent className="space-y-7 p-6 pt-0 sm:p-8 sm:pt-0">
             <section><h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-900"><BookOpen className="h-5 w-5 text-indigo-600" /> 학습 주제</h2><div className="grid gap-3 sm:grid-cols-2">{item.topics.map((topic) => <div key={topic} className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">{topic}</div>)}</div></section>
-            {theoryExample && <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-5"><div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-violet-700" /><h2 className="text-lg font-bold text-slate-900">예문으로 확인하기</h2></div>{theoryExample.concept && <p className="mt-2 text-sm leading-6 text-slate-700">{theoryExample.concept}</p>}<div className="mt-4 rounded-lg border border-violet-100 bg-white p-4"><p className="text-xs font-bold text-violet-800">{theoryExample.exampleLabel}</p><p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-800">{theoryExample.exampleText}</p></div>{theoryExample.wrongExample && theoryExample.improvedExample && <div className="mt-3 grid gap-3 md:grid-cols-2"><div className="rounded-lg border border-rose-100 bg-rose-50/60 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{theoryExample.wrongExample}</p></div><div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{theoryExample.improvedExample}</p></div></div>}</section>}
+            {theoryExample && <section className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-5"><div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-indigo-700" /><h2 className="text-lg font-bold text-slate-900">예문으로 확인하기</h2></div>{theoryExample.concept && <p className="mt-2 text-sm leading-6 text-slate-700">{theoryExample.concept}</p>}<div className="mt-4 rounded-lg border border-indigo-100 bg-white p-4"><p className="text-xs font-bold text-indigo-800">{theoryExample.exampleLabel}</p><p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-800">{theoryExample.exampleText}</p></div>{theoryExample.wrongExample && theoryExample.improvedExample && <div className="mt-3 grid gap-3 md:grid-cols-2"><div className="rounded-lg border border-rose-100 bg-rose-50/60 p-3"><p className="text-xs font-bold text-rose-700">바꿔 볼 문장</p><p className="mt-1 text-sm leading-6 text-slate-700">{theoryExample.wrongExample}</p></div><div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3"><p className="text-xs font-bold text-emerald-700">개선 예</p><p className="mt-1 text-sm leading-6 text-slate-700">{theoryExample.improvedExample}</p></div></div>}</section>}
             <section className="rounded-xl border border-amber-100 bg-amber-50/70 p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="flex items-center gap-2 text-lg font-bold text-amber-900"><FileText className="h-5 w-5" /> 샘플 학습 자료</h2><p className="mt-1 text-sm leading-6 text-amber-900/75">강의의 핵심 개념과 미니 실습을 담은 PDF 워크시트를 내려받아 직접 작성해 보세요.</p></div>{item.samplePdfUrl ? <a href={item.samplePdfUrl} download target="_blank" rel="noreferrer"><Button className="shrink-0 gap-2 bg-amber-600 text-white hover:bg-amber-700"><Download className="h-4 w-4" /> PDF 다운로드</Button></a> : <span className="text-sm text-amber-900/60">준비 중입니다.</span>}</div></section>
             <Link href={`/workbook/${courseType}/${level}`}><Button className="w-full bg-indigo-600 text-white hover:bg-indigo-700">예문과 함께 워크북 열기</Button></Link>
             <Link href="/essay-submission"><Button variant="outline" className="w-full border-indigo-200 text-indigo-700 hover:bg-indigo-50">이 주제로 논술 작성 시작하기</Button></Link>

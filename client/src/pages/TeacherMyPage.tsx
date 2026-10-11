@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock, ArrowUpDown, AlertCircle, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Wallet, GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock, ArrowUpDown, AlertCircle, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { TeacherProgressDialog } from "@/components/TeacherProgressDialog";
@@ -37,7 +38,7 @@ export default function TeacherMyPage() {
     onError: (error) => toast.error(error.message || "검토 제출에 실패했습니다."),
   });
 
-  if (!isAuthenticated) return <div className="p-12 text-center text-slate-600">로그인이 필요합니다.</div>;
+  if (!isAuthenticated) return <LoginRequired />;
   if (user?.role !== "teacher" && user?.role !== "admin") {
     return (
       <div className="mx-auto max-w-xl py-16 text-center">
@@ -96,7 +97,7 @@ export default function TeacherMyPage() {
     });
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-8">
         <div className="flex flex-col gap-4 rounded-2xl p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between sm:p-8" style={{ backgroundImage: "linear-gradient(110deg, #172a88 0%, #2563eb 52%, #173a9a 100%)", color: "#ffffff" }}>
           <div>
@@ -109,6 +110,7 @@ export default function TeacherMyPage() {
             <p className="mt-1 text-sm" style={{ color: "#dbeafe" }}>{teacherLevelNames[user.teacherLevel || 1]}</p>
           </div>
           <div className="flex items-center gap-3">
+            <Link href="/teacher/settlement"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#e0e7ff", color: "#312e81" }}><Wallet className="h-4 w-4" /> 첨삭 정산</Button></Link>
             <Link href="/teacher/writing-examples"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#e0e7ff", color: "#312e81" }}><Award className="h-4 w-4" /> 우수 예시문 관리</Button></Link>
             <Link href="/essay-submission"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#ffffff", color: "#1e1b4b" }}><FileEdit className="h-4 w-4" /> 첨삭 관리 센터</Button></Link>
           </div>
@@ -119,8 +121,8 @@ export default function TeacherMyPage() {
             <CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-slate-600">지도 학생 수</CardTitle><Users className="h-5 w-5 text-indigo-600" /></CardHeader>
             <CardContent><p className="text-3xl font-bold text-slate-900">{students.length}명</p><p className="text-xs text-slate-500 mt-1">관리자 권한이 부여된 담당 학습자</p></CardContent>
           </Card>
-          <Card className="border-blue-100 bg-white shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-slate-600">학습 관리 권한</CardTitle><GraduationCap className="h-5 w-5 text-blue-600" /></CardHeader>
+          <Card className="border-indigo-100 bg-white shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-slate-600">학습 관리 권한</CardTitle><GraduationCap className="h-5 w-5 text-indigo-600" /></CardHeader>
             <CardContent><p className="text-lg font-bold text-slate-900">{hasProgressPermission ? "진도 관리 가능" : "진도 권한 없음"}</p><p className="text-xs text-slate-500 mt-1">{hasCertificatePermission ? "수료증 요청·검토 가능" : "수료증 권한 없음"}</p></CardContent>
           </Card>
           <Card className="border-emerald-100 bg-white shadow-sm">
@@ -207,7 +209,7 @@ export default function TeacherMyPage() {
             <Card>
               <CardHeader><CardTitle>수료증 공동 승인 현황</CardTitle><CardDescription>교사 검토를 제출하면 관리자 최종 승인 대기 상태로 전환되고, 관리자 승인 후에만 수료증이 발급됩니다.</CardDescription></CardHeader>
               <CardContent className="space-y-3">
-                {!hasCertificatePermission ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">관리자가 수료증 요청·검토 권한을 부여하면 이 영역에서 공동 승인 절차를 진행할 수 있습니다.</div> : certificateRequests.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">현재 담당 학생의 수료증 승인 요청이 없습니다.</div> : certificateRequests.map((request) => <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-slate-900">{request.studentName} · {request.courseLabel} {request.level ? `Level ${request.level}` : ""}</p><p className="mt-1 text-xs text-slate-600">진도 {request.evidenceCompletionRate}% · 평균 {request.evidenceAverageScore}점</p><p className="mt-1 text-xs font-medium text-violet-700">{request.status === "pending_teacher" ? "교사 검토 대기" : request.status === "pending_admin" ? "관리자 최종 승인 대기" : request.status === "approved" ? "발급 완료" : "반려됨"}</p></div>{request.status === "pending_teacher" && <Button size="sm" className="bg-violet-700 hover:bg-violet-800" disabled={reviewCertificateMutation.isPending} onClick={() => reviewCertificateMutation.mutate({ requestId: request.id, note: "담당 교사 검토 완료" })}>교사 검토 제출</Button>}</div>)}</CardContent>
+                {!hasCertificatePermission ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">관리자가 수료증 요청·검토 권한을 부여하면 이 영역에서 공동 승인 절차를 진행할 수 있습니다.</div> : certificateRequests.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">현재 담당 학생의 수료증 승인 요청이 없습니다.</div> : certificateRequests.map((request) => <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-slate-900">{request.studentName} · {request.courseLabel} {request.level ? `Level ${request.level}` : ""}</p><p className="mt-1 text-xs text-slate-600">진도 {request.evidenceCompletionRate}% · 평균 {request.evidenceAverageScore}점</p><p className="mt-1 text-xs font-medium text-indigo-700">{request.status === "pending_teacher" ? "교사 검토 대기" : request.status === "pending_admin" ? "관리자 최종 승인 대기" : request.status === "approved" ? "발급 완료" : "반려됨"}</p></div>{request.status === "pending_teacher" && <Button size="sm" className="bg-indigo-700 hover:bg-indigo-800" disabled={reviewCertificateMutation.isPending} onClick={() => reviewCertificateMutation.mutate({ requestId: request.id, note: "담당 교사 검토 완료" })}>교사 검토 제출</Button>}</div>)}</CardContent>
             </Card>
           </TabsContent>
 
@@ -219,12 +221,12 @@ export default function TeacherMyPage() {
                   <h3 className="font-bold text-indigo-900">Level 1 · 주니어 첨삭교사</h3>
                   <p className="mt-1 text-sm text-slate-700">학생들이 제출한 논술 답안에 대해 문장별 단락 코멘트, 맞춤법 및 표현 교정 피드백을 작성할 수 있습니다.</p>
                 </div>
-                <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-                  <h3 className="font-bold text-blue-900">Level 2 · 시니어 첨삭교사</h3>
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+                  <h3 className="font-bold text-indigo-900">Level 2 · 시니어 첨삭교사</h3>
                   <p className="mt-1 text-sm text-slate-700">주니어 교사 권한을 포함하여 구조·논리·표현 영역별 종합 점수 부여 및 수료증 발급 검토 권한이 주어집니다.</p>
                 </div>
-                <div className="rounded-xl border border-purple-100 bg-purple-50/50 p-4">
-                  <h3 className="font-bold text-purple-900">Level 3 · 수석 교사</h3>
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+                  <h3 className="font-bold text-indigo-900">Level 3 · 수석 교사</h3>
                   <p className="mt-1 text-sm text-slate-700">모든 첨삭 권한과 함께 커리큘럼 난이도 조정, 반별 학생 일괄 배정 및 학습 분석 보고서 다운로드 권한을 가집니다.</p>
                 </div>
               </CardContent>

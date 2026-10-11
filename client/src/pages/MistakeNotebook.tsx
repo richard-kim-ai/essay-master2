@@ -2,6 +2,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { PREVIEW_MISTAKES, PREVIEW_RECOMMENDED } from "@/lib/previewSamples";
 import { BookOpen, AlertCircle, CheckCircle2, Sparkles, Trash2, ArrowRight, RefreshCcw, HelpCircle, Link2, Share2, Trophy } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
@@ -18,8 +20,15 @@ export default function MistakeNotebook() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
 
-  const { data: mistakes = [], isLoading: mistakesLoading } = trpc.curriculum.getMistakes.useQuery();
-  const { data: recommended = [], isLoading: recLoading } = trpc.curriculum.getRecommendedQuestions.useQuery();
+  // 로그인하지 않았으면 서버 요청 없이 샘플 오답으로 화면만 보여준다(DashboardLayout의 미리보기).
+  const { user } = useAuth();
+  const preview = !user;
+  const { data: fetchedMistakes = [], isLoading: fetchingMistakes } = trpc.curriculum.getMistakes.useQuery(undefined, { enabled: !preview });
+  const { data: fetchedRecommended = [], isLoading: fetchingRecommended } = trpc.curriculum.getRecommendedQuestions.useQuery(undefined, { enabled: !preview });
+  const mistakes = preview ? PREVIEW_MISTAKES : fetchedMistakes;
+  const recommended = preview ? PREVIEW_RECOMMENDED : fetchedRecommended;
+  const mistakesLoading = preview ? false : fetchingMistakes;
+  const recLoading = preview ? false : fetchingRecommended;
 
   const removeMutation = trpc.curriculum.removeMistake.useMutation({
     onSuccess: () => {
@@ -138,7 +147,7 @@ export default function MistakeNotebook() {
   };
 
   return (
-    <DashboardLayout>
+    <DashboardLayout previewTitle="오답 노트">
       <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-gradient-to-r from-amber-600 to-rose-700 text-white p-8 rounded-3xl shadow-xl">
           <div>

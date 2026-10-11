@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -107,6 +107,8 @@ export const learningGroups = mysqlTable("learning_groups", {
   courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]),
   description: text("description"),
   teacherId: int("teacherId"),
+  /** 이 반의 비용을 부담하는 기관 계약(없으면 개별 학습자 반). 계약이 있으면 이 반에서의 교사 활동은 개별 정산에서 제외된다. */
+  contractId: int("contractId"),
   isActive: int("isActive").default(1).notNull(),
   createdBy: int("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1041,3 +1043,180 @@ export const appNotifications = mysqlTable("app_notifications", {
 
 export type AppNotification = typeof appNotifications.$inferSelect;
 export type InsertAppNotification = typeof appNotifications.$inferInsert;
+
+// ========== 결제·이용권 ==========
+// 결제 주문. provider가 "mock"이면 실제 결제가 아닌 임시(테스트) 결제다(isTest=1). 실제 결제 연동 뒤에는 provider만 바뀐다.
+export const paymentOrders = mysqlTable("payment_orders", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  planKey: varchar("planKey", { length: 40 }).notNull(),
+  amountKrw: int("amountKrw").notNull(),
+  currency: varchar("currency", { length: 8 }).default("KRW").notNull(),
+  status: mysqlEnum("status", ["pending", "paid", "failed", "cancelled", "refunded"]).default("pending").notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  providerOrderId: varchar("providerOrderId", { length: 80 }).notNull().unique(),
+  providerPaymentKey: varchar("providerPaymentKey", { length: 200 }),
+  isTest: int("isTest").default(0).notNull(),
+  failureReason: varchar("failureReason", { length: 255 }),
+  paidAt: timestamp("paidAt"),
+  refundedAt: timestamp("refundedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PaymentOrder = typeof paymentOrders.$inferSelect;
+export type InsertPaymentOrder = typeof paymentOrders.$inferInsert;
+
+// 이용권. 결제가 확정되면 만들어지고, 기간(currentPeriodEnd) 안에서만 유효하다.
+export const subscriptions = mysqlTable("subscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  planKey: varchar("planKey", { length: 40 }).notNull(),
+  status: mysqlEnum("status", ["active", "cancelled", "expired"]).default("active").notNull(),
+  currentPeriodStart: timestamp("currentPeriodStart").notNull(),
+  currentPeriodEnd: timestamp("currentPeriodEnd").notNull(),
+  /** 결제 시점의 AI 평가 한도(요금제가 나중에 바뀌어도 이미 결제한 이용권의 한도는 유지) */
+  aiEvaluationsLimit: int("aiEvaluationsLimit").notNull(),
+  orderId: int("orderId"),
+  cancelledAt: timestamp("cancelledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = typeof subscriptions.$inferInsert;
+
+// ========== 교사 정산 ==========
+// 첨삭 활동 유형별 건당 단가(원). 행이 없는 유형은 shared/settlement.ts의 기본 단가를 쓴다.
+export const teacherSettlementRates = mysqlTable("teacher_settlement_rates", {
+  id: int("id").autoincrement().primaryKey(),
+  activityType: varchar("activityType", { length: 40 }).notNull().unique(),
+  unitAmountKrw: int("unitAmountKrw").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TeacherSettlementRate = typeof teacherSettlementRates.$inferSelect;
+
+// 교사별·월별 정산서. draft(산출 중, 다시 산출 가능) → confirmed(확정, 항목·단가 고정) → paid(지급 완료).
+export const teacherSettlements = mysqlTable("teacher_settlements", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull(),
+  periodMonth: varchar("periodMonth", { length: 7 }).notNull(), // YYYY-MM
+  itemsJson: text("itemsJson").notNull(),
+  grossKrw: int("grossKrw").notNull(),
+  withholdingPct: varchar("withholdingPct", { length: 8 }).notNull(),
+  withholdingKrw: int("withholdingKrw").notNull(),
+  netKrw: int("netKrw").notNull(),
+  status: mysqlEnum("status", ["draft", "confirmed", "paid"]).default("draft").notNull(),
+  note: text("note"),
+  confirmedBy: int("confirmedBy"),
+  confirmedAt: timestamp("confirmedAt"),
+  paidBy: int("paidBy"),
+  paidAt: timestamp("paidAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  teacherMonthUnique: uniqueIndex("uq_teacher_settlements_teacher_month").on(table.teacherId, table.periodMonth),
+}));
+
+export type TeacherSettlement = typeof teacherSettlements.$inferSelect;
+export type InsertTeacherSettlement = typeof teacherSettlements.$inferInsert;
+
+// ========== 기관 계약·정산 제외 ==========
+// 학교·기관 계약. 기간(periodStart~periodEnd, 끝은 포함하지 않음) 안에서만 유효하고, 세 가지 예산(토큰 = 서비스 이용 횟수)을 가진다.
+//  - human: 교사 첨삭·과제 채점·워크북 첨삭 1건 / ai: AI 평가 1회(성공한 것) / management: 출결 기록·공지·과제 생성 1건
+// used 값에는 예약(진행 중)한 횟수가 포함되며, 실패하면 되돌린다. 한도를 넘는 차감은 조건부 갱신으로 막는다.
+export const institutionContracts = mysqlTable("institution_contracts", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  contractCode: varchar("contractCode", { length: 80 }).notNull().unique(),
+  periodStart: timestamp("periodStart").notNull(),
+  periodEnd: timestamp("periodEnd").notNull(),
+  status: mysqlEnum("status", ["draft", "active", "suspended", "closed"]).default("draft").notNull(),
+  humanLimit: int("humanLimit").default(0).notNull(),
+  aiLimit: int("aiLimit").default(0).notNull(),
+  managementLimit: int("managementLimit").default(0).notNull(),
+  humanUsed: int("humanUsed").default(0).notNull(),
+  aiUsed: int("aiUsed").default(0).notNull(),
+  managementUsed: int("managementUsed").default(0).notNull(),
+  // 이용 방식: quota(횟수제) / period(기간제: 계약 기간 동안 횟수 제한 없음, 횟수는 기록만).
+  usageMode: mysqlEnum("usageMode", ["quota", "period"]).default("quota").notNull(),
+  // 횟수제에서 예산을 모두 쓴 뒤: block(차단) / warn(계속 이용, 초과분 기록).
+  overageAction: mysqlEnum("overageAction", ["block", "warn"]).default("block").notNull(),
+  memo: varchar("memo", { length: 500 }),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type InstitutionContract = typeof institutionContracts.$inferSelect;
+
+// 기관 소속 회원(회원 단위 정산 제외). 학생이면 그 학생에 대한 교사의 모든 첨삭이, 교사이면 그 교사의 모든 활동이 개별 정산에서 제외된다.
+// contractId가 있으면 그 계약이 이 학생의 AI 평가 비용을 부담한다(없으면 정산 제외만 하고 이용 자격은 주지 않는다).
+export const institutionMembers = mysqlTable("institution_members", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  contractId: int("contractId"),
+  excludeIndividualSettlement: int("excludeIndividualSettlement").default(1).notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  endedAt: timestamp("endedAt"),
+});
+
+export type InstitutionMember = typeof institutionMembers.$inferSelect;
+
+// 계약 예산 사용 장부. 같은 출처(source)는 한 번만 차감한다. 실패한 예약은 released로 남겨 감사에 쓴다.
+export const institutionUsage = mysqlTable("institution_usage", {
+  id: int("id").autoincrement().primaryKey(),
+  contractId: int("contractId").notNull(),
+  budgetType: mysqlEnum("budgetType", ["human", "ai", "management"]).notNull(),
+  actorId: int("actorId").notNull(),
+  studentId: int("studentId"),
+  groupId: int("groupId"),
+  sourceType: varchar("sourceType", { length: 40 }),
+  sourceId: int("sourceId"),
+  status: mysqlEnum("status", ["consumed", "released"]).default("consumed").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  sourceUnique: uniqueIndex("uq_institution_usage_source").on(table.budgetType, table.sourceType, table.sourceId),
+}));
+
+export type InstitutionUsage = typeof institutionUsage.$inferSelect;
+
+// 교사 활동의 정산 대상 여부를 활동이 처음 완료된 시점의 정책으로 고정해 기록한다(이후 계약·소속이 바뀌어도 과거 활동의 해석은 바뀌지 않는다).
+// 정산에서 제외되는 경우: automaticExclusion이 none이 아니거나 manualExcluded=1.
+export const teacherActivityAccounting = mysqlTable("teacher_activity_accounting", {
+  id: int("id").autoincrement().primaryKey(),
+  activityType: varchar("activityType", { length: 40 }).notNull(),
+  sourceId: int("sourceId").notNull(),
+  teacherId: int("teacherId").notNull(),
+  studentId: int("studentId").notNull(),
+  groupId: int("groupId"),
+  contractId: int("contractId"),
+  occurredAt: timestamp("occurredAt").notNull(),
+  automaticExclusion: mysqlEnum("automaticExclusion", ["none", "institution_contract", "institution_member", "teacher_member"]).default("none").notNull(),
+  manualExcluded: int("manualExcluded").default(0).notNull(),
+  manualExclusionReason: varchar("manualExclusionReason", { length: 500 }),
+  manualExcludedBy: int("manualExcludedBy"),
+  manualExcludedAt: timestamp("manualExcludedAt"),
+  policySnapshotJson: text("policySnapshotJson").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  sourceUnique: uniqueIndex("uq_teacher_activity_source").on(table.activityType, table.sourceId),
+}));
+
+export type TeacherActivityAccounting = typeof teacherActivityAccounting.$inferSelect;
+
+// 계약·반·소속·정산 제외 변경 이력(누가 언제 무엇을 왜 바꿨는지).
+export const institutionAuditLogs = mysqlTable("institution_audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  actorId: int("actorId").notNull(),
+  action: varchar("action", { length: 64 }).notNull(),
+  targetType: varchar("targetType", { length: 40 }).notNull(),
+  targetId: int("targetId").notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  detailJson: text("detailJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});

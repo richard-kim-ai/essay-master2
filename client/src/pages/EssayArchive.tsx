@@ -1,5 +1,6 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { PREVIEW_ARCHIVE_QUESTIONS, PREVIEW_ARCHIVE_STATS } from "@/lib/previewSamples";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,13 +44,20 @@ export default function EssayArchive() {
   const [selectedQuestionForSimilar, setSelectedQuestionForSimilar] = useState<any | null>(null);
   const [isSimilarModalOpen, setIsSimilarModalOpen] = useState(false);
 
-  const { data: questions, isLoading } = trpc.questionBank.list.useQuery({
+  // 로그인하지 않았으면 서버 요청 없이 샘플 목록으로 화면만 보여준다(DashboardLayout의 미리보기).
+  const preview = !user;
+  const { data: fetchedQuestions, isLoading: fetching } = trpc.questionBank.list.useQuery({
     courseType: activeCourse,
     toolType: activeTool === "all" ? undefined : activeTool,
-  });
+  }, { enabled: !preview });
+  const questions = preview
+    ? PREVIEW_ARCHIVE_QUESTIONS.filter((q) => activeTool === "all" || q.toolType === activeTool)
+    : fetchedQuestions;
+  const isLoading = preview ? false : fetching;
 
-  const { data: statsData } = trpc.questionBank.publicStats.useQuery();
-  const { data: bookmarksList, refetch: refetchBookmarks } = trpc.questionBank.getBookmarks.useQuery();
+  const { data: fetchedStats } = trpc.questionBank.publicStats.useQuery(undefined, { enabled: !preview });
+  const statsData = preview ? PREVIEW_ARCHIVE_STATS : fetchedStats;
+  const { data: bookmarksList, refetch: refetchBookmarks } = trpc.questionBank.getBookmarks.useQuery(undefined, { enabled: !preview });
   const { data: similarQuestions } = trpc.questionBank.similarQuestions.useQuery(
     { questionId: selectedQuestionForSimilar?.id || 0 },
     { enabled: !!selectedQuestionForSimilar }
@@ -74,8 +82,8 @@ export default function EssayArchive() {
     const stat = (statsData || []).find(s => s.id === q.id);
     return {
       ...q,
-      totalAttempts: stat?.totalAttempts || Math.floor(Math.random() * 20) + 10,
-      correctRate: stat?.correctRate ?? (q.difficulty === "easy" ? 82 : q.difficulty === "medium" ? 58 : 34),
+      totalAttempts: stat?.totalAttempts ?? 0,
+      correctRate: stat?.correctRate ?? 0,
       isBookmarked: bookmarkedSet.has(q.id),
     };
   });
@@ -134,7 +142,7 @@ export default function EssayArchive() {
   ];
 
   return (
-    <DashboardLayout>
+    <DashboardLayout previewTitle="추천 아카이브">
       <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -279,7 +287,7 @@ export default function EssayArchive() {
                   <div className="flex items-center gap-2 text-xs text-slate-500">
                     <span>응시: {q.totalAttempts}회</span>
                     <span>•</span>
-                    <span>정답률: <strong className="text-indigo-600">{q.correctRate}%</strong></span>
+                    <span>정답률: <strong className="text-indigo-600">{q.totalAttempts > 0 ? `${q.correctRate}%` : "집계 전"}</strong></span>
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                     <p className="mb-1 text-[11px] font-bold text-indigo-700">학습 포인트</p>

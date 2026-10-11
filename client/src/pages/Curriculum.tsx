@@ -69,9 +69,8 @@ const CURRICULUM_DATA = {
 export default function Curriculum() {
   const { user, isAuthenticated } = useAuth();
   const userCourse = getCourseTypeFromUserTag(user?.tag);
-  const isSampleUser = Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
   const isPublicSampleExperience = !isAuthenticated;
-  const isSampleExperience = isSampleUser || isPublicSampleExperience;
+  const isSampleExperience = isPublicSampleExperience;
   const isAdminPreview = user?.role === "admin";
   const [sampleCourse, setSampleCourse] = React.useState<CourseType>(() => {
     const stored = localStorage.getItem("essaymaster-sample-course");
@@ -116,7 +115,7 @@ export default function Curriculum() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="bg-slate-50 py-12">
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
@@ -124,7 +123,7 @@ export default function Curriculum() {
             <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-bold rounded-full uppercase">
               {isSampleExperience ? "샘플 맞춤 과정" : isAdminPreview ? "관리자 탐색 미리보기" : "회원 맞춤 과정"}
             </span>
-            <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 mt-1">{courseNames[courseType]}</h1>
+            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 mt-1">{courseNames[courseType]}</h1>
             <p className="text-sm text-slate-600 mt-1">{isPublicSampleExperience ? "과정을 고르고 단계별 학습 구성을 미리 확인해 보세요. 레슨 학습은 회원가입 후 7일 무료 체험으로 시작할 수 있습니다." : isSampleExperience ? "과정을 고르고 단계별 레슨을 체험해 보세요. 로그인 후에는 7일간 무료 체험으로 학습을 이어갈 수 있습니다." : isAdminPreview ? "선택한 과정의 커리큘럼·워크북·학습 도구를 운영 점검용으로 탐색합니다. 학습자 진도에는 영향을 주지 않습니다." : "회원가입 시 선택하신 과정에 최적화된 단계별 학습 레슨과 실전 논술 훈련을 제공합니다."}</p>
           </div>
           {(isSampleExperience || isAdminPreview) && <select aria-label={isAdminPreview ? "관리자 탐색 커리큘럼 과정" : "샘플 커리큘럼 과정"} value={isAdminPreview ? adminPreviewCourse : sampleCourse} onChange={(event) => { const course = event.target.value as CourseType; if (isAdminPreview) { setAdminPreviewCourse(course); saveAdminPreviewCourse(course); } else { setSampleCourse(course); localStorage.setItem("essaymaster-sample-course", course); } }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900">{ADMIN_PREVIEW_COURSES.map((course) => <option key={course.value} value={course.value}>{course.label}</option>)}</select>}
@@ -185,14 +184,14 @@ export default function Curriculum() {
                     </CardHeader>
                     <CardContent>
                       <div className="mb-6">
-                        <h4 className="font-semibold text-gray-900 mb-3">
+                        <h4 className="font-semibold text-slate-900 mb-3">
                           학습 주제
                         </h4>
                         <div className="grid grid-cols-2 gap-2">
                           {item.topics.map((topic) => (
                             <div
                               key={topic}
-                              className="flex items-center gap-2 text-gray-600"
+                              className="flex items-center gap-2 text-slate-600"
                             >
                               <span className="text-indigo-600">•</span>
                               {topic}
@@ -202,11 +201,11 @@ export default function Curriculum() {
                       </div>
 
                       {progress && (
-                        <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                          <p className="text-sm text-gray-600">
+                        <div className="mb-4 p-3 bg-indigo-50 rounded-lg">
+                          <p className="text-sm text-slate-600">
                             현재 점수: <span className="font-semibold">{progress.score}점</span>
                           </p>
-                          <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                          <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
                             <div
                               className="bg-indigo-600 h-2 rounded-full transition-all"
                               style={{

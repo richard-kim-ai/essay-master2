@@ -145,7 +145,7 @@ export default function AdminQuestionBank() {
   }, [maintenanceSettings?.retentionDays]);
 
   if (user?.role !== "admin") {
-    return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-700">관리자 전용 페이지입니다. 접근 권한이 없습니다.</div>;
+    return <div className="bg-slate-50 p-12 text-center text-slate-700">관리자 전용 페이지입니다. 접근 권한이 없습니다.</div>;
   }
 
   const questionsWithStats = (questions || []).map(q => {
@@ -156,9 +156,9 @@ export default function AdminQuestionBank() {
 
     return {
       ...q,
-      totalAttempts: stat?.totalAttempts || Math.floor(Math.random() * 20) + 5,
-      correctRate: stat?.correctRate ?? (q.difficulty === "easy" ? 82 : q.difficulty === "medium" ? 58 : 34),
-      wrongCount: stat?.wrongCount || Math.floor(Math.random() * 8) + 2,
+      totalAttempts: stat?.totalAttempts ?? 0,
+      correctRate: stat?.correctRate ?? 0,
+      wrongCount: stat?.wrongCount ?? 0,
       suggestedDifficulty: (stat?.suggestedDifficulty as any) || q.difficulty,
       helpfulCount,
       reportCount,
@@ -1373,7 +1373,7 @@ export default function AdminQuestionBank() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-extrabold text-indigo-600">
-                    {Math.round(questionsWithStats.reduce((acc, q) => acc + q.correctRate, 0) / (questionsWithStats.length || 1))}%
+                    {(() => { const attempted = questionsWithStats.filter((q) => q.totalAttempts > 0); return attempted.length ? `${Math.round(attempted.reduce((acc, q) => acc + q.correctRate, 0) / attempted.length)}%` : "집계 전"; })()}
                   </div>
                 </CardContent>
               </Card>
@@ -1603,7 +1603,7 @@ export default function AdminQuestionBank() {
                         <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${q.difficulty === "hard" ? "bg-rose-100 text-rose-700" : q.difficulty === "medium" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
                           {q.difficulty}
                         </span>
-                        <span className="text-xs text-slate-500 font-medium">정답률 {q.correctRate}% (오답 {q.wrongCount}회)</span>
+                        <span className="text-xs text-slate-500 font-medium">{q.totalAttempts > 0 ? `정답률 ${q.correctRate}% (오답 ${q.wrongCount}회)` : "응시 기록 없음"}</span>
                       </div>
                       <h3 className="text-lg font-bold text-slate-900">{q.title}</h3>
                       <p className="text-xs text-slate-400 font-mono truncate max-w-xl">{q.contentData}</p>

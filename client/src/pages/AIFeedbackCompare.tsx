@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ArrowLeft, CheckCircle2, Lightbulb, MessageSquareText, Sparkles, Highlighter } from "lucide-react";
 import { Link, useParams } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +27,7 @@ export default function AIFeedbackCompare() {
   const { data: feedbackList, isLoading } = trpc.aiAutoFeedback.getByUser.useQuery(undefined, { enabled: isAuthenticated && feedbackId > 0 });
   const feedback = feedbackList?.find((item) => item.id === feedbackId);
 
-  if (!isAuthenticated) return <div className="p-12 text-center text-slate-600">로그인이 필요합니다.</div>;
+  if (!isAuthenticated) return <LoginRequired />;
   if (isLoading) return <div className="p-12 text-center text-slate-600">비교 결과를 불러오는 중입니다...</div>;
   if (!feedback) return <div className="p-12 text-center text-slate-600">해당 AI 첨삭 결과를 찾을 수 없습니다.</div>;
 
@@ -71,7 +72,7 @@ export default function AIFeedbackCompare() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

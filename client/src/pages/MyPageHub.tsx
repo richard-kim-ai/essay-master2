@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,14 +15,13 @@ import { ADMIN_PREVIEW_COURSES, readAdminPreviewCourse, saveAdminPreviewCourse }
 export default function MyPageHub() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const isSampleUser = Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
+  // 학부모 계정은 학생용 허브가 아니라 학부모 포털로 이동한다.
+  useEffect(() => {
+    if (user?.tag === "학부모") setLocation("/parent-portal");
+  }, [user?.tag, setLocation]);
   const isAdminPreview = user?.role === "admin";
-  const [sampleCourse, setSampleCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => {
-    const stored = localStorage.getItem("essaymaster-sample-course");
-    return ["elementary", "middle_high", "high_univ", "general_adult"].includes(stored || "") ? stored as "elementary" | "middle_high" | "high_univ" | "general_adult" : "elementary";
-  });
   const [adminPreviewCourse, setAdminPreviewCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => readAdminPreviewCourse());
-  const activeCourse = isSampleUser ? sampleCourse : isAdminPreview ? adminPreviewCourse : user?.tag?.includes("중고등") ? "middle_high" : user?.tag?.includes("고등") ? "high_univ" : user?.tag?.includes("일반") ? "general_adult" : "elementary";
+  const activeCourse = isAdminPreview ? adminPreviewCourse : user?.tag?.includes("중고등") ? "middle_high" : user?.tag?.includes("고등") ? "high_univ" : user?.tag?.includes("일반") ? "general_adult" : "elementary";
   const courseLabels = { elementary: "초등 논술", middle_high: "중고등 논술", high_univ: "고등/대입 논술", general_adult: "일반/직장인 논술" };
 
   const { data: progressList } = trpc.progress.getByUser.useQuery();
@@ -81,7 +80,7 @@ export default function MyPageHub() {
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
                   {user?.role === "admin" ? "총괄 관리자" : user?.role === "teacher" ? "첨삭 교사" : "일반 학습자"}
                 </span>
-                  <span className="text-xs text-indigo-200">{isSampleUser ? `${courseLabels[activeCourse]} 샘플` : isAdminPreview ? `관리자 미리보기 · ${courseLabels[activeCourse]}` : user?.tag || "일반 과정"}</span>
+                  <span className="text-xs text-indigo-200">{isAdminPreview ? `관리자 미리보기 · ${courseLabels[activeCourse]}` : user?.tag || "일반 과정"}</span>
               </div>
               <h1 className="mt-1 truncate text-xl font-extrabold tracking-tight md:text-2xl">
                 {user?.name || "사용자"}님의 마이페이지
@@ -129,15 +128,14 @@ export default function MyPageHub() {
           </div>
         </div>
 
-        {isSampleUser && <Card className="border-indigo-100 bg-indigo-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">샘플 학습 과정 설정</p><p className="mt-1 text-sm text-indigo-700">희망 과정을 고르면 해당 커리큘럼·뱃지·수료증 예시로 체험할 수 있습니다.</p></div><div className="flex gap-2"><select aria-label="샘플 학습 과정" value={sampleCourse} onChange={(event) => { const course = event.target.value as typeof sampleCourse; setSampleCourse(course); localStorage.setItem("essaymaster-sample-course", course); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900"><option value="elementary">초등 논술</option><option value="middle_high">중고등 논술</option><option value="high_univ">고등/대입 논술</option><option value="general_adult">일반/직장인 논술</option></select><Button onClick={() => setLocation("/curriculum")} className="bg-indigo-600 text-white hover:bg-indigo-700">학습 시작</Button></div></CardContent></Card>}
-        {isAdminPreview && <Card className="border-violet-200 bg-violet-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-violet-950">관리자 탐색·테스트 과정</p><p className="mt-1 text-sm text-violet-700">선택 과정은 관리자 화면의 커리큘럼과 학습 도구 미리보기에만 적용되며, 학습자 계정·진도·뱃지에는 영향을 주지 않습니다.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select aria-label="관리자 탐색 과정" value={adminPreviewCourse} onChange={(event) => { const course = event.target.value as typeof adminPreviewCourse; setAdminPreviewCourse(course); saveAdminPreviewCourse(course); toast.success(`${courseLabels[course]} 미리보기로 전환했습니다.`); }} className="h-10 rounded-lg border border-violet-200 bg-white px-3 text-sm font-semibold text-violet-900">{ADMIN_PREVIEW_COURSES.map((course) => <option key={course.value} value={course.value}>{course.label}</option>)}</select><Button onClick={() => setLocation("/curriculum")} className="bg-violet-700 text-white hover:bg-violet-800">커리큘럼 탐색</Button><Button variant="outline" onClick={() => setLocation("/quiz")} className="border-violet-200 text-violet-800 hover:bg-violet-100">퀴즈 테스트</Button></div></CardContent></Card>}
+        {isAdminPreview && <Card className="border-indigo-200 bg-indigo-50/70 shadow-sm"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-indigo-950">관리자 탐색·테스트 과정</p><p className="mt-1 text-sm text-indigo-700">선택 과정은 관리자 화면의 커리큘럼과 학습 도구 미리보기에만 적용되며, 학습자 계정·진도·뱃지에는 영향을 주지 않습니다.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select aria-label="관리자 탐색 과정" value={adminPreviewCourse} onChange={(event) => { const course = event.target.value as typeof adminPreviewCourse; setAdminPreviewCourse(course); saveAdminPreviewCourse(course); toast.success(`${courseLabels[course]} 미리보기로 전환했습니다.`); }} className="h-10 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-900">{ADMIN_PREVIEW_COURSES.map((course) => <option key={course.value} value={course.value}>{course.label}</option>)}</select><Button onClick={() => setLocation("/curriculum")} className="bg-indigo-700 text-white hover:bg-indigo-800">커리큘럼 탐색</Button><Button variant="outline" onClick={() => setLocation("/quiz")} className="border-indigo-200 text-indigo-800 hover:bg-indigo-100">퀴즈 테스트</Button></div></CardContent></Card>}
 
-        {user?.role === "user" && !isSampleUser && user?.tag !== "학부모" && <ParentLinkRequests />}
+        {user?.role === "user" && user?.tag !== "학부모" && <ParentLinkRequests />}
 
         {/* Weekly Study Summary Mini Cards */}
         <div className="grid gap-3 sm:grid-cols-3">
           <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
-            <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
               <Clock className="w-6 h-6" />
             </div>
             <div className="flex-1">
@@ -169,7 +167,7 @@ export default function MyPageHub() {
             </div>
           </Card>
           <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
-            <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
               <Trophy className="w-6 h-6" />
             </div>
             <div className="flex-1">
@@ -178,7 +176,7 @@ export default function MyPageHub() {
                 <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
                   {weeklySummary?.completedModules || 0}개 완료 / {visibleBadges.length}개 뱃지
                 </p>
-                <span className="text-[11px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
                   Active
                 </span>
               </div>
@@ -225,7 +223,7 @@ export default function MyPageHub() {
             </div>
             <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
               <div
-                className="bg-gradient-to-r from-indigo-600 to-purple-600 h-3 rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-indigo-600 to-indigo-600 h-3 rounded-full transition-all duration-500"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>

@@ -8,6 +8,8 @@ import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
+import PreviewGate from "@/components/PreviewGate";
+import { PREVIEW_QUIZ_QUESTIONS } from "@/lib/previewSamples";
 import QuestionFeedbackBox from "@/components/QuestionFeedbackBox";
 import { readAdminPreviewCourse } from "@/lib/adminPreviewCourse";
 
@@ -17,12 +19,15 @@ export default function QuizPage() {
   useEffect(() => {
     if (user?.role === "admin") setCourseType(readAdminPreviewCourse());
   }, [user?.role]);
-  const { data: qList, isLoading: qLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "quiz", limit: 10 });
+  const preview = !isAuthenticated;
+  const { data: qListData, isLoading: qLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "quiz", limit: 10 }, { enabled: !preview });
+  const qList = preview ? PREVIEW_QUIZ_QUESTIONS : qListData;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [draftAnswer, setDraftAnswer] = useState("");
   const [optionsUnlocked, setOptionsUnlocked] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<string>("");
   const [submitted, setSubmitted] = useState(false);
+  const [verdict, setVerdict] = useState<{ isCorrect: boolean; correctAnswer: string; explanation: string } | null>(null);
   const [score, setScore] = useState(0);
   const [finished, setFinished] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -50,14 +55,11 @@ export default function QuizPage() {
     setOptionsUnlocked(false);
     setSelectedAnswer("");
     setSubmitted(false);
+    setVerdict(null);
     setScore(0);
     setFinished(false);
     setDetailedFeedback(null);
   }, [courseType]);
-
-  if (!isAuthenticated) {
-    return <div className="text-center py-12 text-slate-600">로그인이 필요합니다.</div>;
-  }
 
   if (qLoading) {
     return <div className="text-center py-12 text-slate-600">문제은행에서 맞춤 퀴즈를 불러오는 중입니다...</div>;
@@ -78,18 +80,24 @@ export default function QuizPage() {
       toast.error("작성한 문장과 비교할 선택지를 골라주세요.");
       return;
     }
-    setSubmitted(true);
-    const isCorrect = selectedAnswer === parsedData.answer ? 1 : 0;
-    if (isCorrect) setScore(s => s + 10);
-
-    try {
-      await submitMutation.mutateAsync({
-        quizId: currentQ?.id || 1,
-        userAnswer: selectedAnswer,
-      });
-    } catch (e) {
-      // ignore offline/fallback error
+    if (submitMutation.isPending) return;
+    // 학습자에게는 문항에 정답이 내려오지 않으므로 서버가 판정한다. 비로그인 미리보기와 교사·관리자(원본 문항)는 화면에서 판정한다.
+    let nextVerdict: { isCorrect: boolean; correctAnswer: string; explanation: string };
+    if (preview || user?.role !== "user") {
+      nextVerdict = { isCorrect: selectedAnswer === parsedData.answer, correctAnswer: parsedData.answer ?? "", explanation: parsedData.explanation ?? "" };
+    } else {
+      try {
+        const verified = await submitMutation.mutateAsync({ quizId: currentQ?.id || 1, userAnswer: selectedAnswer });
+        nextVerdict = { isCorrect: Boolean(verified.isCorrect), correctAnswer: verified.correctAnswer, explanation: verified.explanation || verified.feedback };
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "정답을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.");
+        return;
+      }
     }
+    setVerdict(nextVerdict);
+    setSubmitted(true);
+    const isCorrect = nextVerdict.isCorrect ? 1 : 0;
+    if (isCorrect) setScore(s => s + 10);
 
     if (isCorrect === 0 && currentQ) {
       try {
@@ -99,7 +107,7 @@ export default function QuizPage() {
           toolType: "quiz",
           userAnswer: selectedAnswer,
           score: 0,
-          aiFeedback: parsedData.explanation || "정답과 해설을 다시 확인해 보세요.",
+          aiFeedback: nextVerdict.explanation || "정답과 해설을 다시 확인해 보세요.",
         });
       } catch {
         toast.error("오답 노트를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.");
@@ -132,6 +140,7 @@ export default function QuizPage() {
       setOptionsUnlocked(false);
       setSelectedAnswer("");
       setSubmitted(false);
+      setVerdict(null);
       setDetailedFeedback(null);
     } else {
       setFinished(true);
@@ -150,7 +159,7 @@ export default function QuizPage() {
 
   if (questions.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-50 py-12 px-4 text-center">
+      <div className="bg-slate-50 py-12 px-4 text-center">
         <p className="text-slate-600">등록된 퀴즈 문항이 없습니다. 관리자 문제은행에서 문항을 추가해주세요.</p>
         <Link href="/curriculum"><Button className="mt-4">커리큘럼으로 돌아가기</Button></Link>
       </div>
@@ -159,7 +168,7 @@ export default function QuizPage() {
 
   if (finished) {
     return (
-      <div className="min-h-screen bg-slate-50 py-16 px-4">
+      <div className="bg-slate-50 py-16 px-4">
         <div className="max-w-md mx-auto text-center space-y-6 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
           <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
             🏆
@@ -185,7 +194,8 @@ export default function QuizPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+    <PreviewGate active={preview} title="AI 문장 교정">
+    <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <Link href="/curriculum">
@@ -244,13 +254,14 @@ export default function QuizPage() {
               ))}
             </section>}
 
-            {submitted && (
-              <div className={`p-4 rounded-xl border ${selectedAnswer === parsedData.answer ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-rose-50 border-rose-200 text-rose-900"}`}>
+            {submitted && verdict && (
+              <div className={`p-4 rounded-xl border ${verdict.isCorrect ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-rose-50 border-rose-200 text-rose-900"}`}>
                 <div className="flex items-center gap-2 font-bold mb-1">
-                  {selectedAnswer === parsedData.answer ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <AlertCircle className="h-5 w-5 text-rose-600" />}
-                  {selectedAnswer === parsedData.answer ? "정답입니다!" : "틀렸습니다."}
+                  {verdict.isCorrect ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <AlertCircle className="h-5 w-5 text-rose-600" />}
+                  {verdict.isCorrect ? "정답입니다!" : "틀렸습니다."}
                 </div>
-                <p className="text-sm leading-6 mt-1">{parsedData.explanation}</p>
+                {!verdict.isCorrect && verdict.correctAnswer && <p className="text-sm leading-6 mt-1"><span className="font-semibold">정답: </span>{verdict.correctAnswer}</p>}
+                <p className="text-sm leading-6 mt-1">{verdict.explanation}</p>
               </div>
             )}
 
@@ -268,10 +279,11 @@ export default function QuizPage() {
               )}
             </div>
 
-            {currentQ && <QuestionFeedbackBox questionId={currentQ.id} />}
+            {currentQ && !preview && <QuestionFeedbackBox questionId={currentQ.id} />}
           </CardContent>
         </Card>
       </div>
     </div>
+    </PreviewGate>
   );
 }

@@ -118,7 +118,7 @@ export default function AdminCertificates() {
   if (!isAdmin) return <div className="p-12 text-center text-slate-600">관리자 권한이 필요합니다.</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
@@ -183,7 +183,7 @@ export default function AdminCertificates() {
             <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">유효</p><p className="mt-1 text-2xl font-bold text-emerald-700">{filteredSummary.active}건</p></div>
             <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">발행취소</p><p className="mt-1 text-2xl font-bold text-rose-700">{filteredSummary.revoked}건</p></div>
             <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">초등 / 중고등</p><p className="mt-1 text-2xl font-bold text-slate-800">{(filteredSummary.byCourse.elementary ?? 0) + (filteredSummary.byCourse.middle_high ?? 0)}건</p></div>
-            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">고등 / 대입</p><p className="mt-1 text-2xl font-bold text-purple-700">{filteredSummary.byCourse.high_univ ?? 0}건</p></div>
+            <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">고등 / 대입</p><p className="mt-1 text-2xl font-bold text-indigo-700">{filteredSummary.byCourse.high_univ ?? 0}건</p></div>
             <div className="rounded-xl bg-white p-3"><p className="text-xs text-slate-500">일반 / 직장인</p><p className="mt-1 text-2xl font-bold text-amber-700">{filteredSummary.byCourse.general_adult ?? 0}건</p></div>
           </CardContent>
         </Card>

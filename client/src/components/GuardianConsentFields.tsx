@@ -41,7 +41,7 @@ export function GuardianConsentFields({
           value={value.relation}
           onChange={(event) => onChange({ ...value, relation: event.target.value as GuardianRelation })}
           disabled={disabled}
-          className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-emerald-500 focus:ring-2"
+          className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-indigo-500 focus:ring-2"
         >
           {GUARDIAN_RELATIONS.map((relation) => (
             <option key={relation} value={relation}>{relation}</option>

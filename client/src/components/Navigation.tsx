@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,6 +28,7 @@ import {
   Edit3,
   Check,
   CreditCard,
+  Wallet,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { NotificationPopover } from "@/components/NotificationPopover";
@@ -106,16 +106,16 @@ export default function Navigation() {
   };
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link href="/">
             <div className="flex items-center gap-2 cursor-pointer">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-800 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-lg flex items-center justify-center">
                 <BookOpen className="w-5 h-5 text-white" />
               </div>
-              <span className="font-bold text-base sm:text-lg text-gray-900 tracking-tight">
+              <span className="font-bold text-base sm:text-lg text-slate-900 tracking-tight">
                 논술 마스터
               </span>
             </div>
@@ -131,7 +131,7 @@ export default function Navigation() {
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
-                        className="flex items-center gap-1 text-gray-700 hover:text-blue-600"
+                        className="flex items-center gap-1 text-slate-700 hover:text-indigo-600"
                       >
                         {Icon && <Icon className="w-4 h-4" />}
                         {item.label}
@@ -175,8 +175,8 @@ export default function Navigation() {
                     }}
                     className={`flex items-center gap-1 ${
                       location === item.href
-                        ? "text-blue-600 bg-blue-50"
-                        : "text-gray-700 hover:text-blue-600"
+                        ? "text-indigo-600 bg-indigo-50"
+                        : "text-slate-700 hover:text-indigo-600"
                     }`}
                   >
                     {Icon && <Icon className="w-4 h-4" />}
@@ -208,22 +208,22 @@ export default function Navigation() {
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
-                        className="flex items-center gap-2 text-gray-700"
+                        className="flex items-center gap-2 text-slate-700"
                       >
                         <User className="w-4 h-4" />
                         <span className="text-sm">{user?.name || "사용자"}</span>
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-64 p-3 transition-all duration-200 animate-in fade-in-80 zoom-in-95">
-                      <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                         <div>
-                          <p className="text-xs font-bold text-gray-900">{user?.name || "사용자"}</p>
-                          <p className="text-[11px] text-gray-500 truncate max-w-[160px]">{user?.email}</p>
+                          <p className="text-xs font-bold text-slate-900">{user?.name || "사용자"}</p>
+                          <p className="text-[11px] text-slate-500 truncate max-w-[160px]">{user?.email}</p>
                         </div>
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-7 px-2 text-xs text-blue-600 hover:bg-blue-50"
+                          className="h-7 px-2 text-xs text-indigo-600 hover:bg-indigo-50"
                           onClick={(e) => {
                             e.preventDefault();
                             setEditName(user?.name || "");
@@ -237,24 +237,24 @@ export default function Navigation() {
                       </div>
 
                       {isEditingProfile && (
-                        <div className="py-3 border-b border-gray-100 space-y-2.5">
+                        <div className="py-3 border-b border-slate-100 space-y-2.5">
                           <div>
-                            <label className="text-[11px] font-bold text-gray-700 block mb-1">닉네임 변경</label>
+                            <label className="text-[11px] font-bold text-slate-700 block mb-1">닉네임 변경</label>
                             <input
                               type="text"
                               value={editName}
                               onChange={(e) => setEditName(e.target.value)}
-                              className="w-full h-8 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              className="w-full h-8 px-2 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
                               placeholder="닉네임 입력"
                             />
                           </div>
                           <div>
                             <div className="flex items-center justify-between mb-1">
-                              <label className="text-[11px] font-bold text-gray-700">프로필 이미지</label>
-                              <label className="text-[10px] text-blue-600 cursor-pointer hover:underline flex items-center gap-1">
+                              <label className="text-[11px] font-bold text-slate-700">프로필 이미지</label>
+                              <label className="text-[10px] text-indigo-600 cursor-pointer hover:underline flex items-center gap-1">
                                 {isUploadingAvatar ? (
                                   <span className="flex items-center gap-1 text-slate-500">
-                                    <span className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span> 업로드 중...
+                                    <span className="w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span> 업로드 중...
                                   </span>
                                 ) : (
                                   "기기에서 사진 선택"
@@ -297,13 +297,13 @@ export default function Navigation() {
                               type="text"
                               value={editAvatar}
                               onChange={(e) => setEditAvatar(e.target.value)}
-                              className="w-full h-8 px-2 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              className="w-full h-8 px-2 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
                               placeholder="https:// 이미지 주소 또는 기기 업로드"
                             />
                           </div>
                           <Button
                             size="sm"
-                            className="w-full h-7 bg-blue-600 hover:bg-blue-700 text-white text-xs gap-1 font-semibold"
+                            className="w-full h-7 bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1 font-semibold"
                             onClick={() => {
                               updateProfileMutation.mutate({
                                 name: editName,
@@ -316,6 +316,14 @@ export default function Navigation() {
                         </div>
                       )}
                       <DropdownMenuSeparator />
+                      {user?.tag === "학부모" && (
+                        <Link href="/parent-portal">
+                          <DropdownMenuItem className="cursor-pointer font-bold text-indigo-700 bg-indigo-50/60 mb-1">
+                            <User className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>학부모 포털</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
                       <Link href="/mypage">
                         <DropdownMenuItem className="cursor-pointer font-bold text-indigo-700 bg-indigo-50/50 mb-1">
                           <User className="w-4 h-4 mr-2 text-indigo-600" />
@@ -323,32 +331,48 @@ export default function Navigation() {
                         </DropdownMenuItem>
                       </Link>
                       <Link href="/dashboard">
-                        <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">
-                          <BarChart3 className="w-4 h-4 mr-2 text-blue-600" />
+                        <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                          <BarChart3 className="w-4 h-4 mr-2 text-indigo-600" />
                           <span>학습 대시보드</span>
                         </DropdownMenuItem>
                       </Link>
                       <Link href="/offline-essays">
-                        <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">
+                        <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
                           <FileText className="w-4 h-4 mr-2 text-indigo-600" />
                           <span>오프라인 보관함</span>
                         </DropdownMenuItem>
                       </Link>
                       <Link href="/certificate">
-                        <DropdownMenuItem className="cursor-pointer font-semibold text-gray-800">
-                          <Award className="w-4 h-4 mr-2 text-purple-600" />
+                        <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                          <Award className="w-4 h-4 mr-2 text-indigo-600" />
                           <span>수료증</span>
                         </DropdownMenuItem>
                       </Link>
+                      {user?.role === "user" && user?.tag !== "학부모" && (
+                        <Link href="/checkout">
+                          <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                            <CreditCard className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>이용권·결제</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
                       {(user?.role === "teacher" || user?.role === "admin") && (
                         <>
                           <DropdownMenuSeparator />
                           <Link href="/teacher-mypage">
-                            <DropdownMenuItem className="cursor-pointer font-bold text-blue-600">
+                            <DropdownMenuItem className="cursor-pointer font-bold text-indigo-600">
                               <GraduationCap className="w-4 h-4 mr-2" />
                               <span>교사 마이페이지 (지도학생)</span>
                             </DropdownMenuItem>
                           </Link>
+                          {user?.role === "teacher" && (
+                            <Link href="/teacher/settlement">
+                              <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-700">
+                                <Wallet className="w-4 h-4 mr-2" />
+                                <span>첨삭 정산</span>
+                              </DropdownMenuItem>
+                            </Link>
+                          )}
                         </>
                       )}
                       {user?.role === "admin" && (
@@ -364,6 +388,12 @@ export default function Navigation() {
                             <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-700">
                               <Zap className="w-4 h-4 mr-2" />
                               <span>교사 AI 보조 봇 운영</span>
+                            </DropdownMenuItem>
+                          </Link>
+                          <Link href="/admin/billing">
+                            <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-700">
+                              <Wallet className="w-4 h-4 mr-2" />
+                              <span>결제·정산 관리</span>
                             </DropdownMenuItem>
                           </Link>
                         </>
@@ -387,33 +417,41 @@ export default function Navigation() {
                   <SheetContent side="right" className="w-72 overflow-y-auto">
                     <div className="flex flex-col gap-4 mt-8">
                       {/* User Info */}
-                      <div className="px-4 py-3 bg-blue-50 rounded-lg border border-blue-200">
-                        <p className="text-sm font-semibold text-gray-900">
+                      <div className="px-4 py-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                        <p className="text-sm font-semibold text-slate-900">
                           {user?.name || "사용자"}
                         </p>
-                        <p className="text-xs text-gray-600 mt-1">
+                        <p className="text-xs text-slate-600 mt-1">
                           {user?.email}
                         </p>
                       </div>
 
                       {/* Mobile MyPage / Account Submenu Section */}
-                      <div className="border-b border-gray-200 pb-3 mb-2">
-                        <p className="px-4 text-xs font-bold text-blue-600 uppercase mb-2">마이페이지 & 개인 기록</p>
+                      <div className="border-b border-slate-200 pb-3 mb-2">
+                        <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">마이페이지 & 개인 기록</p>
+                        {user?.tag === "학부모" && (
+                          <Link href="/parent-portal">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50">
+                              <User className="w-4 h-4" />
+                              <span>학부모 포털</span>
+                            </button>
+                          </Link>
+                        )}
                         <Link href="/dashboard-detail">
-                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
-                            <BarChart3 className="w-4 h-4 text-blue-600" />
+                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                            <BarChart3 className="w-4 h-4 text-indigo-600" />
                             <span>학습 대시보드</span>
                           </button>
                         </Link>
                         <Link href="/offline-essays">
-                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
+                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
                             <FileText className="w-4 h-4 text-indigo-600" />
                             <span>오프라인 보관함</span>
                           </button>
                         </Link>
                         <Link href="/certificate">
-                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 font-semibold">
-                            <Award className="w-4 h-4 text-purple-600" />
+                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                            <Award className="w-4 h-4 text-indigo-600" />
                             <span>수료증</span>
                           </button>
                         </Link>
@@ -431,7 +469,7 @@ export default function Navigation() {
                                 onClick={() =>
                                   handleMobileSubmenuToggle(item.label)
                                 }
-                                className="w-full flex items-center justify-between px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                className="w-full flex items-center justify-between px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                               >
                                 <div className="flex items-center gap-2">
                                   {Icon && <Icon className="w-4 h-4" />}
@@ -448,7 +486,7 @@ export default function Navigation() {
 
                               {/* Submenu Items */}
                               {isOpen && (
-                                <div className="ml-4 mt-2 space-y-1 border-l-2 border-gray-200 pl-4">
+                                <div className="ml-4 mt-2 space-y-1 border-l-2 border-slate-200 pl-4">
                                   {item.submenu.map((subitem) => {
                                     const SubIcon = subitem.icon;
                                     return (
@@ -456,7 +494,7 @@ export default function Navigation() {
                                         key={subitem.href}
                                         href={subitem.href}
                                       >
-                                        <button onClick={handleMobileLinkClick} className="w-full flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm">
+                                        <button onClick={handleMobileLinkClick} className="w-full flex items-center gap-2 px-3 py-2 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors text-sm">
                                           {SubIcon && (
                                             <SubIcon className="w-4 h-4" />
                                           )}
@@ -473,7 +511,7 @@ export default function Navigation() {
 
                         return (
                           <Link key={item.href} href={item.href}>
-                            <button onClick={handleMobileLinkClick} className="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                            <button onClick={handleMobileLinkClick} className="w-full flex items-center gap-2 px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
                               {Icon && <Icon className="w-4 h-4" />}
                               <span className="text-sm font-medium">
                                 {item.label}
@@ -484,23 +522,23 @@ export default function Navigation() {
                       })}
 
                       {user?.role === "admin" && (
-                        <div className="border-t border-gray-200 pt-3 mt-2">
+                        <div className="border-t border-slate-200 pt-3 mt-2">
                           <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">관리자 운영 메뉴</p>
                           <Link href="/admin">
-                            <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 bg-indigo-50 hover:bg-indigo-100 font-semibold">
+                            <button onClick={handleMobileLinkClick} className="mb-2 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 bg-indigo-50 hover:bg-indigo-100 font-semibold">
                               <Settings className="w-4 h-4 text-indigo-600" />
                               <span>관리자 운영 콘솔 (대시보드)</span>
                             </button>
                           </Link>
                           <Link href="/admin/ai-governance">
-                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-gray-800 hover:bg-indigo-50 font-semibold">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-indigo-50 font-semibold">
                               <Zap className="w-4 h-4 text-indigo-600" />
                               <span>교사 AI 보조 봇 운영</span>
                             </button>
                           </Link>
                         </div>
                       )}
-                      <div className="border-t border-gray-200 pt-4">
+                      <div className="border-t border-slate-200 pt-4">
                         <Button
                           onClick={logout}
                           variant="outline"
@@ -516,14 +554,18 @@ export default function Navigation() {
               </>
             ) : (
               <>
-                {/* Desktop Login Button */}
-                <Button
-                  onClick={() => startLogin()}
-                  className="hidden md:flex bg-blue-600 hover:bg-blue-700 text-white gap-2"
-                >
-                  로그인
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
+                {/* Desktop Login / Signup: 이메일 로그인(/login)과 회원가입으로 통일 */}
+                <div className="hidden md:flex items-center gap-2">
+                  <Link href="/login">
+                    <Button className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
+                      로그인
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                  <Link href="/signup?trial=1">
+                    <Button variant="outline" className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">회원가입</Button>
+                  </Link>
+                </div>
 
                 {/* Mobile Login Button */}
                 <Sheet>
@@ -534,22 +576,27 @@ export default function Navigation() {
                   </SheetTrigger>
                   <SheetContent side="right" className="w-72">
                     <div className="flex flex-col gap-4 mt-8">
-                      <Button
-                        onClick={() => startLogin()}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white gap-2"
-                      >
-                        로그인
-                        <ArrowRight className="w-4 h-4" />
-                      </Button>
+                      <Link href="/login">
+                        <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
+                          로그인
+                          <ArrowRight className="w-4 h-4" />
+                        </Button>
+                      </Link>
+                      <Link href="/signup?trial=1">
+                        <Button variant="outline" className="w-full border-indigo-200 text-indigo-700 hover:bg-indigo-50">회원가입</Button>
+                      </Link>
+                      <Link href="/sample">
+                        <Button variant="outline" className="w-full bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-bold">✨ 샘플 체험</Button>
+                      </Link>
 
-                      <div className="border-t border-gray-200 pt-4 space-y-2">
-                        {NAV_ITEMS.map((item) => {
+                      <div className="border-t border-slate-200 pt-4 space-y-2">
+                        {/* 학습 도구 하위 메뉴도 모바일에서 보이도록 펼쳐서 보여준다 */}
+                        {NAV_ITEMS.flatMap((navItem) => navItem.submenu ?? [navItem]).map((item) => {
                           const Icon = item.icon;
-                          if (item.submenu) return null;
 
                           return (
                             <Link key={item.href} href={item.href}>
-                              <button className="w-full flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+                              <button className="w-full flex items-center gap-2 px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
                                 {Icon && <Icon className="w-4 h-4" />}
                                 <span className="text-sm font-medium">
                                   {item.label}

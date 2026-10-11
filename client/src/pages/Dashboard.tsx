@@ -91,7 +91,7 @@ function BadgeSection({ courseType }: { courseType: string }) {
 
 export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
-  const isSampleMode = !isAuthenticated || Boolean(user?.email?.includes("@sample.com") || user?.email?.includes("@sample."));
+  const isSampleMode = !isAuthenticated;
   const [sampleCourse, setSampleCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">(() => {
     if (typeof window === "undefined") return "elementary";
     const stored = window.localStorage.getItem("essaymaster-sample-course");
@@ -308,7 +308,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/70 py-6 sm:py-8">
+    <div className="bg-slate-50/70 py-6 sm:py-8">
       {/* Main Content */}
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <h1 className="mb-5 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">학습 대시보드</h1>
@@ -348,23 +348,23 @@ export default function Dashboard() {
         </div>
 
         {!isSampleMode && (
-          <Card className="mb-5 overflow-hidden border-violet-200 bg-gradient-to-br from-violet-50 via-white to-indigo-50 shadow-sm">
-            <CardHeader className="gap-3 border-b border-violet-100 px-5 pt-5 sm:px-6 sm:pt-6">
+          <Card className="mb-5 overflow-hidden border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-indigo-50 shadow-sm">
+            <CardHeader className="gap-3 border-b border-indigo-100 px-5 pt-5 sm:px-6 sm:pt-6">
               <div>
-                <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-900"><Sparkles className="h-5 w-5 text-violet-600" /> AI 추천 학습 가이드</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-900"><Sparkles className="h-5 w-5 text-indigo-600" /> AI 추천 학습 가이드</CardTitle>
                 <CardDescription className="mt-1">현재 운영 난이도, 과정별 문항 분포·정답률, 나의 서버 검증 수행 기록을 바탕으로 다음 학습을 안내합니다.</CardDescription>
               </div>
-              <CardAction className="col-auto row-auto w-full sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:w-auto"><Button onClick={() => difficultyGuideMutation.mutate()} disabled={difficultyGuideMutation.isPending} className="w-full bg-violet-700 text-white hover:bg-violet-800 sm:w-auto">
+              <CardAction className="col-auto row-auto w-full sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:w-auto"><Button onClick={() => difficultyGuideMutation.mutate()} disabled={difficultyGuideMutation.isPending} className="w-full bg-indigo-700 text-white hover:bg-indigo-800 sm:w-auto">
                 {difficultyGuideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />분석 중</> : <><Sparkles className="mr-2 h-4 w-4" />맞춤 가이드 만들기</>}
               </Button></CardAction>
             </CardHeader>
             <CardContent className="px-5 py-5 sm:px-6">
               {difficultyGuide ? (
                 <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-                  <div className="rounded-xl border border-violet-100 bg-white/90 p-5"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">{difficultyGuide.headline}</p><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${difficultyGuide.recommendedDifficulty === "easy" ? "bg-emerald-100 text-emerald-800" : difficultyGuide.recommendedDifficulty === "medium" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}>{difficultyGuide.recommendedDifficulty === "easy" ? "초급 추천" : difficultyGuide.recommendedDifficulty === "medium" ? "중급 추천" : "고급 추천"}</span><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-800">{difficultyGuide.presetMode === "advanced" ? "심화 운영" : "표준 운영"}</span></div><p className="mt-3 text-sm leading-6 text-slate-700">{difficultyGuide.summary}</p><p className="mt-3 text-xs leading-5 text-slate-500">판단 근거: {difficultyGuide.basis}</p></div>
+                  <div className="rounded-xl border border-indigo-100 bg-white/90 p-5"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-900">{difficultyGuide.headline}</p><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${difficultyGuide.recommendedDifficulty === "easy" ? "bg-emerald-100 text-emerald-800" : difficultyGuide.recommendedDifficulty === "medium" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}>{difficultyGuide.recommendedDifficulty === "easy" ? "초급 추천" : difficultyGuide.recommendedDifficulty === "medium" ? "중급 추천" : "고급 추천"}</span><span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-800">{difficultyGuide.presetMode === "advanced" ? "심화 운영" : "표준 운영"}</span></div><p className="mt-3 text-sm leading-6 text-slate-700">{difficultyGuide.summary}</p><p className="mt-3 text-xs leading-5 text-slate-500">판단 근거: {difficultyGuide.basis}</p></div>
                   <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-4"><p className="text-xs font-bold text-indigo-800">이번 학습 초점</p><p className="mt-2 text-sm leading-6 text-slate-800">{difficultyGuide.focus}</p></div><div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4"><p className="text-xs font-bold text-emerald-800">바로 할 일</p><p className="mt-2 text-sm leading-6 text-slate-800">{difficultyGuide.nextAction}</p></div></div>
                 </div>
-              ) : <div className="rounded-xl border border-dashed border-violet-200 bg-white/60 p-5 text-sm leading-6 text-slate-600">가이드를 만들면 현재 프리셋과 실제 학습 기록을 반영해 적절한 다음 문항 난이도와 구체적인 연습 순서를 제안합니다.</div>}
+              ) : <div className="rounded-xl border border-dashed border-indigo-200 bg-white/60 p-5 text-sm leading-6 text-slate-600">가이드를 만들면 현재 프리셋과 실제 학습 기록을 반영해 적절한 다음 문항 난이도와 구체적인 연습 순서를 제안합니다.</div>}
             </CardContent>
           </Card>
         )}
@@ -392,7 +392,7 @@ export default function Dashboard() {
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">
+              <CardTitle className="text-sm font-medium text-slate-600">
                 전체 진도율
               </CardTitle>
             </CardHeader>
@@ -401,7 +401,7 @@ export default function Dashboard() {
                 {overallProgressPercent}
                 %
               </div>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-slate-500 mt-2">
                 {completedProgress} / {totalProgress} 완료
               </p>
             </CardContent>
@@ -409,25 +409,25 @@ export default function Dashboard() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">
+              <CardTitle className="text-sm font-medium text-slate-600">
                 평균 점수
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-extrabold text-green-600 sm:text-3xl">{avgScore}</div>
-              <p className="text-xs text-gray-500 mt-2">점</p>
+              <p className="text-xs text-slate-500 mt-2">점</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">
+              <CardTitle className="text-sm font-medium text-slate-600">
                 퀴즈 정답률
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-extrabold text-blue-600 sm:text-3xl">{correctRate}%</div>
-              <p className="text-xs text-gray-500 mt-2">
+              <div className="text-2xl font-extrabold text-indigo-600 sm:text-3xl">{correctRate}%</div>
+              <p className="text-xs text-slate-500 mt-2">
                 {quizStats.correct} / {quizStats.total} 정답
               </p>
             </CardContent>
@@ -435,20 +435,20 @@ export default function Dashboard() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">
+              <CardTitle className="text-sm font-medium text-slate-600">
                 학습 일수
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-extrabold text-purple-600 sm:text-3xl">{learningDays}</div>
-              <p className="text-xs text-gray-500 mt-2">일</p>
+              <div className="text-2xl font-extrabold text-indigo-600 sm:text-3xl">{learningDays}</div>
+              <p className="text-xs text-slate-500 mt-2">일</p>
             </CardContent>
           </Card>
         </div>
 
         {/* Badges Section & Achievement Gallery Widget */}
         <div className="mb-8 space-y-6">
-          <Card className="border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-blue-50/50 shadow-sm">
+          <Card className="border-indigo-100 bg-gradient-to-r from-indigo-50/50 to-indigo-50/50 shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
                 <Award className="h-6 w-6 text-indigo-600" /> 학습 뱃지 현황 (Badge System)
@@ -584,11 +584,11 @@ export default function Dashboard() {
             <Card className="border-sky-100 shadow-sm bg-gradient-to-br from-white to-sky-50/30">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
-                  <CardTitle className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <CardTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
                     <span>🤖 주간 AI 첨삭 사용량 통계</span>
                     <span className="text-xs bg-sky-100 text-sky-800 font-semibold px-2.5 py-0.5 rounded-full">최근 7일</span>
                   </CardTitle>
-                  <CardDescription className="text-xs text-gray-500 mt-1">
+                  <CardDescription className="text-xs text-slate-500 mt-1">
                     일자별 공용 크레딧 기반 AI 자동 첨삭 이용 횟수 현황입니다.
                   </CardDescription>
                 </div>
@@ -596,7 +596,7 @@ export default function Dashboard() {
                   <span className="text-2xl font-extrabold text-sky-600">
                     {weeklyUsageData ? weeklyUsageData.reduce((acc, curr) => acc + curr.count, 0) : 0}회
                   </span>
-                  <p className="text-[11px] text-gray-400">총 이용 횟수</p>
+                  <p className="text-[11px] text-slate-400">총 이용 횟수</p>
                 </div>
               </CardHeader>
               <CardContent>
@@ -618,8 +618,8 @@ export default function Dashboard() {
                 ) : (
                   <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-white/60 rounded-xl border border-dashed border-sky-200">
                     <div className="w-12 h-12 rounded-full bg-sky-100 flex items-center justify-center text-sky-600 mb-3 font-bold text-lg">AI</div>
-                    <p className="text-sm font-semibold text-gray-800">아직 이번 주 AI 첨삭 기록이 없습니다.</p>
-                    <p className="text-xs text-gray-500 mt-1">AI 자동 첨삭 메뉴에서 글을 작성하고 첨삭을 받아보세요!</p>
+                    <p className="text-sm font-semibold text-slate-800">아직 이번 주 AI 첨삭 기록이 없습니다.</p>
+                    <p className="text-xs text-slate-500 mt-1">AI 자동 첨삭 메뉴에서 글을 작성하고 첨삭을 받아보세요!</p>
                     <Link href="/ai-auto-feedback">
                       <Button size="sm" className="mt-4 bg-sky-600 hover:bg-sky-700 text-white text-xs">AI 자동 첨삭 하러 가기</Button>
                     </Link>
@@ -668,13 +668,13 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-start gap-4 p-4 bg-blue-50 rounded-lg">
-                <Target className="w-5 h-5 text-blue-600 mt-1 flex-shrink-0" />
+              <div className="flex items-start gap-4 p-4 bg-indigo-50 rounded-lg">
+                <Target className="w-5 h-5 text-indigo-600 mt-1 flex-shrink-0" />
                 <div>
-                  <p className="font-semibold text-gray-900">
+                  <p className="font-semibold text-slate-900">
                     정확성 영역 강화 학습
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-slate-600">
                     정확성 점수가 다른 영역보다 낮습니다. 주술 호응과 조사 사용에
                     집중하세요.
                   </p>
@@ -684,22 +684,22 @@ export default function Dashboard() {
               <div className="flex items-start gap-4 p-4 bg-green-50 rounded-lg">
                 <TrendingUp className="w-5 h-5 text-green-600 mt-1 flex-shrink-0" />
                 <div>
-                  <p className="font-semibold text-gray-900">
+                  <p className="font-semibold text-slate-900">
                     다음 레벨 도전하기
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-slate-600">
                     Level 2를 완료했습니다. Level 3에 도전해보세요!
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-start gap-4 p-4 bg-purple-50 rounded-lg">
-                <Award className="w-5 h-5 text-purple-600 mt-1 flex-shrink-0" />
+              <div className="flex items-start gap-4 p-4 bg-indigo-50 rounded-lg">
+                <Award className="w-5 h-5 text-indigo-600 mt-1 flex-shrink-0" />
                 <div>
-                  <p className="font-semibold text-gray-900">
+                  <p className="font-semibold text-slate-900">
                     AI 첨삭 받기
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-slate-600">
                     작성한 논술에 대해 AI 자동 첨삭을 받아보세요.
                   </p>
                 </div>

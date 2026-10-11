@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -61,14 +62,17 @@ export default function TeacherFeedback() {
   }, [getEssayQuery.data]);
 
   useEffect(() => {
-    if (getFeedbackQuery.data && Array.isArray(getFeedbackQuery.data) && getFeedbackQuery.data.length > 0) {
-      const fb = getFeedbackQuery.data[0];
+    // 서버는 이 글의 첨삭을 객체 하나로 돌려준다(없으면 비어 있음). 예전 배열 형태도 함께 받아 준다.
+    const loaded = Array.isArray(getFeedbackQuery.data) ? getFeedbackQuery.data[0] : getFeedbackQuery.data;
+    if (loaded && typeof loaded === "object" && "id" in loaded) {
+      const fb = loaded;
       setFeedback(fb);
       setOverallComment(fb.overallComment || "");
-      setOverallScore(fb.overallScore || 75);
-      setStructureScore(fb.structureScore || 75);
-      setLogicScore(fb.logicScore || 75);
-      setExpressionScore(fb.expressionScore || 75);
+      // 0점도 정상 값이다(?? 로 비어 있을 때만 기본값 75).
+      setOverallScore(fb.overallScore ?? 75);
+      setStructureScore(fb.structureScore ?? 75);
+      setLogicScore(fb.logicScore ?? 75);
+      setExpressionScore(fb.expressionScore ?? 75);
     }
   }, [getFeedbackQuery.data]);
 
@@ -85,13 +89,13 @@ export default function TeacherFeedback() {
   }, [aiDraftsQuery.data]);
 
   if (!isAuthenticated) {
-    return <div className="text-center py-12">로그인이 필요합니다.</div>;
+    return <LoginRequired />;
   }
 
   if (!essayId || !essay) {
     return (
-      <div className="min-h-screen bg-gray-50 py-12 text-center">
-        <p className="text-gray-600">논술을 선택해주세요.</p>
+      <div className="bg-slate-50 py-12 text-center">
+        <p className="text-slate-600">논술을 선택해주세요.</p>
       </div>
     );
   }
@@ -208,10 +212,10 @@ export default function TeacherFeedback() {
   ));
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="bg-slate-50 py-12">
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-8">선생님 첨삭</h1>
+        <h1 className="text-4xl font-bold text-slate-900 mb-8">선생님 첨삭</h1>
 
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Essay Content */}
@@ -224,7 +228,7 @@ export default function TeacherFeedback() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="bg-gray-50 p-6 rounded-lg whitespace-pre-wrap text-sm text-gray-700 leading-relaxed max-h-96 overflow-y-auto">
+                <div className="bg-slate-50 p-6 rounded-lg whitespace-pre-wrap text-sm text-slate-700 leading-relaxed max-h-96 overflow-y-auto">
                   {essay.content}
                 </div>
               </CardContent>
@@ -263,16 +267,16 @@ export default function TeacherFeedback() {
                 {comments.length > 0 ? (
                   <div className="space-y-3">
                     {comments.map((comment) => (
-                      <div key={comment.id} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                        <p className="text-sm text-gray-700">{comment.comment}</p>
-                        <p className="text-xs text-gray-500 mt-2">
+                      <div key={comment.id} className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+                        <p className="text-sm text-slate-700">{comment.comment}</p>
+                        <p className="text-xs text-slate-500 mt-2">
                           {comment.commentType}
                         </p>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-500">아직 코멘트가 없습니다.</p>
+                  <p className="text-sm text-slate-500">아직 코멘트가 없습니다.</p>
                 )}
 
                 {/* Add Comment */}
@@ -315,7 +319,7 @@ export default function TeacherFeedback() {
               <CardContent className="space-y-4">
                 {/* Overall Score */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     종합 점수: {overallScore}점
                   </label>
                   <input
@@ -330,7 +334,7 @@ export default function TeacherFeedback() {
 
                 {/* Structure Score */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     구조: {structureScore}점
                   </label>
                   <input
@@ -345,7 +349,7 @@ export default function TeacherFeedback() {
 
                 {/* Logic Score */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     논리: {logicScore}점
                   </label>
                   <input
@@ -360,7 +364,7 @@ export default function TeacherFeedback() {
 
                 {/* Expression Score */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     표현: {expressionScore}점
                   </label>
                   <input
@@ -375,7 +379,7 @@ export default function TeacherFeedback() {
 
                 {/* Overall Comment */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     종합 평가
                   </label>
                   {isApprovedTeacher && <div className="mb-2 grid gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2 sm:grid-cols-[1fr_auto_auto]"><select aria-label="저장된 피드백 상용구" value={selectedTemplateId} onChange={(event) => { const id = event.target.value; setSelectedTemplateId(id); const template = templatesQuery.data?.find((item) => item.id === Number(id)); if (template) setOverallComment(template.content); }} className="h-9 rounded-md border border-indigo-200 bg-white px-2 text-xs"><option value="">저장된 상용구 불러오기</option>{templatesQuery.data?.map((template) => <option key={template.id} value={template.id}>{template.title}</option>)}</select><Button type="button" variant="outline" size="sm" disabled={!selectedTemplateId || deleteTemplateMutation.isPending} onClick={() => deleteTemplateMutation.mutate({ templateId: Number(selectedTemplateId) })}>삭제</Button><div className="flex gap-1"><Input aria-label="새 상용구 제목" value={templateTitle} onChange={(event) => setTemplateTitle(event.target.value)} placeholder="상용구 제목" className="h-9 text-xs" /><Button type="button" size="sm" variant="outline" disabled={!templateTitle.trim() || !overallComment.trim() || saveTemplateMutation.isPending} onClick={() => saveTemplateMutation.mutate({ title: templateTitle.trim(), content: overallComment.trim() })}>저장</Button></div></div>}

@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { CONTACT_EMAIL } from "@/lib/contact";
+import AuthLayout from "@/components/AuthLayout";
 
 // 만 14세 미만 학생의 법정대리인(보호자)이 메일 링크로 들어와 동의서를 확인하고 동의하는 페이지.
 export default function GuardianConsent() {
@@ -26,14 +27,7 @@ export default function GuardianConsent() {
 
   const data = consentQuery.data;
 
-  const shell = (children: React.ReactNode) => (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-green-100 px-4 py-10 sm:py-16">
-      <div className="mx-auto w-full max-w-2xl">
-        <h1 className="mb-6 text-center text-3xl font-bold text-slate-900">논술 마스터</h1>
-        {children}
-      </div>
-    </div>
-  );
+  const shell = (children: React.ReactNode) => <AuthLayout width="lg">{children}</AuthLayout>;
 
   if (token.length < 32 || (!consentQuery.isLoading && (!data || data.state === "invalid"))) {
     return shell(
@@ -60,7 +54,7 @@ export default function GuardianConsent() {
   if (data.state === "approved") {
     return shell(
       <Card className="p-8 text-center">
-        <h2 className="text-lg font-bold text-emerald-700">법정대리인 동의가 완료되었습니다.</h2>
+        <h2 className="text-lg font-bold text-indigo-700">법정대리인 동의가 완료되었습니다.</h2>
         <p className="mt-2 text-sm text-slate-600">이제 자녀가 로그인해 서비스를 이용할 수 있습니다. 동의 철회·열람·정정은 {CONTACT_EMAIL}으로 요청해 주세요.</p>
       </Card>,
     );
@@ -112,7 +106,7 @@ export default function GuardianConsent() {
         </label>
       </div>
       <Button
-        className="w-full bg-emerald-600 hover:bg-emerald-700"
+        className="w-full bg-indigo-600 hover:bg-indigo-700"
         disabled={!canSubmit}
         onClick={() => confirm.mutate({ token, guardianName: guardianName.trim(), agreeCollection: true, agreeGuardian: true })}
       >

@@ -5,7 +5,7 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
-import { startLogin } from "./const";
+import { redirectToLogin } from "./lib/loginRedirect";
 import "./index.css";
 
 if (typeof window !== "undefined" && "serviceWorker" in navigator) {
@@ -36,7 +36,8 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
 
-  startLogin();
+  // 인증이 필요한 요청이 실패하면 외부 로그인이 아니라 이메일 로그인 화면으로 보내고, 로그인 뒤 현재 화면으로 돌아온다.
+  redirectToLogin();
 };
 
 queryClient.getQueryCache().subscribe(event => {

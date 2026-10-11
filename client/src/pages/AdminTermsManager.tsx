@@ -83,10 +83,10 @@ export default function AdminTermsManager() {
                     value={termsContent}
                     onChange={(e) => setTermsContent(e.target.value)}
                     placeholder="이용약관 내용을 입력하세요..."
-                    className="w-full min-h-[360px] rounded-xl border border-slate-200 p-4 font-mono text-sm leading-relaxed text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full min-h-[360px] rounded-xl border border-slate-200 p-4 font-mono text-sm leading-relaxed text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                   <div className="flex justify-end">
-                    <Button onClick={handleSave} disabled={saveMutation.isPending} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
+                    <Button onClick={handleSave} disabled={saveMutation.isPending} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
                       <Save className="h-4 w-4" /> {saveMutation.isPending ? "저장 중..." : "이용약관 저장 및 공개 반영"}
                     </Button>
                   </div>
@@ -111,10 +111,10 @@ export default function AdminTermsManager() {
                     value={privacyContent}
                     onChange={(e) => setPrivacyContent(e.target.value)}
                     placeholder="개인정보처리방침 내용을 입력하세요..."
-                    className="w-full min-h-[360px] rounded-xl border border-slate-200 p-4 font-mono text-sm leading-relaxed text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full min-h-[360px] rounded-xl border border-slate-200 p-4 font-mono text-sm leading-relaxed text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                   <div className="flex justify-end">
-                    <Button onClick={handleSave} disabled={saveMutation.isPending} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
+                    <Button onClick={handleSave} disabled={saveMutation.isPending} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
                       <Save className="h-4 w-4" /> {saveMutation.isPending ? "저장 중..." : "개인정보처리방침 저장 및 공개 반영"}
                     </Button>
                   </div>

@@ -68,7 +68,8 @@ import {
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
-import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
+import { eq, and, desc, gt, gte, inArray, lt } from "drizzle-orm";
+import { computeLessonProgress } from "./lessonProgress";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
@@ -756,6 +757,45 @@ export async function upsertProgress(input: {
   return result;
 }
 
+/**
+ * 학생의 레슨(모듈) 진행 기록을 서버가 계산해 저장한다. 클라이언트가 보낸 점수·완료 여부는 받지 않는다.
+ * - 모듈은 수료 판정과 같은 기준(동적 커리큘럼 우선, 없으면 정적 커리큘럼)에서 학생의 과정·레벨로 찾는다.
+ * - 점수·완료는 해당 과정·레벨 워크북 문항에 대해 서버가 채점해 저장한 답안으로 계산한다.
+ * - 이미 완료된 기록은 되돌리지 않고, 점수는 더 높은 값만 반영한다.
+ */
+export async function recordLessonProgress(student: { id: number; tag?: string | null }, level: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const courseType = getCourseTypeFromUserTag(student.tag);
+  const [dynamicModules, staticModules] = await Promise.all([getDynamicCurriculumByType(courseType), getCurriculumByType(courseType)]);
+  const modules = dynamicModules.length > 0 ? dynamicModules : staticModules;
+  const module = modules.find((item) => Number(item.level) === level);
+  if (!module) throw new Error("가입·학습 중인 과정에 없는 레벨입니다.");
+  const curriculumId = module.id;
+
+  const questions = await db.select({ id: curriculumWorkbookQuestions.id }).from(curriculumWorkbookQuestions)
+    .where(and(eq(curriculumWorkbookQuestions.courseType, courseType), eq(curriculumWorkbookQuestions.level, Number(module.level))));
+  const questionIds = questions.map((question) => question.id);
+  const answers = questionIds.length > 0
+    ? await db.select({ questionId: curriculumWorkbookAnswers.questionId, score: curriculumWorkbookAnswers.score }).from(curriculumWorkbookAnswers)
+      .where(and(eq(curriculumWorkbookAnswers.userId, student.id), inArray(curriculumWorkbookAnswers.questionId, questionIds)))
+    : [];
+  const computed = computeLessonProgress({ questionIds, answers });
+
+  const existing = await getProgressByUserAndCurriculum(student.id, curriculumId);
+  const wasCompleted = Number(existing?.completed ?? 0) >= 1;
+  const completed = wasCompleted || computed.completed;
+  const score = Math.max(Number(existing?.score ?? 0), computed.score);
+  await upsertProgress({
+    userId: student.id,
+    curriculumId,
+    completed: completed ? 1 : 0,
+    score,
+    completedAt: completed ? (existing?.completedAt ?? new Date()) : null,
+  });
+  return { curriculumId, level: Number(module.level), score, completed, answeredCount: computed.answeredCount, totalCount: computed.totalCount };
+}
+
 // ========== Quiz Functions ==========
 
 export async function saveQuizAnswer(input: {
@@ -924,6 +964,13 @@ export async function getTeacherFeedbackByEssay(essayId: number) {
   return result[0];
 }
 
+export async function getTeacherFeedbackById(feedbackId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(teacherFeedback).where(eq(teacherFeedback.id, feedbackId));
+  return row;
+}
+
 export async function createTeacherFeedback(input: {
   essayId: number;
   teacherId: number;
@@ -937,7 +984,10 @@ export async function createTeacherFeedback(input: {
   if (!db) throw new Error("Database is not available");
 
   const [result] = await db.insert(teacherFeedback).values(input);
-  return result;
+  // 삽입 결과(헤더)가 아니라 만들어진 첨삭 행을 돌려준다(호출한 쪽이 id로 이어서 수정·코멘트할 수 있도록).
+  const insertId = Number((result as { insertId?: number }).insertId ?? 0);
+  const [created] = insertId ? await db.select().from(teacherFeedback).where(eq(teacherFeedback.id, insertId)) : [];
+  return created ?? result;
 }
 
 export async function updateTeacherFeedback(
@@ -1321,35 +1371,44 @@ export async function getProgressByUserAndCurriculum(userId: number, curriculumI
   return result[0];
 }
 
-export async function setUserPasswordResetToken(userId: number, tokenHash: string) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
-}
-
+// 비밀번호 재설정 토큰은 이메일 인증 토큰과 별도 컬럼에 만료시각과 함께 저장한다(서로의 링크로 쓸 수 없다).
 export async function getUserByPasswordResetTokenHash(tokenHash: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.verificationTokenHash, tokenHash)));
+  const result = await withUsersSchemaHint(db.select().from(users).where(eq(users.passwordResetTokenHash, tokenHash)));
   return result[0];
+}
+
+/**
+ * 재설정 토큰으로 비밀번호를 바꾼다. 토큰 일치·만료 확인과 폐기를 한 번의 갱신으로 처리해, 같은 토큰으로 동시에 두 번 바꿀 수 없다.
+ * 바뀐 계정이 정확히 하나일 때만 true.
+ */
+export async function consumePasswordResetToken(tokenHash: string, passwordHash: string) {
+  const db = await getDb();
+  if (!db) return false;
+  const [result] = await db.update(users)
+    .set({ passwordHash, passwordResetTokenHash: null, passwordResetTokenExpiresAt: null })
+    .where(and(eq(users.passwordResetTokenHash, tokenHash), gt(users.passwordResetTokenExpiresAt, new Date())));
+  return Number((result as { affectedRows?: number }).affectedRows ?? 0) === 1;
 }
 
 export async function resetUserPassword(userId: number, passwordHash: string) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ passwordHash, verificationTokenHash: null }).where(eq(users.id, userId));
+  // 재설정 토큰은 한 번만 쓸 수 있다.
+  await db.update(users).set({ passwordHash, passwordResetTokenHash: null, passwordResetTokenExpiresAt: null }).where(eq(users.id, userId));
 }
 
-export async function updateVerificationToken(userId: number, tokenHash: string, _expiresAt?: Date) {
+export async function updateVerificationToken(userId: number, tokenHash: string, expiresAt: Date) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+  await db.update(users).set({ verificationTokenHash: tokenHash, verificationTokenExpiresAt: expiresAt }).where(eq(users.id, userId));
 }
 
-export async function updatePasswordResetToken(userId: number, tokenHash: string, _expiresAt?: Date) {
+export async function updatePasswordResetToken(userId: number, tokenHash: string, expiresAt: Date) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+  await db.update(users).set({ passwordResetTokenHash: tokenHash, passwordResetTokenExpiresAt: expiresAt }).where(eq(users.id, userId));
 }
 
 export async function getUserByVerificationTokenHash(tokenHash: string) {
@@ -1362,7 +1421,7 @@ export async function getUserByVerificationTokenHash(tokenHash: string) {
 export async function markEmailVerified(userId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ emailVerifiedAt: new Date(), verificationTokenHash: null }).where(eq(users.id, userId));
+  await db.update(users).set({ emailVerifiedAt: new Date(), verificationTokenHash: null, verificationTokenExpiresAt: null }).where(eq(users.id, userId));
 }
 
 
@@ -2097,6 +2156,13 @@ export async function createTeacherAiStyleExample(input: {
     approvalStatus: "draft",
   });
   const [example] = await db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.teacherId, input.teacherId)).orderBy(desc(teacherAiStyleExamples.id));
+  return example;
+}
+
+export async function getTeacherAiStyleExampleById(exampleId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [example] = await db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.id, exampleId));
   return example;
 }
 
@@ -2870,11 +2936,36 @@ export async function reviewStudentClassAssignment(teacherId: number, submission
   const [assignment] = await db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId));
   if (!assignment) throw new Error("연결된 과제를 찾을 수 없습니다.");
   await assertTeacherGroupOwnership(teacherId, assignment.groupId);
-  await db.update(classAssignmentSubmissions).set({ status: "reviewed", score: input.score, teacherComment: input.teacherComment.trim(), reviewedAt: new Date(), updatedAt: new Date() }).where(eq(classAssignmentSubmissions.id, submissionId));
+  await db.update(classAssignmentSubmissions).set({ status: "reviewed", score: input.score, // 채점 시각은 처음 채점한 시각을 유지한다(다시 저장해도 활동이 다른 달로 옮겨가거나 새 활동이 되지 않는다).
+  teacherComment: input.teacherComment.trim(), reviewedAt: submission.status === "reviewed" && submission.reviewedAt ? submission.reviewedAt : new Date(), updatedAt: new Date() }).where(eq(classAssignmentSubmissions.id, submissionId));
   await db.update(classAssignmentAiFeedbacks).set({ status: "reviewed", reviewedAt: new Date(), updatedAt: new Date() }).where(and(eq(classAssignmentAiFeedbacks.submissionId, submissionId), eq(classAssignmentAiFeedbacks.status, "generated")));
   await db.insert(appNotifications).values({ userId: submission.studentId, assignmentId: assignment.id, title: `[과제 채점 완료] ${assignment.title}`, message: `교사가 과제를 채점했습니다. 점수 ${input.score}점과 피드백을 확인하세요.`, category: "teacher_feedback" });
   const [updated] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
   return updated;
+}
+
+/** 과제 제출물과 그 과제(반 정보 포함). 채점·AI 첨삭이 어느 반의 활동인지 알아야 정산·예산을 정할 수 있다. */
+export async function getClassAssignmentSubmissionContext(submissionId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
+  if (!submission) return undefined;
+  const [assignment] = await db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId));
+  return assignment ? { submission, assignment } : undefined;
+}
+
+export async function getWorkbookTeacherFeedbackByAnswerId(answerId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(workbookTeacherFeedback).where(eq(workbookTeacherFeedback.answerId, answerId));
+  return row;
+}
+
+export async function getClassAttendanceRecord(groupId: number, studentId: number, attendanceDate: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(classAttendance).where(and(eq(classAttendance.groupId, groupId), eq(classAttendance.studentId, studentId), eq(classAttendance.attendanceDate, attendanceDate)));
+  return row;
 }
 
 export async function listTeacherFeedbackTemplates(teacherId: number) {
@@ -3393,7 +3484,8 @@ export async function verifyAndSaveQuizAttempt(userId: number, quizId: number, u
     accuracyScore: "0.00",
   });
   await recordLearningToolAttempt({ userId, questionBankId: quizId, courseType: question.courseType, toolType: "quiz", score: isCorrect ? 100 : 0 });
-  return { isCorrect, score: isCorrect ? 100 : 0, feedback };
+  // 문항 조회에서는 정답·해설을 내려주지 않으므로, 제출을 판정한 결과로만 돌려준다.
+  return { isCorrect, score: isCorrect ? 100 : 0, feedback, correctAnswer: content.answer ?? "", explanation: content.explanation ?? "" };
 }
 
 /**
@@ -3478,7 +3570,9 @@ export async function verifyAndRecordReorderingAttempt(userId: number, questionI
   const correctCount = orderedParagraphIds.filter((id, index) => expected.find((paragraph) => paragraph.id === id)?.correctOrder === index + 1).length;
   const score = Math.round((correctCount / expected.length) * 100);
   await recordLearningToolAttempt({ userId, questionBankId: questionId, courseType: question.courseType, toolType: "reordering", score });
-  return { score, passed: score >= 70, feedback: content.explanation || "논리적 연결과 단락의 기능을 다시 확인해 보세요." };
+  // 정답 순서(단락 id)는 제출 뒤에만 돌려준다.
+  const correctOrderIds = [...expected].sort((a, b) => a.correctOrder - b.correctOrder).map((paragraph) => paragraph.id);
+  return { score, passed: score >= 70, feedback: content.explanation || "논리적 연결과 단락의 기능을 다시 확인해 보세요.", correctOrderIds };
 }
 
 export async function getLearningToolBadgeEligibility(userId: number, courseType: CourseType, badgeType: "quiz" | "summary" | "reordering_10_session") {
@@ -4999,7 +5093,8 @@ export async function submitCurriculumWorkbookAnswer(userId: number, questionId:
     });
   }
 
-  return { isCorrect, score, aiFeedback, evaluation };
+  // 문항 조회에서는 해설을 내려주지 않으므로 제출 결과에 함께 돌려준다.
+  return { isCorrect, score, aiFeedback, evaluation, explanation: q.explanation };
 }
 
 export async function recordLearningToolMistake(input: {
@@ -5046,16 +5141,29 @@ export async function getWorkbookMistakesByUser(userId: number) {
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+export async function getWorkbookAnswerById(answerId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(curriculumWorkbookAnswers).where(eq(curriculumWorkbookAnswers.id, answerId));
+  return row;
+}
+
 export async function addWorkbookTeacherFeedback(answerId: number, teacherId: number, comment: string, gradeScore: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
 
-  await db.insert(workbookTeacherFeedback).values({
-    answerId,
-    teacherId,
-    comment,
-    gradeScore,
-  });
+  // 한 답안에는 첨삭 한 건만 둔다(다시 저장하면 새 건이 아니라 수정이다 — 정산·집계가 부풀지 않도록).
+  const [existing] = await db.select().from(workbookTeacherFeedback).where(eq(workbookTeacherFeedback.answerId, answerId));
+  let feedbackId: number;
+  let created = false;
+  if (existing) {
+    feedbackId = existing.id;
+    await db.update(workbookTeacherFeedback).set({ comment, gradeScore }).where(eq(workbookTeacherFeedback.id, existing.id));
+  } else {
+    const [inserted] = await db.insert(workbookTeacherFeedback).values({ answerId, teacherId, comment, gradeScore });
+    feedbackId = Number((inserted as { insertId?: number }).insertId);
+    created = true;
+  }
 
   // 해당 답안 점수 업데이트
   await db.update(curriculumWorkbookAnswers)
@@ -5067,13 +5175,13 @@ export async function addWorkbookTeacherFeedback(answerId: number, teacherId: nu
   if (ans) {
     await db.insert(appNotifications).values({
       userId: ans.userId,
-      title: "선생님 서술형 첨삭 완료",
-      message: `제출하신 워크북 답안에 담당 교사 첨삭이 등록되었습니다. (점수: ${gradeScore}점)`,
+      title: created ? "선생님 서술형 첨삭 완료" : "선생님 서술형 첨삭이 수정되었습니다",
+      message: `제출하신 워크북 답안에 담당 교사 첨삭이 ${created ? "등록" : "수정"}되었습니다. (점수: ${gradeScore}점)`,
       category: "teacher_feedback",
     });
   }
 
-  return { success: true };
+  return { success: true, feedbackId, created, studentId: ans?.userId ?? null };
 }
 
 export async function getNotificationsByUser(userId: number) {

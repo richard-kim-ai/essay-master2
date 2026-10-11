@@ -402,7 +402,7 @@ export default function AdminCurriculumManager() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
@@ -494,8 +494,8 @@ export default function AdminCurriculumManager() {
         ) : (
           <div>
             {renderGroup("초등 논술", elementary, "text-emerald-600")}
-            {renderGroup("중고등 논술", middleHigh, "text-blue-600")}
-            {renderGroup("고등 / 대입", highUniv, "text-purple-600")}
+            {renderGroup("중고등 논술", middleHigh, "text-indigo-600")}
+            {renderGroup("고등 / 대입", highUniv, "text-indigo-600")}
             {renderGroup("일반 / 직장인", generalAdult, "text-amber-600")}
           </div>
         )}

@@ -10,6 +10,7 @@ import { getCourseTag, getCourseTypeFromUserTag } from "@shared/course";
 import { toast } from "sonner";
 import { CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Copy, Lightbulb, Loader2, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
+import PreviewGate from "@/components/PreviewGate";
 import { getWorkbookReturnPath } from "@/lib/workbookReturn";
 import { findConflictingTopicCategories, getTopicCategoryGuidance, TOPIC_CATEGORY_GUIDANCE, type TopicCategory } from "@/lib/topicCategoryGuidance";
 
@@ -90,12 +91,12 @@ export default function TopicWizard() {
   };
 
   if (loading) return <div className="py-12 text-center text-slate-600">학습자 정보를 확인하고 있습니다...</div>;
-  if (!isAuthenticated) return <div className="py-12 text-center text-slate-600">로그인 후 주제 설정 도구를 이용할 수 있습니다.</div>;
+  const preview = !isAuthenticated;
 
   if (completed) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8 sm:px-6 lg:px-8">
-        <main className="mx-auto max-w-4xl space-y-6">
+      <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-4xl space-y-6">
           {workbookReturnPath && <Link href={workbookReturnPath}><Button variant="outline" className="mb-1"><ChevronLeft className="mr-1.5 h-4 w-4" />학습 중인 레슨으로 돌아가기</Button></Link>}
           <Card className="border-emerald-200 bg-white p-6 shadow-sm sm:p-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -108,14 +109,15 @@ export default function TopicWizard() {
             {([['카테고리', data.category], ['주제', data.topic], ['주제문', data.mainIdea], ['개요', data.outline]] as const).map(([label, value]) => <Card key={label} className="border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-bold uppercase tracking-wider text-emerald-700">{label}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-800">{value}</p></Card>)}
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end"><Button variant="outline" onClick={() => setCompleted(false)}>수정하기</Button><Button onClick={reset} className="bg-slate-800 hover:bg-slate-900"><RotateCcw className="mr-2 h-4 w-4" />새 주제 작성</Button></div>
-        </main>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8 sm:px-6 lg:px-8">
-      <main className="mx-auto max-w-3xl">
+    <PreviewGate active={preview} title="주제 설정">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl">
         <header className="mb-6">{workbookReturnPath && <Link href={workbookReturnPath}><Button variant="ghost" className="mb-3 h-auto px-0 text-emerald-800 hover:bg-transparent hover:text-emerald-950"><ChevronLeft className="mr-1.5 h-4 w-4" />학습 중인 레슨으로 돌아가기</Button></Link>}<Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{courseLabel} 과정</Badge><h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">주제 설정</h1><p className="mt-2 text-base leading-7 text-slate-600">질문에 차례로 답하며 글쓰기의 출발점인 주제·주제문·개요를 완성해 보세요.</p></header>
         <Card className="mb-5 border-slate-200 bg-white p-5 shadow-sm"><div className="flex justify-between text-sm font-semibold text-slate-700"><span>단계 {step} / 4</span><span>{inProgressPercent}%</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600 transition-[width] duration-200" style={{ width: `${inProgressPercent}%` }} /></div></Card>
         <Card className="border-slate-200 bg-white p-5 shadow-sm sm:p-8">
@@ -127,7 +129,8 @@ export default function TopicWizard() {
           <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex gap-2"><Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><p className="font-semibold text-amber-950">AI 학습 가이드</p><p className="mt-1 text-sm text-amber-900">현재 작성 내용을 바탕으로 예시와 점검 포인트를 안내합니다.</p></div></div><Button size="sm" variant="outline" onClick={handleGuide} disabled={guideMutation.isPending} className="border-amber-300 bg-white text-amber-900 hover:bg-amber-100">{guideMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />준비 중</> : "학습 가이드 보기"}</Button></div>{guide && <div className="mt-4 border-t border-amber-200 pt-4"><h3 className="font-bold text-slate-900">{guide.headline}</h3><p className="mt-2 text-sm leading-6 text-slate-700">{guide.guidance}</p><p className="mt-3 rounded-lg bg-white p-3 text-sm leading-6 text-slate-800"><span className="font-bold text-amber-800">예시: </span>{guide.example}</p><ul className="mt-3 space-y-1 text-sm text-slate-700">{guide.tips.map((tip) => <li key={tip}>• {tip}</li>)}</ul></div>}</div>
         </Card>
         <div className="mt-5 flex gap-3"><Button variant="outline" onClick={() => { setGuide(null); setStep((previous) => Math.max(1, previous - 1) as Step); }} disabled={step === 1} className="flex-1"><ChevronLeft className="mr-2 h-4 w-4" />이전</Button>{step < 4 ? <Button onClick={handleNext} className="flex-1 bg-emerald-700 hover:bg-emerald-800">다음<ChevronRight className="ml-2 h-4 w-4" /></Button> : <Button onClick={() => { if (validateCurrentStep()) setCompleted(true); }} className="flex-1 bg-emerald-700 hover:bg-emerald-800"><CheckCircle2 className="mr-2 h-4 w-4" />완료 결과 보기</Button>}</div>
-      </main>
+      </div>
     </div>
+    </PreviewGate>
   );
 }

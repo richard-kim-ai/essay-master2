@@ -13,7 +13,7 @@ describe("workbook question presentation", () => {
   });
 
   it("does not render the generated database title on learner workbook question cards", () => {
-    expect(workbookSource).toContain("<WorkbookQuestionCard key={q.id} questionType={q.questionType} prompt={q.prompt} explanation={q.explanation} result={res}>");
+    expect(workbookSource).toContain("<WorkbookQuestionCard key={q.id} questionType={q.questionType} prompt={q.prompt} explanation={res?.explanation ?? q.explanation ?? \"\"} result={res}>");
     expect(workbookSource).not.toContain("{q.title}");
     expect(workbookSource).not.toContain("기출문제 #{qIdx + 1}");
   });
