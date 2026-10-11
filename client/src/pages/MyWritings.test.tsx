@@ -95,6 +95,10 @@ describe("접근 경로(입구)", () => {
   it("라우트·마이페이지·프로필 메뉴(PC·모바일)·AI 첨삭 화면에서 /my-writings로 들어갈 수 있다", async () => {
     expect(await read("../App.tsx")).toMatch(/<Route path="\/my-writings">\{\(\) => <Layout><MyWritings \/><\/Layout>\}<\/Route>/);
     expect(await read("./MyPageHub.tsx")).toContain('setLocation("/my-writings")');
+    // 허브의 '논술 쓰기·첨삭' 구역에서 글쓰기·AI 자동 첨삭·내 글·첨삭 기록으로 바로 갈 수 있다.
+    const hub = await read("./MyPageHub.tsx");
+    expect(hub).toContain('data-testid="hub-writing-section"');
+    for (const href of ["/essay-submission", "/ai-auto-feedback", "/my-writings"]) expect(hub).toContain(`href: "${href}"`);
     const navigation = await read("../components/Navigation.tsx");
     expect((navigation.match(/href="\/my-writings"/g) ?? []).length).toBe(2);
     expect(await read("./AIAutoFeedback.tsx")).toContain('href="/my-writings"');

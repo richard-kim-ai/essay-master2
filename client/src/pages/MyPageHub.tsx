@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import ParentLinkRequests from "@/components/ParentLinkRequests";
 import StudentLearningSettings from "@/components/StudentLearningSettings";
-import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine, FileText } from "lucide-react";
+import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine, FileText, PenLine, Sparkles } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { COURSE_OPTIONS, type CourseType } from "@shared/course";
@@ -254,6 +254,32 @@ export default function MyPageHub() {
             </div>
           </CardContent>
         </Card>
+
+        {/* 논술 쓰기·첨삭: 글쓰기, AI 자동 첨삭, 지난 글·첨삭 기록으로 들어가는 입구 */}
+        {(user?.role === "user" || isStaffPreview) && (
+          <section aria-labelledby="hub-writing-title" data-testid="hub-writing-section" className="space-y-3">
+            <h2 id="hub-writing-title" className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <PenLine className="w-5 h-5 text-indigo-600" /> 논술 쓰기·첨삭
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                { href: "/essay-submission", icon: PenLine, tone: "text-indigo-600", button: "text-indigo-700 border-indigo-200 hover:bg-indigo-50", title: "글쓰기", text: "논술을 쓰고 저장한 뒤, 필요하면 담당 교사 첨삭을 신청합니다.", cta: "글쓰기 열기" },
+                { href: "/ai-auto-feedback", icon: Sparkles, tone: "text-indigo-600", button: "text-indigo-700 border-indigo-200 hover:bg-indigo-50", title: "AI 자동 첨삭", text: "작성한 논술을 입력하면 AI가 점수와 수정 답안을 바로 알려 줍니다.", cta: "AI 첨삭 받기" },
+                { href: "/my-writings", icon: FileText, tone: "text-emerald-600", button: "text-emerald-700 border-emerald-200 hover:bg-emerald-50", title: "내 글·첨삭 기록", text: "내가 쓴 글과 AI·교사 첨삭 결과를 다시 보고, 고친 부분을 비교합니다.", cta: "기록 보기" },
+              ].map(({ href, icon: Icon, tone, button, title, text, cta }) => (
+                <Card key={href} className="border-slate-200 shadow-sm hover:shadow-md transition-all">
+                  <CardContent className="space-y-3 p-4">
+                    <p className="text-base font-bold text-slate-900 flex items-center gap-2"><Icon className={`w-5 h-5 ${tone}`} /> {title}</p>
+                    <p className="text-xs leading-5 text-slate-600">{text}</p>
+                    <Button variant="outline" className={`w-full font-semibold ${button}`} onClick={() => setLocation(href)}>
+                      {cta} <ArrowRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* 3 Main Hub Cards */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
