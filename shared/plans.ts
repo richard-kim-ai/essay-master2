@@ -94,11 +94,15 @@ export const TEACHER_FEEDBACK_PRODUCTS: readonly TeacherFeedbackProduct[] = [
   { key: "tf_comprehensive", name: "교사 종합 첨삭지도", priceKrw: 9900, description: "전체 평가와 문장 수정 제안을 포함한 종합 피드백" },
 ] as const;
 
+export function getTeacherFeedbackProduct(key: string): TeacherFeedbackProduct | undefined {
+  return TEACHER_FEEDBACK_PRODUCTS.find((product) => product.key === key);
+}
+
 /** 교사 첨삭을 신청할 수 있는 사람(요금 페이지 등 외부 안내용 문구). */
 export const TEACHER_FEEDBACK_ELIGIBILITY_NOTICE = "이용권 결제자만 신청할 수 있습니다.";
 
 /** 교사 첨삭 신청·결제 기능을 열면 true로 바꾼다. false인 동안 요금 페이지에는 '신청 기능 준비 중'으로 표시한다. */
-export const TEACHER_FEEDBACK_PURCHASE_OPEN = false;
+export const TEACHER_FEEDBACK_PURCHASE_OPEN = true;
 
 /** 예전 요금제(결제 연동 전 임시 결제로 만든 기록). 새로 판매하지 않고, 이름만 알아볼 수 있게 남긴다. */
 const LEGACY_PLAN_NAMES: Record<string, string> = { starter: "스타터(종료)", growth: "성장(종료)" };

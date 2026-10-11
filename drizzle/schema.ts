@@ -1161,6 +1161,41 @@ export const subscriptions = mysqlTable("subscriptions", {
   idxUserId: index("idx_subscriptions_userId").on(table.userId),
 }));
 
+// 교사 첨삭 신청(건별 결제). 이용권과 별개로, 이용권 결제자가 앱 안에서 건별로 추가 결제해 신청한다.
+// paid(결제 완료) → in_progress(교사 작업 중) → delivered(결과 전달) / cancelled·refunded(전달 전 취소·환불).
+// 교사 지급은 계약급여로 따로 집행하므로 이 테이블은 정산 금액과 연결하지 않는다.
+export const teacherFeedbackRequests = mysqlTable("teacher_feedback_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  essayId: int("essayId").notNull(),
+  productKey: varchar("productKey", { length: 40 }).notNull(), // tf_core | tf_standard | tf_comprehensive
+  /** 결제 시점의 가격(상품 가격이 바뀌어도 보존) */
+  priceKrw: int("priceKrw").notNull(),
+  /** 핵심 첨삭의 선택 평가항목(JSON 배열). 그 밖의 상품은 빈 배열 */
+  scopeJson: text("scopeJson").notNull(),
+  /** 신청 시점에 배정된 담당 교사 */
+  teacherId: int("teacherId").notNull(),
+  status: mysqlEnum("status", ["paid", "in_progress", "delivered", "cancelled", "refunded"]).default("paid").notNull(),
+  orderId: int("orderId").notNull(),
+  /** 완료 예정일: 결제한 날부터 영업일 기준으로 계산해 신청 전에 안내하고, 지나면 학생이 환불·보완을 선택할 수 있다 */
+  dueAt: timestamp("dueAt").notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+  teacherFeedbackId: int("teacherFeedbackId"),
+  reworkCount: int("reworkCount").default(0).notNull(),
+  reworkNote: text("reworkNote"),
+  cancelledAt: timestamp("cancelledAt"),
+  cancelReason: varchar("cancelReason", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUserId: index("idx_tf_requests_userId").on(table.userId),
+  idxTeacherStatus: index("idx_tf_requests_teacherId_status").on(table.teacherId, table.status),
+  idxEssayId: index("idx_tf_requests_essayId").on(table.essayId),
+  idxOrderId: index("idx_tf_requests_orderId").on(table.orderId),
+}));
+
+export type TeacherFeedbackRequest = typeof teacherFeedbackRequests.$inferSelect;
+
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = typeof subscriptions.$inferInsert;
 

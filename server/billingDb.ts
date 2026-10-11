@@ -7,6 +7,7 @@ import {
   paymentOrders,
   subscriptions,
   teacherActivityAccounting,
+  teacherFeedbackRequests,
   teacherFeedback,
   teacherSettlementRates,
   teacherSettlements,
@@ -211,6 +212,10 @@ export async function markOrderRefunded(orderId: number, now = new Date()) {
     const [result] = await tx.update(paymentOrders).set({ status: "refunded", refundedAt: now }).where(and(eq(paymentOrders.id, orderId), eq(paymentOrders.status, "paid")));
     if (Number((result as { affectedRows?: number }).affectedRows ?? 0) === 0) return false;
     await tx.update(subscriptions).set({ status: "expired", awaitingStart: 0, currentPeriodEnd: now }).where(and(eq(subscriptions.orderId, orderId), inArray(subscriptions.status, ["active", "cancelled"])));
+    // 교사 첨삭 주문이면 그 신청도 환불 처리한다(취소를 선점해 둔 상태이거나 관리자가 직접 환불하는 경우 모두 포함).
+    await tx.update(teacherFeedbackRequests)
+      .set({ status: "refunded", cancelledAt: now })
+      .where(and(eq(teacherFeedbackRequests.orderId, orderId), inArray(teacherFeedbackRequests.status, ["paid", "in_progress", "delivered", "cancelled"])));
     return true;
   });
 }
