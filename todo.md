@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 학습 대시보드의 진도·성장·능력 차트와 추천 학습을 임의값에서 실제 학습 기록 기반 분석으로 교체 (client/src/pages/Dashboard.tsx, client/src/lib/learningAnalytics.ts, achievementReportPdf 입력) — 시작 2026-10-12 03:30
 
 ## 완료
 
