@@ -60,6 +60,7 @@ const MasterAdminConsole = lazy(() => import("@/pages/MasterAdminConsole"));
 const ParentPortal = lazy(() => import("@/pages/ParentPortal"));
 const StudentAssignments = lazy(() => import("@/pages/StudentAssignments"));
 const Pricing = lazy(() => import("./pages/Pricing"));
+const MyWritings = lazy(() => import("./pages/MyWritings"));
 const SampleExperience = lazy(() => import("./pages/SampleExperience"));
 
 function RouteLoadingFallback() {
@@ -112,6 +113,7 @@ function Router() {
         <Route path="/essay-archive">{() => <Layout><EssayArchive /></Layout>}</Route>
         <Route path="/my-assignments">{() => <Layout><StudentAssignments /></Layout>}</Route>
         <Route path="/mypage">{() => <Layout><MyPageHub /></Layout>}</Route>
+        <Route path="/my-writings">{() => <Layout><MyWritings /></Layout>}</Route>
         <Route path="/dashboard">{() => <Layout><MyPageHub /></Layout>}</Route>
         <Route path="/dashboard-detail">{() => <Layout><Dashboard /></Layout>}</Route>
         <Route path="/teacher-mypage">{() => <Layout><TeacherMyPage /></Layout>}</Route>

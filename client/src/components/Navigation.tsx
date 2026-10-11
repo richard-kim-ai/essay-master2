@@ -417,6 +417,12 @@ export default function Navigation() {
                           <span>학습 대시보드</span>
                         </DropdownMenuItem>
                       </Link>
+                      <Link href="/my-writings">
+                        <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                          <Edit3 className="w-4 h-4 mr-2 text-indigo-600" />
+                          <span>내 글·첨삭 기록</span>
+                        </DropdownMenuItem>
+                      </Link>
                       <Link href="/offline-essays">
                         <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
                           <FileText className="w-4 h-4 mr-2 text-indigo-600" />
@@ -528,6 +534,12 @@ export default function Navigation() {
                           <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
                             <BarChart3 className="w-4 h-4 text-indigo-600" />
                             <span>학습 대시보드</span>
+                          </button>
+                        </Link>
+                        <Link href="/my-writings">
+                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                            <Edit3 className="w-4 h-4 text-indigo-600" />
+                            <span>내 글·첨삭 기록</span>
                           </button>
                         </Link>
                         <Link href="/offline-essays">

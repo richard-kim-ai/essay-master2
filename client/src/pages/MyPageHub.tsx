@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import ParentLinkRequests from "@/components/ParentLinkRequests";
 import StudentLearningSettings from "@/components/StudentLearningSettings";
-import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine } from "lucide-react";
+import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine, FileText } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { COURSE_OPTIONS, type CourseType } from "@shared/course";
@@ -106,6 +106,15 @@ export default function MyPageHub() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            {user?.role === "user" && (
+              <Button
+                variant="outline"
+                onClick={() => setLocation("/my-writings")}
+                className="h-10 border-white/30 bg-white/10 text-sm font-bold text-white hover:bg-white/20 hover:text-white"
+              >
+                <FileText className="mr-1.5 w-4 h-4" /> 내 글·첨삭 기록
+              </Button>
+            )}
             {user?.role === "user" && (
               <Button
                 variant="outline"

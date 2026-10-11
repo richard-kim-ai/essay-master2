@@ -294,7 +294,10 @@ export default function AIAutoFeedback() {
     <div className="bg-slate-50 py-12">
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h1 className="text-4xl font-bold text-slate-900 mb-8">AI 자동 첨삭</h1>
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
+          <h1 className="text-4xl font-bold text-slate-900">AI 자동 첨삭</h1>
+          <Link href="/my-writings" className="text-sm font-bold text-indigo-700 hover:underline">지난 글·AI 첨삭 내역 보기 →</Link>
+        </div>
 
         {!canRequestEvaluation && (
           <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">

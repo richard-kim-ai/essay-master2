@@ -36,6 +36,7 @@ const ROUTES: PageRoute[] = [
   { pattern: "/dashboard", label: "마이페이지" },
   { pattern: "/dashboard-detail", label: "학습 대시보드", parent: "/mypage" },
   { pattern: "/my-assignments", label: "내 과제", parent: "/mypage" },
+  { pattern: "/my-writings", label: "내 글·첨삭 기록", parent: "/mypage" },
   { pattern: "/ai-auto-feedback", label: "AI 자동 첨삭", parent: "/mypage" },
   { pattern: "/ai-feedback-compare/:id", label: "AI 첨삭 비교", parent: "/ai-auto-feedback" },
   { pattern: "/essay-submission", label: "글 제출", parent: "/mypage" },
