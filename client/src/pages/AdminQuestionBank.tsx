@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert, ArchiveRestore, RotateCcw, CalendarClock, History, FileWarning } from "lucide-react";
 import { Link } from "wouter";
 import { questionBankIssueLabel, validateQuestionBankRequiredFields } from "@/lib/questionBankReview";
+import QuestionContentReview, { QuestionContentEditor } from "@/components/QuestionContentReview";
+import { readQuestionContent, readableQuestionTitle, questionExcerpt, questionCourseLabels, questionToolLabels, questionDifficultyLabels } from "@/lib/questionContent";
 
 type QuestionBankCourse = "elementary" | "middle_high" | "high_univ" | "general_adult";
 type QuestionBankTool = "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist";
@@ -25,11 +27,7 @@ const manualReviewChecks = [
 ] as const;
 
 function parseContentData(contentData: string) {
-  try {
-    return JSON.parse(contentData);
-  } catch {
-    return {};
-  }
+  return readQuestionContent(contentData).content;
 }
 
 function stringifyContentData(content: any) {
@@ -69,6 +67,7 @@ export default function AdminQuestionBank() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewItems, setPreviewItems] = useState<any[]>([]);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
 
   const [isUpsert, setIsUpsert] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<{ active: boolean; percent: number; text: string }>({ active: false, percent: 0, text: "" });
@@ -196,6 +195,7 @@ export default function AdminQuestionBank() {
       });
       if (items && items.length > 0) {
         setPreviewItems(items);
+        setPreviewIndex(0);
         setIsPreviewOpen(true);
       } else {
         toast.error("생성된 문항이 없습니다.");
@@ -246,6 +246,7 @@ export default function AdminQuestionBank() {
     try {
       await createMutation.mutateAsync(item);
       setPreviewItems((items) => items.filter((_, itemIndex) => itemIndex !== idx));
+      setPreviewIndex(Math.max(0, Math.min(idx, previewItems.length - 2)));
       toast.success("문항 1개를 QA 검증 후 문제은행에 반영했습니다.");
       refetch();
       refetchStats();
@@ -256,9 +257,15 @@ export default function AdminQuestionBank() {
   };
 
   const updatePreviewItem = (index: number, patch: Record<string, unknown>) => {
-    setPreviewItems((items) => items.map((item, itemIndex) => itemIndex === index
-      ? { ...item, ...patch, qaStatus: "pending", qaIssues: validateQuestionBankRequiredFields(String(patch.contentData ?? item.contentData)) }
-      : item));
+    setPreviewItems((items) => items.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      const content = parseContentData(String(patch.contentData ?? item.contentData));
+      if (content.generation_origin === "ai_generated" || content.human_review) {
+        content.human_review = { ...content.human_review, status: "pending", checklist: {}, overall_passed: false, reviewed_at: null };
+      }
+      const contentData = stringifyContentData(content);
+      return { ...item, ...patch, contentData, qaStatus: "pending", qaIssues: validateQuestionBankRequiredFields(contentData) };
+    }));
   };
 
   const updatePreviewItemContent = (idx: number, updater: (content: any) => any) => {
@@ -585,7 +592,7 @@ export default function AdminQuestionBank() {
     setEditingId(q.id);
     setFormCourse(q.courseType);
     setFormTool(q.toolType);
-    setFormTitle(q.title);
+    setFormTitle(readableQuestionTitle(q.title, q.contentData));
     setFormContent(q.contentData);
     setFormDifficulty(q.difficulty);
     setIsDialogOpen(true);
@@ -807,7 +814,7 @@ export default function AdminQuestionBank() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
+      <div className="p-4 sm:p-6 md:p-10 space-y-6 max-w-7xl mx-auto min-w-0">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -1045,7 +1052,7 @@ export default function AdminQuestionBank() {
                 <Sparkles className="w-5 h-5 text-indigo-600" /> AI 실전 논술 문항 사전 검토 및 승인 시스템
               </CardTitle>
               <CardDescription>
-                마스터 프롬프트·구조화 JSON·중복·난이도 메트릭 QA를 통과한 문항만 미리보기로 표시합니다. 수정 문항은 승인 시 서버에서 다시 검증합니다.
+                과정과 학습 도구에 맞는 한국어 문항을 생성합니다. 문항·해설·학습 목표를 검토한 뒤 승인해주세요.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -1112,132 +1119,66 @@ export default function AdminQuestionBank() {
 
         {/* AI Preview & Edit Modal */}
         <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-indigo-600">
-                <Sparkles className="w-5 h-5" /> AI 생성 문항 사전 검토 및 수정
+          <DialogContent className="flex h-[94dvh] w-[calc(100%-1rem)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100%-3rem)] sm:max-w-6xl bg-slate-50 text-slate-900">
+            <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 pr-12 sm:px-6 text-left">
+              <DialogTitle className="flex items-center gap-2 text-lg text-indigo-700">
+                <Sparkles className="h-5 w-5 shrink-0" /> AI 생성 문항 사전 검토 및 수정
               </DialogTitle>
-              <DialogDescription>
-                관리자가 생성된 문항의 제목, 난이도, 본문 내용을 최종 검토하고 필요시 수정하여 승인할 수 있습니다.
-              </DialogDescription>
+              <DialogDescription className="text-sm leading-6">문항과 해설을 읽고 필요한 내용을 수정한 뒤 검수를 완료해주세요.</DialogDescription>
             </DialogHeader>
-
-            <div className="space-y-6 py-4">
-              {previewItems.map((item, idx) => {
-                const reviewState = itemReviewState(item);
-                const nonReviewIssues = (item.qaIssues || []).filter((issue: string) => issue !== "human_review_required");
-                return (
-                <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
-                        검토 문항 #{idx + 1}
-                      </span>
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.qaStatus === "passed" ? "bg-emerald-100 text-emerald-700" : item.qaStatus === "blocked" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"}`}>
-                        {item.qaStatus === "passed" ? "QA 통과" : item.qaStatus === "blocked" ? "QA 차단" : "재검증 필요"}
-                      </span>
-                      <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${reviewState.isComplete ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                        수기 {reviewState.checkedCount}/{manualReviewChecks.length}
-                      </span>
-                    </div>
-                    <select
-                      value={item.difficulty}
-                      onChange={e => updatePreviewItem(idx, { difficulty: e.target.value })}
-                      className="px-2.5 py-1 bg-white border border-slate-200 rounded text-xs font-semibold"
-                    >
-                      <option value="easy">초급 (easy)</option>
-                      <option value="medium">중급 (medium)</option>
-                      <option value="hard">고급 (hard)</option>
-                    </select>
-                  </div>
-
-                  {item.qaStatus === "blocked" && (
-                    <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
-                      차단 사유: {(item.qaIssues || []).map(questionBankIssueLabel).join(" ") || "품질 기준 미달"}
-                    </div>
-                  )}
-
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-bold text-slate-800">사람 검수 체크리스트</p>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          자동 QA 통과 후, 패턴 추론·정답 길이·오답 품질을 직접 확인해야 저장됩니다.
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => markItemManualReviewPassed(idx)}
-                        className="h-8 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                      >
-                        이 문항 전체 통과
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {manualReviewChecks.map(check => (
-                        <label key={check.key} className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs font-medium text-slate-700">
-                          <input
-                            type="checkbox"
-                            checked={reviewState.checklist[check.key] === true}
-                            onChange={e => updateManualReviewCheck(idx, check.key, e.target.checked)}
-                            className="h-3.5 w-3.5 accent-indigo-600"
-                          />
-                          {check.label}
-                        </label>
-                      ))}
-                    </div>
-                    {nonReviewIssues.length > 0 && (
-                      <p className="text-[11px] font-medium text-rose-600">
-                        수기 검수 전에 자동 QA 차단 사유를 먼저 수정해야 합니다: {nonReviewIssues.map(questionBankIssueLabel).join(" ")}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 mb-1 block">문항 제목</label>
-                    <Input
-                      value={item.title}
-                      onChange={e => updatePreviewItem(idx, { title: e.target.value })}
-                      className="text-sm bg-white font-bold"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 mb-1 block">본문 데이터 (JSON)</label>
-                    <Textarea
-                      rows={4}
-                      value={item.contentData}
-                      onChange={e => updatePreviewItem(idx, { contentData: e.target.value })}
-                      className="font-mono text-xs bg-white"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2 border-t border-slate-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs text-slate-500">{item.qaIssues?.length ? item.qaIssues.map(questionBankIssueLabel).join(" ") : item.qaStatus === "pending" ? "수정된 문항은 승인 시 서버에서 다시 검증합니다." : `중복 유사도 ${Math.round((item.duplicateScore || 0) * 100)}% · 난이도 메트릭 검증 완료`}</p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={item.qaStatus === "blocked" || !reviewState.isComplete}
-                      onClick={() => handleApprovePreviewItem(idx)}
-                      className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                    >
-                      이 문항만 승인
-                    </Button>
-                  </div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+              <nav aria-label="검토 문항 목록" className="shrink-0 border-b border-slate-200 bg-white p-3 lg:w-56 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+                <p className="mb-2 text-xs font-bold text-slate-600">남은 문항 {previewItems.length}개</p>
+                <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
+                  {previewItems.map((item, idx) => <button key={idx} type="button" title={readableQuestionTitle(item.title, item.contentData)} aria-current={previewIndex === idx ? "true" : undefined} onClick={() => setPreviewIndex(idx)} className={`w-44 shrink-0 rounded-lg border p-2 text-left lg:w-full lg:p-3 ${previewIndex === idx ? "border-indigo-300 bg-indigo-50 text-indigo-900" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
+                    <span className="text-xs font-semibold">문항 {idx + 1} · {itemReviewState(item).isComplete ? "검수 완료" : "검수 대기"}</span>
+                    <span className="mt-1 hidden line-clamp-2 break-words text-sm font-semibold lg:block">{readableQuestionTitle(item.title, item.contentData)}</span>
+                  </button>)}
                 </div>
-              );
-              })}
+              </nav>
+              <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6" data-testid="review-scroll-area">
+                {previewItems.map((item, idx) => {
+                  if (idx !== previewIndex) return null;
+                  const reviewState = itemReviewState(item);
+                  const nonReviewIssues = (item.qaIssues || []).filter((issue: string) => issue !== "human_review_required");
+                  const canApprove = item.qaStatus !== "blocked" && reviewState.isComplete && validateQuestionBankRequiredFields(item.contentData).length === 0;
+                  return <article key={idx} className="min-w-0 space-y-5">
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+                      <span className="rounded-full bg-indigo-100 px-3 py-1 text-indigo-700">문항 {idx + 1} / {previewItems.length}</span>
+                      <span className="rounded-full bg-slate-200 px-3 py-1 text-slate-700">{questionCourseLabels[item.courseType] || "교육 과정"}</span>
+                      <span className="rounded-full bg-slate-200 px-3 py-1 text-slate-700">{questionToolLabels[item.toolType] || "학습 도구"}</span>
+                      <span className={`rounded-full px-3 py-1 ${nonReviewIssues.length ? "bg-rose-100 text-rose-700" : reviewState.isComplete ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{nonReviewIssues.length ? "수정 필요" : reviewState.isComplete ? "검수 완료" : "사람 검수 대기"}</span>
+                    </div>
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_5rem] gap-3 sm:grid-cols-[minmax(0,1fr)_7rem]">
+                      <label className="min-w-0 space-y-2"><span className="text-sm font-bold text-slate-700">문항 제목</span><Textarea aria-label="문항 제목" rows={2} value={readableQuestionTitle(item.title, item.contentData)} onChange={e => updatePreviewItem(idx, { title: e.target.value })} className="bg-white text-base font-bold leading-6 text-slate-900" /></label>
+                      <label className="space-y-2"><span className="text-sm font-bold text-slate-700">난이도</span><select aria-label="문항 난이도" value={item.difficulty} onChange={e => updatePreviewItem(idx, { difficulty: e.target.value })} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900"><option value="easy">초급</option><option value="medium">중급</option><option value="hard">고급</option></select></label>
+                    </div>
+                    {nonReviewIssues.length > 0 && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-700"><p className="font-bold">승인 전 수정이 필요합니다.</p><ul className="mt-1 list-inside list-disc">{nonReviewIssues.map((issue: string) => <li key={issue}>{questionBankIssueLabel(issue)}</li>)}</ul></div>}
+                    <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
+                      <QuestionContentReview contentData={item.contentData} toolType={item.toolType} onChange={contentData => updatePreviewItem(idx, { contentData })} />
+                      <aside className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 xl:sticky xl:top-0">
+                        <div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-slate-900">사람 검수 체크리스트</h3><span className="text-xs font-bold text-indigo-700">{reviewState.checkedCount}/{manualReviewChecks.length}</span></div>
+                        <div className="space-y-2">{manualReviewChecks.map(check => <label key={check.key} className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-5 text-slate-700"><input type="checkbox" checked={reviewState.checklist[check.key] === true} onChange={e => updateManualReviewCheck(idx, check.key, e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-indigo-600" />{check.label}</label>)}</div>
+                        <Button type="button" size="sm" variant="outline" onClick={() => markItemManualReviewPassed(idx)} className="mt-3 w-full border-indigo-200 text-indigo-700">이 문항 전체 통과</Button>
+                        {!reviewState.isComplete && <p className="mt-3 text-xs leading-5 text-slate-600">사람 검수 체크리스트를 완료해주세요.</p>}
+                        <p className="mt-3 text-xs leading-5 text-slate-500">{item.qaStatus === "pending" ? "수정된 문항은 승인 시 다시 검증합니다." : "승인된 문항만 문제은행에 저장됩니다."}</p>
+                        <Button disabled={!canApprove || createMutation.isPending} onClick={() => handleApprovePreviewItem(idx)} className="mt-4 w-full bg-emerald-600 text-white hover:bg-emerald-700">{createMutation.isPending ? "저장 중..." : "이 문항만 승인"}</Button>
+                      </aside>
+                    </div>
+                  </article>;
+                })}
+              </div>
             </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsPreviewOpen(false)}>취소</Button>
-              <Button variant="outline" onClick={markAllManualReviewPassed} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">
-                전체 수기검수 통과
-              </Button>
-              <Button onClick={handleApprovePreview} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
-                <CheckCircle className="w-4 h-4" /> 검토 완료 및 문제은행 최종 승인 반영
-              </Button>
+            <DialogFooter className="shrink-0 flex-col border-t border-slate-200 bg-white px-4 py-3 sm:flex-row sm:px-6">
+              <div className="flex flex-wrap items-center gap-2 sm:mr-auto">
+                <Button size="sm" variant="outline" disabled={previewIndex === 0} onClick={() => setPreviewIndex(i => i - 1)}>이전 문항</Button>
+                <Button size="sm" variant="outline" disabled={previewIndex >= previewItems.length - 1} onClick={() => setPreviewIndex(i => i + 1)}>다음 문항</Button>
+                <Button size="sm" variant="outline" onClick={() => setIsPreviewOpen(false)}>닫기</Button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={markAllManualReviewPassed} className="border-indigo-200 text-indigo-700">전체 수기검수 통과</Button>
+                <Button size="sm" disabled={bulkCreateMutation.isPending} onClick={handleApprovePreview} className="h-auto min-h-9 whitespace-normal bg-emerald-600 text-white hover:bg-emerald-700"><CheckCircle className="h-4 w-4 shrink-0" />{bulkCreateMutation.isPending ? "저장 중..." : "검토 완료 및 문제은행 최종 승인 반영"}</Button>
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1605,20 +1546,20 @@ export default function AdminQuestionBank() {
                         className="mt-1 h-4 w-4 shrink-0 cursor-pointer rounded text-indigo-600 focus:ring-indigo-500"
                       />
                     <div className="space-y-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="px-2.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-full">
-                          {q.courseType}
+                          {questionCourseLabels[q.courseType] || "교육 과정"}
                         </span>
                         <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-full uppercase">
-                          {q.toolType}
+                          {questionToolLabels[q.toolType] || "학습 도구"}
                         </span>
                         <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${q.difficulty === "hard" ? "bg-rose-100 text-rose-700" : q.difficulty === "medium" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                          {q.difficulty}
+                          {questionDifficultyLabels[q.difficulty] || "난이도"}
                         </span>
                         <span className="text-xs text-slate-500 font-medium">{q.totalAttempts > 0 ? `정답률 ${q.correctRate}% (오답 ${q.wrongCount}회)` : "응시 기록 없음"}</span>
                       </div>
-                      <h3 className="text-lg font-bold text-slate-900">{q.title}</h3>
-                      <p className="text-xs text-slate-400 font-mono truncate max-w-xl">{q.contentData}</p>
+                      <h3 className="break-words text-lg font-bold text-slate-900">{readableQuestionTitle(q.title, q.contentData)}</h3>
+                      <p className="line-clamp-2 break-words text-sm leading-6 text-slate-600">{questionExcerpt(q.contentData)}</p>
                     </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -1638,12 +1579,12 @@ export default function AdminQuestionBank() {
 
         {/* Dialog for Create/Edit */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="max-w-xl">
+          <DialogContent className="flex max-h-[94dvh] flex-col overflow-hidden sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>{editingId ? "문제 수정" : "신규 문제 등록"}</DialogTitle>
-              <DialogDescription>문제은행 데이터베이스에 반영될 문항 정보와 본문 JSON을 설정합니다.</DialogDescription>
+              <DialogDescription>문항 본문과 정답·해설을 입력하고 학습 목표를 확인해주세요.</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-2">
+            <div className="min-h-0 space-y-4 overflow-y-auto py-2">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-bold text-slate-700 mb-1 block">교육 과정</label>
@@ -1665,17 +1606,17 @@ export default function AdminQuestionBank() {
                     onChange={e => setFormTool(e.target.value)}
                     className="w-full px-3 py-2 border rounded-md text-sm"
                   >
-                    <option value="quiz">AI 문장 퀴즈 (quiz)</option>
-                    <option value="reordering">단락 재구성 (reordering)</option>
-                    <option value="summary">요약 연습 (summary)</option>
-                    <option value="topic_wizard">주제 위저드 (topic_wizard)</option>
-                    <option value="thesis_checklist">주제문 체크리스트 (thesis_checklist)</option>
+                    <option value="quiz">AI 문장 퀴즈</option>
+                    <option value="reordering">단락 재구성</option>
+                    <option value="summary">요약 연습</option>
+                    <option value="topic_wizard">주제 설정</option>
+                    <option value="thesis_checklist">주제문 점검</option>
                   </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="sm:col-span-2">
                   <label className="text-xs font-bold text-slate-700 mb-1 block">문제 제목</label>
                   <Input value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="예: 논리적 문장 구조 파악 심화 #1" />
                 </div>
@@ -1686,22 +1627,24 @@ export default function AdminQuestionBank() {
                     onChange={e => setFormDifficulty(e.target.value as any)}
                     className="w-full px-3 py-2 border rounded-md text-sm"
                   >
-                    <option value="easy">초급 (easy)</option>
-                    <option value="medium">중급 (medium)</option>
-                    <option value="hard">고급 (hard)</option>
+                    <option value="easy">초급</option>
+                    <option value="medium">중급</option>
+                    <option value="hard">고급</option>
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1 block">본문 데이터 (JSON 형식)</label>
-                <Textarea
-                  rows={6}
-                  value={formContent}
-                  onChange={e => setFormContent(e.target.value)}
-                  className="font-mono text-xs"
-                />
-              </div>
+              <QuestionContentEditor contentData={formContent} toolType={formTool} onChange={setFormContent} />
+              {parseContentData(formContent).generation_origin === "ai_generated" && <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4 text-slate-800">
+                <p className="text-sm font-bold">수정 문항 검수</p>
+                <p className="my-2 text-sm leading-6">수정한 본문·정답·해설이 학습 목표에 맞는지 다시 확인해주세요.</p>
+                <div className="space-y-2">{manualReviewChecks.map(check => <label key={check.key} className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1 h-4 w-4 accent-indigo-600" checked={parseContentData(formContent).human_review?.checklist?.[check.key] === true} onChange={e => {
+                  const content = parseContentData(formContent);
+                  const checklist = { ...content.human_review?.checklist, [check.key]: e.target.checked };
+                  const passed = manualReviewChecks.every(entry => checklist[entry.key] === true);
+                  setFormContent(stringifyContentData({ ...content, human_review: { ...content.human_review, checklist, overall_passed: passed, status: passed ? "passed" : "pending" } }));
+                }} />{check.label}</label>)}</div>
+              </div>}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsDialogOpen(false)}>취소</Button>
