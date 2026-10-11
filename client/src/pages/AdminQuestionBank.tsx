@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { Database, Plus, Search, Edit2, Trash2, Download, Upload, BarChart2, Sparkles, CheckCircle, AlertTriangle, TrendingUp, HelpCircle, ShieldAlert, ArchiveRestore, RotateCcw, CalendarClock, History, FileWarning } from "lucide-react";
 import { Link } from "wouter";
+import { questionBankIssueLabel, validateQuestionBankRequiredFields } from "@/lib/questionBankReview";
 
 type QuestionBankCourse = "elementary" | "middle_high" | "high_univ" | "general_adult";
 type QuestionBankTool = "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist";
@@ -137,7 +138,7 @@ export default function AdminQuestionBank() {
   const [formCourse, setFormCourse] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("elementary");
   const [formTool, setFormTool] = useState("quiz");
   const [formTitle, setFormTitle] = useState("");
-  const [formContent, setFormContent] = useState('{\n  "prompt": "문항 본문 내용",\n  "options": ["보기 1", "보기 2", "보기 3", "보기 4"],\n  "answer": "보기 1",\n  "explanation": "해설 내용"\n}');
+  const [formContent, setFormContent] = useState('{\n  "prompt": "문항 본문 내용",\n  "options": ["보기 1", "보기 2", "보기 3", "보기 4"],\n  "answer": "보기 1",\n  "explanation": "해설 내용",\n  "learning_objective": "문항의 핵심 개념을 적용한다."\n}');
   const [formDifficulty, setFormDifficulty] = useState<"easy" | "medium" | "hard">("medium");
 
   useEffect(() => {
@@ -210,7 +211,7 @@ export default function AdminQuestionBank() {
 
   const handleApprovePreview = async () => {
     try {
-      const approvedItems = previewItems.filter(item => item.qaStatus !== "blocked" && itemReviewState(item).isComplete);
+      const approvedItems = previewItems.filter(item => item.qaStatus !== "blocked" && itemReviewState(item).isComplete && validateQuestionBankRequiredFields(item.contentData).length === 0);
       if (approvedItems.length === 0) {
         toast.error("승인 가능한 문항이 없습니다. QA 차단 사유를 수정하고 수기 검수를 완료해주세요.");
         return;
@@ -233,6 +234,11 @@ export default function AdminQuestionBank() {
   const handleApprovePreviewItem = async (idx: number) => {
     const item = previewItems[idx];
     if (!item) return;
+    const requiredIssues = validateQuestionBankRequiredFields(item.contentData);
+    if (requiredIssues.length) {
+      toast.error(requiredIssues.map(questionBankIssueLabel).join(" "));
+      return;
+    }
     if (item.qaStatus === "blocked" || !itemReviewState(item).isComplete) {
       toast.error("QA 통과와 수기 검수 완료가 필요합니다.");
       return;
@@ -251,7 +257,7 @@ export default function AdminQuestionBank() {
 
   const updatePreviewItem = (index: number, patch: Record<string, unknown>) => {
     setPreviewItems((items) => items.map((item, itemIndex) => itemIndex === index
-      ? { ...item, ...patch, qaStatus: "pending", qaIssues: ["수정 후 승인 시 서버 QA 재검증 필요"] }
+      ? { ...item, ...patch, qaStatus: "pending", qaIssues: validateQuestionBankRequiredFields(String(patch.contentData ?? item.contentData)) }
       : item));
   };
 
@@ -570,7 +576,7 @@ export default function AdminQuestionBank() {
     setFormCourse("elementary");
     setFormTool("quiz");
     setFormTitle("");
-    setFormContent('{\n  "prompt": "문항 본문 내용",\n  "options": ["보기 1", "보기 2", "보기 3", "보기 4"],\n  "answer": "보기 1",\n  "explanation": "해설 내용"\n}');
+    setFormContent('{\n  "prompt": "문항 본문 내용",\n  "options": ["보기 1", "보기 2", "보기 3", "보기 4"],\n  "answer": "보기 1",\n  "explanation": "해설 내용",\n  "learning_objective": "문항의 핵심 개념을 적용한다."\n}');
     setFormDifficulty("medium");
     setIsDialogOpen(true);
   };
@@ -595,6 +601,12 @@ export default function AdminQuestionBank() {
       JSON.parse(formContent);
     } catch {
       toast.error("본문 데이터는 유효한 JSON 형식이어야 합니다.");
+      return;
+    }
+
+    const requiredIssues = validateQuestionBankRequiredFields(formContent);
+    if (requiredIssues.length) {
+      toast.error(requiredIssues.map(questionBankIssueLabel).join(" "));
       return;
     }
 
@@ -1141,7 +1153,7 @@ export default function AdminQuestionBank() {
 
                   {item.qaStatus === "blocked" && (
                     <div className="rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
-                      차단 사유: {(item.qaIssues || []).join(", ") || "품질 기준 미달"}
+                      차단 사유: {(item.qaIssues || []).map(questionBankIssueLabel).join(" ") || "품질 기준 미달"}
                     </div>
                   )}
 
@@ -1178,7 +1190,7 @@ export default function AdminQuestionBank() {
                     </div>
                     {nonReviewIssues.length > 0 && (
                       <p className="text-[11px] font-medium text-rose-600">
-                        수기 검수 전에 자동 QA 차단 사유를 먼저 수정해야 합니다: {nonReviewIssues.join(", ")}
+                        수기 검수 전에 자동 QA 차단 사유를 먼저 수정해야 합니다: {nonReviewIssues.map(questionBankIssueLabel).join(" ")}
                       </p>
                     )}
                   </div>
@@ -1202,7 +1214,7 @@ export default function AdminQuestionBank() {
                     />
                   </div>
                   <div className="flex flex-col gap-2 border-t border-slate-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs text-slate-500">{item.qaIssues?.length ? `QA: ${item.qaIssues.join(", ")}` : `중복 유사도 ${Math.round((item.duplicateScore || 0) * 100)}% · 난이도 메트릭 검증 완료`}</p>
+                    <p className="text-xs text-slate-500">{item.qaIssues?.length ? item.qaIssues.map(questionBankIssueLabel).join(" ") : item.qaStatus === "pending" ? "수정된 문항은 승인 시 서버에서 다시 검증합니다." : `중복 유사도 ${Math.round((item.duplicateScore || 0) * 100)}% · 난이도 메트릭 검증 완료`}</p>
                     <Button
                       size="sm"
                       variant="outline"

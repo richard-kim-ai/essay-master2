@@ -46,11 +46,14 @@ function tool(input: string): keyof typeof TOOL_TYPE_MAP { const upper = input.t
 function clean(value: unknown, fallback = "") { return typeof value === "string" && value.trim() ? value.trim() : fallback; }
 function parse(raw: unknown): Record<string, any> { const text = typeof raw === "string" ? raw.replace(/```json/gi, "").replace(/```/g, "").trim() : JSON.stringify(raw ?? {}); return JSON.parse(text); }
 function contentSource(raw: unknown): Record<string, any> {
-  const parsed = parse(raw);
-  const nested = parsed.contentData ?? parsed.content ?? parsed.data;
-  if (nested && typeof nested === "object" && !Array.isArray(nested)) return nested as Record<string, any>;
-  if (typeof nested === "string" && nested.trim()) return parse(nested);
-  return parsed;
+  let source = parse(raw);
+  for (let depth = 0; depth < 5; depth++) {
+    const nested = source.contentData ?? source.content ?? source.data;
+    if (!nested || (typeof nested !== "string" && (typeof nested !== "object" || Array.isArray(nested)))) break;
+    const { contentData, content, data, ...outer } = source;
+    source = { ...outer, ...parse(nested) };
+  }
+  return source;
 }
 function normalizeText(value: unknown) { return String(value ?? "").replace(/\s+/g, " ").replace(/[^\w\s가-힣ㄱ-ㅎㅏ-ㅣ]/g, "").trim().toLowerCase(); }
 function similarity(a: string, b: string) { const as = new Set(a.split(" ").filter(Boolean)); const bs = new Set(b.split(" ").filter(Boolean)); const aItems = Array.from(as); const bItems = Array.from(bs); return aItems.filter((token) => bs.has(token)).length / (new Set(aItems.concat(bItems)).size || 1); }
@@ -116,13 +119,15 @@ function normalizeContent(raw: unknown, request: GenerationRequest, level: numbe
   const choices = Array.isArray(source.choices) ? source.choices : Array.isArray(source.options) ? source.options : [];
   const paragraphs = Array.isArray(source.paragraphs) ? source.paragraphs.map((item: any, index: number) => ({ id: clean(item?.id, `p${index + 1}`), content: clean(item?.content ?? item), correctOrder: Number(item?.correctOrder ?? index + 1) })) : [];
   const resolvedLevel = Math.max(1, Math.min(5, Number(source.difficulty ?? level)));
+  const questionText = clean(source.question, clean(source.question_text, clean(source.questionText, clean(source.body, clean(source.question_body, clean(source.prompt, clean(source.passage, clean(source.text))))))));
+  const explanationText = clean(source.explanation, clean(source.explanation_text, clean(source.answer_explanation, clean(source.answerExplanation, clean(source.rationale, clean(source.solution, clean(source.feedback, clean(source.commentary))))))));
+  const learningObjective = clean(source.learning_objective, clean(source.learning_goal, clean(source.learningGoal, clean(source.learningObjective, clean(source.objective, clean(source.goal))))));
   const content = {
-    ...source, course: targetCourse, tool_type: targetTool, theory_category: clean(source.theory_category, request.theory_category), difficulty: resolvedLevel, difficulty_metrics: metricsSchema.parse(source.difficulty_metrics ?? source.difficultyMetrics ?? defaults(resolvedLevel)),
-    question: clean(source.question, clean(source.prompt, clean(source.passage))), passage: clean(source.passage, targetTool === "SUMMARY" ? clean(source.prompt) : ""), explanation: clean(source.explanation, clean(source.answer_explanation, clean(source.rationale, clean(source.feedback)))), learning_objective: clean(source.learning_objective, clean(source.learningObjective, `${request.theory_category} 학습 목표를 적용한다.`)),
-    choices, correct_answer: source.correct_answer ?? source.correctAnswer ?? source.answer ?? "", model_answer: clean(source.model_answer, clean(source.modelAnswer, clean(source.reference_answer, clean(source.referenceAnswer)))), prompt: clean(source.prompt, targetTool === "SUMMARY" ? clean(source.passage) : clean(source.question)), options: choices, answer: clean(source.answer, typeof source.correct_answer === "string" ? source.correct_answer : ""), modelAnswer: clean(source.modelAnswer, clean(source.model_answer)),
+    ...source, course: targetCourse, tool_type: targetTool, theory_category: clean(source.theory_category, request.theory_category), difficulty: resolvedLevel, difficulty_metrics: source.difficulty_metrics ?? source.difficultyMetrics ?? defaults(resolvedLevel),
+    question: questionText, passage: clean(source.passage, targetTool === "SUMMARY" ? clean(source.prompt, questionText) : ""), explanation: explanationText, learning_objective: learningObjective,
+    choices, correct_answer: source.correct_answer ?? source.correctAnswer ?? source.answer ?? "", model_answer: clean(source.model_answer, clean(source.modelAnswer, clean(source.reference_answer, clean(source.referenceAnswer)))), prompt: clean(source.prompt, questionText), options: choices, answer: clean(source.answer, typeof source.correct_answer === "string" ? source.correct_answer : ""), modelAnswer: clean(source.modelAnswer, clean(source.model_answer)),
     paragraphs, keyPoints: Array.isArray(source.keyPoints) ? source.keyPoints : [], guidelines: Array.isArray(source.guidelines) ? source.guidelines : [], checklistItems: Array.isArray(source.checklistItems) ? source.checklistItems : [], master_prompt_version: QUESTION_BANK_MASTER_PROMPT_VERSION, generation_origin: (source as { generation_origin?: unknown })?.generation_origin ?? "ai_generated", human_review: (source as { human_review?: unknown })?.human_review,
   };
-  if (!content.question || !content.explanation || !content.learning_objective) throw new Error("필수 문항 본문·해설·학습 목표가 없습니다.");
   return content;
 }
 
@@ -133,8 +138,9 @@ export function qaQuestionItem(item: Pick<QuestionBankDTO, "courseType" | "toolT
   if (["placeholder", "seed", "심화 문제 #", "문항 #", "실전 학습 문항입니다", "보기 1: 올바른 문장 구조"].some((value) => textSource.toLowerCase().includes(value.toLowerCase()))) issues.push("placeholder_blocked");
   if (!clean(content.question, clean(content.prompt, clean(content.passage)))) issues.push("missing_question_or_passage");
   if (!clean(content.explanation)) issues.push("missing_explanation");
-  if (!content.correct_answer && !content.answer && !content.model_answer && !content.modelAnswer && !content.evaluation_criteria) issues.push("missing_answer_or_rubric");
+  if (content.generation_origin === "ai_generated" && !clean(content.learning_objective)) issues.push("missing_learning_objective");
   const type = tool(item.toolType); const choices = Array.isArray(content.choices) ? content.choices : content.options; const answer = content.correct_answer ?? content.answer;
+  if ((type === "QUIZ" || type === "SUMMARY") && !content.correct_answer && !content.answer && !content.model_answer && !content.modelAnswer && !content.evaluation_criteria) issues.push("missing_answer_or_rubric");
   if (type === "QUIZ" && (!Array.isArray(choices) || choices.length !== 4 || !answer || choices.filter((choice: unknown) => normalizeText(choice) === normalizeText(answer)).length !== 1)) issues.push("quiz_structure_failed");
   if (type === "QUIZ" && Array.isArray(choices) && typeof answer === "string") issues.push(...quizChoiceLengthIssues({ choices, correct_answer: answer }));
   if (!hasHumanReviewPassed(content)) issues.push("human_review_required");
@@ -148,8 +154,15 @@ export function qaQuestionItem(item: Pick<QuestionBankDTO, "courseType" | "toolT
 }
 
 export function mapGeneratedItemsToQuestionBank(raw: unknown, input: GenerationRequestInput, existingItems: Array<{ title: string; contentData: string }> = [], stats: AdaptiveStats[] = []) {
-  const request = generationRequestSchema.parse(input); const parsed = z.object({ items: z.array(z.object({ title: z.string().trim().min(3), difficulty: z.enum(["easy", "medium", "hard"]).optional(), contentData: z.unknown() })).min(1) }).parse(Array.isArray(raw) ? { items: raw } : raw); const resolved = resolveAdaptiveDifficulty(request, stats); const result: QuestionBankDTO[] = [];
-  for (const source of parsed.items) { const content = normalizeContent(source.contentData, request, resolved); const dto: QuestionBankDTO = { courseType: COURSE_MAP[course(request.course)].db, toolType: TOOL_TYPE_MAP[tool(request.tool_type)].db, title: source.title, contentData: JSON.stringify(content), difficulty: source.difficulty ?? legacyDifficulty(content.difficulty), isActive: 1 }; const qa = qaQuestionItem(dto, existingItems.concat(result)); result.push({ ...dto, qaStatus: qa.passed ? "passed" : "blocked", qaIssues: qa.issues, duplicateScore: qa.duplicateScore }); }
+  const request = generationRequestSchema.parse(input); const parsed = z.object({ items: z.array(z.object({ title: z.string().trim().min(3), difficulty: z.enum(["easy", "medium", "hard"]).optional(), contentData: z.unknown() }).passthrough()).min(1) }).parse(Array.isArray(raw) ? { items: raw } : raw); const resolved = resolveAdaptiveDifficulty(request, stats); const result: QuestionBankDTO[] = [];
+  for (const source of parsed.items) {
+    // 일부 응답이 공통 필드를 contentData 밖에 두어도 정규화 시 보존한다.
+    const { difficulty: legacyLevel, ...sourceContent } = source;
+    const content = normalizeContent(sourceContent, request, resolved);
+    const dto: QuestionBankDTO = { courseType: COURSE_MAP[course(request.course)].db, toolType: TOOL_TYPE_MAP[tool(request.tool_type)].db, title: source.title, contentData: JSON.stringify(content), difficulty: source.difficulty ?? legacyDifficulty(content.difficulty), isActive: 1 };
+    const qa = qaQuestionItem(dto, existingItems.concat(result));
+    result.push({ ...dto, qaStatus: qa.passed ? "passed" : "blocked", qaIssues: qa.issues, duplicateScore: qa.duplicateScore });
+  }
 
   // 정답 위치 반복 패턴 차단: 같은 배치에서 생성된 QUIZ 문항들의 정답 위치가 전부 동일하면 차단한다. (local branch 고유 기능)
   const quizAnswerIndexes = result
@@ -173,6 +186,42 @@ export function mapGeneratedItemsToQuestionBank(raw: unknown, input: GenerationR
   });
 }
 
+export function buildQuestionGenerationOutputSchema(toolType: string) {
+  const text = { type: "string", minLength: 1 };
+  const strings = { type: "array", items: text, minItems: 3 };
+  const object = (properties: Record<string, unknown>) => ({
+    type: "object", properties, required: Object.keys(properties), additionalProperties: false,
+  });
+  const common = {
+    question: text,
+    explanation: text,
+    learning_objective: text,
+    theory_category: text,
+    difficulty: { type: "integer", minimum: 1, maximum: 5 },
+    difficulty_metrics: object(Object.fromEntries(Object.keys(metricsSchema.shape).map(key => [
+      key, { type: "integer", minimum: 1, maximum: 5 },
+    ]))),
+  };
+  const fields: Record<keyof typeof TOOL_TYPE_MAP, Record<string, unknown>> = {
+    QUIZ: { choices: { ...strings, minItems: 4, maxItems: 4 }, correct_answer: text },
+    PARAGRAPH_REORDERING: {
+      paragraphs: {
+        type: "array", minItems: 3,
+        items: object({ id: text, content: text, correctOrder: { type: "integer", minimum: 1 } }),
+      },
+    },
+    SUMMARY: { passage: text, keyPoints: strings, model_answer: text },
+    TOPIC_WIZARD: { guidelines: strings, sampleOutput: object({ title: text, stance: text, mainArgument: text }) },
+    CHECKLIST: { checklistItems: strings, passingStandard: text },
+  };
+  return object({
+    items: {
+      type: "array", minItems: 1, maxItems: 20,
+      items: object({ title: text, contentData: object({ ...common, ...fields[tool(toolType)] }) }),
+    },
+  });
+}
+
 export async function generateQuestionBankItems(input: GenerationRequestInput, options: { existingItems?: Array<{ title: string; contentData: string }>; adaptiveStats?: AdaptiveStats[]; llm?: typeof invokeLLM } = {}) {
   const request = generationRequestSchema.parse(input);
   const response = await (options.llm ?? invokeLLM)({
@@ -184,29 +233,8 @@ export async function generateQuestionBankItems(input: GenerationRequestInput, o
       type: "json_schema",
       json_schema: {
         name: "essay_master_question_generation",
-        strict: false,
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["items"],
-          properties: {
-            items: {
-              type: "array",
-              minItems: 1,
-              maxItems: 20,
-              items: {
-                type: "object",
-                additionalProperties: true,
-                required: ["title", "contentData"],
-                properties: {
-                  title: { type: "string" },
-                  difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
-                  contentData: { type: "object", additionalProperties: true },
-                },
-              },
-            },
-          },
-        },
+        strict: true,
+        schema: buildQuestionGenerationOutputSchema(request.tool_type),
       },
     },
   });
