@@ -36,9 +36,18 @@ vi.mock("./institutionDb", () => ({
   getGroupContractId: vi.fn(async () => null),
   recordTeacherActivity: vi.fn(async () => undefined),
   budgetOps: vi.fn(),
+  resolveStudentFunding: vi.fn(async () => ({ kind: "none" })),
+}));
+// 교사 첨삭은 학생이 신청·결제한 글만 등록할 수 있다. 기본은 '열린 신청 없음'이고, 필요한 테스트에서만 신청이 있는 상황을 만든다.
+vi.mock("./teacherFeedbackRequestDb", () => ({
+  getOpenRequestByEssay: vi.fn(async () => undefined),
+  markDeliveredByEssay: vi.fn(async () => true),
+  notifyUser: vi.fn(async () => undefined),
 }));
 
 import * as db from "./db";
+import * as institutionDb from "./institutionDb";
+import * as tfRequestDb from "./teacherFeedbackRequestDb";
 import { appRouter } from "./routers";
 import { clearGuardianStatusCache } from "./_core/trpc";
 import type { TrpcContext } from "./_core/context";
@@ -66,6 +75,8 @@ const feedback = { id: 7, essayId: 5, teacherId: 20 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(tfRequestDb.getOpenRequestByEssay).mockResolvedValue(undefined);
+  vi.mocked(institutionDb.resolveStudentFunding).mockResolvedValue({ kind: "none" } as any);
   vi.mocked(db.getEssaySubmissionById).mockResolvedValue(essay as any);
   vi.mocked(db.getUserById).mockResolvedValue({ id: 10, teacherId: 20 } as any);
   vi.mocked(db.getTeacherFeedbackById).mockResolvedValue(feedback as any);
@@ -131,11 +142,34 @@ describe("교사 첨삭(teacherFeedback) 접근", () => {
     expect(db.createFeedbackComment).not.toHaveBeenCalled();
   });
 
-  it("담당이 아닌 교사와 승인 전 교사는 첨삭할 수 없고, 배정 교사는 할 수 있다", async () => {
+  it("담당이 아닌 교사와 승인 전 교사는 첨삭할 수 없고, 배정 교사는 학생이 신청·결제한 글에 첨삭할 수 있다", async () => {
+    vi.mocked(tfRequestDb.getOpenRequestByEssay).mockResolvedValue({ id: 31, essayId: 5, status: "paid" } as any);
     await expect(callerFor(otherTeacher).teacherFeedback.update({ id: 7, overallScore: 90 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(callerFor(pendingTeacher).teacherFeedback.create({ essayId: 5, overallScore: 90 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    vi.mocked(db.createTeacherFeedback).mockResolvedValueOnce({ id: 77 } as any);
     await callerFor(assignedTeacher).teacherFeedback.create({ essayId: 5, overallScore: 90, overallComment: "논거가 좋습니다." });
     expect(db.createTeacherFeedback).toHaveBeenCalledWith(expect.objectContaining({ essayId: 5, teacherId: 20, overallScore: 90 }));
+    // 전달하면 신청이 '전달 완료'로 바뀐다.
+    expect(tfRequestDb.markDeliveredByEssay).toHaveBeenCalledWith(5, 77);
+  });
+
+  it("학생이 신청·결제하지 않은 글은 배정 교사라도 첨삭을 등록할 수 없다(기존 무료 첨삭은 정리됨)", async () => {
+    await expect(callerFor(assignedTeacher).teacherFeedback.create({ essayId: 5, overallScore: 90 })).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("신청·결제") });
+    expect(db.createTeacherFeedback).not.toHaveBeenCalled();
+  });
+
+  it("기관 계약이 비용을 부담하는 학생은 신청 없이도 기존 계약 경로로 첨삭할 수 있고, 관리자는 예외다", async () => {
+    vi.mocked(institutionDb.resolveStudentFunding).mockResolvedValue({ kind: "contract", contract: { id: 1 } } as any);
+    vi.mocked(db.createTeacherFeedback).mockResolvedValueOnce({ id: 78 } as any);
+    await callerFor(assignedTeacher).teacherFeedback.create({ essayId: 5, overallScore: 80 });
+    expect(db.createTeacherFeedback).toHaveBeenCalledTimes(1);
+    // 신청 없이 전달한 경우에는 신청 상태를 건드리지 않는다.
+    expect(tfRequestDb.markDeliveredByEssay).not.toHaveBeenCalled();
+
+    vi.mocked(institutionDb.resolveStudentFunding).mockResolvedValue({ kind: "none" } as any);
+    vi.mocked(db.createTeacherFeedback).mockResolvedValueOnce({ id: 79 } as any);
+    await callerFor({ id: 1, role: "admin" } as any).teacherFeedback.create({ essayId: 5, overallScore: 85 });
+    expect(db.createTeacherFeedback).toHaveBeenCalledTimes(2);
   });
 
   it("점수는 0~100 정수만 받고, 같은 글에 첨삭을 중복 생성할 수 없다", async () => {
