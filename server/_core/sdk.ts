@@ -324,16 +324,29 @@ class SDKServer {
       throw ForbiddenError("Session is no longer valid");
     }
 
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
+    // 화면 하나가 API를 여러 번 부르므로 마지막 접속 시각은 일정 간격으로만 기록한다(요청마다 DB 쓰기 방지).
+    if (shouldTouchLastSignedIn(user.lastSignedIn, signedInAt)) {
+      await db.upsertUser({
+        openId: user.openId,
+        lastSignedIn: signedInAt,
+      });
+    }
 
     return user;
   }
 }
 
 const CRON_OPEN_ID_PREFIX = "cron_";
+
+const LAST_SIGNED_IN_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+
+/** 마지막 접속 시각을 다시 기록해야 하는지 판단한다(기록이 없거나 간격이 지났을 때). */
+export function shouldTouchLastSignedIn(previous: Date | string | null | undefined, now: Date) {
+  if (!previous) return true;
+  const previousMs = new Date(previous).getTime();
+  if (Number.isNaN(previousMs)) return true;
+  return now.getTime() - previousMs >= LAST_SIGNED_IN_TOUCH_INTERVAL_MS;
+}
 
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `/home/ubuntu/skills/webdev-periodic-updates/SKILL.md`. */
 export type AuthenticatedUser = User & {

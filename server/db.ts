@@ -68,7 +68,7 @@ import {
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
-import { eq, and, desc, gt, gte, inArray, lt } from "drizzle-orm";
+import { count, eq, and, desc, gt, gte, inArray, lt, ne } from "drizzle-orm";
 import { computeLessonProgress } from "./lessonProgress";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
@@ -1288,22 +1288,22 @@ export async function logSampleAiUsage(sessionToken: string, ipHash: string): Pr
 export async function getAIUsageCountByAction(userId: number, actionType: string): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
-  const logs = await db.select().from(aiUsageLogs).where(and(eq(aiUsageLogs.userId, userId), eq(aiUsageLogs.actionType, actionType)));
-  return logs.length;
+  const [row] = await db.select({ value: count() }).from(aiUsageLogs).where(and(eq(aiUsageLogs.userId, userId), eq(aiUsageLogs.actionType, actionType)));
+  return Number(row?.value ?? 0);
 }
 
 export async function getAllAIUsageStats() {
   const db = await getDb();
   if (!db) return { totalCalls: 0, todayCalls: 0 };
 
-  const allLogs = await db.select().from(aiUsageLogs);
-  const totalCalls = allLogs.length;
-
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const todayCalls = allLogs.filter(l => new Date(l.createdAt) >= todayStart).length;
+  const [[total], [today]] = await Promise.all([
+    db.select({ value: count() }).from(aiUsageLogs),
+    db.select({ value: count() }).from(aiUsageLogs).where(gte(aiUsageLogs.createdAt, todayStart)),
+  ]);
 
-  return { totalCalls, todayCalls };
+  return { totalCalls: Number(total?.value ?? 0), todayCalls: Number(today?.value ?? 0) };
 }
 
 export async function updateUserSocialIdentity(userId: number, openId: string, name?: string | null, email?: string | null, loginMethod?: string) {
@@ -2417,20 +2417,21 @@ export async function getAdminOperationsDashboardStats() {
   const db = await getDb();
   if (!db) return null;
 
-  const allUsers = await db.select().from(users);
-  const allSubs = await db.select().from(essaySubmission);
-  const allCerts = await db.select().from(certificate);
-  const allAiLogs = await db.select().from(aiUsageLogs);
-
-  const students = allUsers.filter(u => u.role !== 'admin');
-  const teachers = allUsers.filter(u => u.role === 'admin');
+  // 행을 모두 읽지 않고 DB에서 개수만 센다. (기존 동작 유지: teacherCount는 role='admin' 수)
+  const [[students], [teachers], [submissions], [certificates], [aiLogs]] = await Promise.all([
+    db.select({ value: count() }).from(users).where(ne(users.role, "admin")),
+    db.select({ value: count() }).from(users).where(eq(users.role, "admin")),
+    db.select({ value: count() }).from(essaySubmission),
+    db.select({ value: count() }).from(certificate),
+    db.select({ value: count() }).from(aiUsageLogs),
+  ]);
 
   return {
-    studentCount: students.length,
-    teacherCount: teachers.length,
-    submissionCount: allSubs.length,
-    certificateCount: allCerts.length,
-    aiUsageCount: allAiLogs.length,
+    studentCount: Number(students?.value ?? 0),
+    teacherCount: Number(teachers?.value ?? 0),
+    submissionCount: Number(submissions?.value ?? 0),
+    certificateCount: Number(certificates?.value ?? 0),
+    aiUsageCount: Number(aiLogs?.value ?? 0),
   };
 }
 

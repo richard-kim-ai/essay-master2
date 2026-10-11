@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { passwordVersion, sessionMatchesPassword } from "./_core/sessionBinding";
 
+import { shouldTouchLastSignedIn } from "./_core/sdk";
+
 const SECRET = "test-cookie-secret";
+
+describe("마지막 접속 시각 기록 간격", () => {
+  const now = new Date("2026-10-13T12:00:00Z");
+
+  it("기록이 없거나 시각이 올바르지 않으면 기록한다", () => {
+    expect(shouldTouchLastSignedIn(null, now)).toBe(true);
+    expect(shouldTouchLastSignedIn(undefined, now)).toBe(true);
+    expect(shouldTouchLastSignedIn("not-a-date", now)).toBe(true);
+  });
+
+  it("5분 안에 이미 기록했다면 다시 쓰지 않고, 5분이 지나면 기록한다", () => {
+    expect(shouldTouchLastSignedIn(new Date("2026-10-13T11:58:00Z"), now)).toBe(false);
+    expect(shouldTouchLastSignedIn(new Date("2026-10-13T11:55:00Z"), now)).toBe(true);
+    expect(shouldTouchLastSignedIn(new Date("2026-10-13T10:00:00Z"), now)).toBe(true);
+  });
+});
 
 describe("세션과 비밀번호 연결", () => {
   it("비밀번호 해시가 같으면 같은 버전이고, 바뀌면 다른 버전이다", () => {
