@@ -15,6 +15,7 @@ vi.mock("wouter", () => ({
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     social: { providers: { useQuery: () => ({ data: state.providers }) } },
+    useUtils: () => ({ invalidate: vi.fn() }),
     auth: { loginWithEmail: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
     guardian: { resendConsent: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
   },

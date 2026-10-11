@@ -299,7 +299,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | DB 반영 | 0047~0051을 순서대로 수동 적용해야 함 |
 | 운영 설정 | Resend `EMAIL_FROM` 도메인 일치·재시작, `PUBLIC_BASE_URL`, 소셜 제공자 키와 Redirect URI |
 | 배포 영향 | 세션-비밀번호 연결 도입으로 비밀번호 계정은 배포 후 1회 재로그인 |
-| 관리자 생성 | 첫 관리자는 Manus OAuth(`OWNER_OPEN_ID`)로만 자동 부여. Manus 없이 쓰려면 이메일 관리자 생성·승격 스크립트가 필요(미작성) |
+| 관리자 생성 | 첫 관리자는 Manus OAuth(`OWNER_OPEN_ID`)로만 자동 부여. Manus 없이 쓰려면 `npx tsx scripts/set-login-password.mts <이메일> --apply [--make-admin] [--name "이름"]`로 비밀번호 설정·관리자 생성(기본은 계획만 출력) |
 | AI 동의 연동 | 맞춤 학습 가이드(`difficultyLearningGuide`)·문장 맞춤 피드백은 아직 동의와 연동되지 않음 |
 | 정책 | 워크북 서술형 AI 평가 횟수, 소셜 가입 시 과정 선택, 문항별 제출 횟수 제한 |
 | 데이터 무결성 | 교사 첨삭 DB 유니크 제약, 정산 경합 처리 |
