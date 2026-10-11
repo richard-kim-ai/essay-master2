@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { Award, Plus, Search, ShieldCheck, Trash2, XCircle } from "lucide-react";
+import { Award, ImageIcon, Plus, Search, ShieldCheck, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { courseLabelOf, createArchiveImage, downloadCertificatePdf, type CertificateExportData } from "@/lib/certificateExport";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -69,12 +70,55 @@ export default function AdminCertificates() {
     };
   }, [filteredCertificates]);
 
+  const saveArchiveMutation = trpc.certificate.saveArchive.useMutation();
+  const [archiveViewId, setArchiveViewId] = useState<number | null>(null);
+  const [archiveBusyId, setArchiveBusyId] = useState<number | null>(null);
+  const archiveQuery = trpc.admin.getCertificateArchive.useQuery({ certificateId: archiveViewId ?? 0 }, { enabled: isAdmin && archiveViewId !== null });
+
+  const exportDataFor = (row: any, studentName: string | undefined): CertificateExportData => ({
+    title: row.title || (row.certificateType === "graduation_certificate" ? `${courseLabelOf(row.courseType)} 졸업증서` : `${courseLabelOf(row.courseType)} Level ${row.level || 1} 수료증`),
+    courseLabel: courseLabelOf(row.courseType),
+    recipient: studentName || `사용자 #${row.userId}`,
+    certificateNumber: row.certNumber || `CERT-2026-${row.id}`,
+    issuedAt: new Date(row.issuedAt ?? row.createdAt).toLocaleDateString(),
+  });
+
+  // 압축 보관 이미지를 만들어 서버에 올린다(발급 직후, 또는 이전 발급분의 보관본 생성).
+  const archiveCertificate = async (row: any, studentName: string | undefined) => {
+    setArchiveBusyId(row.id);
+    try {
+      const archive = await createArchiveImage(exportDataFor(row, studentName));
+      await saveArchiveMutation.mutateAsync({ certificateId: row.id, imageBase64: archive.imageBase64 });
+      toast.success("수료증 보관 이미지를 저장했습니다.", { description: `압축 크기 ${Math.round(archive.bytes / 1024)}kB` });
+      await utils.admin.getAllCertificatesAdmin.invalidate();
+      return true;
+    } catch (error: any) {
+      toast.error(error?.message || "수료증 보관 이미지를 저장하지 못했습니다.");
+      return false;
+    } finally {
+      setArchiveBusyId(null);
+    }
+  };
+
   const issueMutation = trpc.admin.issueCertificateAdmin.useMutation({
-    onSuccess: () => {
+    onSuccess: async (result, variables) => {
       toast.success("수료증이 발행되었습니다.");
       setIssueOpen(false);
       setIssueForm(emptyIssueForm);
-      utils.admin.getAllCertificatesAdmin.invalidate();
+      await utils.admin.getAllCertificatesAdmin.invalidate();
+      // 발급하는 순간에만 PDF를 만들어 내려받고(저장하지 않음), 관리 화면에는 압축 이미지로 보관한다.
+      const rows = await utils.admin.getAllCertificatesAdmin.fetch();
+      const issued = rows.find((row) => row.id === Number((result as { insertId?: number } | undefined)?.insertId ?? 0));
+      if (!issued) return;
+      const studentName = students.find((candidate) => candidate.id === variables.userId)?.name ?? undefined;
+      try {
+        await downloadCertificatePdf(exportDataFor(issued, studentName), `Certificate_${issued.certNumber || issued.id}`);
+        toast.success("수료증 PDF를 내려받았습니다. PDF는 발급할 때만 제공됩니다.");
+      } catch (error) {
+        console.error(error);
+        toast.error("수료증 PDF 생성 중 오류가 발생했습니다.");
+      }
+      await archiveCertificate(issued, studentName);
     },
     onError: (error) => toast.error(error.message || "수료증 발행에 실패했습니다."),
   });
@@ -228,6 +272,9 @@ export default function AdminCertificates() {
                       <td className="px-5 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isRevoked ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>{isRevoked ? "발행취소" : "유효"}</span></td>
                       <td className="px-5 py-4 text-xs text-slate-500">{new Date(certificate.issuedAt).toLocaleString()}</td>
                       <td className="px-5 py-4"><div className="flex justify-end gap-2">
+                        {certificate.hasArchive
+                          ? <Button variant="outline" size="sm" className="gap-1 text-indigo-700 hover:bg-indigo-50" onClick={() => setArchiveViewId(certificate.id)}><ImageIcon className="h-3.5 w-3.5" /> 보관 이미지{certificate.archiveBytes ? ` (${Math.round(certificate.archiveBytes / 1024)}kB)` : ""}</Button>
+                          : !isRevoked && <Button variant="outline" size="sm" className="gap-1 text-slate-700 hover:bg-slate-100" disabled={archiveBusyId === certificate.id} onClick={() => archiveCertificate(certificate, student?.name ?? undefined)}><ImageIcon className="h-3.5 w-3.5" /> {archiveBusyId === certificate.id ? "만드는 중…" : "보관 이미지 만들기"}</Button>}
                         {!isRevoked && <Button variant="outline" size="sm" className="gap-1 text-rose-700 hover:bg-rose-50" onClick={() => setRevokeTarget(certificate.id)}><XCircle className="h-3.5 w-3.5" /> 취소</Button>}
                         {isRevoked && <Button variant="outline" size="sm" className="gap-1 text-slate-700 hover:bg-slate-100" onClick={() => setDeleteTarget(certificate.id)}><Trash2 className="h-3.5 w-3.5" /> 삭제</Button>}
 
@@ -248,6 +295,21 @@ export default function AdminCertificates() {
         <div><label className="mb-1 block text-sm font-medium">발행 사유 <span className="text-slate-400">(선택)</span></label><Textarea placeholder="예: Level 2 학습 완료 및 관리자 확인" value={issueForm.issueReason} onChange={(event) => setIssueForm({ ...issueForm, issueReason: event.target.value })} /></div>
       </div><DialogFooter><Button variant="outline" onClick={() => setIssueOpen(false)}>취소</Button><Button className="bg-amber-600 text-white hover:bg-amber-700" onClick={submitIssue} disabled={issueMutation.isPending}>{issueMutation.isPending ? "발행 중..." : "발행 확정"}</Button></DialogFooter></DialogContent></Dialog>
 
+      <Dialog open={archiveViewId !== null} onOpenChange={(open) => { if (!open) setArchiveViewId(null); }}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>수료증 보관 이미지</DialogTitle>
+            <DialogDescription>발급 때 압축해 보관한 이미지입니다(가로 1000px). 원본 PDF는 발급하는 순간에만 제공되며 서버에는 남기지 않습니다.</DialogDescription>
+          </DialogHeader>
+          {archiveQuery.isLoading ? <p className="py-10 text-center text-sm text-slate-500">보관 이미지를 불러오는 중입니다...</p>
+            : archiveQuery.data ? <div className="space-y-2">
+              <img src={`data:${archiveQuery.data.mimeType};base64,${archiveQuery.data.imageBase64}`} alt="수료증 보관 이미지" className="w-full rounded-lg border border-slate-200 bg-white" />
+              <p className="text-xs text-slate-500">{archiveQuery.data.mimeType === "image/webp" ? "WebP" : "JPEG"} · {Math.round(archiveQuery.data.bytes / 1024)}kB · 보관일 {new Date(archiveQuery.data.createdAt).toLocaleString()}</p>
+            </div>
+            : <p className="py-10 text-center text-sm text-slate-500">보관된 이미지가 없습니다.</p>}
+          <DialogFooter><Button variant="outline" onClick={() => setArchiveViewId(null)}>닫기</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={revokeTarget !== null} onOpenChange={(open) => { if (!open) { setRevokeTarget(null); setRevokeReason(""); } }}>
         <DialogContent className="sm:max-w-md p-6 space-y-4">
           <DialogHeader>
