@@ -3762,13 +3762,17 @@ export async function awardBadge(userId: number, courseType: string, badgeType: 
 export async function getQuestionBankList(courseType?: string, toolType?: string) {
   const db = await getDb();
   if (!db) return [];
-  let query = db.select().from(questionBank);
-  const rows = await query;
-  return rows.filter(q => {
-    if (courseType && q.courseType !== courseType) return false;
-    if (toolType && q.toolType !== toolType) return false;
-    return true;
-  });
+  const conditions = [];
+  if (courseType) conditions.push(eq(questionBank.courseType, courseType as typeof questionBank.$inferSelect.courseType));
+  if (toolType) conditions.push(eq(questionBank.toolType, toolType as typeof questionBank.$inferSelect.toolType));
+  return db.select().from(questionBank).where(and(...conditions));
+}
+
+export async function getQuestionBankItemById(questionId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [item] = await db.select().from(questionBank).where(eq(questionBank.id, questionId)).limit(1);
+  return item;
 }
 
 export async function getRandomQuestions(courseType: string, toolType: string, limit: number = 10) {
@@ -4500,17 +4504,18 @@ export async function getQuestionBankStats() {
   });
 }
 
-export async function getQuestionBankPublicStats() {
+export async function getQuestionBankPublicStats(courseType?: string) {
   const db = await getDb();
   if (!db) return [];
   const questions = await db.select({
     id: questionBank.id,
     difficulty: questionBank.difficulty,
-  }).from(questionBank);
+  }).from(questionBank).where(courseType ? and(eq(questionBank.courseType, courseType as typeof questionBank.$inferSelect.courseType), eq(questionBank.isActive, 1)) : undefined);
   const answers = await db.select({
     quizId: quizAnswer.quizId,
     isCorrect: quizAnswer.isCorrect,
-  }).from(quizAnswer);
+  }).from(quizAnswer).innerJoin(questionBank, eq(quizAnswer.quizId, questionBank.id))
+    .where(courseType ? and(eq(questionBank.courseType, courseType as typeof questionBank.$inferSelect.courseType), eq(questionBank.isActive, 1)) : undefined);
 
   return questions.map((question) => {
     const questionAnswers = answers.filter((answer) => answer.quizId === question.id);
@@ -5527,10 +5532,12 @@ export async function toggleQuestionBookmark(userId: number, questionId: number)
   }
 }
 
-export async function getUserBookmarks(userId: number) {
+export async function getUserBookmarks(userId: number, courseType?: string) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(questionBookmarks).where(eq(questionBookmarks.userId, userId));
+  const rows = await db.select({ questionId: questionBookmarks.questionId }).from(questionBookmarks)
+    .innerJoin(questionBank, eq(questionBookmarks.questionId, questionBank.id))
+    .where(and(eq(questionBookmarks.userId, userId), ...(courseType ? [eq(questionBank.courseType, courseType as typeof questionBank.$inferSelect.courseType), eq(questionBank.isActive, 1)] : [])));
   return rows.map(r => r.questionId);
 }
 
@@ -5741,14 +5748,14 @@ export async function generateAiQuestionsForCategory(
   }
 }
 
-export async function getSimilarQuestions(questionId: number) {
+export async function getSimilarQuestions(questionId: number, courseType?: string) {
   const db = await getDb();
   if (!db) return [];
   const [target] = await db.select().from(questionBank).where(eq(questionBank.id, questionId));
   if (!target) return [];
 
-  // 같은 과정 또는 같은 도구 유형의 다른 문항들 추출 (최대 4개)
-  const all = await db.select().from(questionBank);
+  // 학생은 같은 과정의 공개 문항 안에서만 추천한다. 교사·관리자는 기존 탐색을 유지한다.
+  const all = await db.select().from(questionBank).where(courseType ? and(eq(questionBank.courseType, courseType as typeof questionBank.$inferSelect.courseType), eq(questionBank.isActive, 1)) : undefined);
   return all.filter(q => q.id !== questionId && (q.courseType === target.courseType || q.toolType === target.toolType)).slice(0, 4);
 }
 

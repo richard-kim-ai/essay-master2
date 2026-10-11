@@ -6,6 +6,7 @@ import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_
 import * as db from "./db";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
+import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse } from "./questionBankAccess";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
@@ -1773,19 +1774,23 @@ export const appRouter = router({
     list: protectedProcedure
       .input(z.object({ courseType: z.string().optional(), toolType: z.string().optional() }))
       .query(async ({ ctx, input }) => {
-        return toLearnerQuestions(await db.getQuestionBankList(input.courseType, input.toolType), ctx.user);
+        const course = resolveQuestionBankCourse(ctx.user, input.courseType);
+        const rows = await db.getQuestionBankList(course, input.toolType);
+        return toLearnerQuestions(studentQuestionCourse(ctx.user) ? rows.filter(q => q.courseType === course && q.isActive === 1) : rows, ctx.user);
       }),
-    publicStats: publicProcedure.query(async () => {
-      return await db.getQuestionBankPublicStats();
+    publicStats: publicProcedure.query(async ({ ctx }) => {
+      return await db.getQuestionBankPublicStats(studentQuestionCourse(ctx.user));
     }),
     random: protectedProcedure
       .input(z.object({ courseType: z.string(), toolType: z.string(), limit: z.number().default(10) }))
       .query(async ({ ctx, input }) => {
+        resolveQuestionBankCourse(ctx.user, input.courseType);
         return toLearnerQuestions(await db.getRandomQuestions(input.courseType, input.toolType, input.limit), ctx.user);
       }),
     reorderingPractice: protectedProcedure
       .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), limit: z.number().int().min(1).max(10).default(10) }))
       .query(async ({ ctx, input }) => {
+        resolveQuestionBankCourse(ctx.user, input.courseType);
         return toLearnerQuestions(await db.getReorderingPracticeSet(input.courseType, input.limit), ctx.user);
       }),
     reorderingSubmit: protectedProcedure
@@ -2067,10 +2072,11 @@ export const appRouter = router({
     toggleBookmark: protectedProcedure
       .input(z.object({ questionId: z.number() }))
       .mutation(async ({ ctx, input }) => {
+        await assertQuestionBankItemAccess(ctx.user, input.questionId);
         return await db.toggleQuestionBookmark(ctx.user.id, input.questionId);
       }),
     getBookmarks: protectedProcedure.query(async ({ ctx }) => {
-      return await db.getUserBookmarks(ctx.user.id);
+      return await db.getUserBookmarks(ctx.user.id, studentQuestionCourse(ctx.user));
     }),
     allFeedbacks: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
@@ -2122,7 +2128,10 @@ export const appRouter = router({
     similarQuestions: protectedProcedure
       .input(z.object({ questionId: z.number() }))
       .query(async ({ ctx, input }) => {
-        return await db.getSimilarQuestions(input.questionId);
+        await assertQuestionBankItemAccess(ctx.user, input.questionId);
+        const course = studentQuestionCourse(ctx.user);
+        const rows = await db.getSimilarQuestions(input.questionId, course);
+        return toLearnerQuestions(course ? rows.filter(q => q.courseType === course && q.isActive === 1) : rows, ctx.user);
       }),
   }),
 
