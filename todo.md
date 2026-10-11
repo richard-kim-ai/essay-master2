@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Manus] 취약 영역 추천 기출문제의 가입 과정 필터 및 워크북 연결 권한·표시 보완 (MistakeNotebook.tsx, curriculum 추천 조회) — 시작 2026-10-11 21:35
 
 
 ## 완료
