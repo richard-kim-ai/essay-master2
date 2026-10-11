@@ -6,9 +6,12 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { PREVIEW_MISTAKES, PREVIEW_RECOMMENDED } from "@/lib/previewSamples";
 import { BookOpen, AlertCircle, CheckCircle2, Sparkles, Trash2, ArrowRight, RefreshCcw, HelpCircle, Link2, Share2, Trophy } from "lucide-react";
 import { useLocation } from "wouter";
-import { useState } from "react";
+import React, { useState } from "react";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
+import { getCourseTypeFromUserTag } from "@shared/course";
+import { formatLearningCourse } from "@/lib/learningLabels";
+import { buildWorkbookReturnPath } from "@/lib/workbookReturn";
 
 type QuizSessionResult = {
   reviewed: number;
@@ -21,14 +24,15 @@ export default function MistakeNotebook() {
   const utils = trpc.useUtils();
 
   // 로그인하지 않았으면 서버 요청 없이 샘플 오답으로 화면만 보여준다(DashboardLayout의 미리보기).
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const enrolledCourse = user?.role === "user" && user.tag !== "학부모" ? getCourseTypeFromUserTag(user.tag) : undefined;
   const preview = !user;
   const { data: fetchedMistakes = [], isLoading: fetchingMistakes } = trpc.curriculum.getMistakes.useQuery(undefined, { enabled: !preview });
-  const { data: fetchedRecommended = [], isLoading: fetchingRecommended } = trpc.curriculum.getRecommendedQuestions.useQuery(undefined, { enabled: !preview });
+  const { data: fetchedRecommended = [], isLoading: fetchingRecommended, error: recommendationError } = trpc.curriculum.getRecommendedQuestions.useQuery(undefined, { enabled: !!user && !authLoading });
   const mistakes = preview ? PREVIEW_MISTAKES : fetchedMistakes;
-  const recommended = preview ? PREVIEW_RECOMMENDED : fetchedRecommended;
+  const recommended = authLoading ? [] : preview ? PREVIEW_RECOMMENDED : fetchedRecommended.filter(q => !enrolledCourse || q.courseType === enrolledCourse);
   const mistakesLoading = preview ? false : fetchingMistakes;
-  const recLoading = preview ? false : fetchingRecommended;
+  const recLoading = authLoading || (!preview && fetchingRecommended);
 
   const removeMutation = trpc.curriculum.removeMistake.useMutation({
     onSuccess: () => {
@@ -338,18 +342,21 @@ export default function MistakeNotebook() {
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-indigo-600" /> 취약 영역 맞춤 추천 기출문제
           </h2>
+          {enrolledCourse && <p className="text-sm text-slate-600">{formatLearningCourse(enrolledCourse)} 과정의 기출문제를 추천합니다.</p>}
 
           {recLoading ? (
-            <div className="py-8 text-center text-slate-500">추천 문제를 분석 중입니다...</div>
+            <div role="status" className="py-8 text-center text-slate-500">추천 문제를 분석 중입니다...</div>
+          ) : recommendationError && !preview ? (
+            <p role="alert" className="text-sm text-slate-600">추천 문제를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</p>
           ) : recommended.length === 0 ? (
-            <p className="text-sm text-slate-500">추천할 문제가 없습니다.</p>
+            <p className="text-sm text-slate-500">{enrolledCourse ? "현재 내 과정에 추천할 기출문제가 없습니다." : "추천할 문제가 없습니다."}</p>
           ) : (
             <div className="grid gap-4 md:grid-cols-3">
               {recommended.map((q: any) => (
                 <Card key={q.id} className="border-indigo-100 bg-white shadow-sm flex flex-col justify-between">
                   <CardHeader className="pb-3">
                     <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md w-fit">
-                      {q.courseType} · Level {q.level}
+                      {formatLearningCourse(q.courseType)} · {q.level}단계
                     </span>
                     <CardTitle className="text-base font-bold text-slate-900 mt-2 line-clamp-1">
                       {q.title}
@@ -362,7 +369,11 @@ export default function MistakeNotebook() {
                     <Button
                       size="sm"
                       className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-1"
-                      onClick={() => setLocation(`/workbook/${q.courseType}/${q.level}`)}
+                      onClick={() => {
+                        if (authLoading || (enrolledCourse && q.courseType !== enrolledCourse)) return;
+                        const path = buildWorkbookReturnPath(q.courseType, q.level, "lessonIndex" in q ? q.lessonIndex : 0);
+                        if (path) setLocation(path);
+                      }}
                     >
                       지금 풀러 가기 <ArrowRight className="w-4 h-4" />
                     </Button>
