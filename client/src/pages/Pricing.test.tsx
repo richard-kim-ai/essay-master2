@@ -44,4 +44,17 @@ describe("Pricing policy page", () => {
     expect(html).not.toContain("SOC 2 Type I");
     expect(html).not.toContain("개인정보 보호법 완전 준수");
   });
+
+  it("바로가기 링크가 가리키는 제목이 모두 있고, 이용권 카드는 4종만 보여 준다", () => {
+    const html = renderToStaticMarkup(<Pricing />);
+    for (const id of ["trial-title", "price-guide-title", "teacher-pass-title", "privacy-title"]) {
+      expect(html).toContain(`href="#${id}"`);
+      expect(html).toContain(`id="${id}"`);
+    }
+    expect(html).toContain("유료 이용 시작");
+    expect((html.match(/이용권 시작하기/g) ?? []).length).toBe(4);
+    // 한 개의 h1만 있고, 교사 첨삭지도권 제목은 h2이다.
+    expect((html.match(/<h1/g) ?? []).length).toBe(1);
+    expect(html).toMatch(/<h2 id="teacher-pass-title"/);
+  });
 });
