@@ -2,9 +2,10 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { Award, Eye, CheckCircle2, AlertCircle, Printer, Download, FileImage, Share2, Link2, ExternalLink } from "lucide-react";
+import { Award, Eye, CheckCircle2, AlertCircle, FileImage, Share2, Link2, ExternalLink } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { courseLabelOf, createArchiveImage, downloadCertificatePdf, drawCertificateCanvas, type CertificateExportData } from "@/lib/certificateExport";
 import {
   Dialog,
   DialogContent,
@@ -21,62 +22,6 @@ function courseTypeFromTag(tag?: string | null): CourseType {
   if (tag?.includes("고등")) return "high_univ";
   if (tag?.includes("일반")) return "general_adult";
   return "elementary";
-}
-
-type CertificateExportData = { title: string; courseLabel: string; recipient: string; certificateNumber: string; issuedAt: string; preview?: boolean };
-
-function drawCertificateCanvas(data: CertificateExportData) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1600;
-  canvas.height = 1120;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("수료증 캔버스를 준비하지 못했습니다.");
-  const { width, height } = canvas;
-  context.fillStyle = "#fffdf6";
-  context.fillRect(0, 0, width, height);
-  context.strokeStyle = "#1d4ed8";
-  context.lineWidth = 18;
-  context.strokeRect(46, 46, width - 92, height - 92);
-  context.strokeStyle = "#c9a227";
-  context.lineWidth = 4;
-  context.strokeRect(78, 78, width - 156, height - 156);
-  context.textAlign = "center";
-  context.fillStyle = "#1e3a8a";
-  context.font = "700 34px Arial, sans-serif";
-  context.fillText("ESSAY MASTER", width / 2, 180);
-  context.fillStyle = "#0f172a";
-  context.font = "700 72px Arial, sans-serif";
-  context.fillText("수 료 증", width / 2, 300);
-  context.fillStyle = "#475569";
-  context.font = "500 32px Arial, sans-serif";
-  context.fillText(data.courseLabel, width / 2, 375);
-  context.fillStyle = "#0f172a";
-  context.font = "700 46px Arial, sans-serif";
-  context.fillText(data.recipient, width / 2, 505);
-  context.font = "400 31px Arial, sans-serif";
-  context.fillStyle = "#334155";
-  context.fillText("위 학습자는 논술 마스터의 학습 기준을 충족하여", width / 2, 590);
-  context.fillText(data.preview ? "수료증 예시를 미리 확인합니다." : "위 과정을 성실히 이수하였음을 증명합니다.", width / 2, 642);
-  context.fillStyle = "#1e3a8a";
-  context.font = "700 40px Arial, sans-serif";
-  context.fillText(data.title, width / 2, 744);
-  context.strokeStyle = "#cbd5e1";
-  context.lineWidth = 2;
-  context.beginPath();
-  context.moveTo(210, 845);
-  context.lineTo(width - 210, 845);
-  context.stroke();
-  context.fillStyle = "#475569";
-  context.font = "500 25px Arial, sans-serif";
-  context.textAlign = "left";
-  context.fillText(`인증번호  ${data.certificateNumber}`, 220, 925);
-  context.textAlign = "right";
-  context.fillText(`발급일  ${data.issuedAt}`, width - 220, 925);
-  context.textAlign = "center";
-  context.fillStyle = "#1e3a8a";
-  context.font = "700 27px Arial, sans-serif";
-  context.fillText("논술 마스터 교육 플랫폼", width / 2, 1000);
-  return canvas;
 }
 
 export default function Certificate() {
@@ -98,6 +43,7 @@ export default function Certificate() {
   });
   const eligibilityQuery = trpc.certificate.eligibility.useQuery(undefined, { enabled: isAuthenticated });
   const issueMutation = trpc.certificate.issue.useMutation();
+  const saveArchiveMutation = trpc.certificate.saveArchive.useMutation();
 
   useEffect(() => {
     if (getCertificatesQuery.data) {
@@ -131,27 +77,47 @@ export default function Certificate() {
     return Boolean(eligibilityQuery.data?.levelEligibility?.find((item: any) => item.level === level)?.isEligible);
   };
 
-  const exportCertificate = async (data: CertificateExportData, filename: string, format: "png" | "pdf") => {
+  // 이미지(PNG) 저장. PDF는 발급하는 순간에만 만들어 내려받는다(아래 deliverIssuedCertificate).
+  const exportCertificate = async (data: CertificateExportData, filename: string) => {
     try {
       const canvas = drawCertificateCanvas(data);
-      const image = canvas.toDataURL("image/png");
-      if (format === "png") {
-        const anchor = document.createElement("a");
-        anchor.href = image;
-        anchor.download = `${filename}.png`;
-        anchor.click();
-        toast.success("수료증 원본 이미지(PNG)를 다운로드했습니다.");
-        return;
-      }
-      const orientation = canvas.width >= canvas.height ? "landscape" : "portrait";
-      const { jsPDF } = await import("jspdf");
-      const pdf = new jsPDF({ orientation, unit: "px", format: [canvas.width, canvas.height], hotfixes: ["px_scaling"] });
-      pdf.addImage(image, "PNG", 0, 0, canvas.width, canvas.height);
-      pdf.save(`${filename}.pdf`);
-      toast.success("수료증 원본만 포함된 PDF를 저장했습니다.");
+      const anchor = document.createElement("a");
+      anchor.href = canvas.toDataURL("image/png");
+      anchor.download = `${filename}.png`;
+      anchor.click();
+      toast.success("수료증 원본 이미지(PNG)를 다운로드했습니다.");
     } catch (error) {
       console.error(error);
-      toast.error("수료증 이미지·PDF 생성 중 오류가 발생했습니다.");
+      toast.error("수료증 이미지 생성 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 발급 직후 한 번만: PDF를 만들어 내려받고(서버·화면에 남기지 않음), 관리 화면 보관용 압축 이미지를 서버에 올린다.
+  const deliverIssuedCertificate = async (issued: any) => {
+    if (!issued) {
+      toast.info("수료증은 발급되었습니다. PDF를 만들지 못했으니 관리자에게 문의해 주세요.");
+      return;
+    }
+    const data: CertificateExportData = {
+      title: issued.title || `Level ${issued.level || 1} 수료증`,
+      courseLabel: courseLabelOf(issued.courseType),
+      recipient: user?.name || "학습자",
+      certificateNumber: issued.certNumber || `CERT-2026-${issued.id}`,
+      issuedAt: new Date(issued.issuedAt ?? issued.createdAt).toLocaleDateString(),
+    };
+    try {
+      await downloadCertificatePdf(data, `Certificate_${issued.certNumber || issued.id}`);
+      toast.success("수료증 PDF를 내려받았습니다. PDF는 발급할 때 한 번만 제공되니 잘 보관해 주세요.");
+    } catch (error) {
+      console.error(error);
+      toast.error("수료증 PDF 생성 중 오류가 발생했습니다.");
+    }
+    try {
+      const archive = await createArchiveImage(data);
+      await saveArchiveMutation.mutateAsync({ certificateId: issued.id, imageBase64: archive.imageBase64 });
+    } catch (error) {
+      console.error(error);
+      toast.warning("수료증은 발급되었지만 관리자 보관 이미지를 저장하지 못했습니다.");
     }
   };
 
@@ -190,14 +156,16 @@ export default function Certificate() {
     }
     setLoading(true);
     try {
-      await issueMutation.mutateAsync({
+      const result = await issueMutation.mutateAsync({
         courseType: selectedCourse,
         level: selectedLevel,
         certificateType: "level_certificate",
       });
       toast.success("수료증이 성공적으로 발급되었습니다!");
       setPreviewOpen(false);
-      getCertificatesQuery.refetch();
+      const issuedId = Number((result as { insertId?: number } | undefined)?.insertId ?? 0);
+      const refreshed = await getCertificatesQuery.refetch();
+      await deliverIssuedCertificate(refreshed.data?.find((item: any) => item.id === issuedId));
     } catch (error: any) {
       console.error("Error issuing certificate:", error);
       toast.error(error.message || "수료증 발급 중 오류가 발생했습니다.");
@@ -429,23 +397,16 @@ export default function Certificate() {
                     <div className="p-3 bg-white rounded-lg border border-indigo-100 text-xs text-slate-600 space-y-1">
                       <p>발급일: {new Date(cert.createdAt).toLocaleDateString()}</p>
                       <p className="text-indigo-600 font-medium">상태: 정식 인증됨 (Active)</p>
+                      <p className="text-slate-500">PDF는 발급할 때 한 번만 내려받을 수 있습니다.</p>
                     </div>
                     <div className="space-y-2 pt-2">
                       <div className="flex items-center gap-2">
                         <Button
                           size="sm"
                           className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs gap-1"
-                          onClick={() => exportCertificate({ title: cert.title || `Level ${cert.level || 1} 수료증`, courseLabel: cert.courseType === "elementary" ? "초등 논술 과정" : cert.courseType === "middle_high" ? "중고등 논술 과정" : cert.courseType === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정", recipient: user?.name || "학습자", certificateNumber: cert.certNumber || `CERT-2026-${cert.id}`, issuedAt: new Date(cert.createdAt).toLocaleDateString() }, `Certificate_${cert.certNumber || cert.id}`, "png")}
+                          onClick={() => exportCertificate({ title: cert.title || `Level ${cert.level || 1} 수료증`, courseLabel: cert.courseType === "elementary" ? "초등 논술 과정" : cert.courseType === "middle_high" ? "중고등 논술 과정" : cert.courseType === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정", recipient: user?.name || "학습자", certificateNumber: cert.certNumber || `CERT-2026-${cert.id}`, issuedAt: new Date(cert.createdAt).toLocaleDateString() }, `Certificate_${cert.certNumber || cert.id}`)}
                         >
                           <FileImage className="w-3.5 h-3.5" /> 이미지 저장
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs gap-1"
-                          onClick={() => exportCertificate({ title: cert.title || `Level ${cert.level || 1} 수료증`, courseLabel: cert.courseType === "elementary" ? "초등 논술 과정" : cert.courseType === "middle_high" ? "중고등 논술 과정" : cert.courseType === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정", recipient: user?.name || "학습자", certificateNumber: cert.certNumber || `CERT-2026-${cert.id}`, issuedAt: new Date(cert.createdAt).toLocaleDateString() }, `Certificate_${cert.certNumber || cert.id}`, "pdf")}
-                        >
-                          <Download className="w-3.5 h-3.5" /> PDF 저장
                         </Button>
                       </div>
                       <div className="flex items-center gap-1.5 pt-1">
@@ -602,17 +563,9 @@ export default function Certificate() {
                 variant="outline"
                 size="sm"
                 className="w-full sm:w-auto gap-1 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                onClick={() => exportCertificate({ title: `${selectedCourse === "elementary" ? "초등" : selectedCourse === "middle_high" ? "중고등" : selectedCourse === "high_univ" ? "고등/대입" : "일반/직장인"} 논술 과정 Level ${selectedLevel} 수료증`, courseLabel: selectedCourse === "elementary" ? "초등 논술 과정" : selectedCourse === "middle_high" ? "중고등 논술 과정" : selectedCourse === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정", recipient: user?.name || "학습자", certificateNumber: "발급 전 미리보기", issuedAt: new Date().toLocaleDateString(), preview: true }, `Preview_Certificate_${selectedCourse}_Lv${selectedLevel}`, "png")}
+                onClick={() => exportCertificate({ title: `${selectedCourse === "elementary" ? "초등" : selectedCourse === "middle_high" ? "중고등" : selectedCourse === "high_univ" ? "고등/대입" : "일반/직장인"} 논술 과정 Level ${selectedLevel} 수료증`, courseLabel: selectedCourse === "elementary" ? "초등 논술 과정" : selectedCourse === "middle_high" ? "중고등 논술 과정" : selectedCourse === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정", recipient: user?.name || "학습자", certificateNumber: "발급 전 미리보기", issuedAt: new Date().toLocaleDateString(), preview: true }, `Preview_Certificate_${selectedCourse}_Lv${selectedLevel}`)}
               >
                 <FileImage className="w-3.5 h-3.5" /> 이미지 다운로드
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full sm:w-auto gap-1 text-xs"
-                onClick={() => exportCertificate({ title: `${selectedCourse === "elementary" ? "초등" : selectedCourse === "middle_high" ? "중고등" : selectedCourse === "high_univ" ? "고등/대입" : "일반/직장인"} 논술 과정 Level ${selectedLevel} 수료증`, courseLabel: selectedCourse === "elementary" ? "초등 논술 과정" : selectedCourse === "middle_high" ? "중고등 논술 과정" : selectedCourse === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정", recipient: user?.name || "학습자", certificateNumber: "발급 전 미리보기", issuedAt: new Date().toLocaleDateString(), preview: true }, `Preview_Certificate_${selectedCourse}_Lv${selectedLevel}`, "pdf")}
-              >
-                <Printer className="w-3.5 h-3.5" /> PDF 저장 (인쇄)
               </Button>
             </div>
             <div className="flex gap-2 w-full sm:w-auto justify-end">
