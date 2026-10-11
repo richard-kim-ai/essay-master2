@@ -35,9 +35,13 @@ export default function Login() {
     guardian: "보호자(법정대리인)의 동의가 아직 완료되지 않았습니다. 보호자에게 발송된 메일에서 동의를 완료한 뒤 로그인해 주세요.",
   };
   const socialMessage = SOCIAL_MESSAGES[new URLSearchParams(search).get("social") ?? ""];
+  const utils = trpc.useUtils();
   const loginMutation = trpc.auth.loginWithEmail.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("로그인되었습니다.");
+      // 로그인 전에 받아 둔 '로그아웃 상태' 조회 결과(staleTime 60초)가 남아 있으면 로그인이 안 된 것처럼 보이므로,
+      // 화면을 옮기기 전에 로그인 상태와 사용자별 조회를 새로 읽는다.
+      await utils.invalidate();
       setLocation(nextPath);
     },
     onError: (error) => {
