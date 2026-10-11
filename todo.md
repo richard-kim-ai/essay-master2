@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] /pricing 화면 구조 정리·최적화 (client/src/pages/Pricing.tsx, Pricing.test.tsx) — 시작 2026-10-12 00:30
 
 ## 완료
 
