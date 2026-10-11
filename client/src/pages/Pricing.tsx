@@ -13,8 +13,14 @@ const SECTION_LINKS = [
   { href: "#privacy-title", label: "개인정보 보호" },
 ] as const;
 
+// 무료 체험의 실제 규칙: 샘플(가입 전) AI 1회 + 가입 후 7일 체험 AI 2회. 서버 한도(server/trialPolicy.ts, sampleEvaluation)와 같은 값이다.
+const FREE_TRIAL_GUIDE = [
+  { name: "샘플 체험", when: "가입 전 · 로그인 없이", ai: "AI 평가·첨삭 1회", text: "과정 소개와 짧은 연습을 둘러보고, 실제 AI 평가·첨삭을 방문당 1회 체험합니다. 입력한 글과 결과는 저장되지 않습니다." },
+  { name: "7일 무료 체험", when: "가입 후 7일", ai: "AI 평가·첨삭 2회", text: "가입일부터 7일 동안 내 과정의 레슨과 학습 도구를 이용하고, 학습 기록이 저장됩니다. 교사 첨삭지도와 유료 전체 문제은행은 포함되지 않습니다." },
+] as const;
+
 const USE_STEPS = [
-  { title: "무료 체험", text: "7일 동안 학습 흐름을 먼저 경험합니다." },
+  { title: "무료 체험", text: "샘플 1회 + 7일 체험 2회로 AI 첨삭까지 직접 경험합니다." },
   { title: "이용권 결제", text: "학습량과 AI 첨삭 횟수에 맞는 이용권을 고릅니다." },
   { title: "유료 이용 시작", text: "30일 이용권은 시작 버튼을 누른 날부터 기간이 계산됩니다." },
 ] as const;
@@ -70,7 +76,16 @@ export default function Pricing() {
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> PRICING & TRIAL
             </div>
             <h1 id="pricing-page-title" className="mt-5 text-[clamp(2rem,5vw,3.6rem)] font-black leading-[1.12] tracking-[-0.055em] text-slate-950">내 학습량에 맞는 이용 가이드</h1>
-            <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">7일 무료 체험(샘플 체험 1회 + 체험 2회, AI 평가·첨삭 총 3회)으로 학습 흐름을 먼저 경험한 뒤, 필요한 학습량과 AI 첨삭 횟수에 맞춰 선택하세요. 카드 등록과 자동 결제는 없습니다.</p>
+            <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">먼저 무료로 학습 흐름을 경험한 뒤, 필요한 학습량과 AI 첨삭 횟수에 맞춰 선택하세요. 무료 AI 평가·첨삭은 가입 전 샘플 체험 1회와 가입 후 7일 무료 체험 2회를 합쳐 총 3회입니다. 카드 등록과 자동 결제는 없습니다.</p>
+            <div className="mx-auto mt-8 grid max-w-3xl gap-3 text-left sm:grid-cols-2" data-testid="free-trial-guide">
+              {FREE_TRIAL_GUIDE.map((item) => (
+                <div key={item.name} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs font-bold text-slate-500">{item.when}</p>
+                  <p className="mt-1 flex flex-wrap items-center gap-2 text-base font-extrabold text-slate-900">{item.name} <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-extrabold text-indigo-700">{item.ai}</span></p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">{item.text}</p>
+                </div>
+              ))}
+            </div>
             <nav aria-label="요금 안내 바로가기" className="mt-7 flex flex-wrap justify-center gap-2">
               {SECTION_LINKS.map((link) => (
                 <a key={link.href} href={link.href} className={`rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:text-indigo-700 ${FOCUS_RING}`}>{link.label}</a>

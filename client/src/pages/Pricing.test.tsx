@@ -19,7 +19,7 @@ describe("Pricing policy page", () => {
     const html = renderToStaticMarkup(<Pricing />);
 
     expect(html).toContain("7일 무료 체험");
-    expect(html).toContain("AI 평가·첨삭 총 3회");
+    expect(html).toContain("가입 전 샘플 체험 1회와 가입 후 7일 무료 체험 2회를 합쳐 총 3회");
     for (const price of ["14,900원", "24,900원", "39,900원"]) expect(html).toContain(price);
     for (const name of ["학습형", "AI 기본형", "AI 집중형", "AI 추가권"]) expect(html).toContain(name);
     expect(html).toContain("가격·환불정책");

@@ -783,8 +783,9 @@ export default function EssayWorkspace({
                   )}
                   {quota.data?.isTrial && (
                     <p className="text-xs text-slate-600">
-                      7일 체험의 무료 AI 평가는 레슨 1의 첫 서술형 풀이에서
-                      제공됩니다. 자유 글 첨삭은 이용권 범위에 따라 제공됩니다.
+                      7일 무료 체험에서는 AI 평가·첨삭을 2회 이용할 수 있습니다.
+                      횟수를 모두 쓰면 이용권을 선택해 이어서 이용할 수 있고,
+                      교사 첨삭지도는 체험에 포함되지 않습니다.
                     </p>
                   )}
                   <div className="grid gap-3 sm:grid-cols-2">
