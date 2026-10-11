@@ -2057,6 +2057,96 @@ export async function getUserPolicyConsents(userId: number) {
   return db.select().from(userPolicyConsents).where(eq(userPolicyConsents.userId, userId)).orderBy(desc(userPolicyConsents.acceptedAt));
 }
 
+// ===== AI 개인 맞춤 첨삭 동의(마이페이지에서 켜고 끈다) =====
+export const AI_LEARNING_POLICY_KEY = "ai_learning_consent";
+
+async function latestAiLearningConsent(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [latest] = await db
+    .select()
+    .from(userPolicyConsents)
+    .where(and(eq(userPolicyConsents.userId, userId), eq(userPolicyConsents.policyKey, AI_LEARNING_POLICY_KEY)))
+    .orderBy(desc(userPolicyConsents.id))
+    .limit(1);
+  return latest ?? null;
+}
+
+/** 가장 최근 동의 기록이 '동의' 상태일 때만 개인 맞춤 첨삭을 켠다. 철회하면 바로 꺼진다. */
+export async function hasAiLearningConsent(userId: number) {
+  return (await latestAiLearningConsent(userId))?.status === "accepted";
+}
+
+export async function getAiPersonalizationStatus(userId: number) {
+  const [latest, documents] = await Promise.all([latestAiLearningConsent(userId), ensureDefaultPolicyDocuments()]);
+  const document = documents.find((item) => item.policyKey === AI_LEARNING_POLICY_KEY) ?? null;
+  const consented = latest?.status === "accepted";
+  return {
+    consented,
+    acceptedAt: consented ? latest!.acceptedAt : null,
+    document: document ? { title: document.title, version: document.version, content: document.content } : null,
+  };
+}
+
+export async function setAiLearningConsent(userId: number, accepted: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  if (accepted) {
+    if (await hasAiLearningConsent(userId)) return { consented: true };
+    const documents = await ensureDefaultPolicyDocuments();
+    const document = documents.find((item) => item.policyKey === AI_LEARNING_POLICY_KEY);
+    if (!document) throw new Error("AI 학습 데이터 활용 동의 문서를 찾을 수 없습니다.");
+    await db.insert(userPolicyConsents).values({
+      userId,
+      policyKey: AI_LEARNING_POLICY_KEY,
+      policyVersion: document.version,
+      consentType: "optional_ai_learning",
+      status: "accepted",
+      acceptedAt: new Date(),
+      evidence: "mypage_toggle",
+    });
+    return { consented: true };
+  }
+  const now = new Date();
+  await db
+    .update(userPolicyConsents)
+    .set({ status: "withdrawn", withdrawnAt: now })
+    .where(and(eq(userPolicyConsents.userId, userId), eq(userPolicyConsents.policyKey, AI_LEARNING_POLICY_KEY), eq(userPolicyConsents.status, "accepted")));
+  return { consented: false };
+}
+
+function parseTextList(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 동의한 학습자의 최근 AI 첨삭 기록을 요약해 다음 첨삭의 참고 정보로 쓴다. 답안 원문은 담지 않는다. */
+export async function buildLearnerHistoryContext(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(aiAutoFeedback).where(eq(aiAutoFeedback.userId, userId)).orderBy(desc(aiAutoFeedback.createdAt), desc(aiAutoFeedback.id)).limit(5);
+  if (rows.length === 0) return null;
+  const average = (values: Array<number | null>) => {
+    const numbers = values.filter((value): value is number => typeof value === "number");
+    return numbers.length ? Math.round(numbers.reduce((sum, value) => sum + value, 0) / numbers.length) : null;
+  };
+  const averageScores = {
+    structure: average(rows.map((row) => row.structureScore)),
+    logic: average(rows.map((row) => row.logicScore)),
+    expression: average(rows.map((row) => row.expressionScore)),
+    overall: average(rows.map((row) => row.overallScore)),
+  };
+  const dimensions = (["structure", "logic", "expression"] as const).filter((key) => averageScores[key] !== null);
+  const weakestDimension = dimensions.length ? dimensions.reduce((lowest, key) => (averageScores[key]! < averageScores[lowest]! ? key : lowest)) : null;
+  const recurringWeakPoints = Array.from(new Set(rows.slice(0, 3).flatMap((row) => parseTextList(row.weaknesses)).map((text) => text.trim().slice(0, 80)).filter(Boolean))).slice(0, 4);
+  return { recent_essay_count: rows.length, average_scores: averageScores, weakest_dimension: weakestDimension, recurring_weak_points: recurringWeakPoints };
+}
+
 export async function getPolicyConsentAudit(limit = 100) {
   const db = await getDb();
   if (!db) return [];
@@ -2605,6 +2695,15 @@ export async function assignStudentTeacher(studentId: number, teacherId: number 
   await db.update(users).set({ teacherId, updatedAt: new Date() }).where(eq(users.id, studentId));
   if (actorId) await createAdminAuditLog({ actorId, targetUserId: studentId, action: "teacher_assigned", summary: `${student.name || `학생 #${studentId}`} 담당 교사 ${teacherId ? "지정" : "해제"}`, metadata: { previousTeacherId: student.teacherId, teacherId } });
   return true;
+}
+
+/** 학생이 가입 후 마이페이지에서 직접 담당 교사를 고른다(null이면 AI 첨삭 전용 봇이 기본 담당). */
+export async function setStudentOwnTeacher(studentId: number, teacherId: number | null) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const nextTeacherId = teacherId ?? (await getDefaultAiTutor())?.id ?? null;
+  await db.update(users).set({ teacherId: nextTeacherId, preferredTeacherId: nextTeacherId, updatedAt: new Date() }).where(and(eq(users.id, studentId), eq(users.role, "user")));
+  return nextTeacherId;
 }
 
 export async function createAdminAuditLog(input: { actorId: number; targetUserId?: number | null; action: "admin_account_created" | "role_changed" | "level_changed" | "teacher_assigned"; summary: string; metadata?: Record<string, unknown> }) {

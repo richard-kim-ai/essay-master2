@@ -238,6 +238,16 @@ export const appRouter = router({
       .input(z.object({ accountType: z.enum(["student", "parent", "teacher"]) }))
       .query(async ({ input }) => db.getActivePolicyDocuments(input.accountType)),
     myConsents: protectedProcedure.query(async ({ ctx }) => db.getUserPolicyConsents(ctx.user.id)),
+    aiPersonalization: protectedProcedure.query(async ({ ctx }) => db.getAiPersonalizationStatus(ctx.user.id)),
+    setAiPersonalization: protectedProcedure
+      .input(z.object({ enabled: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 AI 개인 맞춤 첨삭을 설정할 수 있습니다." });
+        const result = await db.setAiLearningConsent(ctx.user.id, input.enabled);
+        // 철회는 즉시 반영되고, 이미 수집된 학습 데이터 처리는 운영자가 확인할 수 있도록 요청 기록을 남긴다.
+        if (!input.enabled) await db.createDataProcessingRequest(ctx.user.id, "withdraw_ai_learning", "마이페이지에서 AI 개인 맞춤 첨삭 동의를 철회했습니다.");
+        return result;
+      }),
     requestDataAction: protectedProcedure
       .input(z.object({ requestType: z.enum(["access", "correction", "withdraw_ai_learning", "delete_learning_data"]), requestNote: z.string().max(2000).optional() }))
       .mutation(async ({ ctx, input }) => db.createDataProcessingRequest(ctx.user.id, input.requestType, input.requestNote)),
@@ -385,6 +395,35 @@ export const appRouter = router({
         // 가입 전(비로그인)에도 열리는 목록이므로 교사의 이메일 같은 연락처는 내려주지 않는다.
         const teachers = await db.getApprovedTeachersForRecommendation(input.courseType);
         return teachers.map(({ email: _email, ...teacher }) => teacher);
+      }),
+
+    // 학생이 마이페이지에서 현재 담당 교사와 선택 가능한 교사 목록을 본다.
+    myTeacher: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 담당 교사를 선택할 수 있습니다." });
+      const [candidates, current, aiTutor] = await Promise.all([
+        db.getApprovedTeachersForRecommendation(getCourseTypeFromUserTag(ctx.user.tag)),
+        ctx.user.teacherId ? db.getUserById(ctx.user.teacherId) : Promise.resolve(undefined),
+        db.getDefaultAiTutor(),
+      ]);
+      const isAiBot = !current || current.id === aiTutor?.id;
+      return {
+        currentTeacherId: isAiBot ? null : current!.id,
+        currentTeacherName: isAiBot ? "AI 첨삭 전용 봇" : current!.name || "이름 미설정 교사",
+        candidates: candidates.map(({ email: _email, ...teacher }) => teacher),
+      };
+    }),
+    selectMyTeacher: protectedProcedure
+      .input(z.object({ teacherId: z.number().int().positive().nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 담당 교사를 선택할 수 있습니다." });
+        if (input.teacherId) {
+          const candidates = await db.getApprovedTeachersForRecommendation(getCourseTypeFromUserTag(ctx.user.tag));
+          if (!candidates.some((teacher) => teacher.id === input.teacherId)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "선택한 교사를 찾을 수 없습니다." });
+          }
+        }
+        await db.setStudentOwnTeacher(ctx.user.id, input.teacherId);
+        return { success: true } as const;
       }),
 
     signup: publicProcedure
@@ -1622,10 +1661,12 @@ export const appRouter = router({
           if (releaseInstitutionBudget) await releaseInstitutionBudget().catch(() => undefined);
         };
         try {
+        // 마이페이지에서 'AI 개인 맞춤 첨삭'에 동의한 학습자에게만 최근 학습 기록 요약을 첨삭에 반영한다.
+        const learnerHistory = (await db.hasAiLearningConsent(ctx.user.id)) ? await db.buildLearnerHistoryContext(ctx.user.id) : null;
         const difficultyPreset = await db.getDifficultyOperationPreset();
         const request = { essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, difficultyMode: difficultyPreset.mode, sourceVerificationFailed: Boolean(input.sourceVerificationFailed) } as const;
         const heuristic = evaluateWritingHeuristic(request);
-        const semantic = await evaluateWritingWithLLM({ metadata: { title: input.essayTitle, course_type: input.courseType, level: input.level, difficulty_mode: difficultyPreset.mode }, task: input.essayTitle, submission: { essay_text: input.essayContent } }).catch(async (error) => {
+        const semantic = await evaluateWritingWithLLM({ metadata: { title: input.essayTitle, course_type: input.courseType, level: input.level, difficulty_mode: difficultyPreset.mode, ...(learnerHistory ? { learner_history: learnerHistory } : {}) }, task: input.essayTitle, submission: { essay_text: input.essayContent } }).catch(async (error) => {
           await billingDb.releaseAiUsage(reservationId);
           if (releaseInstitutionBudget) await releaseInstitutionBudget().catch(() => undefined);
           throw error;
@@ -1647,7 +1688,7 @@ export const appRouter = router({
         const evaluationRecordId = Number((record as { insertId?: number }).insertId || 0);
         const reviewReasons = getHumanReviewReasons(feedback, heuristic.overallScore, Boolean(input.sourceVerificationFailed));
         if (reviewReasons.length && evaluationRecordId) await db.createEvaluationReviewQueueItem({ evaluationRecordId, userId: ctx.user.id, reasonsJson: JSON.stringify(reviewReasons) });
-        return { ...(savedFeedback as object), ...feedback, id: feedbackId, evaluationRecordId, reviewQueued: reviewReasons.length > 0 };
+        return { ...(savedFeedback as object), ...feedback, id: feedbackId, evaluationRecordId, reviewQueued: reviewReasons.length > 0, personalized: Boolean(learnerHistory) };
         } catch (error) {
           await releaseAll();
           throw error;

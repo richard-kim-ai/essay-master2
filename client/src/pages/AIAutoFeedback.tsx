@@ -138,6 +138,7 @@ export default function AIAutoFeedback() {
         latencyMs: Number((result as any).latency_ms || 0),
         modelId: (result as any).model_id || "알 수 없음",
         reviewQueued: Boolean((result as any).reviewQueued),
+        personalized: Boolean((result as any).personalized),
       };
 
       setFeedback(feedbackData);
@@ -338,6 +339,7 @@ export default function AIAutoFeedback() {
                       <p className="mt-1 text-xs text-slate-600">모델 {feedback.modelId} · 처리 시간 {feedback.latencyMs}ms</p>
                       {feedback.providerError && <p className="mt-2 text-xs font-medium text-amber-800">모델 응답을 사용할 수 없어 안전한 기본 점검 결과를 제공했습니다. 사유: {feedback.providerError}</p>}
                     </div>
+                    {feedback.personalized && <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-3 py-1.5 text-xs font-bold text-indigo-800">개인 맞춤 첨삭 적용</span>}
                     {feedback.reviewQueued && <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> 인간 검수 대상</span>}
                   </CardContent>
                 </Card>

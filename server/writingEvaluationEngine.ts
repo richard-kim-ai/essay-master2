@@ -23,6 +23,9 @@ export type SemanticWritingEvaluationResult = {
   token_usage: number;
 };
 
+// 학생이 개인 맞춤 첨삭에 동의해 metadata.learner_history가 있을 때만 시스템 지시문에 덧붙인다.
+const PERSONALIZATION_NOTE = "\nmetadata.learner_history는 동의한 학생의 최근 첨삭 요약이다. 반복되는 약점은 짚고 나아진 점은 인정하되, 점수는 이번 답안의 관찰 근거로만 매기고 과거 기록으로 올리거나 내리지 않는다.";
+
 export type SemanticEvaluationRequest = {
   metadata: Record<string, unknown>;
   task: string;
@@ -100,7 +103,7 @@ export async function evaluateWritingWithLLM(request: SemanticEvaluationRequest)
   if (state.decision) return nonScoredResult(state.decision, state.reason ?? "평가를 진행하지 않았습니다.");
   try {
     const response = await invokeLLM({
-      messages: [{ role: "system", content: MASTER_PROMPT }, { role: "user", content: JSON.stringify({ metadata: request.metadata, task: request.task, submission: request.submission }) }],
+      messages: [{ role: "system", content: request.metadata.learner_history ? MASTER_PROMPT + PERSONALIZATION_NOTE : MASTER_PROMPT }, { role: "user", content: JSON.stringify({ metadata: request.metadata, task: request.task, submission: request.submission }) }],
       response_format: { type: "json_object" },
     });
     const content = response.choices?.[0]?.message?.content;
