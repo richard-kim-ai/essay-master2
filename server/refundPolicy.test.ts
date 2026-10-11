@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_REFUND_POLICY, REFUND_POLICY_KEY } from "./refundPolicy";
+import { TEACHER_FEEDBACK_PASSES, formatKrw } from "../shared/plans";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -36,6 +37,21 @@ describe("가격·환불정책 기본 문구", () => {
     expect(DEFAULT_REFUND_POLICY).toContain("사업자등록번호: 105-88-00735");
     expect(DEFAULT_REFUND_POLICY).toContain("총 환불액: 17,015원");
     expect(DEFAULT_REFUND_POLICY).toContain("3영업일 이내 환급합니다");
+  });
+
+  it("교사 첨삭은 건별이 아니라 첨삭지도권(1·3·5회분) 기준으로 안내하고, 가격이 상품 정의와 같다", () => {
+    for (const product of TEACHER_FEEDBACK_PASSES) {
+      expect(DEFAULT_REFUND_POLICY).toContain(`교사 첨삭지도권 ${product.sessions}회분 | ${formatKrw(product.priceKrw)} | 구매일부터 ${product.periodDays}일`);
+    }
+    // 폐지한 건별 상품과 건별 환불 문구가 남아 있지 않다.
+    for (const removed of ["교사 핵심 첨삭지도", "교사 일반 첨삭지도", "교사 종합 첨삭지도", "3,900원/건", "교사 첨삭은 별도 신청·결제 상품", "별도 미제공 교사 지도 환불액"]) {
+      expect(DEFAULT_REFUND_POLICY).not.toContain(removed);
+    }
+    // 신청 시 1회 차감, 전달 전 취소 시 횟수 복원, 미사용 권 환불식이 들어 있다.
+    expect(DEFAULT_REFUND_POLICY).toContain("신청할 때마다 권의 횟수 1회가 사용됩니다");
+    expect(DEFAULT_REFUND_POLICY).toContain("사용한 교사 첨삭지도권 1회가 그대로 돌아옵니다");
+    expect(DEFAULT_REFUND_POLICY).toContain("교사 첨삭지도권 환불액 = 권의 실제 결제금액 × 미사용 횟수 ÷ 구매한 총 횟수");
+    expect(DEFAULT_REFUND_POLICY).toContain("이용권(학습형·AI 기본형·AI 집중형·AI 추가권)을 이용 중인 이용자만 별도로 구매할 수 있으며");
   });
 
   it("설정 키는 refund_policy이다", () => {
