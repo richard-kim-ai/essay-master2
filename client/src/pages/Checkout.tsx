@@ -6,6 +6,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import LoginRequired from "@/components/LoginRequired";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import TeacherFeedbackPassPurchase from "@/components/TeacherFeedbackPassPurchase";
 import { trpc } from "@/lib/trpc";
 import { PLANS, formatKrw, getPlan, getPlanName, type PlanKey } from "@shared/plans";
 
@@ -150,6 +151,8 @@ export default function Checkout() {
         </div>
         <Button className="bg-indigo-600 hover:bg-indigo-700" disabled={checkout.isPending || institutional} onClick={() => checkout.mutate({ planKey: plan.key })}>{checkout.isPending ? "결제 중..." : isTest ? "임시 결제하기" : "결제하기"}</Button>
       </Card>
+
+      <Card className="p-5"><TeacherFeedbackPassPurchase /></Card>
 
       <section aria-labelledby="order-history">
         <h2 id="order-history" className="text-lg font-bold text-slate-900">결제 내역</h2>

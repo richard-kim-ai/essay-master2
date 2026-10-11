@@ -4,11 +4,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { getPlanName } from "@shared/plans";
 import { formatDueDate } from "@/components/TeacherFeedbackRequestDialog";
 
 /**
- * 교사용 '첨삭 신청 대기열': 학생이 결제해 신청한 첨삭 건을 완료 예정일이 가까운 순으로 보여 주고,
+ * 교사용 '첨삭 신청 대기열': 학생이 첨삭지도권으로 신청한 첨삭 건을 완료 예정일이 가까운 순으로 보여 주고,
  * '첨삭하기'를 누르면 작업을 시작하고 첨삭 작성 화면으로 이동한다. 교사 지급은 계약급여로 따로 집행하므로 금액은 표시하지 않는다.
  */
 export default function TeacherFeedbackQueue() {
@@ -29,7 +28,7 @@ export default function TeacherFeedbackQueue() {
     <Card className="border-slate-200" data-testid="teacher-feedback-queue">
       <CardHeader>
         <CardTitle className="text-lg">첨삭 신청 대기열 ({rows.length}건)</CardTitle>
-        <CardDescription>학생이 결제하고 신청한 교사 첨삭입니다. 완료 예정일까지 결과를 전달해 주세요. 신청 범위(핵심 첨삭의 평가항목)를 확인한 뒤 작성합니다.</CardDescription>
+        <CardDescription>학생이 교사 첨삭지도권을 사용해 신청한 첨삭입니다. 논리·구성·근거를 중심으로 완료 예정일까지 결과를 전달해 주세요.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {query.isLoading && <p className="text-sm text-slate-500">불러오는 중입니다...</p>}
@@ -43,7 +42,6 @@ export default function TeacherFeedbackQueue() {
                 <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">{row.status === "in_progress" ? "작업 중" : "대기"}</span>
               </span>
             </div>
-            <p className="text-slate-600">{getPlanName(row.productKey)}{row.scopeLabel ? ` · 선택 항목: ${row.scopeLabel}` : ""}</p>
             <p className="text-slate-700">완료 예정일 <strong>{formatDueDate(row.dueAt)}</strong>까지</p>
             {row.reworkCount > 0 && <p className="rounded-lg bg-amber-50 p-2 text-xs leading-5 text-amber-950">학생이 보완을 요청했습니다{row.reworkNote ? `: ${row.reworkNote}` : "."}</p>}
             <div className="pt-1">

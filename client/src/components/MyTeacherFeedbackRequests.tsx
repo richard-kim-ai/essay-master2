@@ -4,30 +4,29 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { formatKrw, getPlanName } from "@shared/plans";
 import { formatDueDate } from "@/components/TeacherFeedbackRequestDialog";
 
 export const REQUEST_STATUS_LABELS: Record<string, { label: string; style: string }> = {
-  paid: { label: "결제 완료 · 교사 대기", style: "bg-sky-100 text-sky-900" },
+  paid: { label: "신청 완료 · 교사 대기", style: "bg-sky-100 text-sky-900" },
   in_progress: { label: "교사 작업 중", style: "bg-indigo-100 text-indigo-900" },
   delivered: { label: "전달 완료", style: "bg-emerald-100 text-emerald-900" },
   cancelled: { label: "취소", style: "bg-slate-200 text-slate-700" },
-  refunded: { label: "환불 완료", style: "bg-slate-200 text-slate-700" },
+  refunded: { label: "환불 처리", style: "bg-slate-200 text-slate-700" },
 };
 
-/** 내 교사 첨삭 신청: 진행 상태·완료 예정일, 전달 전 취소(전액 환불), 지연 시 선택, 전달 후 보완 요청. */
+/** 내 교사 첨삭 신청: 진행 상태·완료 예정일, 전달 전 취소(첨삭지도권 1회 복원), 지연 시 선택, 전달 후 보완 요청. */
 export default function MyTeacherFeedbackRequests() {
   const utils = trpc.useUtils();
   const query = trpc.teacherFeedbackRequest.mine.useQuery();
   const [reworkTarget, setReworkTarget] = useState<number | null>(null);
   const [reworkNote, setReworkNote] = useState("");
-  // 환불은 되돌릴 수 없으므로 한 번 눌러 확인 문구를 보여 주고, 다시 눌러야 실행한다.
+  // 취소는 되돌릴 수 없으므로 한 번 눌러 확인 문구를 보여 주고, 다시 눌러야 실행한다.
   const [confirmCancel, setConfirmCancel] = useState<number | null>(null);
-  const refresh = () => Promise.all([utils.teacherFeedbackRequest.mine.invalidate(), utils.billing.myOrders.invalidate()]);
+  const refresh = () => Promise.all([utils.teacherFeedbackRequest.mine.invalidate(), utils.teacherFeedbackRequest.passes.invalidate()]);
 
   const cancel = trpc.teacherFeedbackRequest.cancel.useMutation({
     onSuccess: async (result) => {
-      toast.success(`신청을 취소하고 ${formatKrw(result.refundedKrw)}을 전액 환불했습니다.`);
+      toast.success(`신청을 취소했습니다. 교사 첨삭지도권 ${result.restored}회가 돌아왔어요.`);
       setConfirmCancel(null);
       await refresh();
     },
@@ -53,7 +52,7 @@ export default function MyTeacherFeedbackRequests() {
     <Card className="border-slate-200" data-testid="my-teacher-feedback-requests">
       <CardHeader>
         <CardTitle className="text-lg">내 교사 첨삭 신청</CardTitle>
-        <CardDescription>결과가 전달되기 전에는 언제든 취소하고 전액 환불받을 수 있습니다.</CardDescription>
+        <CardDescription>결과가 전달되기 전에는 언제든 취소하고 교사 첨삭지도권 1회를 돌려받을 수 있습니다.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {rows.map((row) => {
@@ -65,10 +64,7 @@ export default function MyTeacherFeedbackRequests() {
                 <p className="font-bold text-slate-900">{row.essayTitle ?? `글 #${row.essayId}`}</p>
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${status.style}`}>{status.label}</span>
               </div>
-              <p className="text-slate-600">
-                {getPlanName(row.productKey)} · {formatKrw(row.priceKrw)}
-                {row.scopeLabel ? ` · ${row.scopeLabel}` : ""}
-              </p>
+              <p className="text-slate-600">교사 첨삭지도권 1회 사용</p>
               {open && (
                 <p className="text-slate-700">
                   완료 예정일 <strong>{formatDueDate(row.dueAt)}</strong>까지
@@ -77,20 +73,20 @@ export default function MyTeacherFeedbackRequests() {
               )}
               {row.overdue && (
                 <p className="rounded-lg bg-amber-50 p-2 text-xs leading-5 text-amber-950" role="status">
-                  완료 예정일이 지났습니다. 아래에서 <strong>전액 환불</strong>을 받거나 그대로 기다리실 수 있어요. 기다리시면 담당 교사가 곧 결과를 전달합니다.
+                  완료 예정일이 지났습니다. 아래에서 <strong>취소하고 첨삭지도권 1회를 돌려받거나</strong> 그대로 기다리실 수 있어요. 기다리시면 담당 교사가 곧 결과를 전달합니다.
                 </p>
               )}
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 {open && confirmCancel !== row.id && (
                   <Button size="sm" variant="outline" onClick={() => setConfirmCancel(row.id)}>
-                    {row.overdue ? "전액 환불받기" : "신청 취소(전액 환불)"}
+                    {row.overdue ? "취소하고 횟수 돌려받기" : "신청 취소(횟수 복원)"}
                   </Button>
                 )}
                 {open && confirmCancel === row.id && (
                   <>
-                    <span className="text-xs text-slate-700">신청을 취소하고 {formatKrw(row.priceKrw)}을 전액 환불받으시겠어요?</span>
+                    <span className="text-xs text-slate-700">신청을 취소하고 교사 첨삭지도권 1회를 돌려받으시겠어요?</span>
                     <Button size="sm" className="bg-rose-600 text-white hover:bg-rose-700" disabled={cancel.isPending} onClick={() => cancel.mutate({ requestId: row.id })}>
-                      {cancel.isPending ? "환불 중..." : "네, 취소하고 환불받기"}
+                      {cancel.isPending ? "처리 중..." : "네, 취소하고 돌려받기"}
                     </Button>
                     <Button size="sm" variant="ghost" disabled={cancel.isPending} onClick={() => setConfirmCancel(null)}>아니요</Button>
                   </>
