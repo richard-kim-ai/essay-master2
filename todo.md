@@ -4,7 +4,7 @@
 
 
 ## 완료
-- [Local] 푸터에 기초 이론 저작권 등록 표기(저작물명·등록번호·한국저작권위원회 확인 링크) — 시작 2026-10-12 23:30, 완료 2026-10-12 (등록번호는 client/src/lib/contact.ts COPYRIGHT_INFO.registrationNumber에 입력해야 표시됨)
+- [Local] 푸터에 기초 이론 저작권 등록 표기(저작물명·등록번호·한국저작권위원회 확인 링크) — 시작 2026-10-12 23:30, 완료 2026-10-12 (등록번호 C-2026-044488은 client/src/lib/contact.ts COPYRIGHT_INFO에 입력, 비우면 숨김)
 - [Local] 메일 발송 실패 안내 개선: 비밀번호 재설정·인증 메일 재발송이 실패해도 제공자 원문 오류를 사용자에게 보여 주지 않고(가입 여부 노출 방지) 서버 로그([mail] …)에만 남김, 재설정·인증 화면에 '메일이 오지 않나요?' 안내(스팸함·주소 확인·재요청 한도·관리자 문의) 추가, 테스트 2건 — 시작 2026-10-12 23:00, 완료 2026-10-12 (Resend 도메인 인증과 EMAIL_FROM 설정은 운영 환경에서 별도 필요)
 - [Manus] GitHub richard-kim-ai/essay-master2 main(87e1407) 병합·검증·게시 및 타임아웃 테스트 보완 — 시작 2026-10-11 05:21, 완료 2026-10-11 12:43
 - [Local] 학습자 응답의 정답 키 제거(Codex #13): questionBank.list/random/reorderingPractice와 워크북 문항 조회(getWorkbookQuestions·getWorkbookLessonBundle)에서 정답·해설·정답 순서를 제거(교사·관리자는 원본)하고 단락은 서버에서 섞음, 정답·해설·정답 순서는 제출 결과(quiz.submitAnswer·reorderingSubmit·submitWorkbookAnswer)로만 반환, 퀴즈·단락 재구성·워크북 화면을 서버 판정 기반으로 변경(비로그인 미리보기·교사·관리자 퀴즈는 화면 판정 유지), 테스트 5건 — 시작 2026-10-12 22:00, 완료 2026-10-12 (화면 육안 확인 미실시)

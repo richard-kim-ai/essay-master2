@@ -49,20 +49,21 @@ describe("Footer", () => {
     expect(html).toContain('href="/signup"');
   });
 
-  it("저작권 등록번호가 있으면 저작물명·번호·확인 링크를 보여주고, 비어 있으면 숨긴다", () => {
-    expect(renderToStaticMarkup(<Footer />)).not.toContain("저작권등록번호");
+  it("저작권 등록 정보(저작물명·저자·번호·확인 링크)를 보여주고, 번호가 비면 숨긴다", () => {
+    for (const variant of ["default", "compact"] as const) {
+      const html = renderToStaticMarkup(<Footer variant={variant} />);
+      expect(html).toContain("『논술의 기초』(김주영)");
+      expect(html).toContain("저작권등록번호 C-2026-044488");
+      expect(html).toContain(`href="${COPYRIGHT_INFO.verifyUrl}"`);
+      expect(html).toContain('rel="noopener noreferrer"');
+    }
 
-    COPYRIGHT_INFO.registrationNumber = "C-0000-000000";
+    const saved = COPYRIGHT_INFO.registrationNumber;
+    COPYRIGHT_INFO.registrationNumber = undefined;
     try {
-      for (const variant of ["default", "compact"] as const) {
-        const html = renderToStaticMarkup(<Footer variant={variant} />);
-        expect(html).toContain("『논술의 기초』");
-        expect(html).toContain("저작권등록번호 C-0000-000000");
-        expect(html).toContain(`href="${COPYRIGHT_INFO.verifyUrl}"`);
-        expect(html).toContain('rel="noopener noreferrer"');
-      }
+      expect(renderToStaticMarkup(<Footer />)).not.toContain("저작권등록번호");
     } finally {
-      COPYRIGHT_INFO.registrationNumber = undefined;
+      COPYRIGHT_INFO.registrationNumber = saved;
     }
   });
 
