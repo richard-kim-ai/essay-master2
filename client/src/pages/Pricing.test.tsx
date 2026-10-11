@@ -65,4 +65,11 @@ describe("개인정보 삭제·철회 안내 문구", () => {
     expect(html).toContain("학습 데이터 삭제와 AI 품질 개선 활용 철회는 마이페이지 및 관리자 메일 신청을 통해 요청할 수 있습니다.");
     expect(html).not.toContain("요청하실 수 있습니다");
   });
+
+  it("도입·운영 문의 버튼은 메일 링크는 유지하되 화면에 이메일 주소를 글자로 보여 주지 않는다", () => {
+    const html = renderToStaticMarkup(<Pricing />);
+    expect(html).toContain('href="mailto:ceo@ufinsu.com"');
+    expect(html).toContain("도입·운영 문의</a>");
+    expect(html).not.toMatch(/>[^<]*ceo@ufinsu\.com[^<]*</);
+  });
 });
