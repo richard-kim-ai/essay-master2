@@ -10,6 +10,7 @@ import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImag
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse, requireLearnerCourse } from "./questionBankAccess";
 import { getLearningAnalytics, getWeeklyStudySummary } from "./learningAnalyticsDb";
+import { reviseEssayWithLLM } from "./essayRevisionEngine";
 import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview, trashEssay, restoreEssay, purgeEssay, listTrashedEssays, emptyTrash } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -1838,7 +1839,11 @@ export const appRouter = router({
           reservationId = 0;
           releaseInstitutionBudget = null;
         }
-        const feedback = { structureScore: semantic.dimension_scores.find((item) => item.competency === "macro_structure")?.score ?? semantic.total_score, logicScore: semantic.dimension_scores.find((item) => item.competency === "logical_inference")?.score ?? semantic.total_score, expressionScore: semantic.dimension_scores.find((item) => item.competency === "sentence_expression")?.score ?? semantic.total_score, overallScore: semantic.total_score, strengths: semantic.strengths, weaknesses: semantic.improvement_points, suggestions: semantic.feedback.revision_steps, overallComment: semantic.feedback.summary, revisedEssay: input.essayContent, sentenceCorrections: [], confidence: semantic.fallback_used ? 0.25 : 0.85, correction_status: semantic.fallback_used ? "fallback" as const : "completed" as const, fallback_used: semantic.fallback_used, provider_error: semantic.provider_error, latency_ms: 0, model_id: "builtin-llm-v1.1", token_usage: semantic.token_usage, estimated_cost_microusd: 0 };
+        // 평가 엔진은 점수·코멘트만 만들므로, 정상 평가된 글에 한해 수정 답안과 문장별 교정을 따로 만든다(실패하면 평가 결과만 제공).
+        const revision = semantic.fallback_used || semantic.decision === "held" || semantic.decision === "dismissed"
+          ? null
+          : await reviseEssayWithLLM({ essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, weaknesses: semantic.improvement_points });
+        const feedback = { structureScore: semantic.dimension_scores.find((item) => item.competency === "macro_structure")?.score ?? semantic.total_score, logicScore: semantic.dimension_scores.find((item) => item.competency === "logical_inference")?.score ?? semantic.total_score, expressionScore: semantic.dimension_scores.find((item) => item.competency === "sentence_expression")?.score ?? semantic.total_score, overallScore: semantic.total_score, strengths: semantic.strengths, weaknesses: semantic.improvement_points, suggestions: semantic.feedback.revision_steps, overallComment: semantic.feedback.summary, revisedEssay: revision?.revisedEssay ?? input.essayContent, sentenceCorrections: revision?.corrections ?? [], confidence: semantic.fallback_used ? 0.25 : 0.85, correction_status: semantic.fallback_used ? "fallback" as const : "completed" as const, fallback_used: semantic.fallback_used, provider_error: semantic.provider_error, latency_ms: 0, model_id: "builtin-llm-v1.1", token_usage: semantic.token_usage + (revision?.tokenUsage ?? 0), estimated_cost_microusd: 0 };
         if (reservationId) await billingDb.recordAiUsageTokens(reservationId, feedback.token_usage);
         // 기관 계약 비용으로 쓴 평가는 개인 이용권·체험 사용량과 섞이지 않도록 따로 기록한다.
         else if (!semantic.fallback_used) await db.logAIUsage(ctx.user.id, entitlement.mode === "institution" ? "institution_essay_feedback" : AI_ACTION_PLAN, feedback.token_usage);

@@ -382,11 +382,12 @@ describe("getEssayWorkspace", () => {
     const { db, calls } = createDb([[{ essay: owned, teacher, ai }]]);
     vi.mocked(getDb).mockResolvedValue(db as any);
 
+    // AI 첨삭에는 기본 점검(대체) 결과 여부(fallbackUsed)가 함께 붙는다. 평가 기록이 없으면 false이다.
     await expect(getEssayWorkspace(7)).resolves.toEqual([
-      { ...owned, teacherFeedback: teacher, aiFeedback: ai },
+      { ...owned, teacherFeedback: teacher, aiFeedback: { ...ai, fallbackUsed: false } },
     ]);
 
-    expect(calls.leftJoin).toHaveLength(2);
+    expect(calls.leftJoin).toHaveLength(3);
     // 요청한 사용자의 글만, 휴지통에 옮기지 않은 글만 조회한다.
     const condition = renderCondition(calls.where[0]);
     expect(condition.sql).toContain("`essay_submission`.`userId` = ?");

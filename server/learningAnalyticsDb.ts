@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
-import { aiAutoFeedback, curriculumWorkbookAnswers, curriculumWorkbookQuestions, essaySubmission, learningToolAttempts, progress, teacherFeedback } from "../drizzle/schema";
+import { aiAutoFeedback, writingEvaluationRecords, curriculumWorkbookAnswers, curriculumWorkbookQuestions, essaySubmission, learningToolAttempts, progress, teacherFeedback } from "../drizzle/schema";
 import type { CourseType } from "../shared/course";
 import { buildLearningAnalytics, buildWeeklySummary, type LearningAnalytics } from "../shared/learningAnalytics";
 import { getDb } from "./db";
@@ -11,8 +11,9 @@ export async function getLearningAnalytics(userId: number, courseType?: CourseTy
   const db = await getDb();
   if (!db) return buildLearningAnalytics({ ai: [], teacher: [], tools: [] });
 
-  const aiRows = await db
+  const aiRowsRaw = await db
     .select({
+      fallbackUsed: writingEvaluationRecords.fallbackUsed,
       createdAt: aiAutoFeedback.createdAt,
       overallScore: aiAutoFeedback.overallScore,
       structureScore: aiAutoFeedback.structureScore,
@@ -20,9 +21,12 @@ export async function getLearningAnalytics(userId: number, courseType?: CourseTy
       expressionScore: aiAutoFeedback.expressionScore,
     })
     .from(aiAutoFeedback)
+    .leftJoin(writingEvaluationRecords, eq(writingEvaluationRecords.feedbackId, aiAutoFeedback.id))
     .where(courseType ? and(eq(aiAutoFeedback.userId, userId), eq(aiAutoFeedback.courseType, courseType)) : eq(aiAutoFeedback.userId, userId))
     .orderBy(desc(aiAutoFeedback.createdAt))
     .limit(PER_SOURCE_LIMIT);
+  // AI 모델 호출에 실패해 기본 규칙 점검으로 대체된 결과는 실력 분석에 섞지 않는다.
+  const aiRows = aiRowsRaw.filter((row) => !row.fallbackUsed);
 
   // 교사 첨삭은 학생의 글(essay_submission)을 통해 찾는다.
   const essayIds = (await db.select({ id: essaySubmission.id }).from(essaySubmission).where(eq(essaySubmission.userId, userId)).limit(1000)).map((row) => row.id);

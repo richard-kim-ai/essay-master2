@@ -1584,15 +1584,18 @@ export async function getAIAutoFeedbackByUser(
   const db = await getDb();
   if (!db) return [];
 
-  return await db
-    .select()
+  const rows = await db
+    .select({ feedback: aiAutoFeedback, fallbackUsed: writingEvaluationRecords.fallbackUsed })
     .from(aiAutoFeedback)
+    .leftJoin(writingEvaluationRecords, eq(writingEvaluationRecords.feedbackId, aiAutoFeedback.id))
     .where(
       and(
         eq(aiAutoFeedback.userId, userId),
         ...(courseType ? [eq(aiAutoFeedback.courseType, courseType)] : [])
       )
     );
+  // fallbackUsed: AI 모델 호출에 실패해 기본 규칙 점검 결과로 대체된 첨삭이면 true.
+  return rows.map(({ feedback, fallbackUsed }) => ({ ...feedback, fallbackUsed: Boolean(fallbackUsed) }));
 }
 
 export async function createAIAutoFeedback(input: {

@@ -7,6 +7,7 @@ import {
   aiAutoFeedback,
   teacherFeedbackRequests,
   teacherAiDrafts,
+  writingEvaluationRecords,
 } from "../drizzle/schema";
 import { getDb } from "./db";
 
@@ -124,6 +125,7 @@ export async function getEssayWorkspace(userId: number) {
       essay: essaySubmission,
       teacher: teacherFeedback,
       ai: aiAutoFeedback,
+      fallbackUsed: writingEvaluationRecords.fallbackUsed,
     })
     .from(essaySubmission)
     .leftJoin(teacherFeedback, eq(teacherFeedback.essayId, essaySubmission.id))
@@ -131,11 +133,16 @@ export async function getEssayWorkspace(userId: number) {
       aiAutoFeedback,
       eq(aiAutoFeedback.id, essaySubmission.aiFeedbackId)
     )
+    .leftJoin(
+      writingEvaluationRecords,
+      eq(writingEvaluationRecords.feedbackId, aiAutoFeedback.id)
+    )
     .where(and(eq(essaySubmission.userId, userId), isNull(essaySubmission.deletedAt)));
-  return rows.map(({ essay, teacher, ai }) => ({
+  return rows.map(({ essay, teacher, ai, fallbackUsed }) => ({
     ...essay,
     teacherFeedback: teacher,
-    aiFeedback: ai,
+    // fallbackUsed: AI 모델 호출에 실패해 기본 규칙 점검 결과로 대체된 첨삭이면 true.
+    aiFeedback: ai ? { ...ai, fallbackUsed: Boolean(fallbackUsed) } : ai,
   }));
 }
 
