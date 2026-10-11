@@ -4,6 +4,7 @@ import { storagePut } from "./storage";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
+import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -1319,6 +1320,33 @@ export const appRouter = router({
       .input(z.string())
       .query(({ input }) => db.getCertificateByShareToken(input)),
 
+    // PDF는 발급 순간 브라우저에서만 만들어 내려받는다. 서버에는 압축 이미지(WebP/JPEG)만 한 번 보관한다.
+    // 학습자는 본인 수료증을 발급 직후 30분 안에, 관리자는 언제든(한 번만) 올릴 수 있다.
+    saveArchive: protectedProcedure
+      .input(z.object({ certificateId: z.number().int().positive(), imageBase64: z.string().min(1).max(MAX_ARCHIVE_BASE64_LENGTH) }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await db.getCertificateById(input.certificateId);
+        if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "수료증을 찾을 수 없습니다." });
+        const isAdmin = ctx.user.role === "admin";
+        if (!isAdmin) {
+          if (target.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "본인 수료증만 보관할 수 있습니다." });
+          if (!isWithinOwnerArchiveWindow(target.issuedAt)) throw new TRPCError({ code: "FORBIDDEN", message: "발급 직후에만 보관 이미지를 올릴 수 있습니다. 관리자에게 문의해 주세요." });
+        }
+        if (target.status !== "active") throw new TRPCError({ code: "BAD_REQUEST", message: "유효한 수료증만 보관할 수 있습니다." });
+        let parsed;
+        try {
+          parsed = parseArchiveImage(input.imageBase64);
+        } catch (error: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "보관 이미지를 확인할 수 없습니다." });
+        }
+        try {
+          await db.saveCertificateArchive({ certificateId: target.id, mimeType: parsed.mimeType, bytes: parsed.bytes, imageBase64: input.imageBase64, createdBy: ctx.user.id });
+        } catch (error: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error?.message || "보관 이미지를 저장하지 못했습니다." });
+        }
+        return { saved: true, bytes: parsed.bytes };
+      }),
+
     issue: protectedProcedure
       .input(
         z.object({
@@ -2201,6 +2229,14 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
         }
         return await db.adminGetAllCertificates();
+      }),
+    getCertificateArchive: protectedProcedure
+      .input(z.object({ certificateId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        const archive = await db.getCertificateArchive(input.certificateId);
+        if (!archive) return null;
+        return { mimeType: archive.mimeType, bytes: archive.bytes, imageBase64: archive.imageData, createdAt: archive.createdAt };
       }),
     issueCertificateAdmin: protectedProcedure
       .input(z.object({

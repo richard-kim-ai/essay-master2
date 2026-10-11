@@ -8,6 +8,7 @@ import {
   quizAnswer,
   sentenceFeedbackCache,
   certificate,
+  certificateArchives,
   certificateApprovalPolicies,
   certificateApprovalRequests,
   essaySubmission,
@@ -1553,7 +1554,41 @@ export async function updateUsersTag(userIds: number[], tag: string) {
 export async function adminGetAllCertificates() {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(certificate).orderBy(desc(certificate.createdAt));
+  const rows = await db.select().from(certificate).orderBy(desc(certificate.createdAt));
+  // 보관 이미지 본문은 싣지 않고, 목록에는 보관 여부와 크기만 표시한다.
+  const archives = await db.select({ certificateId: certificateArchives.certificateId, bytes: certificateArchives.bytes }).from(certificateArchives);
+  const archiveBytes = new Map(archives.map((archive) => [archive.certificateId, archive.bytes]));
+  return rows.map((row) => ({ ...row, hasArchive: archiveBytes.has(row.id), archiveBytes: archiveBytes.get(row.id) ?? null }));
+}
+
+/** 수료증 보관 이미지(압축본)를 한 번만 저장한다. 이미 있으면 거절한다. */
+export async function saveCertificateArchive(input: { certificateId: number; mimeType: string; bytes: number; imageBase64: string; createdBy: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db.select({ id: certificateArchives.id }).from(certificateArchives).where(eq(certificateArchives.certificateId, input.certificateId));
+  if (existing) throw new Error("이미 보관된 수료증 이미지가 있습니다.");
+  await db.insert(certificateArchives).values({
+    certificateId: input.certificateId,
+    mimeType: input.mimeType,
+    bytes: input.bytes,
+    imageData: input.imageBase64,
+    createdBy: input.createdBy,
+  });
+  return true;
+}
+
+export async function getCertificateArchive(certificateId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(certificateArchives).where(eq(certificateArchives.certificateId, certificateId));
+  return row;
+}
+
+export async function getCertificateById(certificateId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select().from(certificate).where(eq(certificate.id, certificateId));
+  return row;
 }
 
 export async function adminIssueCertificate(input: {
@@ -1831,6 +1866,7 @@ export async function adminDeleteCertificate(certificateId: number) {
   const [target] = await db.select().from(certificate).where(eq(certificate.id, certificateId));
   if (!target) throw new Error("수료증을 찾을 수 없습니다.");
   if (target.status !== "revoked") throw new Error("삭제 전에 먼저 발행취소해야 합니다.");
+  await db.delete(certificateArchives).where(eq(certificateArchives.certificateId, certificateId));
   await db.delete(certificate).where(eq(certificate.id, certificateId));
   return true;
 }

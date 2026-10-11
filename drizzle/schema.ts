@@ -1,4 +1,4 @@
-import { index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar, decimal } from "drizzle-orm/mysql-core";
+import { index, int, mediumtext, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -484,6 +484,18 @@ export const certificate = mysqlTable("certificate", {
 }, (table) => ({
   idxUserId: index("idx_certificate_userId").on(table.userId),
 }));
+
+// 수료증 보관 이미지. PDF는 발급 순간에만 브라우저에서 만들어 내려받게 하고, 서버에는 압축 이미지(WebP/JPEG)만 보관한다.
+export const certificateArchives = mysqlTable("certificate_archives", {
+  id: int("id").autoincrement().primaryKey(),
+  certificateId: int("certificateId").notNull().unique(),
+  mimeType: varchar("mimeType", { length: 32 }).notNull(),
+  bytes: int("bytes").notNull(),
+  imageData: mediumtext("imageData").notNull(), // base64
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type CertificateArchive = typeof certificateArchives.$inferSelect;
 
 export type Certificate = typeof certificate.$inferSelect;
 export type InsertCertificate = typeof certificate.$inferInsert;
