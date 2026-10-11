@@ -27,8 +27,10 @@ describe("Pricing policy page", () => {
     expect(html).not.toContain("스타터");
     // 교사 첨삭지도 가격권 3종과 신청 자격 안내
     expect(html).toContain('data-testid="teacher-feedback-pricing"');
-    for (const item of ["교사 핵심 첨삭지도", "교사 일반 첨삭지도", "교사 종합 첨삭지도", "3,900원", "6,900원"]) expect(html).toContain(item);
-    expect(html).toContain("이용권 결제자만 신청할 수 있습니다.");
+    for (const item of ["교사 첨삭지도권", "첨삭지도권 1회분", "첨삭지도권 3회분", "첨삭지도권 5회분", "6,900원", "19,900원", "31,900원"]) expect(html).toContain(item);
+    expect(html).toContain("이용권 결제자만 구매·신청할 수 있습니다.");
+    // 건별(핵심·일반·종합) 상품은 더 이상 판매하지 않는다.
+    for (const removed of ["교사 핵심 첨삭지도", "교사 종합 첨삭지도", "3,900원/건"]) expect(html).not.toContain(removed);
     // 신청 기능이 열려 있으므로 '준비 중' 표시는 없다.
     expect(html).not.toContain("신청 기능 준비 중");
     expect(html).toContain("이용권 요금 안내");
