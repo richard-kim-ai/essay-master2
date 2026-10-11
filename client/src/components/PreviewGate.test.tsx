@@ -22,7 +22,7 @@ describe("비로그인 미리보기 적용 화면", () => {
   it.each(["EssayArchive", "MistakeNotebook"])("%s는 DashboardLayout 미리보기를 켜고, 로그인 전에는 서버 조회를 하지 않는다", (name) => {
     const source = page(name);
     expect(source).toMatch(/<DashboardLayout previewTitle="[^"]+">/);
-    expect(source).toContain("enabled: !preview");
+    expect(source).toContain(name === "EssayArchive" ? "enabled: !!user && !authLoading" : "enabled: !preview");
   });
 });
 
