@@ -245,6 +245,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | 7일 무료 체험 | 가입일부터 7일, 계정 체험 AI 평가·첨삭 2회(`trialPolicy.ts`) + 샘플 체험 1회 = 무료 총 3회 |
 | AI 차감 순서 | 기관 계약 > (무료 체험분 먼저 → 유료 이용권은 먼저 만료되는 것부터, 같으면 먼저 산 것부터). 이용권별로 `essay_feedback:<이용권 id>`로 기록·예약(`server/billing/entitlements.ts`, `service.ts`). 교사·관리자는 학습자용 한도 대상 아님 |
 | 결제 | 제공자 추상화(`PAYMENT_PROVIDER`)와 **임시 mock 결제**. 실제 PG 미연동 |
+| 교사 첨삭지도(건별) | 이용권 결제자가 앱 안에서 핵심 3,900원·일반 6,900원·종합 9,900원을 추가 결제해 신청(`teacher_feedback_requests`). 완료 예정일=결제일부터 3영업일, 전달 전 취소 시 전액 환불, 신청 없는 글은 교사가 첨삭 등록 불가(기관 계약 학생 예외). 교사 지급은 계약급여로 별건 |
 | 이용권 화면 | `/checkout`: 플랜 조회, 결제 시작, 구독 취소(결제 기간 끝까지 유효) |
 | 관리자 | 결제 요약·주문·구독·환불, 교사 정산 산출·대사·확정·지급 표시, 단가·원천징수율 설정 |
 | 교사 정산 | 확정 정산서는 초안 갱신이 덮어쓰지 못함, 테스트 주문은 매출 제외 |
@@ -260,7 +261,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | 커리큘럼·이론 | `curriculum`, `dynamic_curriculum`, `lesson_theory_content`, `lesson_theory_drafts`, `lesson_theory_progress`, `workbook_lesson_connections` |
 | 문제·워크북 | `question_bank`, `question_bank_trash`, `question_bank_maintenance_settings`, `question_bank_operation_logs`, `question_feedbacks`, `question_bookmarks`, `curriculum_workbook_questions`, `curriculum_workbook_answers`, `workbook_mistakes`, `workbook_teacher_feedback`, `learning_tool_mistakes`, `learning_tool_attempts`, `quiz_answer`, `sentence_feedback_cache` |
 | 진행·성과 | `progress`, `certificate`, `certificate_archives`, `certificate_approval_policies`, `certificate_approval_requests`, `user_badges`, `ai_lesson_guide_histories` |
-| 논술·첨삭 | `essay_submission`, `teacher_feedback`, `feedback_comment`, `teacher_feedback_templates`, `approved_writing_examples` |
+| 논술·첨삭 | `essay_submission`, `teacher_feedback`, `teacher_feedback_requests`, `feedback_comment`, `teacher_feedback_templates`, `approved_writing_examples` |
 | AI | `ai_auto_feedback`, `ai_usage_logs`, `sample_ai_usage_log`, `evaluation_model_configs`, `writing_evaluation_records`, `evaluation_model_operations`, `evaluation_review_queue`, `evaluation_appeals`, `teacher_ai_profiles`, `teacher_ai_style_examples`, `teacher_ai_drafts`, `teacher_ai_draft_revisions` |
 | 반 운영 | `learning_groups`, `learning_group_members`, `class_attendance`, `class_announcements`, `class_assignments`, `class_assignment_submissions`, `class_assignment_ai_feedbacks` |
 | 알림 | `app_notifications`, `push_subscription` |
@@ -318,7 +319,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | `todo.md` | 진행(Claim)·완료·로드맵 |
 | `ESSAY_MASTER_MINDMAP.md/.mmd`, `docs/current-work-mindmap.md` | 마인드맵 |
 | `docs/institution-contracts.md` | 기관 계약·정산 제외 |
-| `docs/teacher-feedback-purchase-design.md` | 교사 첨삭 건별 결제(앱 안 추가 결제) 설계안 |
+| `docs/teacher-feedback-purchase-design.md` | 교사 첨삭 건별 결제(앱 안 추가 결제) 설계·구현 기록 |
 | `docs/payment-integration.md` | 결제 연동 |
 | `docs/ai-learning-data-governance-policy.md` | AI 학습 데이터 정책 |
 | `docs/privacy-policy-under14-section.md` | 만 14세 미만 개인정보처리방침 초안 |
