@@ -48,7 +48,7 @@ export const FOOTER_MENU: ReadonlyArray<{ title: string; links: ReadonlyArray<{ 
 // 모든 화면에서 같은 푸터를 쓰기 위한 공통 컴포넌트.
 // default: 일반 화면용(소개·바로가기 포함), compact: 로그인·가입 같은 인증 화면용(약관·문의만).
 export default function Footer({ variant = "default" }: { variant?: "default" | "compact" }) {
-  const [modalType, setModalType] = useState<"terms" | "privacy" | null>(null);
+  const [modalType, setModalType] = useState<"terms" | "privacy" | "refund" | null>(null);
   const [numberCopied, setNumberCopied] = useState(false);
   const companyLines = COMPANY_LABELS.filter(([key]) => COMPANY_INFO[key]).map(([key, label]) => `${label} ${COMPANY_INFO[key]}`);
 
@@ -56,6 +56,7 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
     <>
       <button type="button" onClick={() => setModalType("terms")} className="hover:underline">이용약관</button>
       <button type="button" onClick={() => setModalType("privacy")} className="font-bold hover:underline">개인정보처리방침</button>
+      <button type="button" onClick={() => setModalType("refund")} className="hover:underline">가격·환불정책</button>
       <a href={CONTACT_MAILTO} className="hover:underline">문의 {CONTACT_EMAIL}</a>
     </>
   );
