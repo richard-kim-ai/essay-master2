@@ -357,8 +357,8 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(routerSource).toContain("accountType: z.enum([\"student\", \"parent\"])");
     expect(signupSource).toContain("학부모 회원");
     expect(teacherSignupSource).toContain("PolicyConsentChecklist");
-    expect(policySource).toContain("내용을 확인했습니다");
-    expect(policySource).toContain("AI 품질 개선 동의는 선택 사항");
+    expect(policySource).toContain("내용을 확인해 동의가 체크되었습니다");
+    expect(policySource).toContain("선택하지 않아도 서비스 이용에는 영향이 없습니다");
   });
 
   it("인증 화면에서 마누스 계정 시작과 샘플 계정 진입을 제공하지 않고 서버가 샘플 계정을 자동 생성하지 않는다", () => {
