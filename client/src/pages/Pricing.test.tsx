@@ -25,6 +25,12 @@ describe("Pricing policy page", () => {
     expect(html).toContain("가격·환불정책");
     // 판매를 종료한 예전 요금제는 더 이상 보이지 않는다.
     expect(html).not.toContain("스타터");
+    // 교사 첨삭지도 가격권 3종과 신청 자격 안내
+    expect(html).toContain('data-testid="teacher-feedback-pricing"');
+    for (const item of ["교사 핵심 첨삭지도", "교사 일반 첨삭지도", "교사 종합 첨삭지도", "3,900원", "6,900원"]) expect(html).toContain(item);
+    expect(html).toContain("이용권 결제자만 신청할 수 있습니다.");
+    // 신청 기능이 열리기 전에는 준비 중으로 표시한다.
+    expect(html).toContain("신청 기능 준비 중");
     expect(html).toContain("이용권 요금 안내");
     expect(html).toContain("최소 수집");
     expect(html).toContain("AI 전송 안내");

@@ -2,7 +2,7 @@ import React from "react";
 import { ArrowRight, CheckCircle2, Clock3, LockKeyhole, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
-import { PLANS, formatKrw } from "@shared/plans";
+import { PLANS, TEACHER_FEEDBACK_ELIGIBILITY_NOTICE, TEACHER_FEEDBACK_PRODUCTS, TEACHER_FEEDBACK_PURCHASE_OPEN, formatKrw } from "@shared/plans";
 
 const TRIAL_BENEFITS = [
   "선택한 과정의 커리큘럼과 레슨 탐색",
@@ -100,9 +100,26 @@ export default function Pricing() {
                 {plan.name === "교사·기관" && <a href={CONTACT_MAILTO} className="mt-5 inline-flex h-10 items-center justify-center rounded-xl border border-indigo-200 bg-white px-4 text-sm font-extrabold text-indigo-700 transition hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2">도입 문의</a>}
               </article>)}
             </div>
-            <p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-6 text-slate-500">
-              교사 첨삭지도(핵심 3,900원 · 일반 6,900원 · 종합 9,900원 / 건)는 별도 신청·결제 상품으로 구매 기능을 준비하고 있습니다. 표시 가격은 최종 결제금액이며, 청약철회·환불 기준은 화면 하단 푸터의 '가격·환불정책'에서 확인하세요.
-            </p>
+            <div className="mx-auto mt-10 max-w-5xl rounded-[2rem] border border-indigo-100 bg-white p-6 shadow-sm sm:p-9" data-testid="teacher-feedback-pricing">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xl font-black tracking-tight text-slate-950 sm:text-2xl">교사 첨삭지도 (건별 결제)</h3>
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-extrabold text-amber-900">{TEACHER_FEEDBACK_ELIGIBILITY_NOTICE}</span>
+                {!TEACHER_FEEDBACK_PURCHASE_OPEN && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-extrabold text-slate-600">신청 기능 준비 중</span>}
+              </div>
+              <p className="mt-3 text-sm leading-7 text-slate-600">이용권(학습형·AI 기본형·AI 집중형·AI 추가권)을 결제해 이용 중인 학습자가 서비스 안에서 건별로 추가 결제해 신청합니다. AI 이용권에는 교사의 개별 첨삭지도·상담이 포함되지 않으며, AI 이용 횟수에 따라 교사 지도비가 자동으로 청구되지 않습니다.</p>
+              <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                {TEACHER_FEEDBACK_PRODUCTS.map((product) => (
+                  <article key={product.key} className="flex flex-col rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
+                    <div className="w-fit rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-extrabold text-indigo-700">{product.name}</div>
+                    <p className="mt-4 text-2xl font-black tracking-tight text-slate-950">{formatKrw(product.priceKrw)}<span className="ml-1 text-xs font-semibold text-slate-500">/ 건</span></p>
+                    <p className="mt-3 flex-1 text-sm font-semibold leading-6 text-slate-700">{product.description}</p>
+                  </article>
+                ))}
+              </div>
+              <p className="mt-5 text-xs leading-6 text-slate-500">
+                신청 전에 피드백 범위·분량과 완료 예정일을 안내합니다. 결과를 전달하기 전에 취소하면 결제금액을 전액 환불합니다. 표시 가격은 최종 결제금액이며, 청약철회·환불 기준은 화면 하단 푸터의 '가격·환불정책'에서 확인하세요.
+              </p>
+            </div>
           </section>
 
           <section className="mt-16 grid items-stretch gap-6 lg:grid-cols-[1.12fr_0.88fr]" aria-labelledby="privacy-title">

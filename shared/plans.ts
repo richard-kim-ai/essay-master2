@@ -76,6 +76,30 @@ export const PLANS: readonly Plan[] = [
   },
 ] as const;
 
+// ===== 교사 첨삭지도(건별 결제) =====
+// 이용권과 별개로, 이용권 결제자가 앱 안에서 건별로 추가 결제해 신청하는 상품이다(가격 및 환불정책 1·4조).
+// 값은 정책의 가격표와 같아야 한다.
+export type TeacherFeedbackKey = "tf_core" | "tf_standard" | "tf_comprehensive";
+
+export interface TeacherFeedbackProduct {
+  key: TeacherFeedbackKey;
+  name: string;
+  priceKrw: number;
+  description: string;
+}
+
+export const TEACHER_FEEDBACK_PRODUCTS: readonly TeacherFeedbackProduct[] = [
+  { key: "tf_core", name: "교사 핵심 첨삭지도", priceKrw: 3900, description: "선택한 평가항목에 대한 핵심 피드백" },
+  { key: "tf_standard", name: "교사 일반 첨삭지도", priceKrw: 6900, description: "논리·구성·근거에 대한 피드백" },
+  { key: "tf_comprehensive", name: "교사 종합 첨삭지도", priceKrw: 9900, description: "전체 평가와 문장 수정 제안을 포함한 종합 피드백" },
+] as const;
+
+/** 교사 첨삭을 신청할 수 있는 사람(요금 페이지 등 외부 안내용 문구). */
+export const TEACHER_FEEDBACK_ELIGIBILITY_NOTICE = "이용권 결제자만 신청할 수 있습니다.";
+
+/** 교사 첨삭 신청·결제 기능을 열면 true로 바꾼다. false인 동안 요금 페이지에는 '신청 기능 준비 중'으로 표시한다. */
+export const TEACHER_FEEDBACK_PURCHASE_OPEN = false;
+
 /** 예전 요금제(결제 연동 전 임시 결제로 만든 기록). 새로 판매하지 않고, 이름만 알아볼 수 있게 남긴다. */
 const LEGACY_PLAN_NAMES: Record<string, string> = { starter: "스타터(종료)", growth: "성장(종료)" };
 
@@ -86,7 +110,7 @@ export function getPlan(key: string): Plan | undefined {
 
 /** 판매 중이 아닌 예전 상품 이름까지 포함해 표시용 이름을 돌려준다. */
 export function getPlanName(key: string): string {
-  return getPlan(key)?.name ?? LEGACY_PLAN_NAMES[key] ?? key;
+  return getPlan(key)?.name ?? TEACHER_FEEDBACK_PRODUCTS.find((product) => product.key === key)?.name ?? LEGACY_PLAN_NAMES[key] ?? key;
 }
 
 export function formatKrw(amount: number): string {

@@ -48,7 +48,7 @@ import * as institution from "./institutionDb";
 import { appRouter } from "./routers";
 import { getPaymentProvider, mockProvider } from "./billing/providers";
 import { evaluateAiEntitlement } from "./billing/entitlements";
-import { PLANS, formatKrw, getPlan, getPlanName } from "../shared/plans";
+import { PLANS, TEACHER_FEEDBACK_PRODUCTS, formatKrw, getPlan, getPlanName } from "../shared/plans";
 import { computeSettlement, currentMonthKst, defaultRates, emptyCounts, monthRange, resolveRates } from "../shared/settlement";
 import { resetRateLimits } from "./rateLimit";
 import type { TrpcContext } from "./_core/context";
@@ -88,6 +88,15 @@ describe("이용권 정의", () => {
   it("환불 계산용 구성 금액(학습권+AI권)의 합은 가격과 같고, 정책 5조 표와 같다", () => {
     for (const plan of PLANS) expect(plan.studyAmountKrw + plan.aiAmountKrw).toBe(plan.priceKrw);
     expect(PLANS.map((plan) => [plan.studyAmountKrw, plan.aiAmountKrw])).toEqual([[14900, 0], [12450, 12450], [13300, 26600], [0, 14900]]);
+  });
+
+  it("교사 첨삭지도 3종의 가격이 정책의 가격표와 같고, 이용권 목록에는 섞이지 않는다", () => {
+    expect(TEACHER_FEEDBACK_PRODUCTS.map((product) => [product.key, product.priceKrw])).toEqual([["tf_core", 3900], ["tf_standard", 6900], ["tf_comprehensive", 9900]]);
+    expect(PLANS.some((plan) => plan.key.startsWith("tf_"))).toBe(false);
+    // 관리자 결제 내역 등에서 주문 이름을 알아볼 수 있다.
+    expect(getPlanName("tf_standard")).toBe("교사 일반 첨삭지도");
+    // 이용권 결제 API로는 교사 첨삭을 결제할 수 없다(별도 신청 흐름에서만 결제).
+    expect(getPlan("tf_core")).toBeUndefined();
   });
 
   it("예전 요금제(starter·growth)는 판매하지 않지만 이름은 알아볼 수 있다", () => {
