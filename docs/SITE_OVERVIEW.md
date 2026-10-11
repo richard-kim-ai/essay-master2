@@ -104,7 +104,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | `/admin/question-bank` | 문제은행 (CSV 가져오기, AI 문항 생성, 휴지통, 난이도, 피드백) |
 | `/admin/evaluation-models` | AI 평가 모델, 운영 지표, 검수 큐 |
 | `/admin/ai-governance` | AI 학습 데이터 거버넌스 |
-| `/admin/terms` | 약관·정책 문서, 사이트 설정(회사 정보 등) |
+| `/admin/terms` | 이용약관·개인정보처리방침·가격환불정책(푸터 팝업에 반영), 사이트 설정(회사 정보 등) |
 | `/admin/guardian-consents` | 보호자 동의 관리대장 (재발송·철회) |
 | `/admin/social-providers` | 소셜 로그인 제공자 설정 |
 | `/admin/certificates` | 수료증, 승인 정책·요청 |
