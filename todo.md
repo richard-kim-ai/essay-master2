@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Manus] 계정·가입 과정 단일 기준 및 홈/아카이브/학습도구/추천/서버 권한 전반 일관성 심층 검증·수정 (shared/course, client 과정 컨텍스트·학습 화면, server 과정 접근 helper 및 관련 API; schema 변경 최소화) — 시작 2026-10-11 23:10
 
 
 ## 완료
