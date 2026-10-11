@@ -7,6 +7,7 @@ import * as db from "./db";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse } from "./questionBankAccess";
+import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
@@ -1386,6 +1387,13 @@ export const appRouter = router({
 
   // ========== Essay Submission Routes ==========
   essaySubmission: router({
+    workspace: protectedProcedure.query(({ ctx }) => getEssayWorkspace(ctx.user.id)),
+    syncDraft: protectedProcedure.input(z.object({
+      id: z.number().int().positive().optional(), clientId: z.string().min(8).max(80).regex(/^[a-zA-Z0-9_-]+$/),
+      title: z.string().trim().min(1).max(255), content: z.string().max(20000), baseRevision: z.number().int().min(0).optional(),
+    })).mutation(({ ctx, input }) => syncEssayDraft(ctx.user.id, input)),
+    requestTeacher: protectedProcedure.input(z.object({ essayId: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => requestEssayTeacherFeedback(ctx.user.id, input.essayId)),
     getByUser: protectedProcedure.query(({ ctx }) =>
       db.getEssaySubmissionsByUser(ctx.user.id)
     ),
@@ -1663,8 +1671,16 @@ export const appRouter = router({
       }),
 
     create: protectedProcedure
-      .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), lessonNumber: z.number().int().min(1).max(20).optional(), submissionSource: z.enum(["lesson_one_essay"]).optional(), sourceVerificationFailed: z.boolean().optional() }))
+      .input(z.object({ essayTitle: z.string().trim().min(1).max(255), essayContent: z.string().trim().min(20).max(20000), courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), level: z.number().int().min(1).max(5), lessonNumber: z.number().int().min(1).max(20).optional(), submissionSource: z.enum(["lesson_one_essay"]).optional(), sourceVerificationFailed: z.boolean().optional(), essayId: z.number().int().positive().optional() }))
       .mutation(async ({ ctx, input }) => {
+        let sourceContent = input.essayContent;
+        if (input.essayId) {
+          const essay = await db.getEssaySubmissionById(input.essayId);
+          if (!essay || essay.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "본인의 글만 AI 첨삭을 요청할 수 있습니다." });
+          if (essay.title.trim() !== input.essayTitle || essay.content.trim() !== input.essayContent) throw new TRPCError({ code: "CONFLICT", message: "글을 서버와 동기화한 뒤 AI 첨삭을 요청해 주세요." });
+          sourceContent = essay.content;
+          resolveQuestionBankCourse(ctx.user, input.courseType);
+        }
         // 한도와 별개로 시간당 호출 횟수를 제한한다(비용이 큰 AI 호출의 남용 방지).
         enforceRateLimit("ai-feedback", String(ctx.user.id), RATE_RULES.aiFeedbackByUser);
         const entitlement = await getAiEntitlement(ctx.user);
@@ -1721,6 +1737,7 @@ export const appRouter = router({
         await db.createEvaluationModelOperation({ modelId: feedback.model_id, status: feedback.correction_status, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, errorSummary: feedback.provider_error });
         const savedFeedback = await db.createAIAutoFeedback({ userId: ctx.user.id, essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, level: input.level, overallComment: feedback.overallComment, structureScore: feedback.structureScore, logicScore: feedback.logicScore, expressionScore: feedback.expressionScore, overallScore: feedback.overallScore, revisedEssay: feedback.revisedEssay, suggestions: JSON.stringify(feedback.suggestions), strengths: JSON.stringify(feedback.strengths), weaknesses: JSON.stringify(feedback.weaknesses) });
         const feedbackId = Number((savedFeedback as { insertId?: number }).insertId || 0) || null;
+        if (input.essayId && feedbackId) await db.linkEssayAiFeedback(ctx.user.id, input.essayId, feedbackId, input.essayTitle, sourceContent);
         const record = await db.createWritingEvaluationRecord({ userId: ctx.user.id, feedbackId, modelId: feedback.model_id, correctionStatus: feedback.correction_status, fallbackUsed: feedback.fallback_used ? 1 : 0, providerError: feedback.provider_error, latencyMs: feedback.latency_ms, tokenUsage: feedback.token_usage, estimatedCostMicrousd: feedback.estimated_cost_microusd, confidence: feedback.confidence.toFixed(4), heuristicOverallScore: heuristic.overallScore, modelOverallScore: feedback.overallScore, sourceVerificationFailed: input.sourceVerificationFailed ? 1 : 0, resultJson: JSON.stringify({ correction_status: feedback.correction_status, fallback_used: feedback.fallback_used, provider_error: feedback.provider_error, latency_ms: feedback.latency_ms, model_id: feedback.model_id, sentenceCorrections: feedback.sentenceCorrections }) });
         const evaluationRecordId = Number((record as { insertId?: number }).insertId || 0);
         const reviewReasons = getHumanReviewReasons(feedback, heuristic.overallScore, Boolean(input.sourceVerificationFailed));
