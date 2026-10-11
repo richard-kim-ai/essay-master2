@@ -96,6 +96,25 @@ export default function Navigation() {
     }
   });
 
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const passwordMismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
+  const canSubmitPassword = currentPassword.length > 0 && newPassword.length >= 8 && newPassword === confirmPassword;
+  const changePasswordMutation = trpc.auth.changePassword.useMutation({
+    onSuccess: () => {
+      toast.success("비밀번호가 변경되었습니다. 다른 기기에서는 다시 로그인해야 합니다.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowPasswordForm(false);
+    },
+    onError: (err) => {
+      toast.error(err.message || "비밀번호 변경 중 오류가 발생했습니다.");
+    },
+  });
+
   const handleMobileSubmenuToggle = (label: string) => {
     setOpenMobileSubmenu(openMobileSubmenu === label ? null : label);
   };
@@ -313,6 +332,68 @@ export default function Navigation() {
                           >
                             <Check className="w-3.5 h-3.5" /> 저장하기
                           </Button>
+                          {user?.hasPassword && (
+                            <div className="border-t border-slate-100 pt-2.5">
+                              <button
+                                type="button"
+                                className="text-[11px] font-bold text-slate-700 hover:text-indigo-700"
+                                aria-expanded={showPasswordForm}
+                                onClick={() => setShowPasswordForm((open) => !open)}
+                              >
+                                {showPasswordForm ? "비밀번호 변경 닫기" : "비밀번호 변경"}
+                              </button>
+                              {showPasswordForm && (
+                                <form
+                                  className="mt-2 space-y-2"
+                                  onKeyDown={(e) => e.stopPropagation()}
+                                  onSubmit={(e) => {
+                                    e.preventDefault();
+                                    if (canSubmitPassword) changePasswordMutation.mutate({ currentPassword, newPassword });
+                                  }}
+                                >
+                                  <input
+                                    type="password"
+                                    autoComplete="current-password"
+                                    value={currentPassword}
+                                    onChange={(e) => setCurrentPassword(e.target.value)}
+                                    className="w-full h-8 px-2 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    placeholder="현재 비밀번호"
+                                    aria-label="현재 비밀번호"
+                                  />
+                                  <input
+                                    type="password"
+                                    autoComplete="new-password"
+                                    value={newPassword}
+                                    onChange={(e) => setNewPassword(e.target.value)}
+                                    className="w-full h-8 px-2 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    placeholder="새 비밀번호 (8자 이상)"
+                                    aria-label="새 비밀번호"
+                                    minLength={8}
+                                    maxLength={128}
+                                  />
+                                  <input
+                                    type="password"
+                                    autoComplete="new-password"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    className="w-full h-8 px-2 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    placeholder="새 비밀번호 확인"
+                                    aria-label="새 비밀번호 확인"
+                                  />
+                                  {passwordMismatch && <p className="text-[10px] text-rose-600">새 비밀번호가 서로 다릅니다.</p>}
+                                  <Button
+                                    type="submit"
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full h-7 text-xs font-semibold"
+                                    disabled={!canSubmitPassword || changePasswordMutation.isPending}
+                                  >
+                                    {changePasswordMutation.isPending ? "변경 중..." : "비밀번호 변경하기"}
+                                  </Button>
+                                </form>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                       <DropdownMenuSeparator />

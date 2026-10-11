@@ -424,7 +424,8 @@ export const appRouter = router({
         verificationTokenExpiresAt: _verificationTokenExpiresAt,
         ...safeUser
       } = ctx.user;
-      return safeUser;
+      // 비밀번호가 있는 계정만 프로필에서 비밀번호를 바꿀 수 있다(해시 자체는 내려주지 않는다).
+      return { ...safeUser, hasPassword: Boolean(_passwordHash) };
     }),
     recommendedTeachers: publicProcedure
       .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]) }))
@@ -737,6 +738,30 @@ export const appRouter = router({
           name: input.name,
           avatarUrl: input.avatarUrl,
         });
+        return { success: true } as const;
+      }),
+
+    changePassword: protectedProcedure
+      .input(z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(8).max(128) }))
+      .mutation(async ({ ctx, input }) => {
+        // 현재 비밀번호 무차별 대입을 막기 위해 사용자별 시도 횟수를 제한한다.
+        enforceRateLimit("password-change", String(ctx.user.id), RATE_RULES.passwordChangeByUser);
+        if (!ctx.user.passwordHash) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "비밀번호로 로그인하는 계정만 비밀번호를 변경할 수 있습니다." });
+        }
+        if (!(await verifyPasswordAsync(input.currentPassword, ctx.user.passwordHash))) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "현재 비밀번호가 올바르지 않습니다." });
+        }
+        if (input.newPassword === input.currentPassword) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "새 비밀번호는 현재 비밀번호와 달라야 합니다." });
+        }
+        await db.resetUserPassword(ctx.user.id, hashPassword(input.newPassword));
+        // 세션은 비밀번호 버전에 묶여 있어, 바뀌는 순간 다른 기기의 로그인은 풀린다. 지금 기기에는 새 세션을 발급해 로그인을 유지한다.
+        const sessionToken = await sdk.createSessionToken(ctx.user.openId, {
+          name: ctx.user.name || ctx.user.email || "",
+          expiresInMs: SESSION_TTL_MS,
+        });
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(ctx.req), maxAge: SESSION_TTL_MS });
         return { success: true } as const;
       }),
 

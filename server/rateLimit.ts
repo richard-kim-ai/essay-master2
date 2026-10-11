@@ -42,6 +42,7 @@ export const RATE_RULES = {
   signupByIp: { windowMs: 60 * 60 * 1000, max: 10 },
   announceByAdmin: { windowMs: 60 * 60 * 1000, max: 10 },
   aiFeedbackByUser: { windowMs: 60 * 60 * 1000, max: 40 },
+  passwordChangeByUser: { windowMs: 15 * 60 * 1000, max: 5 },
   checkoutByUser: { windowMs: 60 * 60 * 1000, max: 10 },
   evalEngineByUser: { windowMs: 60 * 60 * 1000, max: 30 },
 } as const satisfies Record<string, RateLimitRule>;
