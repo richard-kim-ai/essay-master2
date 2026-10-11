@@ -7,6 +7,7 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { passwordVersion, sessionMatchesPassword } from "./sessionBinding";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -22,6 +23,8 @@ export type SessionPayload = {
   openId: string;
   appId: string;
   name: string;
+  /** 비밀번호 버전(비밀번호가 있는 계정만). 비밀번호가 바뀌면 값이 달라져 세션이 무효가 된다. */
+  pv?: string;
 };
 
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
@@ -167,11 +170,14 @@ class SDKServer {
     openId: string,
     options: { expiresInMs?: number; name?: string } = {}
   ): Promise<string> {
+    // 비밀번호가 있는 계정은 세션을 현재 비밀번호에 묶어, 비밀번호가 바뀌면 이전 세션이 무효가 되게 한다.
+    const owner = await db.getUserByOpenId(openId);
     return this.signSession(
       {
         openId,
         appId: ENV.appId,
         name: options.name || "",
+        pv: passwordVersion(owner?.passwordHash, ENV.cookieSecret),
       },
       options
     );
@@ -190,6 +196,7 @@ class SDKServer {
       openId: payload.openId,
       appId: payload.appId,
       name: payload.name,
+      ...(payload.pv ? { pv: payload.pv } : {}),
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setExpirationTime(expirationSeconds)
@@ -198,7 +205,7 @@ class SDKServer {
 
   async verifySession(
     cookieValue: string | undefined | null
-  ): Promise<{ openId: string; appId: string; name: string } | null> {
+  ): Promise<{ openId: string; appId: string; name: string; pv?: string } | null> {
     if (!cookieValue) {
       console.warn("[Auth] Missing session cookie");
       return null;
@@ -209,7 +216,7 @@ class SDKServer {
       const { payload } = await jwtVerify(cookieValue, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name } = payload as Record<string, unknown>;
+      const { openId, appId, name, pv } = payload as Record<string, unknown>;
 
       if (
         !isNonEmptyString(openId) ||
@@ -224,6 +231,7 @@ class SDKServer {
         openId,
         appId,
         name,
+        pv: typeof pv === "string" ? pv : undefined,
       };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
@@ -309,6 +317,11 @@ class SDKServer {
 
     if (!user) {
       throw ForbiddenError("User not found");
+    }
+
+    // 비밀번호를 바꾸거나 재설정하기 전에 발급된 세션은 거절한다.
+    if (!sessionMatchesPassword(session.pv, user.passwordHash, ENV.cookieSecret)) {
+      throw ForbiddenError("Session is no longer valid");
     }
 
     await db.upsertUser({
