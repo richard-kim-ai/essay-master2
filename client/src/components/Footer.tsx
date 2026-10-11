@@ -80,7 +80,6 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
       기초 이론 콘텐츠는 『{COPYRIGHT_INFO.workTitle}』{COPYRIGHT_INFO.author ? `(${COPYRIGHT_INFO.author})` : ""} 저작물을 기반으로 합니다. 저작권등록번호 {registrationNumber}{" "}
       <button type="button" onClick={copyRegistrationNumber} className="rounded border border-current px-1.5 py-0.5 text-[11px] hover:text-white" aria-label="저작권등록번호 복사">{numberCopied ? "복사됨" : "번호 복사"}</button> ·{" "}
       <a href={COPYRIGHT_INFO.verifyUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">등록 확인(한국저작권위원회)</a>
-      <span className="block">확인 페이지에서 저작권등록번호로 검색해 주세요.</span>
     </p>
   ) : null;
 
