@@ -868,7 +868,10 @@ export const appRouter = router({
           lessonIndex: z.number(),
         })
       )
-      .query(async ({ ctx, input }) => (await db.getCurriculumWorkbookQuestions(input.courseType, input.level, input.lessonIndex)).map((question) => toLearnerWorkbookQuestion(question, ctx.user))),
+      .query(async ({ ctx, input }) => {
+        resolveQuestionBankCourse(ctx.user, input.courseType);
+        return (await db.getCurriculumWorkbookQuestions(input.courseType, input.level, input.lessonIndex)).map((question) => toLearnerWorkbookQuestion(question, ctx.user));
+      }),
 
     getWorkbookLessonBundle: protectedProcedure
       .input(z.object({
@@ -877,6 +880,7 @@ export const appRouter = router({
         lessonIndex: z.number().int().min(0).max(50),
       }))
       .query(async ({ ctx, input }) => {
+        resolveQuestionBankCourse(ctx.user, input.courseType);
         const bundle = await db.getWorkbookLessonBundle({
           courseType: input.courseType,
           lessonLevel: input.level,
@@ -931,7 +935,11 @@ export const appRouter = router({
         ? db.removeLearningToolMistake(input.mistakeId, ctx.user.id)
         : db.removeWorkbookMistake(input.mistakeId, ctx.user.id)),
 
-    getRecommendedQuestions: protectedProcedure.query(({ ctx }) => db.getRecommendedQuestionsForUser(ctx.user.id)),
+    getRecommendedQuestions: protectedProcedure.query(async ({ ctx }) => {
+      const course = studentQuestionCourse(ctx.user);
+      const questions = await db.getRecommendedQuestionsForUser(ctx.user.id, course);
+      return (course ? questions.filter(q => q.courseType === course) : questions).map(q => toLearnerWorkbookQuestion(q, ctx.user));
+    }),
 
     getNotifications: protectedProcedure.query(({ ctx }) => db.getNotificationsByUser(ctx.user.id)),
 

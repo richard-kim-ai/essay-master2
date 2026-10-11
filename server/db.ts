@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/mysql2";
 import { createHash } from "node:crypto";
+import { selectWorkbookRecommendations } from "./workbookRecommendations";
 import {
   InsertUser,
   users,
@@ -5442,18 +5443,17 @@ export async function updateUserPushPreferences(userId: number, prefs: { teacher
   return { success: true, prefs };
 }
 
-export async function getRecommendedQuestionsForUser(userId: number) {
+export async function getRecommendedQuestionsForUser(userId: number, courseType?: CourseType) {
   const db = await getDb();
   if (!db) return [];
-  await seedCurriculumWorkbookQuestions();
-  // 사용자의 오답 노트를 기반으로 취약 영역 문항 추천
-  const mistakes = await db.select().from(workbookMistakes).where(eq(workbookMistakes.userId, userId));
-  const mistakeQIds = mistakes.map(m => m.questionId);
-
-  const allQuestions = await db.select().from(curriculumWorkbookQuestions);
-  // 오답에 속했던 문제들이나 난이도가 높은 문제들을 추천
-  const recommended = allQuestions.filter(q => mistakeQIds.includes(q.id) || q.level === 2).slice(0, 5);
-  return recommended.length > 0 ? recommended : allQuestions.slice(0, 5);
+  // 조회에서 문항을 생성하지 않는다. 가입 과정에 문항이 없으면 빈 목록을 반환한다.
+  const [questions, mistakes] = await Promise.all([
+    db.select().from(curriculumWorkbookQuestions).where(courseType ? eq(curriculumWorkbookQuestions.courseType, courseType) : undefined),
+    db.select({ questionId: workbookMistakes.questionId }).from(workbookMistakes)
+      .innerJoin(curriculumWorkbookQuestions, eq(workbookMistakes.questionId, curriculumWorkbookQuestions.id))
+      .where(and(eq(workbookMistakes.userId, userId), ...(courseType ? [eq(curriculumWorkbookQuestions.courseType, courseType)] : []))),
+  ]);
+  return selectWorkbookRecommendations(questions, mistakes.map(m => m.questionId), courseType);
 }
 
 export async function getQuestionBankAiInsight(questionId: number) {
