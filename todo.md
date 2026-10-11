@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Manus] 오프라인 글 계정별 서버 동기화·교사/AI 첨삭 요청 및 글쓰기 학습 흐름·주제문 점검 링크 정리 (OfflineEssays, EssaySubmission, Workbook 링크, essaySubmission API) — 시작 2026-10-11 21:53
 
 
 ## 완료
