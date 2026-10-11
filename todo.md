@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 프로필 편집에 비밀번호 변경 추가 (server/routers.ts auth.changePassword·auth.me, rateLimit, Navigation 프로필 편집 패널, 테스트) — 시작 2026-10-12 01:10
 
 ## 완료
 
