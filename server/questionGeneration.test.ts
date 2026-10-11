@@ -136,6 +136,23 @@ describe("공통 문항 생성·QA 엔진", () => {
     expect(schema.additionalProperties).toBe(false);
     expect(llm.mock.calls[0][0].model).toBe(QUESTION_GENERATION_MODEL);
     expect(llm.mock.calls[0][0].reasoning).toEqual({ effort: "low" });
+    expect(llm.mock.calls[0][0].messages[0].content).toContain("반드시 자연스러운 한국어");
+  });
+
+  it("영어 직무 점검 문항은 사람 검수가 완료되어도 한국어 QA에서 차단한다", () => {
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{ title: "Pre-Service Vehicle Inspection and Documentation Checklist", contentData: content("GENERAL_WORK", "CHECKLIST", { question: "Inspect the vehicle and record findings.", explanation: "Evaluate technician diagnostics.", learning_objective: "Perform service inspection." }) }] }, { course: "GENERAL_WORK", tool_type: "CHECKLIST" });
+    expect(item.qaIssues).toContain("korean_content_required");
+    expect(item.qaStatus).toBe("blocked");
+  });
+  it("한국어 논술 문장 속 AI 등 영문 약어는 허용한다", () => {
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{ title: "AI 도입의 쟁점", contentData: content("GENERAL_WORK", "SUMMARY", { question: "AI 도입의 장단점을 한국어로 요약하시오." }) }] }, { course: "GENERAL_WORK", tool_type: "SUMMARY" });
+    expect(item.qaIssues).not.toContain("korean_content_required");
+  });
+
+  it("한국어여도 차량 점검 학습 목표는 논술 QA를 통과하지 못한다", () => {
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{ title: "차량 사전 점검 체크리스트", contentData: content("GENERAL_WORK", "CHECKLIST", { question: "차량 출고 전 필수 점검 항목을 서술하시오.", learning_objective: "점검 항목을 이해하고 이상 징후를 식별하여 안전사고를 예방한다." }) }] }, { course: "GENERAL_WORK", tool_type: "CHECKLIST" });
+    expect(item.qaIssues).toContain("writing_objective_required");
+    expect(item.qaStatus).toBe("blocked");
   });
 
   const request = { course: "MIDDLE_HIGH", tool_type: "SUMMARY", question_count: 1 };
