@@ -2252,6 +2252,7 @@ export async function getAllUsersStats() {
       role: u.role,
       teacherLevel: u.teacherLevel,
       teacherStatus: u.teacherStatus,
+      certificateApprovalRevoked: u.certificateApprovalRevoked,
       teacherId: u.teacherId,
       preferredTeacherId: u.preferredTeacherId,
       tag: u.tag,
@@ -4459,6 +4460,13 @@ export async function setStudentOwnTeacher(
     })
     .where(and(eq(users.id, studentId), eq(users.role, "user")));
   return nextTeacherId;
+}
+
+/** 관리자 계정의 수료증 최종 승인 권한을 회수(true)하거나 되돌린다(false). */
+export async function setCertificateApprovalRevoked(userId: number, revoked: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ certificateApprovalRevoked: revoked ? 1 : 0 }).where(eq(users.id, userId));
 }
 
 export async function createAdminAuditLog(input: {

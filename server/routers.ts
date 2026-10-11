@@ -12,6 +12,8 @@ import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestio
 import { getLearningAnalytics, getWeeklyStudySummary } from "./learningAnalyticsDb";
 import { reviseEssayWithLLM } from "./essayRevisionEngine";
 import { getTeacherFeedbackDashboard } from "./teacherDashboardDb";
+import { listCertificateAuthorities, setCertificateAuthority } from "./certificateAuthority";
+import { rateTeacherFeedback, getMyTeacherRating, listTeacherRatingOverview, getTeacherRatingDetail } from "./teacherRatingDb";
 import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview, trashEssay, restoreEssay, purgeEssay, listTrashedEssays, emptyTrash } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -1629,6 +1631,14 @@ export const appRouter = router({
         return db.getFeedbackCommentsByFeedback(input);
       }),
 
+    // 학생이 받은 교사 첨삭에 별점(1~5)과 후기를 남긴다(첨삭 1건당 1개, 고칠 수 있음). 관리자가 교사 평가에 쓴다.
+    rate: protectedProcedure
+      .input(z.object({ feedbackId: z.number().int().positive(), rating: z.number().int().min(1).max(5), review: z.string().max(1000).optional() }))
+      .mutation(({ ctx, input }) => rateTeacherFeedback(ctx.user, input)),
+    myRating: protectedProcedure
+      .input(z.number().int().positive())
+      .query(({ ctx, input }) => getMyTeacherRating(ctx.user, input)),
+
     addComment: protectedProcedure
       .input(
         z.object({
@@ -1652,6 +1662,12 @@ export const appRouter = router({
         await assertTeacherEssayAccess(ctx.user, feedback.essayId);
         return db.createFeedbackComment(input);
       }),
+  }),
+
+  // ========== 교사 평점·후기(관리자) ==========
+  teacherRating: router({
+    overview: adminProcedure.query(() => listTeacherRatingOverview()),
+    detail: adminProcedure.input(z.object({ teacherId: z.number().int().positive() })).query(({ input }) => getTeacherRatingDetail(input.teacherId)),
   }),
 
   // ========== Master Prompt Writing Evaluation Routes ==========
@@ -2328,6 +2344,8 @@ export const appRouter = router({
       .input(z.object({ requestId: z.number(), approved: z.boolean(), note: z.string().trim().max(1000).optional() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        // 관리자 화면에서 수료증 최종 승인 권한을 회수한 관리자는 승인·반려할 수 없다.
+        if (ctx.user.certificateApprovalRevoked) throw new TRPCError({ code: "FORBIDDEN", message: "수료증 최종 승인 권한이 없습니다. 총괄 관리자에게 권한 부여를 요청해 주세요." });
         return db.resolveCertificateApprovalRequestByAdmin({ requestId: input.requestId, adminId: ctx.user.id, approved: input.approved, note: input.note });
       }),
     getAnalytics: protectedProcedure.query(async ({ ctx }) => {
@@ -2601,6 +2619,14 @@ export const appRouter = router({
         }
         return await db.saveSiteSetting(input.settingKey, input.content, ctx.user.id);
       }),
+    // 회원 및 권한 통합 관리: 관리자·첨삭교사의 수료증 승인 권한 현황과 부여·회수.
+    getCertificateAuthorities: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return listCertificateAuthorities();
+    }),
+    setCertificateAuthority: protectedProcedure
+      .input(z.object({ userId: z.number().int().positive(), enabled: z.boolean() }))
+      .mutation(({ ctx, input }) => setCertificateAuthority(ctx.user, input)),
     getAllUsersMasterAdmin: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== "admin") {
