@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 관리자 회원관리 명칭 통일·수료증 승인 권한 부여, 첨삭 결과 코멘트 오류 수정, 교사 별점·후기 평가(마이그레이션 0059)와 관리자 교사 평점 관리, 회원 등급별 표기, 교사 메뉴 정리 — AdminDashboard, AdminStudentDetail, TeacherFeedback, Navigation, teacher_feedback_ratings — 시작 2026-10-12 05:00
 
 ## 완료
 
