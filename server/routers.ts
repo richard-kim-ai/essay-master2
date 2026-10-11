@@ -114,6 +114,19 @@ function enforceRateLimit(name: string, key: string, rule: RateLimitRule) {
   }
 }
 
+/**
+ * 비로그인 상태에서 요청하는 메일(인증 재발송·비밀번호 재설정)의 발송 실패를 처리한다.
+ * 실패 원문(제공자 응답)은 사용자에게 내보내지 않고 서버 로그에만 남긴다 — 원문에는 내부 설정이 들어 있고,
+ * 가입된 주소에서만 실패가 보이면 가입 여부가 드러나기 때문이다. 화면은 항상 같은 안내(도착하지 않을 때 확인할 것)를 보여 준다.
+ */
+async function deliverMailSafely(kind: "verification" | "password-reset", send: () => Promise<unknown>) {
+  try {
+    await send();
+  } catch (error) {
+    console.error(`[mail] ${kind} email delivery failed — 메일 발송 설정(RESEND_API_KEY, EMAIL_FROM, 발신 도메인 인증)을 확인해 주세요:`, error instanceof Error ? error.message : error);
+  }
+}
+
 async function sendUserVerificationEmail(
   req: { protocol: string; headers: Record<string, unknown> },
   user: { id: number; email: string | null; name: string | null },
@@ -562,7 +575,7 @@ export const appRouter = router({
             hashVerificationToken(token),
             new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
           );
-          await sendUserVerificationEmail(ctx.req, user, token);
+          await deliverMailSafely("verification", () => sendUserVerificationEmail(ctx.req, user, token));
         }
         return { success: true } as const;
       }),
@@ -577,11 +590,11 @@ export const appRouter = router({
         if (user?.email && user.passwordHash) {
           const token = createVerificationToken();
           await db.updatePasswordResetToken(user.id, hashVerificationToken(token), new Date(Date.now() + 60 * 60 * 1000));
-          await sendPasswordResetEmail({
-            to: user.email,
+          await deliverMailSafely("password-reset", () => sendPasswordResetEmail({
+            to: user.email!,
             name: user.name || "학습자",
             resetUrl: `${publicBaseUrl(ctx.req)}/reset-password?token=${encodeURIComponent(token)}`,
-          });
+          }));
         }
         return { success: true } as const;
       }),

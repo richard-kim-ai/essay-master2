@@ -119,6 +119,28 @@ describe("비밀번호 재설정·이메일 인증 흐름", () => {
   });
 });
 
+describe("메일 발송 실패 처리", () => {
+  const user = { id: 1, email: "student@example.com", name: "학생", passwordHash: "salt:hash", emailVerifiedAt: null };
+
+  it("재설정 메일 발송이 실패해도 제공자 오류를 사용자에게 내보내지 않고 같은 응답을 준다", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(db.getUserByEmail).mockResolvedValue(user as any);
+    vi.mocked(email.sendPasswordResetEmail).mockRejectedValueOnce(new Error('Password reset email failed: 403 {"message":"verify a domain"}'));
+    await expect(anonymousCaller().auth.requestPasswordReset({ email: "student@example.com" })).resolves.toEqual({ success: true });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[mail] password-reset"), expect.stringContaining("403"));
+    log.mockRestore();
+  });
+
+  it("인증 메일 재발송이 실패해도 같은 응답을 주고 서버 로그에만 남긴다", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(db.getUserByEmail).mockResolvedValue(user as any);
+    vi.mocked(email.sendVerificationEmail).mockRejectedValueOnce(new Error("Email delivery is not configured"));
+    await expect(anonymousCaller().auth.resendVerification({ email: "student@example.com" })).resolves.toEqual({ success: true });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[mail] verification"), "Email delivery is not configured");
+    log.mockRestore();
+  });
+});
+
 describe("로그인 시도 제한", () => {
   it("같은 이메일로 비밀번호를 계속 틀리면 일정 횟수 뒤 잠시 막는다", async () => {
     vi.mocked(db.getUserByEmail).mockResolvedValue({ id: 1, email: "a@example.com", passwordHash: "salt:abcd" } as any);
