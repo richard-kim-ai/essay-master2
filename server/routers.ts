@@ -11,6 +11,7 @@ import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestion
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse, requireLearnerCourse } from "./questionBankAccess";
 import { getLearningAnalytics, getWeeklyStudySummary } from "./learningAnalyticsDb";
 import { reviseEssayWithLLM } from "./essayRevisionEngine";
+import { getTeacherFeedbackDashboard } from "./teacherDashboardDb";
 import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview, trashEssay, restoreEssay, purgeEssay, listTrashedEssays, emptyTrash } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -1163,6 +1164,8 @@ export const appRouter = router({
       const grants = await db.getTeacherPermissionGrants();
       return grants.filter((grant) => grant.teacherId === ctx.user.id && grant.isActive === 1);
     }),
+    // 교사 마이페이지 '첨삭 현황': 대기·작업 중·기한 경과·완료와 내 첨삭 최근 목록.
+    feedbackDashboard: protectedProcedure.query(({ ctx }) => getTeacherFeedbackDashboard(ctx.user)),
     managedStudents: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") {
         throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });

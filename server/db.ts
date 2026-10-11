@@ -85,6 +85,7 @@ import {
   ne,
 } from "drizzle-orm";
 import { computeLessonProgress } from "./lessonProgress";
+import { selectManagedStudentIds } from "./teacherStudents";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import {
@@ -5873,25 +5874,10 @@ export async function getManagedStudentsForTeacher(teacherId: number) {
     db.select().from(users),
     getActiveTeacherPermissionGrants(teacherId),
   ]);
-  const directStudentIds = new Set(
-    grants
-      .filter(grant => grant.scopeType === "student")
-      .map(grant => grant.studentId)
-      .filter((id): id is number => id !== null)
-  );
-  const hasOrganizationScope = grants.some(
-    grant =>
-      grant.scopeType === "organization" &&
-      (grant.canManageProgress === 1 || grant.canRequestCertificate === 1)
-  );
+  // 담당 교사로 연결된 학생(assigned)은 권한 없이도 지도 학생이다. 권한(granted)은 진도·수료증 관리 버튼에만 쓴다.
+  const relations = selectManagedStudentIds(allUsers, grants, teacherId);
   return allUsers
-    .filter(
-      user =>
-        user.role === "user" &&
-        user.tag !== "학부모" &&
-        (directStudentIds.has(user.id) ||
-          (hasOrganizationScope && user.teacherId === teacherId))
-    )
+    .filter(user => relations.has(user.id))
     .map(user => ({
       id: user.id,
       name: user.name,
@@ -5901,6 +5887,7 @@ export async function getManagedStudentsForTeacher(teacherId: number) {
       createdAt: user.createdAt,
       lastSignedIn: user.lastSignedIn,
       teacherId: user.teacherId,
+      relation: relations.get(user.id)!,
     }));
 }
 
