@@ -22,7 +22,6 @@ export const COPYRIGHT_INFO: {
   verifyUrl: string;
 } = {
   workTitle: "논술의 기초",
-  author: "김주영",
   registrationNumber: "C-2026-044488",
   verifyUrl: "https://www.cros.or.kr/psnsys/cmmn/infoPage.do?w2xPath=/ui/twc/sch/regInfSerc/regInfSercList.xml",
 };

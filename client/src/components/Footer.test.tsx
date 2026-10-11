@@ -52,7 +52,7 @@ describe("Footer", () => {
   it("저작권 등록 정보(저작물명·저자·번호·확인 링크)를 보여주고, 번호가 비면 숨긴다", () => {
     for (const variant of ["default", "compact"] as const) {
       const html = renderToStaticMarkup(<Footer variant={variant} />);
-      expect(html).toContain("『논술의 기초』(김주영)");
+      expect(html).toContain("『논술의 기초』");
       expect(html).toContain("저작권등록번호 C-2026-044488");
       expect(html).toContain(`href="${COPYRIGHT_INFO.verifyUrl}"`);
       expect(html).toContain('rel="noopener noreferrer"');
