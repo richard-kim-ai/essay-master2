@@ -17,6 +17,17 @@ const mock = vi.hoisted(() => ({
   mutation: {} as any,
 }));
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => mock.auth }));
+// 교사 첨삭은 신청·결제 대화상자에서 진행한다. 이 테스트는 글 보관·동기화 흐름을 보므로 대화상자는 스텁으로 대체한다.
+vi.mock("@/components/TeacherFeedbackRequestDialog", () => ({
+  default: (props: { essayId: number | null; open: boolean; onRequested: (status: string) => Promise<void> | void }) =>
+    props.open ? (
+      <div data-testid="teacher-request-dialog" data-essay-id={String(props.essayId)}>
+        <button onClick={() => void props.onRequested("submitted")}>신청 완료 처리</button>
+      </div>
+    ) : null,
+  formatDueDate: (value: string) => String(value),
+}));
+vi.mock("@/components/MyTeacherFeedbackRequests", () => ({ default: () => null }));
 vi.mock("wouter", () => ({
   useLocation: () => ["/offline-essays", mock.navigate],
   Link: ({ href, children }: any) => <a href={href}>{children}</a>,
@@ -194,21 +205,21 @@ describe("오프라인 보관 · 온라인 첨삭 흐름", () => {
     expect(readEssays(101)[0].isDirty).toBe(true);
     expect(readEssays(101)[0].content).toContain("학교 규칙");
   });
-  it("담당 교사 요청은 서버 동기화 이후 별도 프로시저로 보내고 원문을 잠근다", async () => {
+  it("교사 첨삭 요청은 서버 동기화 이후 신청 대화상자를 열고, 신청이 끝나면 원문을 잠근다", async () => {
     writeEssays(101, [initial()]);
     await render();
-    // 서버 응답에서도 제출 상태가 유지되는 상황
-    mock.teacher.mockImplementation(async () => {
-      mock.remote = mock.remote.map(r => ({
-        ...r,
-        status: "submitted",
-        syncRevision: 1,
-      }));
-      return { status: "submitted" };
-    });
+    // 신청(결제) 뒤 서버 응답에서도 제출 상태가 유지되는 상황
     await act(async () => button("담당 교사 첨삭 요청").click());
     await settle();
-    expect(mock.teacher).toHaveBeenCalledWith({ essayId: 7 });
+    // 요청 버튼이 곧바로 서버에 무료 요청을 보내지 않는다(신청·결제 대화상자에서 진행).
+    expect(mock.teacher).not.toHaveBeenCalled();
+    const dialog = container.querySelector('[data-testid="teacher-request-dialog"]');
+    expect(dialog?.getAttribute("data-essay-id")).toBe("7");
+
+    mock.remote = mock.remote.map(r => ({ ...r, status: "submitted", syncRevision: 1 }));
+    await act(async () => button("신청 완료 처리").click());
+    await settle();
+    expect(container.querySelector('[data-testid="teacher-request-dialog"]')).toBeNull();
     expect(
       container.querySelector<HTMLTextAreaElement>("#essay-content")!.disabled
     ).toBe(true);
