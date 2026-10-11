@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ rows: [] as any[], loading: false, error: null as null | { message: string }, lastInput: null as any }));
+const state = vi.hoisted(() => ({ rows: [] as any[], loading: false, fetching: false, refetch: (() => undefined) as () => void, error: null as null | { message: string }, lastInput: null as any }));
 
 vi.mock("wouter", () => ({ Link: ({ href, children }: any) => <a href={href}>{children}</a> }));
 vi.mock("@/lib/trpc", () => ({
@@ -11,7 +11,7 @@ vi.mock("@/lib/trpc", () => ({
       reviewList: {
         useQuery: (input: unknown) => {
           state.lastInput = input;
-          return { data: state.loading || state.error ? undefined : state.rows, isLoading: state.loading, error: state.error };
+          return { data: state.loading || state.error ? undefined : state.rows, isLoading: state.loading, error: state.error, isFetching: state.fetching, dataUpdatedAt: state.rows.length ? new Date("2026-10-12T05:30:00Z").getTime() : 0, refetch: state.refetch };
         },
       },
     },
@@ -41,6 +41,7 @@ const row = (overrides: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   state.rows = [];
   state.loading = false;
+  state.fetching = false;
   state.error = null;
 });
 
@@ -83,6 +84,20 @@ describe("학생 제출 글 목록(교사·관리자)", () => {
     expect(renderToStaticMarkup(<StudentEssayReviewList scope="teacher" />)).toContain("첨삭을 기다리는 글이 없습니다.");
     state.error = { message: "승인된 교사 또는 관리자만 학생 글 목록을 볼 수 있습니다." };
     expect(renderToStaticMarkup(<StudentEssayReviewList scope="teacher" />)).toContain("승인된 교사 또는 관리자만");
+  });
+});
+
+describe("학생 글 불러오기(새로고침)", () => {
+  it("'목록 불러오기' 버튼과 마지막으로 불러온 시각을 보여 주고, 불러오는 동안은 버튼을 막는다", () => {
+    state.rows = [row()];
+    const html = renderToStaticMarkup(<StudentEssayReviewList scope="teacher" />);
+    expect(html).toContain("목록 불러오기");
+    expect(html).toContain('data-testid="review-list-updated"');
+    expect(html).toContain("마지막으로 불러온 시각");
+    state.fetching = true;
+    const loading = renderToStaticMarkup(<StudentEssayReviewList scope="teacher" />);
+    expect(loading).toContain("불러오는 중");
+    expect(loading).toMatch(/<button[^>]*disabled[^>]*>[^]*불러오는 중/);
   });
 });
 

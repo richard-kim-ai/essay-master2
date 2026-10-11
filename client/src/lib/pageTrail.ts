@@ -90,9 +90,14 @@ export interface PageTrail {
 }
 
 // 홈('/')이나 표에 없는 경로는 null — 이동 바를 보여 주지 않는다.
-export function getPageTrail(rawPath: string): PageTrail | null {
+export function getPageTrail(rawPath: string, role?: string | null): PageTrail | null {
   const path = normalizePath(rawPath);
   if (path === "/") return null;
+  // 교사·관리자가 여는 /essay-submission은 학생용 글 제출이 아니라 '첨삭 관리 센터'이다.
+  if (path === "/essay-submission" && (role === "teacher" || role === "admin")) {
+    const parent = role === "admin" ? { label: "관리자", href: "/admin" } : { label: "교사 마이페이지", href: "/teacher-mypage" };
+    return { items: [parent, { label: "첨삭 관리 센터" }], fallbackHref: parent.href, fallbackLabel: parent.label };
+  }
   const route = ROUTES.find((candidate) => matches(candidate.pattern, path));
   if (!route) return null;
 

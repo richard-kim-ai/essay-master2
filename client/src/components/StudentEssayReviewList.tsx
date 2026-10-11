@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FileText, MessageSquareText, Search } from "lucide-react";
+import { FileText, MessageSquareText, RefreshCw, Search } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,10 @@ export default function StudentEssayReviewList({ scope }: { scope: "teacher" | "
             {scope === "admin" ? "모든 학생이 제출한 글입니다." : "내가 담당하는 학생이 제출한 글입니다."} 글을 골라 첨삭하거나 첨삭 결과를 확인하세요.
           </p>
         </div>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+        <Button type="button" variant="outline" size="sm" className="h-10 shrink-0 bg-white" disabled={list.isFetching} onClick={() => void list.refetch()}>
+          <RefreshCw className={`mr-1.5 h-4 w-4 ${list.isFetching ? "animate-spin" : ""}`} aria-hidden="true" /> {list.isFetching ? "불러오는 중" : "목록 불러오기"}
+        </Button>
         <label className="relative block w-full sm:w-72">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
           <input
@@ -56,7 +60,9 @@ export default function StudentEssayReviewList({ scope }: { scope: "teacher" | "
             className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </label>
+        </div>
       </div>
+      {list.dataUpdatedAt ? <p className="text-xs text-slate-500" data-testid="review-list-updated">마지막으로 불러온 시각 {new Date(list.dataUpdatedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} · 새로 올라온 글은 '목록 불러오기'로 확인하세요.</p> : null}
 
       <div role="tablist" aria-label="첨삭 상태" className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
         {FILTERS.map((filter) => (
