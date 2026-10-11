@@ -1,3 +1,4 @@
+import SocialLoginButtons from "@/components/SocialLoginButtons";
 import React, { useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { sanitizeNextPath } from "@/lib/loginRedirect";
@@ -9,7 +10,6 @@ import { Mail, Lock, ArrowRight } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import AuthLayout from "@/components/AuthLayout";
 
-const PROVIDER_LABELS = { google: "Google", kakao: "카카오", naver: "네이버" } as const;
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -23,8 +23,6 @@ export default function Login() {
     onError: (error) => toast.error(error.message || "재발송 요청에 실패했습니다."),
   });
 
-  const socialProviders = trpc.social.providers.useQuery();
-  const enabledProviders = (["google", "kakao", "naver"] as const).filter((provider) => socialProviders.data?.find((item) => item.provider === provider)?.enabled);
   // 로그인이 필요한 화면에서 넘어온 경우 로그인 뒤 그 화면으로 돌아간다(같은 사이트 경로만 허용).
   const search = useSearch();
   const nextPath = sanitizeNextPath(new URLSearchParams(search).get("next"));
@@ -124,20 +122,8 @@ export default function Login() {
             </Button>
           </form>
 
-          {/* 사용 가능한 소셜 로그인 제공자만 보여준다(설정되지 않은 제공자는 숨긴다) */}
-          {enabledProviders.length > 0 && (
-            <>
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
-                <div className="relative flex justify-center"><span className="bg-white px-3 text-sm text-slate-500">또는</span></div>
-              </div>
-              <div className={`grid gap-2 ${enabledProviders.length === 1 ? "grid-cols-1" : enabledProviders.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
-                {enabledProviders.map((provider) => (
-                  <Button key={provider} type="button" variant="outline" onClick={() => { window.location.href = `/api/social/${provider}/start?origin=${encodeURIComponent(window.location.origin)}${socialNext ? `&next=${encodeURIComponent(socialNext)}` : ""}`; }}>{PROVIDER_LABELS[provider]}</Button>
-                ))}
-              </div>
-            </>
-          )}
+          {/* 관리자 설정에서 켠 제공자만 아이콘으로 보여준다(없으면 구분선도 숨김) */}
+          <SocialLoginButtons next={socialNext} />
           <div className="mt-6 space-y-3">
             <p className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">아직 계정이 없으신가요?</p>
             <div className="grid grid-cols-2 gap-3">

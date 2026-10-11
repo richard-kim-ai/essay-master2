@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Mail, Lock, User, ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import AuthLayout from "@/components/AuthLayout";
+import SocialLoginButtons from "@/components/SocialLoginButtons";
 import { PolicyConsentChecklist, type PolicyConsentValue } from "@/components/PolicyConsentChecklist";
 import { COURSE_OPTIONS, COURSE_TYPES, type CourseType } from "@shared/course";
 import { GUARDIAN_CONSENT_COURSE } from "@shared/guardian";
@@ -30,7 +31,6 @@ export default function Signup() {
   const [guardianInfo, setGuardianInfo] = useState<GuardianInfoValue>(EMPTY_GUARDIAN_INFO);
   // 초등 과정 학생은 생년월일과 법정대리인(보호자) 정보를 입력하고, 보호자가 이메일로 동의해야 한다.
   const needsGuardian = accountType === "student" && courseType === GUARDIAN_CONSENT_COURSE;
-  const socialProviders = trpc.social.providers.useQuery();
   const signupMutation = trpc.auth.signup.useMutation({
     onSuccess: (data) => {
       if (data.requiresGuardianConsent) {
@@ -101,13 +101,15 @@ export default function Signup() {
             <Button type="submit" disabled={signupMutation.isPending} className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700">{signupMutation.isPending ? "가입 중..." : "회원가입"}<ArrowRight className="h-4 w-4" /></Button>
           </form>
 
-          <div className="relative my-6"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div><div className="relative flex justify-center"><span className="bg-white px-3 text-sm text-slate-500">또는</span></div></div>
-          <div className="mt-3 grid grid-cols-3 gap-2">{(["google", "kakao", "naver"] as const).map((provider) => { const available = socialProviders.data?.find((item) => item.provider === provider)?.enabled; const label = provider === "google" ? "Google" : provider === "kakao" ? "카카오" : "네이버"; return <Button key={provider} type="button" variant="outline" disabled={!available} onClick={() => { window.location.href = `/api/social/${provider}/start?origin=${encodeURIComponent(window.location.origin)}`; }}>{label}</Button>; })}</div>
-          <p className="mt-2 text-center text-xs text-slate-500">소셜 로그인은 관리자 설정이 완료된 제공자만 활성화됩니다.</p>
+          <SocialLoginButtons />
           <p className="mt-6 text-center text-sm text-slate-600">이미 계정이 있으신가요? <Link href="/login" className="font-semibold text-indigo-700 hover:underline">로그인</Link></p>
         </Card>
 
-        <div className="mt-8 space-y-3 text-sm text-slate-700"><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />AI 기반 맞춤형 피드백</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />14개 이상의 학습 도구</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />이메일 인증으로 안전한 학습 기록</div></div>
+        <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-slate-600">
+          {["AI 기반 맞춤형 피드백", "14개 이상의 학습 도구", "이메일 인증으로 안전한 학습 기록"].map((text) => (
+            <li key={text} className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-indigo-600" aria-hidden="true" />{text}</li>
+          ))}
+        </ul>
     </AuthLayout>
   );
 }

@@ -2,7 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const routerState = vi.hoisted(() => ({ search: "" }));
+const routerState = vi.hoisted(() => ({ search: "", providers: [] as Array<{ provider: string; enabled: boolean }> }));
 
 vi.mock("wouter", () => ({
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
@@ -19,7 +19,7 @@ vi.mock("@/components/PolicyConsentChecklist", async (importOriginal) => ({
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    social: { providers: { useQuery: () => ({ data: [] }) } },
+    social: { providers: { useQuery: () => ({ data: routerState.providers }) } },
     policy: { forSignup: { useQuery: () => ({ data: [], isLoading: false }) } },
     auth: {
       signup: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
@@ -35,6 +35,7 @@ import { hasReadToEnd } from "@/components/PolicyConsentChecklist";
 describe("Signup birth date and guardian input", () => {
   beforeEach(() => {
     routerState.search = "";
+    routerState.providers = [];
   });
 
   it("초등 과정(기본 선택)에서는 보호자 정보를 팝업으로 입력하도록 안내하고, 입력란은 펼쳐 두지 않는다", () => {
@@ -56,6 +57,28 @@ describe("Signup birth date and guardian input", () => {
     const html = renderToStaticMarkup(<Signup />);
     expect(html).not.toContain("추천 교사 선택");
     expect(html).toContain("담당 교사는 가입 후 마이페이지에서 선택할 수 있습니다");
+  });
+});
+
+describe("소셜 로그인 표시", () => {
+  beforeEach(() => {
+    routerState.search = "";
+    routerState.providers = [];
+  });
+
+  it("관리자 설정이 없으면 소셜 영역(구분선 포함)을 보여주지 않는다", () => {
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).not.toContain("또는");
+    expect(html).not.toContain("소셜 로그인");
+  });
+
+  it("켜진 제공자만 글자 없는 아이콘 버튼으로 보여준다", () => {
+    routerState.providers = [{ provider: "google", enabled: true }, { provider: "kakao", enabled: false }, { provider: "naver", enabled: true }];
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).toContain('aria-label="Google(으)로 계속하기"');
+    expect(html).toContain('aria-label="네이버(으)로 계속하기"');
+    expect(html).not.toContain("카카오");
+    expect(html).not.toMatch(/>\s*Google\s*</);
   });
 });
 
