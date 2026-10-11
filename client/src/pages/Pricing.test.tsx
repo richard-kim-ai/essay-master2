@@ -47,7 +47,7 @@ describe("Pricing policy page", () => {
 
   it("바로가기 링크가 가리키는 제목이 모두 있고, 이용권 카드는 4종만 보여 준다", () => {
     const html = renderToStaticMarkup(<Pricing />);
-    for (const id of ["trial-title", "price-guide-title", "teacher-pass-title", "privacy-title"]) {
+    for (const id of ["price-guide-title", "teacher-pass-title", "privacy-title"]) {
       expect(html).toContain(`href="#${id}"`);
       expect(html).toContain(`id="${id}"`);
     }

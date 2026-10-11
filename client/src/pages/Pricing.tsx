@@ -1,25 +1,17 @@
 import React from "react";
-import { ArrowRight, CheckCircle2, Clock3, LockKeyhole, MessageCircle, Sparkles } from "lucide-react";
+import { CheckCircle2, LockKeyhole, MessageCircle, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
 import { PLANS, TEACHER_FEEDBACK_ELIGIBILITY_NOTICE, TEACHER_FEEDBACK_PASSES, TEACHER_FEEDBACK_PURCHASE_OPEN, formatKrw } from "@shared/plans";
 
 const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2";
 const PRIMARY_BUTTON = `inline-flex items-center justify-center rounded-xl bg-indigo-700 font-extrabold text-white transition hover:bg-indigo-800 ${FOCUS_RING}`;
-const OUTLINE_BUTTON = `inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-white font-extrabold text-indigo-700 transition hover:bg-indigo-50 ${FOCUS_RING}`;
 
 const SECTION_LINKS = [
-  { href: "#trial-title", label: "무료 체험" },
   { href: "#price-guide-title", label: "이용권" },
   { href: "#teacher-pass-title", label: "교사 첨삭지도권" },
   { href: "#privacy-title", label: "개인정보 보호" },
 ] as const;
-
-const TRIAL_BENEFITS = [
-  "선택한 과정의 커리큘럼과 레슨 탐색",
-  "AI 학습 도구와 개인 학습 기록",
-  "AI 평가·첨삭 총 3회(샘플 체험 1회 + 체험 2회)",
-];
 
 const USE_STEPS = [
   { title: "무료 체험", text: "7일 동안 학습 흐름을 먼저 경험합니다." },
@@ -78,7 +70,7 @@ export default function Pricing() {
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> PRICING & TRIAL
             </div>
             <h1 id="pricing-page-title" className="mt-5 text-[clamp(2rem,5vw,3.6rem)] font-black leading-[1.12] tracking-[-0.055em] text-slate-950">내 학습량에 맞는 이용 가이드</h1>
-            <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">먼저 7일 동안 학습 흐름을 경험한 뒤, 필요한 학습량과 AI 첨삭 횟수에 맞춰 선택하세요.</p>
+            <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">7일 무료 체험(샘플 체험 1회 + 체험 2회, AI 평가·첨삭 총 3회)으로 학습 흐름을 먼저 경험한 뒤, 필요한 학습량과 AI 첨삭 횟수에 맞춰 선택하세요. 카드 등록과 자동 결제는 없습니다.</p>
             <nav aria-label="요금 안내 바로가기" className="mt-7 flex flex-wrap justify-center gap-2">
               {SECTION_LINKS.map((link) => (
                 <a key={link.href} href={link.href} className={`rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:text-indigo-700 ${FOCUS_RING}`}>{link.label}</a>
@@ -86,24 +78,7 @@ export default function Pricing() {
             </nav>
           </section>
 
-          <section className="mx-auto mt-10 max-w-5xl overflow-hidden rounded-[2rem] border border-indigo-100 bg-white shadow-[0_20px_70px_-35px_rgba(67,56,202,0.42)]" aria-labelledby="trial-title">
-            <div>
-              <div className="p-6 sm:p-9 lg:p-11">
-                <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-sm font-extrabold text-indigo-700"><Clock3 className="h-4 w-4" aria-hidden="true" /> 7일 무료 체험</div>
-                <h2 id="trial-title" className="mt-5 scroll-mt-24 text-2xl font-black tracking-[-0.035em] sm:text-3xl">로그인 후 내 과정으로 시작</h2>
-                <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">샘플 체험은 저장 없이 기능을 둘러보는 용도이고, 로그인하면 7일 동안 개인 학습 기록과 AI 평가·첨삭 2회를 이용할 수 있습니다(샘플 체험 1회와 합쳐 무료 총 3회). 카드 등록과 자동 결제는 없습니다.</p>
-                <ul className="mt-7 grid gap-3 sm:grid-cols-3">
-                  {TRIAL_BENEFITS.map((benefit) => <li key={benefit} className="flex items-start gap-2 text-sm font-semibold leading-6 text-slate-700"><CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" /> <span>{benefit}</span></li>)}
-                </ul>
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                  <Link href="/login?trial=1" className={`group h-12 w-full gap-2 px-5 text-sm shadow-lg shadow-indigo-200 hover:-translate-y-0.5 sm:w-auto ${PRIMARY_BUTTON}`}>지금 시작하기 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" /></Link>
-                  <Link href="/sample" className={`h-12 w-full px-5 text-sm sm:w-auto ${OUTLINE_BUTTON}`}>나에게 맞는 과정 찾기</Link>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="mt-16" aria-labelledby="price-guide-title">
+          <section className="mt-14" aria-labelledby="price-guide-title">
             <SectionHeading eyebrow="PRICE GUIDE" id="price-guide-title" title="이용권 요금 안내">
               정식 이용권은 학습량에 맞춰 선택할 수 있습니다.
             </SectionHeading>
