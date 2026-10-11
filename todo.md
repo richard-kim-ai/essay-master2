@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 작성한 글 삭제·휴지통·복원·영구 삭제 (essay_submission.deletedAt 마이그레이션, server essaySubmission 삭제/복원/영구삭제, 글쓰기 화면·내 글·첨삭 기록 화면, 로컬 보관함 동기화) — 시작 2026-10-12 02:40
 
 ## 완료
 
