@@ -13,13 +13,13 @@ const COMPANY_LABELS: ReadonlyArray<[keyof typeof COMPANY_INFO, string]> = [
   ["privacyOfficer", "개인정보 보호책임자"],
 ];
 
-// 푸터 메뉴는 헤더(Navigation) 메뉴 순서를 따른다: 커리큘럼 → 추천 아카이브 → 요금정책 → 학습 도구 → 샘플 체험.
+// 푸터 메뉴는 헤더(Navigation) 메뉴 순서를 따른다: 커리큘럼 → 아카이브 → 요금정책 → 학습 도구 → 샘플 체험.
 export const FOOTER_MENU: ReadonlyArray<{ title: string; links: ReadonlyArray<{ label: string; href: string }> }> = [
   {
     title: "서비스",
     links: [
       { label: "커리큘럼", href: "/curriculum" },
-      { label: "추천 아카이브", href: "/essay-archive" },
+      { label: "아카이브", href: "/essay-archive" },
       { label: "요금정책", href: "/pricing" },
     ],
   },

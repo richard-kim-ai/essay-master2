@@ -37,9 +37,9 @@ describe("Footer", () => {
   it("푸터 메뉴는 헤더 메뉴와 같은 명칭·순서이고, 교사 회원가입 진입점이 있다", () => {
     const nav = readFileSync(fileURLToPath(new URL("./Navigation.tsx", import.meta.url)), "utf8");
     const headerLabels = Array.from(nav.matchAll(/\{ label: "([^"]+)", href: "(\/[^"]*)"/g)).map((match) => match[1]);
-    // 헤더: 커리큘럼 → 추천 아카이브 → 요금정책 → (학습 도구) 6개 도구
+    // 헤더: 커리큘럼 → 아카이브 → 요금정책 → (학습 도구) 6개 도구
     const footerLabels = FOOTER_MENU.flatMap((group) => group.links.map((link) => link.label));
-    const expectedOrder = ["커리큘럼", "추천 아카이브", "요금정책", "AI 문장 교정", "단락 재구성", "요약 연습", "오답 노트", "주제 설정", "주제문 점검"];
+    const expectedOrder = ["커리큘럼", "아카이브", "요금정책", "AI 문장 교정", "단락 재구성", "요약 연습", "오답 노트", "주제 설정", "주제문 점검"];
     expect(headerLabels.slice(0, expectedOrder.length)).toEqual(expectedOrder);
     expect(footerLabels.slice(0, expectedOrder.length)).toEqual(expectedOrder);
 

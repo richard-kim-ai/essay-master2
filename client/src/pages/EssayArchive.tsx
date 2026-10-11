@@ -142,7 +142,7 @@ export default function EssayArchive() {
   ];
 
   return (
-    <DashboardLayout previewTitle="추천 아카이브">
+    <DashboardLayout previewTitle="아카이브">
       <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -151,7 +151,7 @@ export default function EssayArchive() {
               <BookOpen className="w-4 h-4" /> 과정별 맞춤 아카이브 & 스마트 플래너
             </div>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
-              추천 논술 아카이브 & 주간 학습 플래너
+              논술 아카이브 & 주간 학습 플래너
             </h1>
             <p className="text-sm text-slate-600 mt-1">
               실전 논술 주제를 탐색하고 북마크한 뒤, 주간 학습 계획표에 자동으로 배치하여 체계적으로 학습하세요.
@@ -247,7 +247,7 @@ export default function EssayArchive() {
 
         {/* Question Cards Grid */}
         {isLoading ? (
-          <div className="p-12 text-center text-slate-500">추천 논술 아카이브를 불러오는 중입니다...</div>
+          <div className="p-12 text-center text-slate-500">논술 아카이브를 불러오는 중입니다...</div>
         ) : sorted.length === 0 ? (
           <div className="p-12 text-center text-slate-500 bg-white rounded-2xl border border-slate-200">
             {showBookmarksOnly ? "즐겨찾기 보관함에 저장된 주제가 없습니다." : "조건에 해당하는 추천 주제가 없습니다."}
