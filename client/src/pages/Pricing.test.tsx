@@ -58,3 +58,11 @@ describe("Pricing policy page", () => {
     expect(html).toMatch(/<h2 id="teacher-pass-title"/);
   });
 });
+
+describe("개인정보 삭제·철회 안내 문구", () => {
+  it("메일 주소 대신 마이페이지 및 관리자 메일 신청으로 요청한다고 안내한다", () => {
+    const html = renderToStaticMarkup(<Pricing />);
+    expect(html).toContain("학습 데이터 삭제와 AI 품질 개선 활용 철회는 마이페이지 및 관리자 메일 신청을 통해 요청할 수 있습니다.");
+    expect(html).not.toContain("요청하실 수 있습니다");
+  });
+});
