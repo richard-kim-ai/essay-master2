@@ -1,5 +1,5 @@
 export const TRIAL_DURATION_DAYS = 7;
-// 정책: 무료 AI 제공량은 샘플 테스트 1회 + 추가 체험 2회 = 총 3회. 샘플은 가입 전 사용이라 계정 체험은 2회다.
+// 정책: 무료 AI는 가입 전 샘플 체험(방문당 1회, routers.ts SAMPLE_AI_SESSION_LIMIT)과 가입 후 계정 체험 2회로 각각 별도 계산한다(서로 차감하지 않는다).
 export const TRIAL_AI_EVALUATION_LIMIT = 2;
 export const TRIAL_AI_EVALUATION_LESSON = 1;
 export const TRIAL_AI_EVALUATION_SOURCE = "lesson_one_essay";

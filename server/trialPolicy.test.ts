@@ -10,7 +10,7 @@ describe("7일 무료 체험 정책", () => {
 
   it("체험 종료 후에는 AI 평가 한도 정책을 적용하지 않는다", () => {
     expect(getTrialAccess("2026-08-17T00:00:00.000Z", now)).toMatchObject({ isActive: false, daysRemaining: 0 });
-    // 정책: 무료 AI 총 3회 = 샘플 테스트 1회 + 계정 체험 2회
+    // 정책: 샘플 체험(방문당 1회)과 계정 체험 2회는 별도로 계산한다
     expect(TRIAL_AI_EVALUATION_LIMIT).toBe(2);
   });
 

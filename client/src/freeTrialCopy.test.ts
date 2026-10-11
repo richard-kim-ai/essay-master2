@@ -7,15 +7,16 @@ const read = (relative: string) => readFileSync(join(process.cwd(), relative), "
 
 // 무료 체험 안내 문구가 실제 한도(서버 정책 상수)와 어긋나지 않도록 지킨다.
 describe("무료 체험 안내 문구와 실제 한도", () => {
-  it("실제 한도: 가입 후 7일, AI 평가·첨삭 2회 (샘플 1회와 합쳐 총 3회)", () => {
+  it("실제 한도: 가입 후 7일, AI 평가·첨삭 2회 (샘플 방문당 1회와 별도)", () => {
     expect(TRIAL_DURATION_DAYS).toBe(7);
     expect(TRIAL_AI_EVALUATION_LIMIT).toBe(2);
     expect(read("server/routers.ts")).toContain("const SAMPLE_AI_SESSION_LIMIT = 1;");
   });
 
-  it("요금정책은 샘플(가입 전) 1회 + 가입 후 7일 체험 2회 = 총 3회와 각 체험의 범위를 구분해 안내한다", () => {
+  it("요금정책은 샘플(가입 전 방문당 1회)과 가입 후 7일 체험(2회)이 별도임과 각 체험의 범위를 구분해 안내한다", () => {
     const pricing = read("client/src/pages/Pricing.tsx");
-    expect(pricing).toContain("가입 전 샘플 체험 1회와 가입 후 7일 무료 체험 2회를 합쳐 총 3회");
+    expect(pricing).toContain("가입 전 샘플 체험에서 방문당 1회, 가입 후 7일 무료 체험에서 2회가 각각 별도로 제공됩니다");
+    expect(pricing).not.toContain("합쳐 총 3회");
     expect(pricing).toContain('ai: "AI 평가·첨삭 1회"');
     expect(pricing).toContain('ai: "AI 평가·첨삭 2회"');
     expect(pricing).toContain("입력한 글과 결과는 저장되지 않습니다");
@@ -25,7 +26,8 @@ describe("무료 체험 안내 문구와 실제 한도", () => {
   it("샘플 체험 화면은 로그인 없이 방문당 1회·저장 안 됨·가입 후 2회 추가를 안내한다", () => {
     const sample = read("client/src/pages/SampleExperience.tsx");
     expect(sample).toContain("방문당 1회");
-    expect(sample).toContain("무료 총 3회");
+    expect(sample).toContain("AI 평가·첨삭 2회를 별도로 더 이용할 수 있습니다");
+    expect(sample).not.toContain("무료 총 3회");
     expect(sample).toContain("AI 평가·첨삭을 2회 더 받아볼 수 있습니다");
   });
 

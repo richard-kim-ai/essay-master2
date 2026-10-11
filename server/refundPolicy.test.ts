@@ -79,3 +79,15 @@ describe("푸터·팝업·관리자 연결", () => {
     expect(admin).toContain("가격·환불정책 저장 및 공개 반영");
   });
 });
+
+describe("무료체험·샘플 조항은 실제 구현과 같다", () => {
+  it("샘플(가입 전 방문당 1회)과 가입 후 7일 체험(계정당 2회)을 별도로 계산한다고 안내하고, 구현과 다른 '샘플 포함 총 3회' 표현이 없다", () => {
+    expect(DEFAULT_REFUND_POLICY).toContain("가입 전 샘플 체험(AI 평가·첨삭 방문당 1회)과 가입 후 7일 체험(AI 평가·첨삭 2회)");
+    expect(DEFAULT_REFUND_POLICY).toContain("가입 전 샘플 체험은 로그인 없이 방문(접속)당 1회 이용할 수 있고, 가입 후 7일 체험은 계정당 2회 이용할 수 있습니다.");
+    expect(DEFAULT_REFUND_POLICY).toContain("샘플 체험과 가입 후 체험은 서로 별도로 계산됩니다.");
+    expect(DEFAULT_REFUND_POLICY).toContain("무료 7일 체험은 가입한 시각부터 7일간 제공됩니다.");
+    for (const outdated of ["샘플 테스트 포함 AI 평가·첨삭 총 3회", "합한 총 3회", "총 3회에 포함되며", "가입 후 체험 제공량에 포함합니다"]) {
+      expect(DEFAULT_REFUND_POLICY).not.toContain(outdated);
+    }
+  });
+});

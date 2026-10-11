@@ -21,7 +21,7 @@ import { evaluateWritingWithLLM } from "./writingEvaluationEngine";
 import { getTrialAccess, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
 
 // 샘플 체험(비로그인) AI 첨삭 실체험 남용 방지 한도
-// 정책: 무료 AI 제공량은 샘플 테스트 1회 + 계정 체험 2회 = 총 3회. 샘플 테스트는 1회다.
+// 정책: 샘플 체험 AI는 방문(세션)당 1회이고, 가입 후 계정 체험 2회와 별도로 계산한다.
 const SAMPLE_AI_SESSION_LIMIT = 1;
 const SAMPLE_AI_IP_DAILY_LIMIT = 10;
 const SAMPLE_AI_TEXT_MAX_LENGTH = 300;

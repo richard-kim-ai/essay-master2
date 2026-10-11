@@ -136,7 +136,7 @@ export default function SampleExperience() {
           <aside className="rounded-3xl bg-slate-950 p-6 text-white sm:p-8">
             <LockKeyhole className="h-7 w-7 text-cyan-300" />
             <h2 className="mt-4 text-2xl font-black">샘플 체험에서는</h2>
-            <ul className="mt-5 space-y-3 text-sm leading-6 text-slate-300"><li>과정별 학습 구조와 짧은 연습을 둘러볼 수 있습니다.</li><li>바로 아래에서 실제 AI 평가·첨삭을 방문당 {SAMPLE_AI_SESSION_LIMIT}회 직접 체험할 수 있습니다.</li><li>답안·진도·AI 첨삭 결과는 개인 DB에 저장되지 않습니다.</li><li>가입하면 7일 무료 체험에서 AI 평가·첨삭 2회를 더 이용할 수 있습니다(무료 총 3회).</li></ul>
+            <ul className="mt-5 space-y-3 text-sm leading-6 text-slate-300"><li>과정별 학습 구조와 짧은 연습을 둘러볼 수 있습니다.</li><li>바로 아래에서 실제 AI 평가·첨삭을 방문당 {SAMPLE_AI_SESSION_LIMIT}회 직접 체험할 수 있습니다.</li><li>답안·진도·AI 첨삭 결과는 개인 DB에 저장되지 않습니다.</li><li>가입하면 7일 무료 체험에서 AI 평가·첨삭 2회를 별도로 더 이용할 수 있습니다.</li></ul>
             <Link href={loginHref} className="mt-7 inline-flex h-12 w-full items-center justify-center rounded-xl bg-white px-5 font-bold text-slate-950 transition hover:bg-cyan-50">로그인하고 7일 무료 체험 시작<ChevronRight className="ml-1 h-4 w-4" /></Link>
           </aside>
         </section>
