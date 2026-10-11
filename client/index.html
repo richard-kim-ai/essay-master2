@@ -22,17 +22,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <script defer src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js" integrity="sha384-TiCUE00h6k9CAMon5017d3aeOkolIAAfz8O0IsH4J3FCsiDN8oJVXlJCxH2bCExr" crossorigin="anonymous"></script>
-    <script>
-      // 카카오 SDK는 화면 표시를 막지 않도록 defer로 불러오고, 모두 불러온 뒤 초기화한다.
-      window.addEventListener('load', function () {
-        try {
-          if (window.Kakao && !window.Kakao.isInitialized()) {
-            window.Kakao.init('essay-master-kakao-placeholder-key');
-          }
-        } catch (e) {}
-      });
-    </script>
+    <!-- 카카오 JS SDK는 넣지 않는다. 예전 무결성(SRI) 값이 실제 파일과 달라 브라우저가 항상 차단했고, 초기화 키도 자리표시자였다.
+         공유 버튼은 window.Kakao가 없으면 기기 공유 메뉴·링크 복사로 동작한다. 카카오 공유를 쓰려면 SDK 주소와 실제 앱 키를 함께 설정해야 한다. -->
     <!-- THIS IS THE START OF A COMMENT BLOCK, BLOCK TO BE DELETED: Google Fonts here, example:
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
