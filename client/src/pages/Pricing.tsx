@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowRight, CheckCircle2, Clock3, LockKeyhole, MessageCircle, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock3, LockKeyhole, MessageCircle, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
 import { PLANS, TEACHER_FEEDBACK_ELIGIBILITY_NOTICE, TEACHER_FEEDBACK_PASSES, TEACHER_FEEDBACK_PURCHASE_OPEN, formatKrw } from "@shared/plans";
@@ -87,7 +87,7 @@ export default function Pricing() {
           </section>
 
           <section className="mx-auto mt-10 max-w-5xl overflow-hidden rounded-[2rem] border border-indigo-100 bg-white shadow-[0_20px_70px_-35px_rgba(67,56,202,0.42)]" aria-labelledby="trial-title">
-            <div className="grid gap-0 lg:grid-cols-[1.2fr_0.8fr]">
+            <div>
               <div className="p-6 sm:p-9 lg:p-11">
                 <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-sm font-extrabold text-indigo-700"><Clock3 className="h-4 w-4" aria-hidden="true" /> 7일 무료 체험</div>
                 <h2 id="trial-title" className="mt-5 scroll-mt-24 text-2xl font-black tracking-[-0.035em] sm:text-3xl">로그인 후 내 과정으로 시작</h2>
@@ -100,18 +100,12 @@ export default function Pricing() {
                   <Link href="/sample" className={`h-12 w-full px-5 text-sm sm:w-auto ${OUTLINE_BUTTON}`}>나에게 맞는 과정 찾기</Link>
                 </div>
               </div>
-              <div className="flex items-center bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-6 sm:p-9 lg:p-11">
-                <div className="w-full rounded-2xl border border-white/90 bg-white/80 p-5 shadow-sm backdrop-blur sm:p-6">
-                  <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700"><ShieldCheck className="h-6 w-6" aria-hidden="true" /></div><div><p className="text-sm font-extrabold text-slate-900">체험 범위가 분명해요</p><p className="mt-1 text-xs leading-5 text-slate-500">샘플과 개인 학습을 구분합니다.</p></div></div>
-                  <div className="mt-5 space-y-2.5 text-sm font-semibold text-slate-700"><div className="rounded-xl bg-slate-50 px-4 py-3">샘플 체험 · 저장 없음</div><div className="rounded-xl bg-indigo-50 px-4 py-3 text-indigo-800">로그인 체험 · 개인 기록 저장</div><div className="rounded-xl bg-emerald-50 px-4 py-3 text-emerald-800">AI 평가·첨삭 · 체험 2회</div></div>
-                </div>
-              </div>
             </div>
           </section>
 
           <section className="mt-16" aria-labelledby="price-guide-title">
             <SectionHeading eyebrow="PRICE GUIDE" id="price-guide-title" title="이용권 요금 안내">
-              정식 이용권은 학습량에 맞춰 선택할 수 있습니다. 정식 오픈 전까지 결제는 테스트 방식으로 운영되며, 최종 요금은 오픈 시 다시 안내해 드립니다.
+              정식 이용권은 학습량에 맞춰 선택할 수 있습니다.
             </SectionHeading>
             <ol className="mx-auto mt-8 grid max-w-4xl gap-3 sm:grid-cols-3" aria-label="이용 순서">
               {USE_STEPS.map((step, index) => (
