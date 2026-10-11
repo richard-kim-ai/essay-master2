@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
   getHomePrimaryAction,
 } from "@/lib/homeExperience";
 import { getTrialStatus } from "@/lib/trialExperience";
+import { applyHomeSeo } from "@/lib/homeSeo";
 import { Link } from "wouter";
 import {
   ArrowRight,
@@ -84,6 +85,7 @@ const HERO_VALUE_CARDS = [
 ] as const;
 
 export default function Home() {
+  useEffect(() => applyHomeSeo(), []);
   const { user, isAuthenticated } = useAuth();
   const primaryAction = getHomePrimaryAction(isAuthenticated, user?.role);
   const trial = getTrialStatus(user?.createdAt);

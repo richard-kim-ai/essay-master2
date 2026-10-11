@@ -30,6 +30,7 @@ vi.mock("wouter", () => ({
 
 import { useAuth } from "@/_core/hooks/useAuth";
 import Home from "./Home";
+import { HOME_SEO } from "@/lib/homeSeo";
 
 const mockUseAuth = vi.mocked(useAuth);
 
@@ -82,6 +83,9 @@ describe("Home CTA accessibility", () => {
     await act(async () => {
       root.render(<Home />);
     });
+
+    expect(document.title).toBe(HOME_SEO.title);
+    expect(document.querySelector('meta[name="keywords"]')?.getAttribute("content")).toBe(HOME_SEO.keywords.join(", "));
 
     const primaryCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="primary"][href="/login?trial=1"]');
     const courseFinderCta = container.querySelector<HTMLAnchorElement>('a[data-home-cta="course-finder"][href="/sample"]');
