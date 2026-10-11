@@ -4,6 +4,7 @@ import { storagePut } from "./storage";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
+import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
@@ -813,7 +814,7 @@ export const appRouter = router({
           lessonIndex: z.number(),
         })
       )
-      .query(({ input }) => db.getCurriculumWorkbookQuestions(input.courseType, input.level, input.lessonIndex)),
+      .query(async ({ ctx, input }) => (await db.getCurriculumWorkbookQuestions(input.courseType, input.level, input.lessonIndex)).map((question) => toLearnerWorkbookQuestion(question, ctx.user))),
 
     getWorkbookLessonBundle: protectedProcedure
       .input(z.object({
@@ -821,11 +822,15 @@ export const appRouter = router({
         level: z.number().int().min(1).max(20),
         lessonIndex: z.number().int().min(0).max(50),
       }))
-      .query(({ input }) => db.getWorkbookLessonBundle({
-        courseType: input.courseType,
-        lessonLevel: input.level,
-        lessonIndex: input.lessonIndex,
-      })),
+      .query(async ({ ctx, input }) => {
+        const bundle = await db.getWorkbookLessonBundle({
+          courseType: input.courseType,
+          lessonLevel: input.level,
+          lessonIndex: input.lessonIndex,
+        });
+        // 정답·해설은 제출 결과로만 돌려준다(교사·관리자는 검수용으로 원본).
+        return { ...bundle, workbookQuestions: bundle.workbookQuestions.map((question) => toLearnerWorkbookQuestion(question, ctx.user)) };
+      }),
 
     submitWorkbookAnswer: protectedProcedure
       .input(
@@ -1685,21 +1690,21 @@ export const appRouter = router({
   questionBank: router({
     list: protectedProcedure
       .input(z.object({ courseType: z.string().optional(), toolType: z.string().optional() }))
-      .query(async ({ input }) => {
-        return await db.getQuestionBankList(input.courseType, input.toolType);
+      .query(async ({ ctx, input }) => {
+        return toLearnerQuestions(await db.getQuestionBankList(input.courseType, input.toolType), ctx.user);
       }),
     publicStats: publicProcedure.query(async () => {
       return await db.getQuestionBankPublicStats();
     }),
     random: protectedProcedure
       .input(z.object({ courseType: z.string(), toolType: z.string(), limit: z.number().default(10) }))
-      .query(async ({ input }) => {
-        return await db.getRandomQuestions(input.courseType, input.toolType, input.limit);
+      .query(async ({ ctx, input }) => {
+        return toLearnerQuestions(await db.getRandomQuestions(input.courseType, input.toolType, input.limit), ctx.user);
       }),
     reorderingPractice: protectedProcedure
       .input(z.object({ courseType: z.enum(["elementary", "middle_high", "high_univ", "general_adult"]), limit: z.number().int().min(1).max(10).default(10) }))
-      .query(async ({ input }) => {
-        return await db.getReorderingPracticeSet(input.courseType, input.limit);
+      .query(async ({ ctx, input }) => {
+        return toLearnerQuestions(await db.getReorderingPracticeSet(input.courseType, input.limit), ctx.user);
       }),
     reorderingSubmit: protectedProcedure
       .input(z.object({ questionId: z.number().int().positive(), orderedParagraphIds: z.array(z.string().min(1)).min(3).max(12) }))

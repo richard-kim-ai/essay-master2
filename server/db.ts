@@ -3484,7 +3484,8 @@ export async function verifyAndSaveQuizAttempt(userId: number, quizId: number, u
     accuracyScore: "0.00",
   });
   await recordLearningToolAttempt({ userId, questionBankId: quizId, courseType: question.courseType, toolType: "quiz", score: isCorrect ? 100 : 0 });
-  return { isCorrect, score: isCorrect ? 100 : 0, feedback };
+  // 문항 조회에서는 정답·해설을 내려주지 않으므로, 제출을 판정한 결과로만 돌려준다.
+  return { isCorrect, score: isCorrect ? 100 : 0, feedback, correctAnswer: content.answer ?? "", explanation: content.explanation ?? "" };
 }
 
 /**
@@ -3569,7 +3570,9 @@ export async function verifyAndRecordReorderingAttempt(userId: number, questionI
   const correctCount = orderedParagraphIds.filter((id, index) => expected.find((paragraph) => paragraph.id === id)?.correctOrder === index + 1).length;
   const score = Math.round((correctCount / expected.length) * 100);
   await recordLearningToolAttempt({ userId, questionBankId: questionId, courseType: question.courseType, toolType: "reordering", score });
-  return { score, passed: score >= 70, feedback: content.explanation || "논리적 연결과 단락의 기능을 다시 확인해 보세요." };
+  // 정답 순서(단락 id)는 제출 뒤에만 돌려준다.
+  const correctOrderIds = [...expected].sort((a, b) => a.correctOrder - b.correctOrder).map((paragraph) => paragraph.id);
+  return { score, passed: score >= 70, feedback: content.explanation || "논리적 연결과 단락의 기능을 다시 확인해 보세요.", correctOrderIds };
 }
 
 export async function getLearningToolBadgeEligibility(userId: number, courseType: CourseType, badgeType: "quiz" | "summary" | "reordering_10_session") {
@@ -5090,7 +5093,8 @@ export async function submitCurriculumWorkbookAnswer(userId: number, questionId:
     });
   }
 
-  return { isCorrect, score, aiFeedback, evaluation };
+  // 문항 조회에서는 해설을 내려주지 않으므로 제출 결과에 함께 돌려준다.
+  return { isCorrect, score, aiFeedback, evaluation, explanation: q.explanation };
 }
 
 export async function recordLearningToolMistake(input: {

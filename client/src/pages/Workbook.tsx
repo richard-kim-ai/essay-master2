@@ -41,6 +41,8 @@ type SubmittedWorkbookResult = {
   score: number;
   aiFeedback: string;
   evaluation?: SubjectiveEvaluation | null;
+  /** 문항 조회에는 해설이 없고 제출 결과로만 받는다. */
+  explanation?: string;
 };
 
 type LessonWritingGuide = {
@@ -574,7 +576,7 @@ export default function Workbook() {
                   const res = submittedResults[q.id];
                   const choices = q.choicesJson ? JSON.parse(q.choicesJson) : [];
                   return (
-                    <WorkbookQuestionCard key={q.id} questionType={q.questionType} prompt={q.prompt} explanation={q.explanation} result={res}>
+                    <WorkbookQuestionCard key={q.id} questionType={q.questionType} prompt={q.prompt} explanation={res?.explanation ?? q.explanation ?? ""} result={res}>
                         {q.questionType === "objective" ? (
                           <div className="grid gap-2">
                             {choices.map((choice: string, cIdx: number) => (
