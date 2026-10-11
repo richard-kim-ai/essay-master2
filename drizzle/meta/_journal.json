@@ -379,6 +379,13 @@
       "when": 1791715281032,
       "tag": "0053_certificate_archives",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "5",
+      "when": 1791727579628,
+      "tag": "0054_subscription_start_and_addon",
+      "breakpoints": true
     }
   ]
 }

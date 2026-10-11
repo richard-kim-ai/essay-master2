@@ -62,9 +62,10 @@ export async function markOrderFailed(orderId: number, reason: string) {
 
 /**
  * 주문을 결제 완료로 확정하고 이용권을 만든다(한 번만). 이미 확정된 주문이면 아무것도 바꾸지 않고 null을 돌려준다.
- * 같은 사용자의 이전 이용권은 새 이용권이 시작되는 시점에 끝낸다.
+ * 이용권은 겹쳐서 가질 수 있다(이전 이용권을 끝내지 않는다). package(30일 상품)는 결제만 끝난 '시작 대기' 상태로 만들고,
+ * 이용자가 '유료 이용 시작'을 누른 시각부터 기간이 시작된다. addon(추가권)은 구매일부터 기간이 시작된다.
  */
-export async function confirmOrderAndActivateSubscription(input: { orderId: number; paymentKey: string; planKey: string; periodDays: number; aiEvaluationsLimit: number; now?: Date }) {
+export async function confirmOrderAndActivateSubscription(input: { orderId: number; paymentKey: string; planKey: string; kind: "package" | "addon"; periodDays: number; aiEvaluationsLimit: number; now?: Date }) {
   const db = await requireDb();
   const now = input.now ?? new Date();
   return db.transaction(async (tx) => {
@@ -74,14 +75,14 @@ export async function confirmOrderAndActivateSubscription(input: { orderId: numb
     if (Number((result as { affectedRows?: number }).affectedRows ?? 0) === 0) return null;
 
     const [order] = await tx.select().from(paymentOrders).where(eq(paymentOrders.id, input.orderId));
-    await tx.update(subscriptions)
-      .set({ status: "expired", currentPeriodEnd: now })
-      .where(and(eq(subscriptions.userId, order.userId), inArray(subscriptions.status, ["active", "cancelled"]), gte(subscriptions.currentPeriodEnd, now)));
     const periodEnd = new Date(now.getTime() + input.periodDays * 24 * 60 * 60 * 1000);
     await tx.insert(subscriptions).values({
       userId: order.userId,
       planKey: input.planKey,
       status: "active",
+      kind: input.kind,
+      periodDays: input.periodDays,
+      awaitingStart: input.kind === "package" ? 1 : 0,
       currentPeriodStart: now,
       currentPeriodEnd: periodEnd,
       aiEvaluationsLimit: input.aiEvaluationsLimit,
@@ -92,22 +93,36 @@ export async function confirmOrderAndActivateSubscription(input: { orderId: numb
   });
 }
 
-/** 지금 유효한 이용권(취소했어도 결제한 기간이 남았으면 포함). 없으면 undefined. */
-export async function getCurrentSubscription(userId: number, now = new Date()) {
+/** 지금 이용 중인 이용권들(시작 대기 제외, 취소했어도 결제한 기간이 남았으면 포함). 만료가 가까운 것부터 정렬한다. */
+export async function listActiveSubscriptions(userId: number, now = new Date()) {
   const db = await requireDb();
-  const rows = await db.select().from(subscriptions)
-    .where(and(eq(subscriptions.userId, userId), inArray(subscriptions.status, ["active", "cancelled"]), gte(subscriptions.currentPeriodEnd, now)))
-    .orderBy(desc(subscriptions.currentPeriodEnd))
-    .limit(1);
-  return rows[0];
+  return db.select().from(subscriptions)
+    .where(and(eq(subscriptions.userId, userId), inArray(subscriptions.status, ["active", "cancelled"]), eq(subscriptions.awaitingStart, 0), gte(subscriptions.currentPeriodEnd, now)))
+    .orderBy(subscriptions.currentPeriodEnd, subscriptions.id);
 }
 
-export async function cancelCurrentSubscription(userId: number, now = new Date()) {
+/** 결제는 끝났지만 아직 '유료 이용 시작'을 누르지 않은 이용권들. */
+export async function listAwaitingStartSubscriptions(userId: number) {
   const db = await requireDb();
-  const current = await getCurrentSubscription(userId, now);
-  if (!current || current.status !== "active") return undefined;
-  await db.update(subscriptions).set({ status: "cancelled", cancelledAt: now }).where(eq(subscriptions.id, current.id));
-  return { ...current, status: "cancelled" as const, cancelledAt: now };
+  return db.select().from(subscriptions)
+    .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, "active"), eq(subscriptions.awaitingStart, 1)))
+    .orderBy(subscriptions.id);
+}
+
+/**
+ * '유료 이용 시작': 시작 대기 이용권의 기간을 지금부터 시작한다(본인 것만, 한 번만).
+ * 조건을 만족하지 않으면(이미 시작·환불·남의 이용권) 아무것도 바꾸지 않고 undefined를 돌려준다.
+ */
+export async function startSubscription(userId: number, subscriptionId: number, now = new Date()) {
+  const db = await requireDb();
+  const [target] = await db.select().from(subscriptions).where(and(eq(subscriptions.id, subscriptionId), eq(subscriptions.userId, userId)));
+  if (!target || target.awaitingStart !== 1 || target.status !== "active") return undefined;
+  const periodEnd = new Date(now.getTime() + target.periodDays * 24 * 60 * 60 * 1000);
+  const [result] = await db.update(subscriptions)
+    .set({ awaitingStart: 0, currentPeriodStart: now, currentPeriodEnd: periodEnd })
+    .where(and(eq(subscriptions.id, subscriptionId), eq(subscriptions.userId, userId), eq(subscriptions.awaitingStart, 1), eq(subscriptions.status, "active")));
+  if (Number((result as { affectedRows?: number }).affectedRows ?? 0) === 0) return undefined;
+  return { ...target, awaitingStart: 0, currentPeriodStart: now, currentPeriodEnd: periodEnd };
 }
 
 export async function listOrdersForUser(userId: number, limit = 20) {
@@ -155,7 +170,7 @@ export async function summarizeBilling(now = new Date()) {
   const refunded = orders.filter((order) => order.status === "refunded" && order.isTest !== 1);
   const testPaid = orders.filter((order) => order.status === "paid" && order.isTest === 1);
   const [{ value: activeSubscriptions }] = await db.select({ value: count() }).from(subscriptions)
-    .where(and(inArray(subscriptions.status, ["active", "cancelled"]), gte(subscriptions.currentPeriodEnd, now)));
+    .where(and(inArray(subscriptions.status, ["active", "cancelled"]), eq(subscriptions.awaitingStart, 0), gte(subscriptions.currentPeriodEnd, now)));
   return {
     paidCount: paid.length,
     paidTotalKrw: paid.reduce((sum, order) => sum + order.amountKrw, 0),
@@ -179,6 +194,8 @@ export async function listSubscriptionsAdmin(limit = 100) {
     currentPeriodStart: subscriptions.currentPeriodStart,
     currentPeriodEnd: subscriptions.currentPeriodEnd,
     aiEvaluationsLimit: subscriptions.aiEvaluationsLimit,
+    kind: subscriptions.kind,
+    awaitingStart: subscriptions.awaitingStart,
     cancelledAt: subscriptions.cancelledAt,
   })
     .from(subscriptions)
@@ -193,7 +210,7 @@ export async function markOrderRefunded(orderId: number, now = new Date()) {
   return db.transaction(async (tx) => {
     const [result] = await tx.update(paymentOrders).set({ status: "refunded", refundedAt: now }).where(and(eq(paymentOrders.id, orderId), eq(paymentOrders.status, "paid")));
     if (Number((result as { affectedRows?: number }).affectedRows ?? 0) === 0) return false;
-    await tx.update(subscriptions).set({ status: "expired", currentPeriodEnd: now }).where(and(eq(subscriptions.orderId, orderId), inArray(subscriptions.status, ["active", "cancelled"])));
+    await tx.update(subscriptions).set({ status: "expired", awaitingStart: 0, currentPeriodEnd: now }).where(and(eq(subscriptions.orderId, orderId), inArray(subscriptions.status, ["active", "cancelled"])));
     return true;
   });
 }

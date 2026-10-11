@@ -1,5 +1,6 @@
 export const TRIAL_DURATION_DAYS = 7;
-export const TRIAL_AI_EVALUATION_LIMIT = 1;
+// 정책: 무료 AI 제공량은 샘플 테스트 1회 + 추가 체험 2회 = 총 3회. 샘플은 가입 전 사용이라 계정 체험은 2회다.
+export const TRIAL_AI_EVALUATION_LIMIT = 2;
 export const TRIAL_AI_EVALUATION_LESSON = 1;
 export const TRIAL_AI_EVALUATION_SOURCE = "lesson_one_essay";
 

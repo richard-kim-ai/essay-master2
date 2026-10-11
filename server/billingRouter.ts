@@ -69,15 +69,20 @@ export const billingRouter = router({
     return { plans: PLANS, provider: provider.name, isTest: provider.isTest };
   }),
 
+  /** 내 이용권: 이용 중인 것, 결제만 하고 시작을 기다리는 것, AI 이용 자격(남은 횟수 합계). */
   mySubscription: protectedProcedure.query(async ({ ctx }) => {
-    const [subscription, entitlement] = await Promise.all([billingDb.getCurrentSubscription(ctx.user.id), getAiEntitlement(ctx.user)]);
-    return { subscription: subscription ?? null, entitlement };
+    const [active, awaitingStart, entitlement] = await Promise.all([
+      billingDb.listActiveSubscriptions(ctx.user.id),
+      billingDb.listAwaitingStartSubscriptions(ctx.user.id),
+      getAiEntitlement(ctx.user),
+    ]);
+    return { subscriptions: active, awaitingStart, entitlement };
   }),
 
   myOrders: protectedProcedure.query(({ ctx }) => billingDb.listOrdersForUser(ctx.user.id)),
 
   startCheckout: protectedProcedure
-    .input(z.object({ planKey: z.enum(["starter", "growth"]) }))
+    .input(z.object({ planKey: z.enum(["study", "ai_basic", "ai_focus", "ai_pass"]) }))
     .mutation(async ({ ctx, input }) => {
       assertLearner(ctx.user);
       const limit = consumeRateLimit("checkout", String(ctx.user.id), RATE_RULES.checkoutByUser);
@@ -113,19 +118,25 @@ export const billingRouter = router({
         orderId: order.id,
         paymentKey: result.paymentKey,
         planKey: plan.key,
+        kind: plan.kind,
         periodDays: plan.periodDays,
-        aiEvaluationsLimit: plan.monthlyAiEvaluations,
+        aiEvaluationsLimit: plan.aiEvaluations,
       });
       return { status: "paid" as const, orderId: order.id, redirectUrl: null, isTest: provider.isTest, subscription: subscription ?? null };
     }),
 
-  /** 이용권 해지. 이미 결제한 기간이 끝날 때까지는 계속 이용할 수 있다. */
-  cancelSubscription: protectedProcedure.mutation(async ({ ctx }) => {
-    assertLearner(ctx.user);
-    const cancelled = await billingDb.cancelCurrentSubscription(ctx.user.id);
-    if (!cancelled) throw new TRPCError({ code: "BAD_REQUEST", message: "해지할 이용권이 없습니다." });
-    return { periodEnd: cancelled.currentPeriodEnd };
-  }),
+  /**
+   * '유료 이용 시작': 결제한 30일 상품(학습형·AI 기본형·AI 집중형)은 이용자가 이 버튼을 누른 시각부터 30일이 시작된다.
+   * 결제·가입·로그인·무료체험만으로는 유료 이용이 시작되지 않는다(가격 및 환불정책 3조).
+   */
+  startPaidUse: protectedProcedure
+    .input(z.object({ subscriptionId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      assertLearner(ctx.user);
+      const started = await billingDb.startSubscription(ctx.user.id, input.subscriptionId);
+      if (!started) throw new TRPCError({ code: "BAD_REQUEST", message: "시작할 수 있는 이용권이 아닙니다. 이미 시작했거나 환불된 이용권일 수 있습니다." });
+      return { periodStart: started.currentPeriodStart, periodEnd: started.currentPeriodEnd };
+    }),
 
   // ----- 관리자 -----
   adminSummary: protectedProcedure.query(async ({ ctx }) => {

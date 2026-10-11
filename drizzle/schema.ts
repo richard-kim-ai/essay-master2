@@ -1144,6 +1144,12 @@ export const subscriptions = mysqlTable("subscriptions", {
   currentPeriodEnd: timestamp("currentPeriodEnd").notNull(),
   /** 결제 시점의 AI 평가 한도(요금제가 나중에 바뀌어도 이미 결제한 이용권의 한도는 유지) */
   aiEvaluationsLimit: int("aiEvaluationsLimit").notNull(),
+  /** package: 결제 후 '유료 이용 시작'을 눌러야 기간이 시작되는 30일 상품 / addon: 구매일부터 기간이 시작되는 추가권 */
+  kind: varchar("kind", { length: 16 }).default("package").notNull(),
+  /** 이용 시작 시 기간 계산에 쓰는 일수(결제 시점의 상품 정의를 보존) */
+  periodDays: int("periodDays").default(30).notNull(),
+  /** 1이면 결제는 끝났지만 이용자가 아직 '유료 이용 시작'을 누르지 않은 상태(기간·AI 횟수가 시작되지 않음) */
+  awaitingStart: int("awaitingStart").default(0).notNull(),
   orderId: int("orderId"),
   cancelledAt: timestamp("cancelledAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

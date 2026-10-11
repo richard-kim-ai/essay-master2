@@ -15,10 +15,11 @@ import { normalizeAllowedDomains, validateExternalEvaluationEndpoint } from "./e
 import { getHumanEvaluationQualityMetrics } from "./evaluationMetrics";
 import { evaluateWritingHeuristic, getHumanReviewReasons } from "./writingCorrectionEngine";
 import { evaluateWritingWithLLM } from "./writingEvaluationEngine";
-import { getTrialAccess, isEligibleTrialEvaluation, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
+import { getTrialAccess, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
 
 // 샘플 체험(비로그인) AI 첨삭 실체험 남용 방지 한도
-const SAMPLE_AI_SESSION_LIMIT = 3;
+// 정책: 무료 AI 제공량은 샘플 테스트 1회 + 계정 체험 2회 = 총 3회. 샘플 테스트는 1회다.
+const SAMPLE_AI_SESSION_LIMIT = 1;
 const SAMPLE_AI_IP_DAILY_LIMIT = 10;
 const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
 // 세션 토큰·IP 헤더를 바꿔도 넘을 수 없는 서비스 전체 일일 상한(AI 비용 보호).
@@ -32,7 +33,7 @@ import { clearGuardianStatusCache } from "./_core/trpc";
 import { recordActivitySafely, toBudgetTrpcError, withGroupBudget, withTeacherStudentBudget } from "./institutionService";
 import { budgetOps as institutionBudgetOps } from "./institutionDb";
 import * as billingDb from "./billingDb";
-import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement } from "./billing/service";
+import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement, planActionType, planActionTypes } from "./billing/service";
 import { consumeRateLimit, RATE_RULES, type RateLimitRule } from "./rateLimit";
 import {
   GUARDIAN_AGREEMENT_LABELS,
@@ -1619,7 +1620,7 @@ export const appRouter = router({
       db.getAIAutoFeedbackByUser(ctx.user.id)
     ),
 
-    // 이용 자격: 이용권(기간 안) > 7일 무료 체험 > 이용권 필요. 관리자·교사는 한도가 없다.
+    // 이용 자격: 7일 무료 체험분 먼저 → 이용 중인 유료 이용권(먼저 만료되는 순서). 관리자·교사는 한도가 없다.
     getTodayQuota: protectedProcedure.query(async ({ ctx }) => {
         const entitlement = await getAiEntitlement(ctx.user);
         return {
@@ -1635,6 +1636,7 @@ export const appRouter = router({
           periodOnly: entitlement.periodOnly ?? false,
           overage: entitlement.overage ?? 0,
           periodEnd: entitlement.periodEnd ?? null,
+          awaitingStartCount: entitlement.awaitingStartCount ?? 0,
           reason: entitlement.reason ?? null,
         };
       }),
@@ -1669,9 +1671,6 @@ export const appRouter = router({
         // 한도와 별개로 시간당 호출 횟수를 제한한다(비용이 큰 AI 호출의 남용 방지).
         enforceRateLimit("ai-feedback", String(ctx.user.id), RATE_RULES.aiFeedbackByUser);
         const entitlement = await getAiEntitlement(ctx.user);
-        if (entitlement.mode === "trial" && !isEligibleTrialEvaluation(input)) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험의 AI 논술 평가는 레슨 1의 첫 서술형 제출에만 제공됩니다." });
-        }
         if (!entitlement.canUse) {
           throw new TRPCError({ code: "FORBIDDEN", message: entitlement.reason ?? "AI 논술 평가를 이용할 수 없습니다. 요금정책에서 이용권을 확인해 주세요." });
         }
@@ -1688,9 +1687,16 @@ export const appRouter = router({
           }
         }
         if (entitlement.mode === "trial" || entitlement.mode === "plan") {
-          const actionType = entitlement.mode === "trial" ? AI_ACTION_TRIAL : AI_ACTION_PLAN;
-          const reservation = await billingDb.reserveAiUsage({ userId: ctx.user.id, actionType, countedActionTypes: [actionType], since: entitlement.periodStart, limit: entitlement.limit });
-          if (!reservation.reserved) throw new TRPCError({ code: "FORBIDDEN", message: entitlement.mode === "trial" ? "7일 무료 체험의 AI 논술 평가 1회를 사용했습니다. 이용권을 선택하면 계속 이용할 수 있습니다." : "이번 이용 기간의 AI 평가 횟수를 모두 사용했습니다." });
+          // 무료 체험분 → 먼저 만료되는 유료 이용권 순서로, 남은 횟수가 있는 첫 묶음에서 1회를 예약한다.
+          // 동시에 다른 요청이 마지막 횟수를 가져가 예약에 실패하면 다음 묶음으로 넘어간다.
+          let reservation: { reserved: boolean; reservationId: number } = { reserved: false, reservationId: 0 };
+          for (const source of entitlement.sources ?? []) {
+            const actionType = source.kind === "trial" ? AI_ACTION_TRIAL : planActionType(source.subscriptionId ?? 0);
+            const countedActionTypes = source.kind === "trial" ? [AI_ACTION_TRIAL] : planActionTypes({ id: source.subscriptionId ?? 0, planKey: source.planKey ?? "" });
+            reservation = await billingDb.reserveAiUsage({ userId: ctx.user.id, actionType, countedActionTypes, since: source.periodStart, limit: source.limit });
+            if (reservation.reserved) break;
+          }
+          if (!reservation.reserved) throw new TRPCError({ code: "FORBIDDEN", message: "AI 평가·첨삭 횟수를 모두 사용했습니다. 요금정책에서 AI 추가권 등 이용권을 확인해 주세요." });
           reservationId = reservation.reservationId;
         }
         // 예약한 사용 횟수는 AI 평가가 성공적으로 저장될 때만 유지한다(오류·대체 결과·저장 실패는 돌려준다). 여러 번 불러도 안전하다.
