@@ -39,10 +39,12 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  const secure = isSecureRequest(req);
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
-    secure: isSecureRequest(req),
+    // SameSite=None은 Secure와 함께일 때만 브라우저가 저장한다. http://localhost 개발 환경에서는 Lax로 낮춰 로그인 쿠키가 버려지지 않게 한다.
+    sameSite: secure ? "none" : "lax",
+    secure,
   };
 }
