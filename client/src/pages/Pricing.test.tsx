@@ -19,9 +19,12 @@ describe("Pricing policy page", () => {
     const html = renderToStaticMarkup(<Pricing />);
 
     expect(html).toContain("7일 무료 체험");
-    expect(html).toContain("레슨 1 첫 서술형 제출 AI 평가 1회");
-    expect(html).toContain("9,900원");
-    expect(html).toContain("24,900원");
+    expect(html).toContain("AI 평가·첨삭 총 3회");
+    for (const price of ["14,900원", "24,900원", "39,900원"]) expect(html).toContain(price);
+    for (const name of ["학습형", "AI 기본형", "AI 집중형", "AI 추가권"]) expect(html).toContain(name);
+    expect(html).toContain("가격·환불정책");
+    // 판매를 종료한 예전 요금제는 더 이상 보이지 않는다.
+    expect(html).not.toContain("스타터");
     expect(html).toContain("이용권 요금 안내");
     expect(html).toContain("최소 수집");
     expect(html).toContain("AI 전송 안내");

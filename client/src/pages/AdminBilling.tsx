@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AdminInstitutionTab from "@/components/AdminInstitutionTab";
 import { trpc } from "@/lib/trpc";
-import { PLANS, formatKrw } from "@shared/plans";
+import { formatKrw, getPlanName } from "@shared/plans";
 import { currentMonthKst, type ActivityType } from "@shared/settlement";
 
 const ORDER_STATUS = {
@@ -32,7 +32,7 @@ const SETTLEMENT_STATUS = {
   paid: { label: "지급 완료", style: "bg-emerald-100 text-emerald-900" },
 } as const;
 
-const planName = (key: string) => PLANS.find((plan) => plan.key === key)?.name ?? key;
+const planName = (key: string) => getPlanName(key);
 
 function formatDateTime(value: Date | string | null | undefined) {
   return value ? new Date(value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : "-";
@@ -187,7 +187,7 @@ function SubscriptionsTab() {
             <tr key={row.id} className="border-t border-slate-100">
               <td className="p-3"><p className="font-semibold text-slate-900">{row.userName || "-"}</p><p className="text-xs text-slate-500">{row.userEmail || "-"}</p></td>
               <td className="p-3">{planName(row.planKey)}</td>
-              <td className="p-3"><Pill {...SUBSCRIPTION_STATUS[row.status]} /></td>
+              <td className="p-3">{row.awaitingStart === 1 ? <Pill label="결제 완료 · 시작 대기" style="bg-sky-100 text-sky-900" /> : <Pill {...SUBSCRIPTION_STATUS[row.status]} />}</td>
               <td className="p-3 text-xs text-slate-600">{formatDateTime(row.currentPeriodStart)} ~ {formatDateTime(row.currentPeriodEnd)}</td>
               <td className="p-3 text-right">{row.aiEvaluationsLimit}회</td>
               <td className="p-3 text-xs text-slate-600">{formatDateTime(row.cancelledAt)}</td>

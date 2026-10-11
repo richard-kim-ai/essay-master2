@@ -15,7 +15,7 @@ const SAMPLE_COURSES = [
 ] as const;
 
 // 서버의 SAMPLE_AI_SESSION_LIMIT(server/routers.ts)과 동일하게 유지해야 합니다.
-const SAMPLE_AI_SESSION_LIMIT = 3;
+const SAMPLE_AI_SESSION_LIMIT = 1;
 const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
 const SAMPLE_SESSION_TOKEN_KEY = "essayMasterSampleSessionToken";
 
