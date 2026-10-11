@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AdminTeacherFeedbackRequests from "@/components/AdminTeacherFeedbackRequests";
 import AdminInstitutionTab from "@/components/AdminInstitutionTab";
 import { trpc } from "@/lib/trpc";
 import { formatKrw, getPlanName } from "@shared/plans";
@@ -80,12 +81,14 @@ export default function AdminBilling() {
         <TabsList className="flex h-auto flex-wrap justify-start gap-1">
           <TabsTrigger value="orders">결제 내역</TabsTrigger>
           <TabsTrigger value="subscriptions">이용권</TabsTrigger>
+          <TabsTrigger value="teacher-feedback">교사 첨삭 신청</TabsTrigger>
           <TabsTrigger value="settlements">교사 정산</TabsTrigger>
           <TabsTrigger value="institutions">기관 계약</TabsTrigger>
           <TabsTrigger value="settings">정산 설정</TabsTrigger>
         </TabsList>
         <TabsContent value="orders"><OrdersTab summary={summary} /></TabsContent>
         <TabsContent value="subscriptions"><SubscriptionsTab /></TabsContent>
+        <TabsContent value="teacher-feedback"><AdminTeacherFeedbackRequests /></TabsContent>
         <TabsContent value="settlements"><SettlementsTab /></TabsContent>
         <TabsContent value="institutions"><AdminInstitutionTab /></TabsContent>
         <TabsContent value="settings"><SettlementSettingsTab /></TabsContent>
