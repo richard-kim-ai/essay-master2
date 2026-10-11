@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { COURSE_MAP, TOOL_TYPE_MAP, HUMAN_REVIEW_ITEMS, buildShortUserPrompt, generateQuestionBankItems, generationRequestSchema, mapGeneratedItemsToQuestionBank, qaQuestionItem, resolveAdaptiveDifficulty } from "./questionGeneration";
+import { COURSE_MAP, TOOL_TYPE_MAP, HUMAN_REVIEW_ITEMS, QUESTION_GENERATION_MODEL, QUESTION_GENERATION_FALLBACK_MODEL, buildShortUserPrompt, generateQuestionBankItems, generationRequestSchema, mapGeneratedItemsToQuestionBank, qaQuestionItem, resolveAdaptiveDifficulty } from "./questionGeneration";
 
 function content(course: keyof typeof COURSE_MAP, tool: keyof typeof TOOL_TYPE_MAP, overrides: Record<string, unknown> = {}) {
   return {
@@ -134,6 +134,51 @@ describe("공통 문항 생성·QA 엔진", () => {
     const schema = format.json_schema.schema.properties.items.items.properties.contentData;
     expect(schema.required).toEqual(expect.arrayContaining(["question", "explanation", "learning_objective", "difficulty_metrics", "passage", "model_answer"]));
     expect(schema.additionalProperties).toBe(false);
+    expect(llm.mock.calls[0][0].model).toBe(QUESTION_GENERATION_MODEL);
+    expect(llm.mock.calls[0][0].reasoning).toEqual({ effort: "low" });
+  });
+
+  const request = { course: "MIDDLE_HIGH", tool_type: "SUMMARY", question_count: 1 };
+  const json = () => JSON.stringify({ items: [{ title: "휴대전화 사용 요약", contentData: content("MIDDLE_HIGH", "SUMMARY", { human_review: undefined }) }] });
+  const response = (text: unknown, finishReason = "stop") => ({ model: "test-model", choices: [{ message: { role: "assistant", content: text }, finish_reason: finishReason }] });
+
+  it.each([undefined, null, "", " \n ", []])("빈 응답 %j은 대체 모델로 1회 호출하고 사람 검수는 유지한다", async empty => {
+    const llm = vi.fn().mockResolvedValueOnce(response(empty)).mockResolvedValueOnce(response(json()));
+    const [item] = await generateQuestionBankItems(request, { llm });
+    expect(llm).toHaveBeenCalledTimes(2);
+    expect(llm.mock.calls.map(([params]) => params.model)).toEqual([QUESTION_GENERATION_MODEL, QUESTION_GENERATION_FALLBACK_MODEL]);
+    expect(llm.mock.calls[1][0].responseFormat).toEqual(llm.mock.calls[0][0].responseFormat);
+    expect(item.qaIssues).toEqual(["human_review_required"]);
+  });
+  it("둘 다 빈 응답이면 두 번으로 중단하고 문항을 만들어내지 않는다", async () => {
+    const llm = vi.fn().mockResolvedValue(response(null));
+    await expect(generateQuestionBankItems(request, { llm })).rejects.toThrow("기존 문항은 변경되지 않았습니다");
+    expect(llm).toHaveBeenCalledTimes(2);
+  });
+  it("배열형 텍스트 블록 응답은 합쳐 읽고 추가 호출하지 않는다", async () => {
+    const text = json();
+    const llm = vi.fn().mockResolvedValue(response([{ type: "text", text: text.slice(0, 20) }, { type: "text", text: text.slice(20) }]));
+    const items = await generateQuestionBankItems(request, { llm });
+    expect(items).toHaveLength(1);
+    expect(llm).toHaveBeenCalledOnce();
+  });
+  it.each(["length", "content_filter"])("%s 종료는 안내 후 즉시 중단하며 자동 우회하지 않는다", async reason => {
+    const llm = vi.fn().mockResolvedValue(response(json(), reason));
+    await expect(generateQuestionBankItems(request, { llm })).rejects.toThrow(reason === "length" ? "생성 문항 수를 줄여" : "주제를 변경해");
+    expect(llm).toHaveBeenCalledOnce();
+  });
+  it("거부 응답은 대체 모델을 호출하지 않는다", async () => {
+    const llm = vi.fn().mockResolvedValue({ choices: [{ message: { refusal: "cannot comply" }, finish_reason: "stop" }] });
+    await expect(generateQuestionBankItems(request, { llm })).rejects.toThrow("주제를 변경해");
+    expect(llm).toHaveBeenCalledOnce();
+  });
+  it("네트워크 오류나 잘못된 JSON은 생성 레벨에서 추가 호출하지 않는다", async () => {
+    const network = vi.fn().mockRejectedValue(new Error("network"));
+    await expect(generateQuestionBankItems(request, { llm: network })).rejects.toThrow("network");
+    expect(network).toHaveBeenCalledOnce();
+    const malformed = vi.fn().mockResolvedValue(response("{not-json"));
+    await expect(generateQuestionBankItems(request, { llm: malformed })).rejects.toThrow();
+    expect(malformed).toHaveBeenCalledOnce();
   });
 
   it("사람 검수(human_review)가 완료되지 않은 AI 생성 문항은 human_review_required로 차단한다", () => {

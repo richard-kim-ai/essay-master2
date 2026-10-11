@@ -1,7 +1,10 @@
 import { z } from "zod";
-import { invokeLLM } from "./_core/llm";
+import { invokeLLM, type InvokeResult } from "./_core/llm";
 
 export const QUESTION_BANK_MASTER_PROMPT_VERSION = "2026-08-18-taxonomy-a-f-v1";
+// 모델 미지정 시 라우터 기본 모델의 응답 본문이 누락되는 사례를 피한다.
+export const QUESTION_GENERATION_MODEL = "gpt-5-mini";
+export const QUESTION_GENERATION_FALLBACK_MODEL = "gpt-5";
 
 // 사람 검수 체크리스트: AI 생성 문항은 아래 6개 항목이 모두 통과되어야 question_bank에 저장된다. (local branch 고유 기능)
 export const HUMAN_REVIEW_ITEMS = [
@@ -222,21 +225,53 @@ export function buildQuestionGenerationOutputSchema(toolType: string) {
   });
 }
 
+function responseText(response: InvokeResult): string {
+  const content = response?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content.flatMap(part => part?.type === "text" && typeof part.text === "string" ? [part.text] : []).join("").trim();
+  }
+  return "";
+}
+
 export async function generateQuestionBankItems(input: GenerationRequestInput, options: { existingItems?: Array<{ title: string; contentData: string }>; adaptiveStats?: AdaptiveStats[]; llm?: typeof invokeLLM } = {}) {
   const request = generationRequestSchema.parse(input);
-  const response = await (options.llm ?? invokeLLM)({
+  const params = {
     messages: [
-      { role: "system", content: loadQuestionBankMasterPrompt() },
-      { role: "user", content: buildShortUserPrompt(request, options.adaptiveStats ?? []) },
+      { role: "system" as const, content: loadQuestionBankMasterPrompt() },
+      { role: "user" as const, content: buildShortUserPrompt(request, options.adaptiveStats ?? []) },
     ],
     responseFormat: {
-      type: "json_schema",
+      type: "json_schema" as const,
       json_schema: {
         name: "essay_master_question_generation",
         strict: true,
         schema: buildQuestionGenerationOutputSchema(request.tool_type),
       },
     },
-  });
-  const text = response.choices?.[0]?.message?.content; if (typeof text !== "string" || !text.trim()) throw new Error("AI 문항 생성 응답이 비어 있습니다."); return mapGeneratedItemsToQuestionBank(parse(text), request, options.existingItems ?? [], options.adaptiveStats ?? []);
+    reasoning: { effort: "low" },
+  };
+  const models = [QUESTION_GENERATION_MODEL, QUESTION_GENERATION_FALLBACK_MODEL];
+  for (let attempt = 0; attempt < models.length; attempt++) {
+    const response = await (options.llm ?? invokeLLM)({ ...params, model: models[attempt] });
+    const choice = response?.choices?.[0];
+    const refusal = (choice?.message as { refusal?: unknown } | undefined)?.refusal;
+    if (choice?.finish_reason === "content_filter" || refusal) {
+      throw new Error("AI가 이 요청의 문항을 생성할 수 없습니다. 주제를 변경해 다시 시도해주세요.");
+    }
+    if (choice?.finish_reason === "length") {
+      throw new Error("문항 생성 응답이 길이 제한으로 중단되었습니다. 생성 문항 수를 줄여 다시 시도해주세요.");
+    }
+    const text = responseText(response);
+    if (text) {
+      // JSON/QA 오류는 모델을 다시 호출하지 않는다. 검수 흐름은 그대로 유지한다.
+      return mapGeneratedItemsToQuestionBank(parse(text), request, options.existingItems ?? [], options.adaptiveStats ?? []);
+    }
+    // 내용·개인정보·키를 남기지 않고 빈 응답의 모델/종료 상태만 기록한다.
+    console.warn("[question-generation] empty response", {
+      requestedModel: models[attempt], responseModel: response?.model,
+      finishReason: choice?.finish_reason ?? null, attempt: attempt + 1,
+    });
+  }
+  throw new Error("AI에서 문항 내용을 받지 못했습니다. 잠시 후 다시 시도해주세요. 기존 문항은 변경되지 않았습니다.");
 }
