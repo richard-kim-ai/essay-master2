@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "01bd8fb7-db17-423f-a926-6091adcdad63",
+  "id": "a351f9de-3fe0-4d7e-b639-6be76528a3f3",
   "prevId": "0dbbf350-3e33-4fa2-8348-a944a3f0d036",
   "tables": {
     "admin_audit_logs": {
@@ -2122,6 +2122,28 @@
           "notNull": true,
           "autoincrement": false
         },
+        "clientId": {
+          "name": "clientId",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "syncRevision": {
+          "name": "syncRevision",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "aiFeedbackId": {
+          "name": "aiFeedbackId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "status": {
           "name": "status",
           "type": "enum('draft','submitted','reviewed')",
@@ -2173,7 +2195,14 @@
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "essay_submission_clientId_unique": {
+          "name": "essay_submission_clientId_unique",
+          "columns": [
+            "clientId"
+          ]
+        }
+      },
       "checkConstraint": {}
     },
     "evaluation_appeals": {
@@ -5233,30 +5262,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "varchar(16)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'package'"
-        },
-        "periodDays": {
-          "name": "periodDays",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 30
-        },
-        "awaitingStart": {
-          "name": "awaitingStart",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
         },
         "orderId": {
           "name": "orderId",

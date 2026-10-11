@@ -70,7 +70,7 @@ import {
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
-import { count, eq, and, desc, gt, gte, inArray, lt, ne } from "drizzle-orm";
+import { sql, count, eq, and, desc, gt, gte, inArray, lt, ne } from "drizzle-orm";
 import { computeLessonProgress } from "./lessonProgress";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
@@ -931,8 +931,9 @@ export async function createEssaySubmission(input: {
     title: input.title,
     content: input.content,
     status: input.status ?? "draft",
+    submittedAt: input.status === "submitted" ? new Date() : null,
   });
-  return result;
+  return { ...result, id: Number(result.insertId) };
 }
 
 export async function updateEssaySubmission(
@@ -949,8 +950,16 @@ export async function updateEssaySubmission(
 
   await db
     .update(essaySubmission)
-    .set(input)
+    .set({ ...input, syncRevision: sql`${essaySubmission.syncRevision} + 1` })
     .where(eq(essaySubmission.id, id));
+}
+
+export async function linkEssayAiFeedback(userId: number, id: number, feedbackId: number, title: string, content: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  // 평가 도중 다른 기기에서 수정된 경우 새 원문에 이전 결과를 붙이지 않는다.
+  await db.update(essaySubmission).set({ aiFeedbackId: feedbackId })
+    .where(and(eq(essaySubmission.id, id), eq(essaySubmission.userId, userId), eq(essaySubmission.title, title), eq(essaySubmission.content, content)));
 }
 
 // ========== Teacher Feedback Functions ==========

@@ -2,7 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
 import { Loader2, CheckCircle, HelpCircle, Send, Award, Sparkles, ArrowRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import LoginRequired from "@/components/LoginRequired";
@@ -551,10 +551,14 @@ export default function Workbook() {
               </div>}
             </div>
 
-            <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-5 sm:grid-cols-3">
-              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. 개념 적용</p><p className="mt-1 text-sm text-slate-700">AI 가이드로 생각 순서를 확인한 뒤 기출문제를 풉니다.</p></div>
-              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">2. 주제와 주장 설계</p><Link href={topicWizardPath}><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제 설정 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
-              <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">3. 주제문 검토</p><Link href={thesisChecklistPath}><Button variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700">주제문 점검 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></Link></div>
+            <div className="rounded-xl border border-slate-200 bg-white p-5">
+              <p className="text-sm font-bold text-slate-900">공부하고 올리는 순서</p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. 개념 이해</p><p className="mt-1 text-sm leading-6 text-slate-700">AI 가이드로 생각 순서를 확인하고 레슨의 핵심을 이해합니다.</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">2. 주제 설정</p><Button asChild variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700"><Link href={topicWizardPath}>주제 설정 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button></div>
+                <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">3. 주제문 점검</p><Button asChild variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700"><Link href={thesisChecklistPath}>주제문 점검 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button></div>
+                <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">4. 글 작성</p><Button asChild variant="link" className="mt-1 h-auto p-0 text-sm text-indigo-700"><Link href="/essay-submission">글 작성 <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button></div>
+              </div>
             </div>
 
             {/* 고정 기출문제 3문항 섹션 */}
