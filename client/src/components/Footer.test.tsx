@@ -54,6 +54,7 @@ describe("Footer", () => {
       const html = renderToStaticMarkup(<Footer variant={variant} />);
       expect(html).toContain("『논술의 기초』");
       expect(html).toContain("저작권등록번호 C-2026-044488");
+      expect(html).toContain('aria-label="저작권등록번호 복사"');
       expect(html).toContain(`href="${COPYRIGHT_INFO.verifyUrl}"`);
       expect(html).toContain('rel="noopener noreferrer"');
     }

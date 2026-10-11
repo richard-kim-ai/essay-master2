@@ -49,6 +49,7 @@ export const FOOTER_MENU: ReadonlyArray<{ title: string; links: ReadonlyArray<{ 
 // default: 일반 화면용(소개·바로가기 포함), compact: 로그인·가입 같은 인증 화면용(약관·문의만).
 export default function Footer({ variant = "default" }: { variant?: "default" | "compact" }) {
   const [modalType, setModalType] = useState<"terms" | "privacy" | null>(null);
+  const [numberCopied, setNumberCopied] = useState(false);
   const companyLines = COMPANY_LABELS.filter(([key]) => COMPANY_INFO[key]).map(([key, label]) => `${label} ${COMPANY_INFO[key]}`);
 
   const legalLinks = (
@@ -64,10 +65,22 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
   const copyright = `© ${new Date().getFullYear()} 논술 마스터. All rights reserved.`;
   // 등록번호가 있을 때만 표기한다(비어 있으면 줄 자체를 숨김).
   const registrationNumber = COPYRIGHT_INFO.registrationNumber;
+  const copyRegistrationNumber = async () => {
+    if (!registrationNumber) return;
+    try {
+      await navigator.clipboard.writeText(registrationNumber);
+      setNumberCopied(true);
+      setTimeout(() => setNumberCopied(false), 2000);
+    } catch {
+      // 클립보드 권한이 없으면 번호가 화면에 보이므로 직접 선택해 복사할 수 있다.
+    }
+  };
   const copyrightRegistration = registrationNumber ? (
     <p className="mt-2 text-xs leading-6" data-testid="copyright-registration">
-      기초 이론 콘텐츠는 『{COPYRIGHT_INFO.workTitle}』{COPYRIGHT_INFO.author ? `(${COPYRIGHT_INFO.author})` : ""} 저작물을 기반으로 합니다. 저작권등록번호 {registrationNumber} ·{" "}
+      기초 이론 콘텐츠는 『{COPYRIGHT_INFO.workTitle}』{COPYRIGHT_INFO.author ? `(${COPYRIGHT_INFO.author})` : ""} 저작물을 기반으로 합니다. 저작권등록번호 {registrationNumber}{" "}
+      <button type="button" onClick={copyRegistrationNumber} className="rounded border border-current px-1.5 py-0.5 text-[11px] hover:text-white" aria-label="저작권등록번호 복사">{numberCopied ? "복사됨" : "번호 복사"}</button> ·{" "}
       <a href={COPYRIGHT_INFO.verifyUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">등록 확인(한국저작권위원회)</a>
+      <span className="block">확인 페이지에서 저작권등록번호로 검색해 주세요.</span>
     </p>
   ) : null;
 
