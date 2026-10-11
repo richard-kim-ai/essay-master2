@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Mail, Lock, User, ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, Sparkles } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import AuthLayout from "@/components/AuthLayout";
 import SocialLoginButtons from "@/components/SocialLoginButtons";
@@ -105,11 +105,6 @@ export default function Signup() {
           <p className="mt-6 text-center text-sm text-slate-600">이미 계정이 있으신가요? <Link href="/login" className="font-semibold text-indigo-700 hover:underline">로그인</Link></p>
         </Card>
 
-        <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-slate-600">
-          {["AI 기반 맞춤형 피드백", "14개 이상의 학습 도구", "이메일 인증으로 안전한 학습 기록"].map((text) => (
-            <li key={text} className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-indigo-600" aria-hidden="true" />{text}</li>
-          ))}
-        </ul>
     </AuthLayout>
   );
 }
