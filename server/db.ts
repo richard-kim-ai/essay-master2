@@ -9324,12 +9324,8 @@ export async function getWorkbookStatsByUser(
     correctCount,
     accuracyRate,
     mistakesCount: mistakes.length,
-    categoryBreakdown: [
-      { category: "논리적 인과관계", accuracy: accuracyRate },
-      { category: "주제문 및 근거 제시", accuracy: accuracyRate },
-      { category: "비판적 독해 및 대안", accuracy: accuracyRate },
-      { category: "문장 구조 및 표현", accuracy: accuracyRate },
-    ],
+    // 유형별 통계는 기록하지 않으므로 같은 숫자를 유형 이름만 바꿔 보여 주지 않는다.
+    categoryBreakdown: [],
   };
 }
 
@@ -9362,26 +9358,6 @@ export async function removeLearningToolMistake(
       )
     );
   return { success: true };
-}
-
-export async function getWeeklyStudySummary(
-  userId: number,
-  courseType?: CourseType
-) {
-  const stats = await getWorkbookStatsByUser(userId, courseType);
-  const totalMinutes = stats.totalSolved * 15;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const studyTimeString = `${hours}시간 ${minutes}분`;
-
-  return {
-    studyTimeString,
-    totalSolved: stats.totalSolved,
-    accuracyRate: stats.accuracyRate,
-    completedModules: Math.min(Math.floor(stats.totalSolved / 3), 10),
-    timeDiffMinutes: 0, // 실제 시간 로그가 없으므로 증감을 추정하지 않는다.
-    accuracyDiffPercent: 0,
-  };
 }
 
 // User Push Notification Preferences helpers (stored in memory or DB table if needed)

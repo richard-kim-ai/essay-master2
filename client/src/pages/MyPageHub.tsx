@@ -157,22 +157,25 @@ export default function MyPageHub() {
         {user?.role === "user" && user?.tag !== "학부모" && <StudentLearningSettings />}
         {user?.role === "user" && user?.tag !== "학부모" && <ParentLinkRequests />}
 
-        {/* Weekly Study Summary Mini Cards */}
-        <div className="grid gap-3 sm:grid-cols-3">
+        {/* 이번 주 학습 요약: 최근 7일의 실제 기록(워크북 답안·학습 도구·레벨 완료)에서 계산한 값이다 */}
+        <div className="grid gap-3 sm:grid-cols-3" data-testid="hub-weekly-summary">
           <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
               <Clock className="w-6 h-6" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-slate-500 font-medium">이번 주 총 학습 시간</p>
-              <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs text-slate-500 font-medium">최근 7일 푼 문항</p>
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
                 <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
-                  {weeklySummary?.studyTimeString || "0분"}
+                  {weeklySummary?.solvedThisWeek ?? 0}문항
                 </p>
-                <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                  +{weeklySummary?.timeDiffMinutes ?? 0}분
-                </span>
+                {weeklySummary && (weeklySummary.solvedLastWeek > 0 || weeklySummary.solvedThisWeek > 0) && (
+                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded border ${weeklySummary.solvedDiff >= 0 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-slate-600 bg-slate-50 border-slate-200"}`}>
+                    지난 7일 대비 {weeklySummary.solvedDiff >= 0 ? "+" : ""}{weeklySummary.solvedDiff}
+                  </span>
+                )}
               </div>
+              <p className="mt-1 text-[11px] text-slate-400">학습 기록이 있는 날 {weeklySummary?.activeDays ?? 0}일</p>
             </div>
           </Card>
           <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
@@ -180,14 +183,16 @@ export default function MyPageHub() {
               <CheckCircle className="w-6 h-6" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-slate-500 font-medium">워크북 기출 정답률</p>
-              <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs text-slate-500 font-medium">최근 7일 워크북 정답률</p>
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
                 <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
-                  {weeklySummary?.accuracyRate ?? 0}%
+                  {weeklySummary?.accuracyRate === null || weeklySummary?.accuracyRate === undefined ? "기록 없음" : `${weeklySummary.accuracyRate}%`}
                 </p>
-                <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                  +{weeklySummary?.accuracyDiffPercent ?? 0}%
-                </span>
+                {weeklySummary?.accuracyDiffPercent !== null && weeklySummary?.accuracyDiffPercent !== undefined && (
+                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded border ${weeklySummary.accuracyDiffPercent >= 0 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-slate-600 bg-slate-50 border-slate-200"}`}>
+                    지난 7일 대비 {weeklySummary.accuracyDiffPercent >= 0 ? "+" : ""}{weeklySummary.accuracyDiffPercent}%p
+                  </span>
+                )}
               </div>
             </div>
           </Card>
@@ -196,15 +201,10 @@ export default function MyPageHub() {
               <Trophy className="w-6 h-6" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-slate-500 font-medium">해낸 모듈 / 뱃지</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
-                  {weeklySummary?.completedModules || 0}개 완료 / {visibleBadges.length}개 뱃지
-                </p>
-                <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
-                  Active
-                </span>
-              </div>
+              <p className="text-xs text-slate-500 font-medium">최근 7일 완료 레벨 / 획득 뱃지</p>
+              <p className="mt-0.5 text-lg font-extrabold text-slate-900 sm:text-xl">
+                {weeklySummary?.completedModules ?? 0}개 완료 / {visibleBadges.length}개 뱃지
+              </p>
             </div>
           </Card>
         </div>

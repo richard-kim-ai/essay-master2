@@ -9,6 +9,7 @@ import { REFUND_POLICY_KEY } from "./refundPolicy";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse, requireLearnerCourse } from "./questionBankAccess";
+import { getLearningAnalytics, getWeeklyStudySummary } from "./learningAnalyticsDb";
 import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview, trashEssay, restoreEssay, purgeEssay, listTrashedEssays, emptyTrash } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -1014,7 +1015,7 @@ export const appRouter = router({
 
     getUserBadges: protectedProcedure.query(({ ctx }) => db.getUserBadgesByUser(ctx.user.id)),
 
-    getWeeklySummary: protectedProcedure.query(({ ctx }) => db.getWeeklyStudySummary(ctx.user.id, requireLearnerCourse(ctx.user))),
+    getWeeklySummary: protectedProcedure.query(({ ctx }) => getWeeklyStudySummary(ctx.user.id, requireLearnerCourse(ctx.user))),
 
     awardReviewKing: protectedProcedure.mutation(({ ctx }) => db.awardReviewKingBadge(ctx.user.id)),
 
@@ -1095,6 +1096,11 @@ export const appRouter = router({
   progress: router({
     getByUser: protectedProcedure.query(({ ctx }) =>
       db.getProgressByUser(ctx.user.id, studentQuestionCourse(ctx.user))
+    ),
+
+    // 학습 대시보드의 능력·성장 분석: AI·교사 첨삭 점수와 학습 도구 결과를 실제 기록에서 집계한다(고정 값 없음).
+    analytics: protectedProcedure.query(({ ctx }) =>
+      getLearningAnalytics(ctx.user.id, studentQuestionCourse(ctx.user))
     ),
 
     getByUserAndCurriculum: protectedProcedure
