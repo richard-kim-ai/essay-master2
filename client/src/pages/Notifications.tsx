@@ -61,7 +61,7 @@ export default function Notifications() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto">
+      <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-gradient-to-r from-indigo-700 to-indigo-800 text-white p-8 rounded-3xl shadow-xl">
           <div>
             <span className="px-3 py-1 bg-white/20 rounded-full text-xs font-bold text-white tracking-wide">

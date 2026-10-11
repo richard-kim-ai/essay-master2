@@ -303,7 +303,7 @@ export default function Dashboard() {
   return (
     <div className="bg-slate-50/70 py-6 sm:py-8">
       {/* Main Content */}
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <h1 className="mb-5 text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl">학습 대시보드</h1>
         {trialQuota?.isTrial && !isSampleMode && (
           <section className="mb-6 rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-cyan-50 p-4 shadow-sm sm:p-5" aria-label="7일 무료 체험 상태">

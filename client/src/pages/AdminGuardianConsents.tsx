@@ -38,13 +38,13 @@ export default function AdminGuardianConsents() {
   });
 
   if (listQuery.error) {
-    return <div className="mx-auto max-w-5xl p-6 text-sm text-rose-700">{listQuery.error.message || "관리자만 볼 수 있는 화면입니다."}</div>;
+    return <div className="mx-auto max-w-7xl p-6 text-sm text-rose-700">{listQuery.error.message || "관리자만 볼 수 있는 화면입니다."}</div>;
   }
 
   const rows = listQuery.data ?? [];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+    <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
       <div>
         <Link href="/admin"><Button variant="ghost" size="sm" className="-ml-2 gap-1 text-slate-600"><ChevronLeft className="h-4 w-4" />관리자 대시보드</Button></Link>
         <h1 className="mt-2 text-2xl font-bold text-slate-900">법정대리인 동의 관리대장</h1>

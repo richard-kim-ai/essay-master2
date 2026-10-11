@@ -38,7 +38,7 @@ export default function CurriculumDetail() {
 
   return (
     <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-4xl space-y-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         <Link href="/curriculum"><Button variant="ghost" className="gap-2 px-0 text-slate-600 hover:text-indigo-700"><ArrowLeft className="h-4 w-4" /> 커리큘럼으로 돌아가기</Button></Link>
         <Card className="overflow-hidden border-indigo-100 shadow-sm">
           <CardHeader className="space-y-4 p-6 sm:p-8">

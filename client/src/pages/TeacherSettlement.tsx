@@ -73,7 +73,7 @@ export default function TeacherSettlement() {
   const activityDescriptions = new Map<string, string>((overview?.activities ?? []).map((activity) => [activity.type, activity.description]));
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6">
       <div>
         <Link href="/teacher-mypage"><Button variant="ghost" size="sm" className="-ml-2 gap-1 text-slate-600"><ChevronLeft className="h-4 w-4" />교사 마이페이지</Button></Link>
         <h1 className="mt-2 text-3xl font-bold text-slate-900">첨삭 정산</h1>

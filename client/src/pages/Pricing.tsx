@@ -64,7 +64,7 @@ export default function Pricing() {
     <div className="overflow-x-hidden bg-[#f7f9fc] text-slate-950">
       <div className="relative isolate">
         <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[30rem] bg-[radial-gradient(circle_at_15%_5%,rgba(99,102,241,0.14),transparent_38%),radial-gradient(circle_at_85%_18%,rgba(56,189,248,0.12),transparent_38%)]" />
-        <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-12 sm:px-6 sm:pb-24 sm:pt-16 lg:px-8">
+        <div className="mx-auto w-full max-w-7xl px-4 pb-16 pt-12 sm:px-6 sm:pb-24 sm:pt-16 lg:px-8">
           <section className="mx-auto max-w-3xl text-center" aria-labelledby="pricing-page-title">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-white/80 px-3 py-1.5 text-xs font-extrabold tracking-[0.14em] text-indigo-700 shadow-sm backdrop-blur">
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> PRICING & TRIAL

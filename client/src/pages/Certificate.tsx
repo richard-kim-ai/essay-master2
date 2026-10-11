@@ -173,7 +173,7 @@ export default function Certificate() {
 
   return (
     <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto space-y-12">
+      <div className="max-w-7xl mx-auto space-y-12">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">수료증</h1>
           <p className="text-sm text-slate-600 mt-1">{courseLabel} 논술 과정의 수료 기준을 충족한 뒤 수료증을 미리보기 및 발급받으세요.</p>

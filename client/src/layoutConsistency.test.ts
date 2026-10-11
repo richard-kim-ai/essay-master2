@@ -63,6 +63,26 @@ describe("layout consistency", () => {
     expect(layout).toContain("<Footer");
   });
 
+  it("Layout 안의 페이지는 PC 폭을 메뉴·푸터와 같은 max-w-7xl로 맞추고, 더 좁은 폭의 최상위 컨테이너를 쓰지 않는다", () => {
+    const skip = new Set(["Home", "ComponentShowcase"]);
+    const offenders = pages
+      .filter((file) => !skip.has(file))
+      .filter((file) => read(`./pages/${file}.tsx`).split("\n").some((line) => /\bmx-auto\b/.test(line) && /\bmax-w-[3-6]xl\b/.test(line) && !/\b(text-center|grid-cols|items-stretch)\b/.test(line) && !/<(p|ol|ul|h\d)\b/.test(line.trim())));
+    expect(offenders).toEqual([]);
+    expect(read("./components/Navigation.tsx")).toContain("max-w-7xl");
+    expect(read("./components/Footer.tsx")).toContain("max-w-7xl");
+  });
+
+  it("Layout은 메뉴 바로 아래에 페이지 이동 바를 넣는다(이전으로 돌아가기·현재 위치)", () => {
+    const layout = read("./components/Layout.tsx");
+    expect(layout.indexOf("<Navigation")).toBeLessThan(layout.indexOf("<PageNavigator"));
+    expect(layout.indexOf("<PageNavigator")).toBeLessThan(layout.indexOf("<main"));
+    const navigator = read("./components/PageNavigator.tsx");
+    expect(navigator).toContain("max-w-7xl");
+    expect(navigator).toContain("window.history.back()");
+    expect(navigator).toContain('aria-current={isCurrent ? "page" : undefined}');
+  });
+
   it("인증 계열 화면은 AuthLayout을 쓰고 배경·푸터를 직접 만들지 않는다", () => {
     for (const file of AUTH_PAGES) {
       const source = read(`./pages/${file}.tsx`);

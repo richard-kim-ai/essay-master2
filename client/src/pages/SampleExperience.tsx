@@ -87,7 +87,7 @@ export default function SampleExperience() {
 
   return (
     <div className="bg-slate-50 text-slate-950">
-      <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <section className="max-w-3xl">
           <p className="text-sm font-extrabold tracking-[0.14em] text-indigo-700">SAMPLE EXPERIENCE</p>
           <h1 className="mt-3 text-4xl font-black tracking-[-0.045em] sm:text-5xl">회원가입 전, 학습 방식을 먼저 둘러보세요.</h1>

@@ -73,7 +73,7 @@ export default function Checkout() {
   const orders = ordersQuery.data ?? [];
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-8 sm:px-6">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">이용권 결제</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">학습량에 맞는 이용권을 선택하세요. 학습형·AI 기본형·AI 집중형은 결제 후 <strong>'유료 이용 시작'</strong>을 눌러야 30일이 시작되고, AI 추가권은 구매일부터 90일 동안 사용할 수 있습니다. 환불 기준은 화면 하단 푸터의 '가격·환불정책'에서 확인할 수 있습니다.</p>

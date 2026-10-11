@@ -235,7 +235,7 @@ export default function ThesisChecklist() {
   return (
     <PreviewGate active={preview} title="주제문 점검">
       <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-7xl">
           <header className="mb-6">
             {workbookReturnPath && (
               <Link href={workbookReturnPath}>

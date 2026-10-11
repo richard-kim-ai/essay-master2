@@ -523,7 +523,7 @@ export default function Workbook() {
 
   return (
     <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Link href="/curriculum">
             <Button variant="ghost" className="gap-2 text-slate-600 pl-0 hover:text-indigo-700">

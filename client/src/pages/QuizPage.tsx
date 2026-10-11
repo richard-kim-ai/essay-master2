@@ -246,7 +246,7 @@ export default function QuizPage() {
   return (
     <PreviewGate active={preview} title="AI 문장 교정">
     <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/curriculum">
             <Button variant="ghost" className="gap-2 text-slate-600 pl-0">

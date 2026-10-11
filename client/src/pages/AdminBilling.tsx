@@ -58,12 +58,12 @@ export default function AdminBilling() {
   const summaryQuery = trpc.billing.adminSummary.useQuery();
 
   if (summaryQuery.error) {
-    return <div className="mx-auto max-w-5xl p-6 text-sm text-rose-700">{summaryQuery.error.message || "관리자만 볼 수 있는 화면입니다."}</div>;
+    return <div className="mx-auto max-w-7xl p-6 text-sm text-rose-700">{summaryQuery.error.message || "관리자만 볼 수 있는 화면입니다."}</div>;
   }
   const summary = summaryQuery.data;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+    <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
       <div>
         <Link href="/admin"><Button variant="ghost" size="sm" className="-ml-2 gap-1 text-slate-600"><ChevronLeft className="h-4 w-4" />관리자 대시보드</Button></Link>
         <h1 className="mt-2 text-2xl font-bold text-slate-900">결제·정산 관리</h1>

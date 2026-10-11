@@ -222,7 +222,7 @@ export default function TopicWizard() {
   if (completed) {
     return (
       <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-4xl space-y-6">
+        <div className="mx-auto max-w-7xl space-y-6">
           {workbookReturnPath && (
             <Link href={workbookReturnPath}>
               <Button variant="outline" className="mb-1">
@@ -308,7 +308,7 @@ export default function TopicWizard() {
   return (
     <PreviewGate active={preview} title="주제 설정">
       <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-7xl">
           <header className="mb-6">
             {workbookReturnPath && (
               <Link href={workbookReturnPath}>

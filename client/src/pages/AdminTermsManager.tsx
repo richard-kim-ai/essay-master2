@@ -51,7 +51,7 @@ export default function AdminTermsManager() {
   };
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto py-6 px-4">
+    <div className="space-y-6 max-w-7xl mx-auto py-6 px-4">
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 mb-2">

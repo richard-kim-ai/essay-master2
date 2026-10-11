@@ -36,7 +36,7 @@ export default function AiGuideHistory() {
 
   return (
     <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-4xl space-y-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         <header className="rounded-2xl bg-gradient-to-r from-indigo-800 to-indigo-700 p-6 text-white shadow-lg sm:p-8">
           <div className="flex items-start gap-3">
             <div className="rounded-xl bg-white/15 p-3"><History className="h-7 w-7" /></div>

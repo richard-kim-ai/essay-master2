@@ -74,7 +74,7 @@ export default function AdminStudentDetail() {
 
   return (
     <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-5xl space-y-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex items-center justify-between">
           <Link href="/admin">
             <Button variant="outline" size="sm" className="gap-2">

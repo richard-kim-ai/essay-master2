@@ -52,7 +52,7 @@ export default function StudentAssignments() {
   if (user && user.role !== "user") {
     return (
       <DashboardLayout>
-        <div className="mx-auto max-w-3xl p-6 md:p-10">
+        <div className="mx-auto max-w-7xl p-6 md:p-10">
           <Card className="border-amber-200 bg-amber-50 p-8 text-center">
             <ClipboardPenLine className="mx-auto mb-3 h-10 w-10 text-amber-600" />
             <CardTitle>학습자 전용 과제 공간입니다</CardTitle>
@@ -66,7 +66,7 @@ export default function StudentAssignments() {
 
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-6 lg:p-8">
+      <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6 lg:p-8">
         <section className="rounded-2xl bg-indigo-900 p-5 text-white shadow-lg md:flex md:items-center md:justify-between md:p-6">
           <div>
             <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-indigo-100">

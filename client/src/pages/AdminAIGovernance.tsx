@@ -50,10 +50,10 @@ export default function AdminAIGovernance() {
     onError: (err) => toast.error(err.message || "상태 변경에 실패했습니다."),
   });
 
-  if (isLoading) return <div className="mx-auto max-w-6xl p-8 text-center text-slate-500">AI 보조 봇 운영 정보를 불러오는 중입니다…</div>;
-  if (error) return <div className="mx-auto max-w-6xl p-8 text-center text-rose-600">관리자 권한이 필요하거나 정보를 불러오지 못했습니다.</div>;
+  if (isLoading) return <div className="mx-auto max-w-7xl p-8 text-center text-slate-500">AI 보조 봇 운영 정보를 불러오는 중입니다…</div>;
+  if (error) return <div className="mx-auto max-w-7xl p-8 text-center text-rose-600">관리자 권한이 필요하거나 정보를 불러오지 못했습니다.</div>;
 
-  return <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
+  return <div className="mx-auto max-w-7xl space-y-6 px-4 py-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <Link href="/admin"><Button variant="ghost" size="sm" className="-ml-2 gap-1 text-slate-600"><ChevronLeft className="h-4 w-4" />관리자 대시보드</Button></Link>
