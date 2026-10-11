@@ -36,7 +36,8 @@ describe("appRouter", () => {
 
       const result = await caller.auth.me();
 
-      expect(result).toEqual(ctx.user);
+      // 비밀번호가 없는 계정이라 hasPassword는 false이다(프로필의 비밀번호 변경 표시용).
+      expect(result).toEqual({ ...ctx.user, hasPassword: false });
     });
 
     it("should clear cookie on logout", async () => {
