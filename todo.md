@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 내가 쓴 글·AI 첨삭 내역을 다시 볼 수 있는 화면(/my-writings)과 접근 경로(마이페이지·프로필 메뉴·AI 첨삭 화면) 추가 — client/src/pages/MyWritings.tsx, App.tsx 라우트, MyPageHub, Navigation, pageTrail — 시작 2026-10-12 02:00
 
 ## 완료
 
