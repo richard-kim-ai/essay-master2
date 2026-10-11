@@ -30,7 +30,6 @@ vi.mock("@/lib/trpc", () => ({
 import Signup from "./Signup";
 
 import { validateGuardianInfo, EMPTY_GUARDIAN_INFO } from "@/components/GuardianInfoDialog";
-import { hasReadToEnd } from "@/components/PolicyConsentChecklist";
 
 describe("Signup birth date and guardian input", () => {
   beforeEach(() => {
@@ -95,13 +94,5 @@ describe("보호자 정보 검증", () => {
 
   it("보호자 이메일이 학생 이메일과 같으면 거절한다(대소문자 무시)", () => {
     expect(validateGuardianInfo(filled, "PARENT@example.com")).toContain("달라야");
-  });
-});
-
-describe("동의 문서 읽음 판정", () => {
-  it("맨 아래까지 스크롤했거나 스크롤 없이 전부 보이면 읽은 것으로 본다", () => {
-    expect(hasReadToEnd({ scrollTop: 0, clientHeight: 200, scrollHeight: 200 })).toBe(true);
-    expect(hasReadToEnd({ scrollTop: 395, clientHeight: 200, scrollHeight: 600 })).toBe(true);
-    expect(hasReadToEnd({ scrollTop: 100, clientHeight: 200, scrollHeight: 600 })).toBe(false);
   });
 });

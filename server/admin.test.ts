@@ -357,7 +357,7 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
     expect(routerSource).toContain("accountType: z.enum([\"student\", \"parent\"])");
     expect(signupSource).toContain("학부모 회원");
     expect(teacherSignupSource).toContain("PolicyConsentChecklist");
-    expect(policySource).toContain("내용을 확인해 동의가 체크되었습니다");
+    expect(policySource).toContain("내용을 확인했습니다");
     expect(policySource).toContain("선택하지 않아도 서비스 이용에는 영향이 없습니다");
   });
 
