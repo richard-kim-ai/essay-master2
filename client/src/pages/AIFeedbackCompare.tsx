@@ -83,6 +83,12 @@ export default function AIFeedbackCompare() {
           </div>
         </div>
 
+        {(feedback as { fallbackUsed?: boolean }).fallbackUsed && (
+          <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900" data-testid="compare-fallback-notice">
+            <p className="font-bold">이 첨삭은 AI 모델 연결에 실패해 기본 규칙 점검 결과만 제공되었습니다.</p>
+            <p>수정 답안과 항목별 점수가 없어 원문과 비교할 내용이 없습니다. AI 자동 첨삭에서 다시 요청해 주세요.</p>
+          </div>
+        )}
         <Card className="border-slate-200 bg-white shadow-sm" data-testid="diff-summary">
           <CardContent className="flex flex-wrap items-center gap-x-5 gap-y-2 p-4 text-sm">
             {diff.identical ? (

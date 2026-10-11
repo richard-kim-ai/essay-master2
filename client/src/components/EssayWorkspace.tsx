@@ -31,6 +31,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import TeacherFeedbackRequestDialog from "@/components/TeacherFeedbackRequestDialog";
 import MyTeacherFeedbackRequests from "@/components/MyTeacherFeedbackRequests";
+import AiFeedbackPanel from "@/components/AiFeedbackPanel";
 import { toast } from "sonner";
 import { useEssayWorkspace } from "@/hooks/useEssayWorkspace";
 import {
@@ -43,19 +44,6 @@ import {
 import { COURSE_OPTIONS } from "@shared/course";
 import { EvaluationLoadingState } from "@/components/EvaluationLoadingState";
 import { useLearningCourse } from "@/hooks/useLearningCourse";
-
-function feedbackList(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter(v => typeof v === "string");
-  if (typeof value === "string") {
-    try {
-      const rows = JSON.parse(value);
-      return Array.isArray(rows) ? rows.filter(v => typeof v === "string") : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
 
 export default function EssayWorkspace({
   offline = false,
@@ -416,7 +404,7 @@ export default function EssayWorkspace({
       if (requestScopeRef.current !== requestScope) return;
       toast.success(
         result.fallback_used
-          ? "기본 분석 결과가 제공되었습니다. AI 평가를 다시 요청할 수 있습니다."
+          ? "AI 모델 연결에 실패해 기본 점검 결과만 제공되었습니다(사용 횟수는 차감되지 않았습니다). 잠시 후 다시 요청해 주세요."
           : "AI 피드백을 받았습니다."
       );
     } catch (err) {
@@ -866,21 +854,12 @@ export default function EssayWorkspace({
                     </p>
                   )}
                   {ai && (
-                    <section className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
-                      <h3 className="font-bold text-indigo-950">
-                        AI 피드백 · {ai.overallScore ?? 0}점
-                      </h3>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                        {ai.overallComment}
-                      </p>
-                      {feedbackList(ai.suggestions).length > 0 && (
-                        <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                          {feedbackList(ai.suggestions).map((s, i) => (
-                            <li key={i}>• {s}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </section>
+                    <AiFeedbackPanel
+                      ai={ai}
+                      essayContent={selected?.content}
+                      onRetry={() => void requestAi()}
+                      retryDisabled={disabled}
+                    />
                   )}
                   {teacher && (
                     <section className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">

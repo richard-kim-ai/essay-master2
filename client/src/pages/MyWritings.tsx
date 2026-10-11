@@ -164,6 +164,7 @@ export default function MyWritings() {
                     <Sparkles className="h-4 w-4 text-indigo-600" aria-hidden="true" />
                     <h2 className="truncate text-base font-extrabold text-slate-900">{feedback.essayTitle}</h2>
                     <Badge variant="outline">{courseLabel(feedback.courseType)} 과정</Badge>
+                    {(feedback as { fallbackUsed?: boolean }).fallbackUsed && <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">기본 점검(AI 모델 미사용)</Badge>}
                     {typeof feedback.overallScore === "number" && <Badge className="bg-indigo-100 text-indigo-800 hover:bg-indigo-100">종합 {feedback.overallScore}점</Badge>}
                   </div>
                   <p className="mt-1 text-xs text-slate-500">첨삭 받은 날 {formatDate(feedback.createdAt)}</p>
