@@ -3,9 +3,17 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { getLatestGuardianConsentStatusForUser } from "../db";
+import { friendlyLlmErrorMessage } from "./llmErrors";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  // AI 서비스 키 오류 같은 공급자 원문(JSON 등)은 화면에 내보내지 않고 안내 문구로 바꾼다. 원문은 서버 로그에만 남긴다.
+  errorFormatter({ shape, error }) {
+    const friendly = friendlyLlmErrorMessage(error.message) ?? friendlyLlmErrorMessage((error.cause as { message?: string } | undefined)?.message);
+    if (!friendly) return shape;
+    console.error("[LLM] 인증 오류(사용자에게는 안내 문구만 표시):", error.message);
+    return { ...shape, message: friendly };
+  },
 });
 
 export const router = t.router;
