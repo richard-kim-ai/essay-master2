@@ -91,7 +91,12 @@ export default function TopicWizard() {
   const scopeRef = useRef(scopeKey);
   const resetScopeRef = useRef(scopeKey);
   if (scopeRef.current !== scopeKey) scopeRef.current = scopeKey;
-  useEffect(() => () => { scopeRef.current = "disposed"; }, []);
+  useEffect(
+    () => () => {
+      scopeRef.current = "disposed";
+    },
+    []
+  );
   useEffect(() => {
     if (resetScopeRef.current === scopeKey) return;
     resetScopeRef.current = scopeKey;
@@ -194,15 +199,17 @@ export default function TopicWizard() {
       </div>
     );
   const preview = mode === "public-preview";
-  const courseSelect =
+  // 과정 표시와 미리보기 과정 선택을 한 요소로 합친다: 교사·관리자·비로그인은 이 배지에서 바로 과정을 바꾼다.
+  const courseBadge = (tone: string) =>
     canSelectCourse && courseType ? (
-      <label className="mb-3 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-900">
-        미리볼 과정
+      <label
+        className={`inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${tone}`}
+      >
         <select
           aria-label="미리볼 과정"
           value={courseType}
           onChange={event => setCourseType(event.target.value as CourseType)}
-          className="bg-transparent font-bold outline-none"
+          className="cursor-pointer bg-transparent font-semibold outline-none"
         >
           {COURSE_OPTIONS.map(course => (
             <option key={course.value} value={course.value}>
@@ -211,7 +218,9 @@ export default function TopicWizard() {
           ))}
         </select>
       </label>
-    ) : null;
+    ) : (
+      <Badge className={`block w-fit ${tone}`}>{courseLabel} 과정</Badge>
+    );
   const courseNotice = !canLearn ? (
     <Card className="mb-5 border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
       이 계정에는 학습 과정이 지정되지 않았습니다. 주제 작성은 계속할 수 있지만,
@@ -231,7 +240,6 @@ export default function TopicWizard() {
               </Button>
             </Link>
           )}
-          {courseSelect}
           {courseNotice}
           <Card className="border-emerald-200 bg-white p-6 shadow-sm sm:p-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -240,9 +248,9 @@ export default function TopicWizard() {
                   <ClipboardCheck className="h-7 w-7" />
                 </div>
                 <div>
-                  <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
-                    {courseLabel} 과정
-                  </Badge>
+                  {courseBadge(
+                    "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+                  )}
                   <h1 className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">
                     주제 설정이 완료되었습니다
                   </h1>
@@ -321,10 +329,9 @@ export default function TopicWizard() {
                 </Button>
               </Link>
             )}
-            {courseSelect}
-            <Badge className="block w-fit bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
-              {courseLabel} 과정
-            </Badge>
+            {courseBadge(
+              "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+            )}
             <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
               주제 설정
             </h1>
