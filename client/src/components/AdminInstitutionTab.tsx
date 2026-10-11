@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { BUDGET_TYPES, budgetRemaining, type BudgetType } from "@shared/institution";
+import { BUDGET_TYPES, OVERAGE_ACTION_LABELS, USAGE_MODE_LABELS, budgetOverage, budgetRemaining, type BudgetType, type OverageAction, type UsageMode } from "@shared/institution";
 
 const STATUS = {
   draft: { label: "준비 중", style: "bg-slate-200 text-slate-700" },
@@ -22,14 +22,48 @@ function Pill({ label, style }: { label: string; style: string }) {
   return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${style}`}>{label}</span>;
 }
 
-function BudgetCell({ limit, used }: { limit: number; used: number }) {
+function BudgetCell({ limit, used, usageMode }: { limit: number; used: number; usageMode: UsageMode }) {
+  // 기간제는 횟수 제한이 없어 사용 횟수만 보여 준다.
+  if (usageMode === "period") {
+    return (
+      <div className="min-w-24">
+        <p className="text-sm font-semibold text-slate-900">{used}회 사용</p>
+        <p className="mt-0.5 text-[11px] text-slate-500">기간 내 제한 없음</p>
+      </div>
+    );
+  }
   const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const remaining = budgetRemaining(limit, used);
+  const overage = budgetOverage(limit, used);
   return (
     <div className="min-w-24">
       <p className="text-sm font-semibold text-slate-900">{used} / {limit}</p>
       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden="true"><div className={`h-full rounded-full ${percent >= 90 ? "bg-rose-500" : "bg-indigo-500"}`} style={{ width: `${percent}%` }} /></div>
-      <p className="mt-0.5 text-[11px] text-slate-500">남음 {remaining}</p>
+      {overage > 0 ? <p className="mt-0.5 text-[11px] font-semibold text-rose-600">초과 {overage}</p> : <p className="mt-0.5 text-[11px] text-slate-500">남음 {remaining}</p>}
+    </div>
+  );
+}
+
+// 이용 방식(기간제·횟수제)과 횟수제의 소진 시 동작을 고르는 입력. 등록 창과 변경 창이 함께 쓴다.
+function PolicyFields({ usageMode, overageAction, onChange }: { usageMode: UsageMode; overageAction: OverageAction; onChange: (next: { usageMode: UsageMode; overageAction: OverageAction }) => void }) {
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <label className="block text-xs text-slate-600">이용 방식
+        <select value={usageMode} onChange={(event) => onChange({ usageMode: event.target.value as UsageMode, overageAction })} className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm">
+          <option value="quota">{USAGE_MODE_LABELS.quota} — 정한 횟수(예산)까지 이용</option>
+          <option value="period">{USAGE_MODE_LABELS.period} — 계약 기간 동안 횟수 제한 없이 이용(횟수는 기록)</option>
+        </select>
+      </label>
+      {usageMode === "quota" ? (
+        <label className="block text-xs text-slate-600">예산을 모두 쓴 뒤
+          <select value={overageAction} onChange={(event) => onChange({ usageMode, overageAction: event.target.value as OverageAction })} className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm">
+            <option value="block">{OVERAGE_ACTION_LABELS.block} — 새 첨삭·AI·관리 이용이 막힙니다</option>
+            <option value="warn">{OVERAGE_ACTION_LABELS.warn} — 이용은 계속되고 초과 횟수가 표시됩니다</option>
+          </select>
+        </label>
+      ) : (
+        <p className="text-[11px] leading-5 text-slate-500">기간제는 계약 시작일부터 종료일 0시 전까지 첨삭·AI 첨삭·관리를 횟수 제한 없이 이용합니다. 예산 칸은 참고용이며 사용 횟수는 기록됩니다.</p>
+      )}
     </div>
   );
 }
@@ -52,7 +86,7 @@ export default function AdminInstitutionTab() {
 
   // ----- 계약 만들기 -----
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", contractCode: "", periodStart: "", periodEnd: "", humanLimit: "0", aiLimit: "0", managementLimit: "0", memo: "" });
+  const [form, setForm] = useState({ name: "", contractCode: "", periodStart: "", periodEnd: "", humanLimit: "0", aiLimit: "0", managementLimit: "0", usageMode: "quota" as UsageMode, overageAction: "block" as OverageAction, memo: "" });
   const createContract = trpc.institution.adminCreateContract.useMutation({
     onSuccess: () => { toast.success("계약을 등록했습니다. 활성화하면 이용할 수 있습니다."); setCreateOpen(false); refresh(); },
     onError: fail("계약을 등록하지 못했습니다."),
@@ -66,6 +100,11 @@ export default function AdminInstitutionTab() {
   const updateBudgets = trpc.institution.adminUpdateBudgets.useMutation({
     onSuccess: () => { toast.success("예산을 변경했습니다."); setBudgetTarget(null); setReason(""); refresh(); },
     onError: fail("예산을 변경하지 못했습니다."),
+  });
+  const [policyTarget, setPolicyTarget] = useState<{ id: number; name: string; usageMode: UsageMode; overageAction: OverageAction } | null>(null);
+  const updatePolicy = trpc.institution.adminUpdatePolicy.useMutation({
+    onSuccess: () => { toast.success("이용 방식을 변경했습니다. 변경 이후의 이용부터 적용됩니다."); setPolicyTarget(null); setReason(""); refresh(); },
+    onError: fail("이용 방식을 변경하지 못했습니다."),
   });
   const setStatus = trpc.institution.adminSetStatus.useMutation({
     onSuccess: () => { toast.success("계약 상태를 변경했습니다."); setStatusTarget(null); setReason(""); refresh(); },
@@ -118,14 +157,15 @@ export default function AdminInstitutionTab() {
             {contracts.map((contract) => (
               <tr key={contract.id} className="border-t border-slate-100 align-top">
                 <td className="p-3"><p className="font-semibold text-slate-900">{contract.name}</p><p className="font-mono text-xs text-slate-500">{contract.contractCode}</p></td>
-                <td className="p-3 text-xs text-slate-600">{dateLabel(contract.periodStart)} ~ {dateLabel(contract.periodEnd)}<br />(종료일 0시 전까지)</td>
+                <td className="p-3 text-xs text-slate-600">{dateLabel(contract.periodStart)} ~ {dateLabel(contract.periodEnd)}<br />(종료일 0시 전까지)<br /><span className="font-semibold text-slate-800">{USAGE_MODE_LABELS[contract.usageMode]}</span>{contract.usageMode === "quota" && <span> · {OVERAGE_ACTION_LABELS[contract.overageAction]}</span>}</td>
                 <td className="p-3"><Pill {...STATUS[contract.status]} /></td>
-                <td className="p-3"><BudgetCell limit={contract.humanLimit} used={contract.humanUsed} /></td>
-                <td className="p-3"><BudgetCell limit={contract.aiLimit} used={contract.aiUsed} /></td>
-                <td className="p-3"><BudgetCell limit={contract.managementLimit} used={contract.managementUsed} /></td>
+                <td className="p-3"><BudgetCell limit={contract.humanLimit} used={contract.humanUsed} usageMode={contract.usageMode} /></td>
+                <td className="p-3"><BudgetCell limit={contract.aiLimit} used={contract.aiUsed} usageMode={contract.usageMode} /></td>
+                <td className="p-3"><BudgetCell limit={contract.managementLimit} used={contract.managementUsed} usageMode={contract.usageMode} /></td>
                 <td className="p-3 text-xs text-slate-600">반 {contract.groupCount}개<br />회원 {contract.memberCount}명</td>
                 <td className="p-3">
                   <div className="flex flex-wrap gap-1.5">
+                    {contract.status !== "closed" && <Button size="sm" variant="outline" onClick={() => { setReason(""); setPolicyTarget({ id: contract.id, name: contract.name, usageMode: contract.usageMode, overageAction: contract.overageAction }); }}>이용 방식</Button>}
                     {contract.status !== "closed" && <Button size="sm" variant="outline" onClick={() => { setReason(""); setBudgetTarget({ id: contract.id, name: contract.name, human: String(contract.humanLimit), ai: String(contract.aiLimit), management: String(contract.managementLimit) }); }}>예산</Button>}
                     {(contract.status === "draft" || contract.status === "suspended") && <Button size="sm" onClick={() => { setReason(""); setStatusTarget({ id: contract.id, name: contract.name, status: "active" }); }}>활성화</Button>}
                     {contract.status === "active" && <Button size="sm" variant="outline" onClick={() => { setReason(""); setStatusTarget({ id: contract.id, name: contract.name, status: "suspended" }); }}>중지</Button>}
@@ -212,6 +252,7 @@ export default function AdminInstitutionTab() {
               <label className="text-xs text-slate-600">시작일<Input type="date" value={form.periodStart} onChange={(event) => setForm({ ...form, periodStart: event.target.value })} className="mt-1" /></label>
               <label className="text-xs text-slate-600">종료일(이 날 0시까지)<Input type="date" value={form.periodEnd} onChange={(event) => setForm({ ...form, periodEnd: event.target.value })} className="mt-1" /></label>
             </div>
+            <PolicyFields usageMode={form.usageMode} overageAction={form.overageAction} onChange={(next) => setForm({ ...form, ...next })} />
             <div className="grid grid-cols-3 gap-2">
               {BUDGET_TYPES.map((budget) => {
                 const key = `${budget.type}Limit` as "humanLimit" | "aiLimit" | "managementLimit";
@@ -222,7 +263,7 @@ export default function AdminInstitutionTab() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
-            <Button disabled={!canCreate || createContract.isPending} onClick={() => createContract.mutate({ name: form.name.trim(), contractCode: form.contractCode.trim(), periodStart: kstStart(form.periodStart), periodEnd: kstStart(form.periodEnd), humanLimit: Math.round(Number(form.humanLimit) || 0), aiLimit: Math.round(Number(form.aiLimit) || 0), managementLimit: Math.round(Number(form.managementLimit) || 0), memo: form.memo.trim() || undefined })}>{createContract.isPending ? "등록 중..." : "등록"}</Button>
+            <Button disabled={!canCreate || createContract.isPending} onClick={() => createContract.mutate({ name: form.name.trim(), contractCode: form.contractCode.trim(), periodStart: kstStart(form.periodStart), periodEnd: kstStart(form.periodEnd), humanLimit: Math.round(Number(form.humanLimit) || 0), aiLimit: Math.round(Number(form.aiLimit) || 0), managementLimit: Math.round(Number(form.managementLimit) || 0), usageMode: form.usageMode, overageAction: form.overageAction, memo: form.memo.trim() || undefined })}>{createContract.isPending ? "등록 중..." : "등록"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -240,6 +281,19 @@ export default function AdminInstitutionTab() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setBudgetTarget(null)}>취소</Button>
             <Button disabled={reason.trim().length < 2 || updateBudgets.isPending} onClick={() => budgetTarget && updateBudgets.mutate({ contractId: budgetTarget.id, human: Math.round(Number(budgetTarget.human) || 0), ai: Math.round(Number(budgetTarget.ai) || 0), management: Math.round(Number(budgetTarget.management) || 0), reason: reason.trim() })}>{updateBudgets.isPending ? "저장 중..." : "저장"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 이용 방식 변경 */}
+      <Dialog open={Boolean(policyTarget)} onOpenChange={(open) => { if (!open) setPolicyTarget(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>이용 방식 변경</DialogTitle><DialogDescription>{policyTarget?.name}. 변경 이후의 새 이용부터 적용되고 이미 쓴 횟수는 그대로입니다. 변경 사유는 기록됩니다.</DialogDescription></DialogHeader>
+          {policyTarget && <PolicyFields usageMode={policyTarget.usageMode} overageAction={policyTarget.overageAction} onChange={(next) => setPolicyTarget({ ...policyTarget, ...next })} />}
+          <Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="변경 사유(필수)" aria-label="이용 방식 변경 사유" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPolicyTarget(null)}>취소</Button>
+            <Button disabled={reason.trim().length < 2 || updatePolicy.isPending} onClick={() => policyTarget && updatePolicy.mutate({ contractId: policyTarget.id, usageMode: policyTarget.usageMode, overageAction: policyTarget.overageAction, reason: reason.trim() })}>{updatePolicy.isPending ? "저장 중..." : "저장"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

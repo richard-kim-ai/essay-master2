@@ -1,6 +1,6 @@
 // 기관 계약·기관 소속 회원·예산 차감·교사 활동 장부(정산 제외)의 데이터 접근.
 // 정책 규칙은 shared/institution.ts, 예산을 쓰는 작업의 흐름은 institutionBudget.ts에 있다.
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, lt, lte, or, sql } from "drizzle-orm";
 import {
   classAssignmentSubmissions,
   classAssignments,
@@ -18,7 +18,7 @@ import {
   workbookTeacherFeedback,
 } from "../drizzle/schema";
 import { getDb } from "./db";
-import { BUDGET_COLUMNS, BUDGET_TYPES, MAX_BUDGET_UNITS, contractAvailability, decideAutomaticExclusion, type BudgetType } from "../shared/institution";
+import { BUDGET_COLUMNS, BUDGET_TYPES, MAX_BUDGET_UNITS, contractAvailability, contractEnforcesLimit, decideAutomaticExclusion, type BudgetType, type ContractPolicy } from "../shared/institution";
 import type { ActivityType } from "../shared/settlement";
 import { InstitutionBudgetError, type BudgetOps } from "./institutionBudget";
 
@@ -62,7 +62,7 @@ export async function listAudit(input: { targetType?: string; targetId?: number;
 
 // ========== 계약 ==========
 
-export async function createContract(input: { name: string; contractCode: string; periodStart: Date; periodEnd: Date; humanLimit: number; aiLimit: number; managementLimit: number; memo?: string; createdBy: number }) {
+export async function createContract(input: { name: string; contractCode: string; periodStart: Date; periodEnd: Date; humanLimit: number; aiLimit: number; managementLimit: number; usageMode?: ContractPolicy["usageMode"]; overageAction?: ContractPolicy["overageAction"]; memo?: string; createdBy: number }) {
   const db = await requireDb();
   if (input.periodEnd.getTime() <= input.periodStart.getTime()) throw new Error("계약 종료일은 시작일보다 뒤여야 합니다.");
   for (const limit of [input.humanLimit, input.aiLimit, input.managementLimit]) {
@@ -72,10 +72,11 @@ export async function createContract(input: { name: string; contractCode: string
   if (existing) throw new Error("이미 사용 중인 계약 번호입니다.");
   const [result] = await db.insert(institutionContracts).values({
     name: input.name, contractCode: input.contractCode, periodStart: input.periodStart, periodEnd: input.periodEnd,
-    humanLimit: input.humanLimit, aiLimit: input.aiLimit, managementLimit: input.managementLimit, memo: input.memo ?? null, createdBy: input.createdBy, status: "draft",
+    humanLimit: input.humanLimit, aiLimit: input.aiLimit, managementLimit: input.managementLimit,
+    usageMode: input.usageMode ?? "quota", overageAction: input.overageAction ?? "block", memo: input.memo ?? null, createdBy: input.createdBy, status: "draft",
   });
   const id = Number((result as { insertId?: number }).insertId);
-  await writeAudit(input.createdBy, "contract_created", "contract", id, "계약 등록", { name: input.name, contractCode: input.contractCode });
+  await writeAudit(input.createdBy, "contract_created", "contract", id, "계약 등록", { name: input.name, contractCode: input.contractCode, usageMode: input.usageMode ?? "quota", overageAction: input.overageAction ?? "block" });
   return getContract(id);
 }
 
@@ -112,7 +113,8 @@ export async function updateContractBudgets(id: number, limits: Partial<Record<B
     if (value === undefined) continue;
     if (!Number.isInteger(value) || value < 0 || value > MAX_BUDGET_UNITS) throw new Error("예산은 0 이상의 정수여야 합니다.");
     set[BUDGET_COLUMNS[type].limit] = value;
-    floors.push(lte(USED_COLUMN[type], value));
+    // 초과 이용을 허용하는 계약(기간제·경고 후 계속)은 이미 쓴 횟수보다 작게도 정할 수 있다(초과분으로 표시된다).
+    if (contractEnforcesLimit(contract)) floors.push(lte(USED_COLUMN[type], value));
   }
   if (Object.keys(set).length === 0) return contract;
   const [result] = await db.update(institutionContracts).set(set).where(and(eq(institutionContracts.id, id), sql`${institutionContracts.status} <> 'closed'`, ...floors));
@@ -122,6 +124,22 @@ export async function updateContractBudgets(id: number, limits: Partial<Record<B
     throw new Error(tooLow && latest ? `${budgetLabel(tooLow)} 예산은 이미 사용한 ${latest[BUDGET_COLUMNS[tooLow].used]}보다 작게 줄일 수 없습니다.` : "예산을 바꿀 수 없는 상태입니다. 다시 확인해 주세요.");
   }
   await writeAudit(actorId, "budget_changed", "contract", id, reason, { before: { human: contract.humanLimit, ai: contract.aiLimit, management: contract.managementLimit }, after: set });
+  return getContract(id);
+}
+
+/**
+ * 이용 방식(횟수제·기간제)과 소진 시 동작(차단·경고 후 계속)을 바꾼다. 바꾼 뒤의 새 이용부터 적용되고 이미 쓴 횟수는 그대로다.
+ * 횟수제·차단으로 되돌릴 때 이미 한도를 넘긴 항목이 있으면 그 항목은 새 이용이 즉시 막힌다(관리자가 예산을 늘려 해소한다).
+ */
+export async function updateContractPolicy(id: number, policy: ContractPolicy, actorId: number, reason: string) {
+  const db = await requireDb();
+  const contract = await getContract(id);
+  if (!contract) throw new Error("계약을 찾을 수 없습니다.");
+  if (contract.status === "closed") throw new Error("종료된 계약은 수정할 수 없습니다.");
+  const [result] = await db.update(institutionContracts).set({ usageMode: policy.usageMode, overageAction: policy.overageAction })
+    .where(and(eq(institutionContracts.id, id), sql`${institutionContracts.status} <> 'closed'`));
+  if (affectedRows(result) === 0 && (contract.usageMode !== policy.usageMode || contract.overageAction !== policy.overageAction)) throw new Error("이용 방식을 바꿀 수 없는 상태입니다. 다시 확인해 주세요.");
+  await writeAudit(actorId, "policy_changed", "contract", id, reason, { before: { usageMode: contract.usageMode, overageAction: contract.overageAction }, after: policy });
   return getContract(id);
 }
 
@@ -287,7 +305,9 @@ export function budgetOps(params: { contractId: number; budgetType: BudgetType; 
         const now = new Date();
         const [result] = await tx.update(institutionContracts)
           .set({ [BUDGET_COLUMNS[budgetType].used]: sql`${used} + 1` })
-          .where(and(eq(institutionContracts.id, contractId), eq(institutionContracts.status, "active"), lte(institutionContracts.periodStart, now), gt(institutionContracts.periodEnd, now), lt(used, LIMIT_COLUMN[budgetType])));
+          .where(and(eq(institutionContracts.id, contractId), eq(institutionContracts.status, "active"), lte(institutionContracts.periodStart, now), gt(institutionContracts.periodEnd, now),
+            // 횟수제·차단 계약만 한도 안일 때 차감한다. 기간제·경고 후 계속 계약은 기간 안이면 한도를 넘어도 차감(기록)한다.
+            or(eq(institutionContracts.usageMode, "period"), eq(institutionContracts.overageAction, "warn"), lt(used, LIMIT_COLUMN[budgetType]))));
         if (affectedRows(result) === 0) {
           const [contract] = await tx.select().from(institutionContracts).where(eq(institutionContracts.id, contractId));
           const availability = contract ? contractAvailability(contract, now) : { usable: false, reason: "기관 계약을 찾을 수 없습니다." };

@@ -1140,6 +1140,10 @@ export const institutionContracts = mysqlTable("institution_contracts", {
   humanUsed: int("humanUsed").default(0).notNull(),
   aiUsed: int("aiUsed").default(0).notNull(),
   managementUsed: int("managementUsed").default(0).notNull(),
+  // 이용 방식: quota(횟수제) / period(기간제: 계약 기간 동안 횟수 제한 없음, 횟수는 기록만).
+  usageMode: mysqlEnum("usageMode", ["quota", "period"]).default("quota").notNull(),
+  // 횟수제에서 예산을 모두 쓴 뒤: block(차단) / warn(계속 이용, 초과분 기록).
+  overageAction: mysqlEnum("overageAction", ["block", "warn"]).default("block").notNull(),
   memo: varchar("memo", { length: 500 }),
   createdBy: int("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

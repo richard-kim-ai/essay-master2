@@ -9,6 +9,7 @@ vi.mock("./institutionDb", () => ({
   listContractsAdmin: vi.fn(async () => []),
   createContract: vi.fn(),
   updateContractBudgets: vi.fn(),
+  updateContractPolicy: vi.fn(),
   setContractStatus: vi.fn(),
   listGroupsWithContracts: vi.fn(async () => []),
   bindGroupContract: vi.fn(),
@@ -25,7 +26,7 @@ import { appRouter } from "./routers";
 import { getAiEntitlement } from "./billing/service";
 import { ambiguousInstitutionEntitlement, evaluateInstitutionEntitlement } from "./billing/entitlements";
 import { InstitutionBudgetError, runWithBudget, type BudgetOps } from "./institutionBudget";
-import { budgetRemaining, contractAvailability, decideAutomaticExclusion, exclusionLabel, isSettlementExcluded } from "../shared/institution";
+import { budgetOverage, budgetRemaining, contractAvailability, contractEnforcesLimit, decideAutomaticExclusion, exclusionLabel, isSettlementExcluded } from "../shared/institution";
 import type { TrpcContext } from "./_core/context";
 
 type TestUser = Record<string, unknown> & { id: number };
@@ -223,5 +224,42 @@ describe("기관 계약 관리 API는 관리자 전용", () => {
     vi.mocked(institutionDb.addInstitutionMember).mockResolvedValue(77);
     await expect(callerFor(admin).institution.adminAddMember({ email: "t@example.com", contractId: null, excludeIndividualSettlement: true, reason: "교내 전속 교사" })).resolves.toMatchObject({ id: 77, userId: 33 });
     expect(institutionDb.addInstitutionMember).toHaveBeenCalledWith({ userId: 33, contractId: null, excludeIndividualSettlement: true, reason: "교내 전속 교사", createdBy: 1 });
+  });
+});
+
+describe("기관 계약 이용 방식: 기간제·소진 시 경고 후 계속", () => {
+  const now = new Date("2026-05-01T00:00:00Z");
+
+  it("횟수제·차단만 한도를 강제하고, 기간제나 경고 후 계속은 강제하지 않는다", () => {
+    expect(contractEnforcesLimit({ usageMode: "quota", overageAction: "block" })).toBe(true);
+    expect(contractEnforcesLimit({ usageMode: "quota", overageAction: "warn" })).toBe(false);
+    expect(contractEnforcesLimit({ usageMode: "period", overageAction: "block" })).toBe(false);
+    expect(budgetOverage(10, 13)).toBe(3);
+    expect(budgetOverage(10, 4)).toBe(0);
+  });
+
+  it("정책이 없는 기존 계약은 횟수제·차단으로 동작한다", () => {
+    expect(evaluateInstitutionEntitlement({ ...baseContract, aiUsed: 10 }, now)).toMatchObject({ canUse: false, periodOnly: false, overage: 0 });
+  });
+
+  it("경고 후 계속 계약은 예산을 넘겨도 이용할 수 있고 초과 횟수를 알려 준다", () => {
+    const result = evaluateInstitutionEntitlement({ ...baseContract, aiUsed: 12, usageMode: "quota", overageAction: "warn" }, now);
+    expect(result).toMatchObject({ canUse: true, used: 12, remaining: 0, overage: 2, periodOnly: false });
+  });
+
+  it("기간제 계약은 횟수와 상관없이 계약 기간 안에서만 이용할 수 있다", () => {
+    const period = { ...baseContract, aiLimit: 0, aiUsed: 500, usageMode: "period" as const, overageAction: "block" as const };
+    expect(evaluateInstitutionEntitlement(period, now)).toMatchObject({ canUse: true, periodOnly: true, used: 500, overage: 0 });
+    const expired = evaluateInstitutionEntitlement(period, new Date("2026-10-01T00:00:00Z"));
+    expect(expired.canUse).toBe(false);
+    expect(expired.reason).toContain("기관 담당자");
+  });
+
+  it("관리자만 이용 방식을 바꾸고, 사유와 값을 검증한다", async () => {
+    vi.mocked(institutionDb.updateContractPolicy).mockResolvedValue({ id: 5 } as any);
+    await expect(callerFor({ id: 2, role: "teacher", teacherStatus: "approved" } as any).institution.adminUpdatePolicy({ contractId: 5, usageMode: "period", overageAction: "block", reason: "기간제로 변경" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(admin).institution.adminUpdatePolicy({ contractId: 5, usageMode: "period", overageAction: "block", reason: "" })).rejects.toBeTruthy();
+    await callerFor(admin).institution.adminUpdatePolicy({ contractId: 5, usageMode: "quota", overageAction: "warn", reason: "소진 후에도 수업 지속" });
+    expect(institutionDb.updateContractPolicy).toHaveBeenCalledWith(5, { usageMode: "quota", overageAction: "warn" }, 1, "소진 후에도 수업 지속");
   });
 });

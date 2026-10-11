@@ -57,6 +57,26 @@ export function budgetRemaining(limit: number, used: number): number {
   return Math.max(0, limit - used);
 }
 
+// 이용 방식: quota(횟수제, 예산 횟수까지) / period(기간제, 계약 기간 동안 횟수 제한 없이 이용하고 횟수는 기록만 한다).
+export type UsageMode = "quota" | "period";
+// 횟수제에서 예산을 모두 쓴 뒤의 동작: block(새 이용을 막는다) / warn(계속 이용하게 하고 초과분을 기록해 관리자에게 보여 준다).
+export type OverageAction = "block" | "warn";
+
+export const USAGE_MODE_LABELS: Record<UsageMode, string> = { quota: "횟수제", period: "기간제" };
+export const OVERAGE_ACTION_LABELS: Record<OverageAction, string> = { block: "소진 시 차단", warn: "소진 후에도 계속 이용(초과 기록)" };
+
+export type ContractPolicy = { usageMode: UsageMode; overageAction: OverageAction };
+
+/** 예산 횟수를 넘으면 새 이용을 막아야 하는 계약인지(횟수제이면서 소진 시 차단). */
+export function contractEnforcesLimit(policy: ContractPolicy): boolean {
+  return policy.usageMode === "quota" && policy.overageAction === "block";
+}
+
+/** 한도를 넘겨 쓴 횟수(경고 후 계속·기간제 계약에서 생긴다). */
+export function budgetOverage(limit: number, used: number): number {
+  return Math.max(0, used - limit);
+}
+
 export const BUDGET_COLUMNS: Record<BudgetType, { limit: "humanLimit" | "aiLimit" | "managementLimit"; used: "humanUsed" | "aiUsed" | "managementUsed" }> = {
   human: { limit: "humanLimit", used: "humanUsed" },
   ai: { limit: "aiLimit", used: "aiUsed" },

@@ -7,6 +7,8 @@ import * as institution from "./institutionDb";
 
 const units = z.number().int().min(0).max(MAX_BUDGET_UNITS);
 const reason = z.string().trim().min(2).max(500);
+const usageMode = z.enum(["quota", "period"]);
+const overageAction = z.enum(["block", "warn"]);
 
 /** 규칙 위반 메시지(예: 이미 사용한 횟수보다 줄일 수 없음)를 그대로 보여 주기 위해 BAD_REQUEST로 바꾼다. */
 async function guarded<T>(work: () => Promise<T>): Promise<T> {
@@ -30,9 +32,16 @@ export const institutionRouter = router({
       humanLimit: units,
       aiLimit: units,
       managementLimit: units,
+      usageMode: usageMode.default("quota"),
+      overageAction: overageAction.default("block"),
       memo: z.string().trim().max(500).optional(),
     }))
     .mutation(({ ctx, input }) => guarded(() => institution.createContract({ ...input, createdBy: ctx.user.id }))),
+
+  /** 이용 방식(횟수제·기간제)과 예산 소진 시 동작(차단·경고 후 계속) 변경. 바꾼 뒤의 새 이용부터 적용되며 사유는 감사 기록에 남는다. */
+  adminUpdatePolicy: adminProcedure
+    .input(z.object({ contractId: z.number().int().positive(), usageMode, overageAction, reason }))
+    .mutation(({ ctx, input }) => guarded(() => institution.updateContractPolicy(input.contractId, { usageMode: input.usageMode, overageAction: input.overageAction }, ctx.user.id, input.reason))),
 
   /** 예산 한도 변경. 이미 쓴 횟수보다 작게 줄일 수 없고, 변경 사유는 감사 기록에 남는다. */
   adminUpdateBudgets: adminProcedure

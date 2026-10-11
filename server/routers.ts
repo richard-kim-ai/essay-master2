@@ -1537,6 +1537,8 @@ export const appRouter = router({
           canUse: entitlement.canUse,
           planKey: entitlement.planKey ?? null,
           contractName: entitlement.contractName ?? null,
+          periodOnly: entitlement.periodOnly ?? false,
+          overage: entitlement.overage ?? 0,
           periodEnd: entitlement.periodEnd ?? null,
           reason: entitlement.reason ?? null,
         };

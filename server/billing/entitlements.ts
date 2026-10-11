@@ -3,7 +3,7 @@
 // 관리자·교사는 학습자용 한도 대상이 아니다.
 
 import { TRIAL_AI_EVALUATION_LIMIT, getTrialAccess } from "../trialPolicy";
-import { budgetRemaining, contractAvailability, type ContractWindow } from "../../shared/institution";
+import { budgetOverage, budgetRemaining, contractAvailability, contractEnforcesLimit, type ContractPolicy, type ContractWindow } from "../../shared/institution";
 
 export type SubscriptionSnapshot = {
   status: "active" | "cancelled" | "expired";
@@ -25,6 +25,10 @@ export type AiEntitlement = {
   /** 기관 계약이 비용을 부담할 때(mode = institution) */
   contractId?: number;
   contractName?: string;
+  /** 기간제 기관 계약: 계약 기간 동안 횟수 제한 없이 이용한다(used만 기록). */
+  periodOnly?: boolean;
+  /** 경고 후 계속 계약에서 예산을 넘겨 쓴 횟수 */
+  overage?: number;
   periodStart?: Date;
   periodEnd?: Date;
   /** 이용할 수 없을 때 사용자에게 보여줄 이유 */
@@ -109,17 +113,22 @@ export function evaluateAiEntitlement(input: {
  * 기관 계약이 학생의 AI 평가 비용을 부담할 때의 이용 자격. 계약이 있으면 개인 이용권·체험보다 우선하고,
  * 계약이 끝났거나 예산이 소진돼도 개인 이용권으로 넘어가지 않는다(기관 담당자에게 문의하도록 안내한다).
  */
-export function evaluateInstitutionEntitlement(contract: ContractWindow & { id: number; name: string; aiLimit: number; aiUsed: number }, now: Date = new Date()): AiEntitlement {
+export function evaluateInstitutionEntitlement(contract: ContractWindow & Partial<ContractPolicy> & { id: number; name: string; aiLimit: number; aiUsed: number }, now: Date = new Date()): AiEntitlement {
   const availability = contractAvailability(contract, now);
   const remaining = budgetRemaining(contract.aiLimit, contract.aiUsed);
-  const canUse = availability.usable && remaining > 0;
+  const policy: ContractPolicy = { usageMode: contract.usageMode ?? "quota", overageAction: contract.overageAction ?? "block" };
+  const enforced = contractEnforcesLimit(policy);
+  const canUse = availability.usable && (!enforced || remaining > 0);
+  const overage = budgetOverage(contract.aiLimit, contract.aiUsed);
   return {
     mode: "institution",
     canUse,
     limit: contract.aiLimit,
-    used: Math.min(contract.aiUsed, contract.aiLimit),
+    used: enforced ? Math.min(contract.aiUsed, contract.aiLimit) : contract.aiUsed,
     remaining,
     daysRemaining: 0,
+    periodOnly: policy.usageMode === "period",
+    overage: policy.usageMode === "quota" && overage > 0 ? overage : 0,
     contractId: contract.id,
     contractName: contract.name,
     periodStart: new Date(contract.periodStart),
