@@ -11,6 +11,7 @@ vi.mock("wouter", () => ({
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import Footer, { FOOTER_MENU } from "./Footer";
+import { COPYRIGHT_INFO } from "@/lib/contact";
 
 describe("Footer", () => {
   it("모든 화면에서 약관·개인정보처리방침·문의 메일·저작권을 보여준다", () => {
@@ -46,6 +47,23 @@ describe("Footer", () => {
     expect(html).toContain('href="/teacher-signup"');
     expect(html).toContain("교사 회원가입");
     expect(html).toContain('href="/signup"');
+  });
+
+  it("저작권 등록번호가 있으면 저작물명·번호·확인 링크를 보여주고, 비어 있으면 숨긴다", () => {
+    expect(renderToStaticMarkup(<Footer />)).not.toContain("저작권등록번호");
+
+    COPYRIGHT_INFO.registrationNumber = "C-0000-000000";
+    try {
+      for (const variant of ["default", "compact"] as const) {
+        const html = renderToStaticMarkup(<Footer variant={variant} />);
+        expect(html).toContain("『논술의 기초』");
+        expect(html).toContain("저작권등록번호 C-0000-000000");
+        expect(html).toContain(`href="${COPYRIGHT_INFO.verifyUrl}"`);
+        expect(html).toContain('rel="noopener noreferrer"');
+      }
+    } finally {
+      COPYRIGHT_INFO.registrationNumber = undefined;
+    }
   });
 
   it("사업자 정보가 비어 있으면 해당 문구를 표시하지 않는다(추후 입력 예정)", () => {

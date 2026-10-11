@@ -12,3 +12,15 @@ export const COMPANY_INFO: {
   address?: string;
   privacyOfficer?: string;
 } = {};
+
+// 기초 이론 콘텐츠의 저작권 등록 정보. 푸터와 같은 방식으로, registrationNumber가 비어 있으면 표기하지 않는다.
+// (등록번호가 정해지면 registrationNumber를 채우면 푸터에 표시된다. author는 필요할 때만 채운다.)
+export const COPYRIGHT_INFO: {
+  workTitle: string;
+  author?: string;
+  registrationNumber?: string;
+  verifyUrl: string;
+} = {
+  workTitle: "논술의 기초",
+  verifyUrl: "https://www.cros.or.kr/psnsys/cmmn/infoPage.do?w2xPath=/ui/twc/sch/regInfSerc/regInfSercList.xml",
+};

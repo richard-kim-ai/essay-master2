@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link } from "wouter";
 import { BookOpen } from "lucide-react";
 import { TermsAndPrivacyModal } from "@/components/TermsAndPrivacyModal";
-import { COMPANY_INFO, CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
+import { COMPANY_INFO, CONTACT_EMAIL, CONTACT_MAILTO, COPYRIGHT_INFO } from "@/lib/contact";
 
 const COMPANY_LABELS: ReadonlyArray<[keyof typeof COMPANY_INFO, string]> = [
   ["name", "상호"],
@@ -62,12 +62,21 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
   // 약관 모달은 열 때만 마운트한다(모달 안의 약관 조회 요청을 푸터가 보이는 모든 화면에서 보내지 않도록).
   const modal = modalType ? <TermsAndPrivacyModal type={modalType} onClose={() => setModalType(null)} /> : null;
   const copyright = `© ${new Date().getFullYear()} 논술 마스터. All rights reserved.`;
+  // 등록번호가 있을 때만 표기한다(비어 있으면 줄 자체를 숨김).
+  const registrationNumber = COPYRIGHT_INFO.registrationNumber;
+  const copyrightRegistration = registrationNumber ? (
+    <p className="mt-2 text-xs leading-6" data-testid="copyright-registration">
+      기초 이론 콘텐츠는 『{COPYRIGHT_INFO.workTitle}』{COPYRIGHT_INFO.author ? `(${COPYRIGHT_INFO.author})` : ""} 저작물을 기반으로 합니다. 저작권등록번호 {registrationNumber} ·{" "}
+      <a href={COPYRIGHT_INFO.verifyUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-white">등록 확인(한국저작권위원회)</a>
+    </p>
+  ) : null;
 
   if (variant === "compact") {
     return (
       <footer className="px-4 py-6 text-center text-xs text-slate-500" aria-label="사이트 정보">
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">{legalLinks}</div>
         {companyLines.length > 0 && <p className="mt-2">{companyLines.join(" · ")}</p>}
+        {copyrightRegistration}
         <p className="mt-2">{copyright}</p>
         {modal}
       </footer>
@@ -95,6 +104,7 @@ export default function Footer({ variant = "default" }: { variant?: "default" | 
       <div className="mx-auto mt-8 max-w-7xl border-t border-slate-800 pt-6 text-sm">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 [&_button]:text-slate-300 [&_a]:text-slate-300">{legalLinks}</div>
         {companyLines.length > 0 && <p className="mt-3 text-xs leading-6">{companyLines.join(" · ")}</p>}
+        {copyrightRegistration}
         <p className="mt-3">{copyright}</p>
       </div>
       {modal}
