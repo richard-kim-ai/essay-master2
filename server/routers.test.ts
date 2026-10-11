@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { appRouter } from "./routers";
+import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 
 function createMockContext(overrides?: Partial<TrpcContext>): TrpcContext {
@@ -375,12 +376,17 @@ describe("appRouter", () => {
 
   describe("sample AI evaluation abuse protection", () => {
     it("사용 기록을 남길 DB가 없으면 한도 없이 AI를 호출하지 않고 요청을 거절한다", async () => {
+      const getDb = vi.spyOn(db, "getDb").mockResolvedValue(null);
       const caller = appRouter.createCaller(createMockContext({ user: null as any }));
-      await expect(caller.sampleEvaluation.evaluate({
-        sessionToken: "abcdefghij1234567890",
-        task: "학교 급식에 지역 농산물 사용을 늘려야 한다는 주장에 대해 써보세요.",
-        essayText: "지역 농산물은 신선하고 지역 농가에도 도움이 되므로 급식에 더 많이 써야 합니다.",
-      })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+      try {
+        await expect(caller.sampleEvaluation.evaluate({
+          sessionToken: "abcdefghij1234567890",
+          task: "학교 급식에 지역 농산물 사용을 늘려야 한다는 주장에 대해 써보세요.",
+          essayText: "지역 농산물은 신선하고 지역 농가에도 도움이 되므로 급식에 더 많이 써야 합니다.",
+        })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+      } finally {
+        getDb.mockRestore();
+      }
     });
   });
 
