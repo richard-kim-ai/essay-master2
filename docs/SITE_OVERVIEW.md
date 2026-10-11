@@ -318,6 +318,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | `todo.md` | 진행(Claim)·완료·로드맵 |
 | `ESSAY_MASTER_MINDMAP.md/.mmd`, `docs/current-work-mindmap.md` | 마인드맵 |
 | `docs/institution-contracts.md` | 기관 계약·정산 제외 |
+| `docs/teacher-feedback-purchase-design.md` | 교사 첨삭 건별 결제(앱 안 추가 결제) 설계안 |
 | `docs/payment-integration.md` | 결제 연동 |
 | `docs/ai-learning-data-governance-policy.md` | AI 학습 데이터 정책 |
 | `docs/privacy-policy-under14-section.md` | 만 14세 미만 개인정보처리방침 초안 |
