@@ -10,6 +10,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { runQuestionBankTrashCleanup } from "../scheduledQuestionBankCleanup";
+import { compressJsonResponses } from "./staticAssets";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -43,6 +44,7 @@ async function startServer() {
   // tRPC API
   app.use(
     "/api/trpc",
+    compressJsonResponses(),
     createExpressMiddleware({
       router: appRouter,
       createContext,

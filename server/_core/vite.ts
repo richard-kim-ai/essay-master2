@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import viteConfig from "../../vite.config";
+import { serveIndexHtml, servePrecompressed, setStaticHeaders } from "./staticAssets";
 
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
@@ -58,10 +59,10 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // 빌드 때 만든 .br/.gz가 있으면 먼저 보내고, 없으면 원본 파일을 보낸다.
+  app.use(servePrecompressed(distPath));
+  app.use(express.static(distPath, { index: false, setHeaders: (res, filePath) => setStaticHeaders(res, filePath) }));
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
-  });
+  app.use("*", serveIndexHtml(distPath));
 }
