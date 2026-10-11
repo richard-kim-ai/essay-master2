@@ -273,8 +273,10 @@ export default function EssayWorkspace({
       return null;
     }
     if (locked && unsaved) return null;
-    if (!locked && (unsaved || selected.isDirty)) await save();
-    else await store.synchronize();
+    if (!locked && (unsaved || selected.isDirty)) {
+      const saved = await save();
+      if (!saved) return null;
+    } else await store.synchronize();
     const row = store
       .latestRows()
       .find(row => row.localId === selected.localId);
