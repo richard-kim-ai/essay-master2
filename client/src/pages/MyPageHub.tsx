@@ -22,7 +22,9 @@ export default function MyPageHub() {
   // 학부모 계정은 학생용 허브가 아니라 학부모 포털로 이동한다.
   useEffect(() => {
     if (user?.tag === "학부모") setLocation("/parent-portal");
-  }, [user?.tag, setLocation]);
+    // 첨삭교사는 학습자용 허브를 쓰지 않는다.
+    else if (user?.role === "teacher") setLocation("/teacher-mypage");
+  }, [user?.tag, user?.role, setLocation]);
   const isStaffPreview = mode === "staff-preview";
   const activeCourse = effectiveCourse;
 

@@ -109,6 +109,10 @@ export function getPageTrail(rawPath: string, role?: string | null): PageTrail |
   if (route.group) items.push({ label: route.group });
   items.push({ label: route.label });
 
+  // 교사 계정의 '마이페이지'는 교사 마이페이지이다.
+  if (role === "teacher") {
+    for (const item of items) if (item.href === "/mypage") Object.assign(item, { label: "교사 마이페이지", href: "/teacher-mypage" });
+  }
   const lastLinked = [...items].reverse().find((item) => item.href);
   return {
     items,

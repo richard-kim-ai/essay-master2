@@ -60,3 +60,13 @@ describe("교사·관리자의 글 제출 화면 경로", () => {
     expect(getPageTrail("/pricing", "teacher")?.items).toEqual([{ label: "요금정책" }]);
   });
 });
+
+describe("교사 계정의 마이페이지 경로", () => {
+  it("교사가 여는 첨삭 결과 화면의 상위 경로는 '마이페이지'가 아니라 '교사 마이페이지'이다", () => {
+    const trail = getPageTrail("/teacher-feedback/5", "teacher");
+    expect(trail?.items).toEqual([{ label: "교사 마이페이지", href: "/teacher-mypage" }, { label: "교사 첨삭" }]);
+    expect(trail?.fallbackHref).toBe("/teacher-mypage");
+    // 학생은 기존대로
+    expect(getPageTrail("/teacher-feedback/5", "user")?.items).toEqual([{ label: "마이페이지", href: "/mypage" }, { label: "교사 첨삭" }]);
+  });
+});

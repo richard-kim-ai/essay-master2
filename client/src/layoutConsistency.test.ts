@@ -92,3 +92,25 @@ describe("layout consistency", () => {
     }
   });
 });
+
+describe("첨삭교사 계정의 메뉴", () => {
+  const navigation = read("./components/Navigation.tsx");
+
+  it("학습자용 메뉴(마이페이지 허브·학습 대시보드·내 글·첨삭 기록·오프라인 보관함·수료증)는 교사 계정에서 숨기고, PC·모바일 모두 같은 조건을 쓴다", () => {
+    expect(navigation).toContain('const isTeacherAccount = user?.role === "teacher";');
+    for (const href of ["/mypage", "/dashboard-detail", "/my-writings", "/offline-essays", "/certificate"]) {
+      const matches = navigation.match(new RegExp(`\\{!isTeacherAccount && \\(\\s*<Link href="${href}">`, "g")) ?? [];
+      expect(matches.length, `${href} 메뉴(PC·모바일 2곳)`).toBe(2);
+    }
+  });
+
+  it("교사 전용 메뉴(교사 마이페이지·첨삭 정산)와 관리자 메뉴는 그대로 있다", () => {
+    expect(navigation).toContain('<Link href="/teacher-mypage">');
+    expect(navigation).toContain('<Link href="/teacher/settlement">');
+    expect(navigation).toContain('<Link href="/admin">');
+  });
+
+  it("교사가 학습자 허브(/mypage)에 직접 들어오면 교사 마이페이지로 보낸다", () => {
+    expect(read("./pages/MyPageHub.tsx")).toContain('setLocation("/teacher-mypage")');
+  });
+});
