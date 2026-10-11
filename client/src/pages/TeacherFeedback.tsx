@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import LoginRequired from "@/components/LoginRequired";
+import TeacherRatingWidget from "@/components/TeacherRatingWidget";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { Link, useRoute } from "wouter";
 import { Bot, CheckCircle2, Loader2, MessageSquare, Send, Sparkles } from "lucide-react";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export default function TeacherFeedback() {
@@ -128,13 +129,17 @@ export default function TeacherFeedback() {
       getFeedbackQuery.refetch();
     } catch (error) {
       console.error("Error saving feedback:", error);
-      toast.error("저장 중 오류가 발생했습니다.");
+      toast.error(error instanceof Error && error.message ? error.message : "저장 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleAddComment = async () => {
+    if (!isTeacherReviewer) {
+      toast.info("코멘트는 담당 교사만 추가할 수 있습니다. 첨삭에 대한 의견은 위의 별점·후기로 남겨 주세요.");
+      return;
+    }
     if (!newComment.trim() || !feedback?.id) {
       toast.error("코멘트를 입력해주세요.");
       return;
@@ -155,7 +160,7 @@ export default function TeacherFeedback() {
       getCommentsQuery.refetch();
     } catch (error) {
       console.error("Error adding comment:", error);
-      toast.error("코멘트 추가 중 오류가 발생했습니다.");
+      toast.error(error instanceof Error && error.message ? error.message : "코멘트 추가 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -224,7 +229,7 @@ export default function TeacherFeedback() {
               <CardHeader>
                 <CardTitle>{essay.title}</CardTitle>
                 <CardDescription>
-                  작성자: {essay.userId} | 상태: {essay.status}
+                  {isTeacherReviewer ? `작성자 번호: ${essay.userId} | ` : ""}상태: {essay.status === "reviewed" ? "첨삭 완료" : essay.status === "submitted" ? "제출됨" : "작성 중"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -255,6 +260,9 @@ export default function TeacherFeedback() {
               </CardContent>
             </Card>}
 
+            {/* 학생: 받은 교사 첨삭에 별점·후기 남기기(코멘트 바로 위) */}
+            {!isTeacherReviewer && feedback?.id ? <TeacherRatingWidget feedbackId={feedback.id} /> : null}
+
             {/* Comments */}
             <Card>
               <CardHeader>
@@ -279,8 +287,8 @@ export default function TeacherFeedback() {
                   <p className="text-sm text-slate-500">아직 코멘트가 없습니다.</p>
                 )}
 
-                {/* Add Comment */}
-                <div className="space-y-2 pt-4 border-t">
+                {/* Add Comment: 담당 교사·관리자만 */}
+                {isTeacherReviewer && <div className="space-y-2 pt-4 border-t">
                   <Textarea
                     placeholder="새 코멘트를 입력하세요..."
                     value={newComment}
@@ -305,14 +313,32 @@ export default function TeacherFeedback() {
                       </>
                     )}
                   </Button>
-                </div>
+                </div>}
               </CardContent>
             </Card>
           </div>
 
-          {/* Feedback Form */}
+          {/* 학생: 읽기 전용 첨삭 결과 / 교사·관리자: 첨삭 작성 폼 */}
           <div className="space-y-6">
-            <Card>
+            {!isTeacherReviewer && (
+              <Card data-testid="student-feedback-readonly">
+                <CardHeader>
+                  <CardTitle>선생님 첨삭 결과</CardTitle>
+                  <CardDescription>{feedback ? "점수와 종합 평가를 확인하세요." : "아직 교사 첨삭이 등록되지 않았습니다."}</CardDescription>
+                </CardHeader>
+                {feedback ? (
+                  <CardContent className="space-y-3">
+                    <ul className="grid grid-cols-2 gap-2 text-sm">
+                      {([["종합", overallScore], ["구조", structureScore], ["논리", logicScore], ["표현", expressionScore]] as const).map(([label, value]) => (
+                        <li key={label} className="rounded-lg border border-slate-200 bg-white px-3 py-2"><span className="text-slate-500">{label}</span> <span className="font-extrabold text-indigo-700">{value}점</span></li>
+                      ))}
+                    </ul>
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{overallComment || "종합 평가가 아직 없습니다."}</p>
+                  </CardContent>
+                ) : null}
+              </Card>
+            )}
+            {isTeacherReviewer && <Card>
               <CardHeader>
                 <CardTitle>첨삭 평가</CardTitle>
               </CardHeader>
@@ -408,7 +434,7 @@ export default function TeacherFeedback() {
                   )}
                 </Button>
               </CardContent>
-            </Card>
+            </Card>}
           </div>
         </div>
       </div>
