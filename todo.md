@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] AI 첨삭 엔진(LLM) 적용 여부 점검과 글쓰기 화면 '첨삭 피드백' 영역 추가, 교사 마이페이지 지도 학생 수 0명 원인 수정과 첨삭 진행 현황(대시보드·목록) 추가 — client/src/components/EssayWorkspace.tsx, server/routers.ts(aiAutoFeedback), 교사 학생 수 집계, TeacherMyPage — 시작 2026-10-12 04:10
 
 ## 완료
 
