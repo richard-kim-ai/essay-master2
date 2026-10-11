@@ -80,6 +80,7 @@ import {
   gt,
   gte,
   inArray,
+  isNull,
   lt,
   ne,
 } from "drizzle-orm";
@@ -1405,7 +1406,7 @@ export async function getEssaySubmissionsByUser(userId: number) {
   return await db
     .select()
     .from(essaySubmission)
-    .where(eq(essaySubmission.userId, userId));
+    .where(and(eq(essaySubmission.userId, userId), isNull(essaySubmission.deletedAt)));
 }
 
 export async function getEssaySubmissionById(id: number) {

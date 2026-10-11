@@ -9,7 +9,7 @@ import { REFUND_POLICY_KEY } from "./refundPolicy";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse, requireLearnerCourse } from "./questionBankAccess";
-import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview } from "./essayWorkspace";
+import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview, trashEssay, restoreEssay, purgeEssay, listTrashedEssays, emptyTrash } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
@@ -237,6 +237,9 @@ async function completeFeedbackRequest(essay: { id: number; userId: number; titl
 async function assertEssayReadAccess(user: { id: number; role: string; teacherStatus?: string | null }, essayId: number) {
   const essay = await db.getEssaySubmissionById(essayId);
   if (!essay) throw new TRPCError({ code: "NOT_FOUND", message: "논술 제출물을 찾을 수 없습니다." });
+  // 휴지통에 옮긴 글은 학생 본인에게는 목록·상세에서 숨긴다(복원 전까지). 교사·관리자는 기록 확인을 위해 계속 볼 수 있다.
+  if (essay.deletedAt && essay.userId === user.id && user.role !== "admin" && user.role !== "teacher")
+    throw new TRPCError({ code: "NOT_FOUND", message: "휴지통에 있는 글입니다. 복원한 뒤 확인해 주세요." });
   if (user.role === "admin" || essay.userId === user.id) return essay;
   if (user.role === "teacher" && user.teacherStatus === "approved") {
     const student = await db.getUserById(essay.userId);
@@ -1472,6 +1475,13 @@ export const appRouter = router({
         search: z.string().trim().max(80).optional(),
       }).default({ status: "submitted" }))
       .query(({ ctx, input }) => listEssaysForReview(ctx.user, input)),
+
+    // 글 삭제: 휴지통으로 이동 → 복원 또는 영구 삭제. 교사 첨삭이 진행 중인 글은 옮길 수 없다.
+    trash: protectedProcedure.input(z.object({ essayId: z.number().int().positive() })).mutation(({ ctx, input }) => trashEssay(ctx.user.id, input.essayId)),
+    restore: protectedProcedure.input(z.object({ essayId: z.number().int().positive() })).mutation(({ ctx, input }) => restoreEssay(ctx.user.id, input.essayId)),
+    purge: protectedProcedure.input(z.object({ essayId: z.number().int().positive() })).mutation(({ ctx, input }) => purgeEssay(ctx.user.id, input.essayId)),
+    trashList: protectedProcedure.query(({ ctx }) => listTrashedEssays(ctx.user.id)),
+    emptyTrash: protectedProcedure.mutation(({ ctx }) => emptyTrash(ctx.user.id)),
 
     getById: protectedProcedure
       .input(z.number())

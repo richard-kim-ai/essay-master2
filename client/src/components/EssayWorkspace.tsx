@@ -26,6 +26,7 @@ import {
   Copy,
   Loader2,
   BookOpen,
+  Trash2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import TeacherFeedbackRequestDialog from "@/components/TeacherFeedbackRequestDialog";
@@ -101,6 +102,7 @@ export default function EssayWorkspace({
     localId: string;
   } | null>(null);
   const aiRequest = trpc.aiAutoFeedback.create.useMutation();
+  const trashEssay = trpc.essaySubmission.trash.useMutation();
   const selected = store.rows.find(
     row => row.localId === selectedId && row.userId === user?.id
   );
@@ -267,6 +269,35 @@ export default function EssayWorkspace({
           ? "기기에 저장했습니다. 서버 동기화는 대기 중입니다."
           : "기기와 서버에 저장했습니다."
       );
+  };
+  // 글 삭제: 서버에 저장된 글은 휴지통으로 옮기고(복원 가능), 이 기기에만 있는 글은 기기에서 지운다.
+  const removeEssay = async () => {
+    if (!user || !selected || disabled) return;
+    const serverId = selected.id;
+    const confirmed = window.confirm(
+      serverId !== undefined
+        ? "이 글을 휴지통으로 옮길까요? '내 글·첨삭 기록'의 휴지통에서 복원할 수 있습니다."
+        : "이 글은 이 기기에만 저장되어 있어 삭제하면 되돌릴 수 없습니다. 삭제할까요?"
+    );
+    if (!confirmed) return;
+    try {
+      if (serverId !== undefined) {
+        if (!store.online || !navigator.onLine) {
+          toast.info("서버에 저장된 글은 온라인 상태에서만 삭제할 수 있습니다.");
+          return;
+        }
+        await trashEssay.mutateAsync({ essayId: serverId });
+      }
+      store.commit(store.latestRows().filter(row => row.localId !== selected.localId));
+      setSelectedId(null);
+      setTitle("");
+      setContent("");
+      setTeacherResult("");
+      editorSource.current = { title: "", content: "" };
+      toast.success(serverId !== undefined ? "휴지통으로 옮겼습니다." : "삭제했습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "글을 삭제하지 못했습니다.");
+    }
   };
   const copyDraft = () => {
     if (!user || !selected) return;
@@ -468,6 +499,14 @@ export default function EssayWorkspace({
           >
             <Plus className="h-4 w-4" />새 글 작성
           </Button>
+          {!offline && (
+            <Link href="/my-writings?tab=trash">
+              <Button variant="outline" className="bg-white gap-2">
+                <Trash2 className="h-4 w-4" />
+                휴지통
+              </Button>
+            </Link>
+          )}
         </div>
       </header>
       <nav
@@ -687,6 +726,15 @@ export default function EssayWorkspace({
                         수정본 만들기
                       </Button>
                     )}
+                    <Button
+                      variant="outline"
+                      onClick={() => void removeEssay()}
+                      disabled={disabled}
+                      className="gap-2 border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      삭제
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

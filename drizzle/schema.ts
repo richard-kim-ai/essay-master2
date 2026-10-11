@@ -516,6 +516,10 @@ export const essaySubmission = mysqlTable("essay_submission", {
   aiFeedbackId: int("aiFeedbackId"),
   status: mysqlEnum("status", ["draft", "submitted", "reviewed"]).default("draft").notNull(),
   submittedAt: timestamp("submittedAt"),
+  /** 휴지통으로 옮긴 시각. 비어 있지 않으면 글 목록에서 숨기고 휴지통에서만 복원·영구 삭제할 수 있다. */
+  deletedAt: timestamp("deletedAt"),
+  /** 영구 삭제한 시각. 교사 첨삭 기록이 걸린 글은 행을 남기고 제목·본문만 비운 뒤 이 값을 채운다. */
+  purgedAt: timestamp("purgedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ArrowRight, FileText, MessageSquareText, PenLine, Sparkles } from "lucide-react";
+import { ArrowRight, FileText, MessageSquareText, PenLine, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import LoginRequired from "@/components/LoginRequired";
@@ -9,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { COURSE_OPTIONS } from "@shared/course";
 
-type Tab = "essays" | "ai";
+type Tab = "essays" | "ai" | "trash";
 
 const ESSAY_STATUS: Record<string, { label: string; className: string }> = {
   draft: { label: "작성 중", className: "bg-slate-100 text-slate-700 hover:bg-slate-100" },
@@ -33,13 +34,28 @@ const courseLabel = (value: string) => COURSE_OPTIONS.find((course) => course.va
 // 내가 쓴 글과 AI 첨삭 받은 내용을 다시 찾아보는 화면. 마이페이지·프로필 메뉴·AI 첨삭 화면에서 들어온다.
 export default function MyWritings() {
   const { isAuthenticated } = useAuth();
-  const [tab, setTab] = useState<Tab>("essays");
+  // 글쓰기 화면의 '휴지통' 버튼은 /my-writings?tab=trash 로 들어온다.
+  const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "trash" ? "trash" : "essays"));
+  const utils = trpc.useUtils();
   const essays = trpc.essaySubmission.getByUser.useQuery(undefined, { enabled: isAuthenticated });
   const aiFeedbacks = trpc.aiAutoFeedback.getByUser.useQuery(undefined, { enabled: isAuthenticated });
+  const trashed = trpc.essaySubmission.trashList.useQuery(undefined, { enabled: isAuthenticated });
+  const refreshAll = () => {
+    void utils.essaySubmission.getByUser.invalidate();
+    void utils.essaySubmission.trashList.invalidate();
+    void utils.essaySubmission.workspace.invalidate();
+  };
+  const onError = (error: { message: string }) => toast.error(error.message || "처리하지 못했습니다.");
+  const trashMutation = trpc.essaySubmission.trash.useMutation({ onSuccess: () => { toast.success("휴지통으로 옮겼습니다."); refreshAll(); }, onError });
+  const restoreMutation = trpc.essaySubmission.restore.useMutation({ onSuccess: () => { toast.success("글을 복원했습니다."); refreshAll(); }, onError });
+  const purgeMutation = trpc.essaySubmission.purge.useMutation({ onSuccess: () => { toast.success("영구 삭제했습니다."); refreshAll(); }, onError });
+  const emptyMutation = trpc.essaySubmission.emptyTrash.useMutation({ onSuccess: (result) => { toast.success(`휴지통을 비웠습니다(${result.count}편).`); refreshAll(); }, onError });
+  const busy = trashMutation.isPending || restoreMutation.isPending || purgeMutation.isPending || emptyMutation.isPending;
 
   if (!isAuthenticated) return <LoginRequired />;
 
   const essayRows = [...(essays.data ?? [])].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const trashRows = trashed.data ?? [];
   const aiRows = [...(aiFeedbacks.data ?? [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return (
@@ -54,6 +70,7 @@ export default function MyWritings() {
           {([
             ["essays", `내가 쓴 글 (${essayRows.length})`],
             ["ai", `AI 첨삭 내역 (${aiRows.length})`],
+            ["trash", `휴지통 (${trashRows.length})`],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -93,12 +110,41 @@ export default function MyWritings() {
                   <div className="flex shrink-0 flex-wrap gap-2">
                     <Link href={`/essay-submission?essay=${essay.id}`}><Button size="sm" variant="outline"><PenLine className="mr-1.5 h-3.5 w-3.5" /> {essay.status === "draft" ? "이어서 쓰기" : "글 보기·수정"}</Button></Link>
                     {essay.aiFeedbackId ? <Link href={`/ai-feedback-compare/${essay.aiFeedbackId}`}><Button size="sm" variant="outline"><Sparkles className="mr-1.5 h-3.5 w-3.5" /> AI 첨삭 보기</Button></Link> : null}
+                    <Button size="sm" variant="outline" disabled={busy} className="border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => { if (window.confirm("이 글을 휴지통으로 옮길까요? 휴지통에서 복원할 수 있습니다.")) trashMutation.mutate({ essayId: essay.id }); }}><Trash2 className="mr-1.5 h-3.5 w-3.5" /> 삭제</Button>
                     {essay.status !== "draft" && <Link href={`/teacher-feedback/${essay.id}`}><Button size="sm" className="bg-indigo-700 text-white hover:bg-indigo-800"><MessageSquareText className="mr-1.5 h-3.5 w-3.5" /> 교사 첨삭 보기</Button></Link>}
                   </div>
                 </Card>
               );
             })}
             <p className="pt-1 text-xs text-slate-500">기기에만 임시 저장된 글은 <Link href="/offline-essays" className="font-bold text-indigo-700 underline">오프라인 보관함</Link>에서 볼 수 있습니다.</p>
+          </section>
+        )}
+
+        {tab === "trash" && (
+          <section aria-label="휴지통" data-testid="essay-trash" className="space-y-3">
+            <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm leading-6 text-slate-600">삭제한 글은 여기에 보관되며 복원할 수 있습니다. 영구 삭제하면 되돌릴 수 없고, 교사 첨삭 기록이 있는 글은 정산·기록 보존을 위해 제목과 본문만 지워집니다.</p>
+              <Button size="sm" variant="outline" disabled={busy || trashRows.length === 0} className="shrink-0 border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => { if (window.confirm(`휴지통의 글 ${trashRows.length}편을 모두 영구 삭제할까요? 되돌릴 수 없습니다.`)) emptyMutation.mutate(); }}><Trash2 className="mr-1.5 h-3.5 w-3.5" /> 휴지통 비우기</Button>
+            </div>
+            {trashed.isLoading && <p className="py-10 text-center text-sm text-slate-500">불러오는 중입니다...</p>}
+            {!trashed.isLoading && trashRows.length === 0 && <Card className="p-8 text-center text-sm text-slate-600">휴지통이 비어 있습니다.</Card>}
+            {trashRows.map((essay) => (
+              <Card key={essay.id} className="flex flex-col gap-3 border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-start sm:justify-between sm:p-5">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Trash2 className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                    <h2 className="truncate text-base font-extrabold text-slate-700">{essay.title}</h2>
+                    <Badge className={(ESSAY_STATUS[essay.status] ?? ESSAY_STATUS.draft).className}>{(ESSAY_STATUS[essay.status] ?? ESSAY_STATUS.draft).label}</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">삭제한 날 {formatDate(essay.deletedAt)}</p>
+                  <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">{essay.preview}</p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => restoreMutation.mutate({ essayId: essay.id })}><RotateCcw className="mr-1.5 h-3.5 w-3.5" /> 복원</Button>
+                  <Button size="sm" variant="outline" disabled={busy} className="border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => { if (window.confirm("이 글을 영구 삭제할까요? 되돌릴 수 없습니다.")) purgeMutation.mutate({ essayId: essay.id }); }}>영구 삭제</Button>
+                </div>
+              </Card>
+            ))}
           </section>
         )}
 

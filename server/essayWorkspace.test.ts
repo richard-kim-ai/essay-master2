@@ -387,9 +387,10 @@ describe("getEssayWorkspace", () => {
     ]);
 
     expect(calls.leftJoin).toHaveLength(2);
-    expect(renderCondition(calls.where[0])).toMatchObject({
-      sql: "`essay_submission`.`userId` = ?",
-      params: [7],
-    });
+    // 요청한 사용자의 글만, 휴지통에 옮기지 않은 글만 조회한다.
+    const condition = renderCondition(calls.where[0]);
+    expect(condition.sql).toContain("`essay_submission`.`userId` = ?");
+    expect(condition.sql).toContain("`essay_submission`.`deletedAt` is null");
+    expect(condition.params).toEqual([7]);
   });
 });

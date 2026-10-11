@@ -12,12 +12,25 @@ const state = vi.hoisted(() => ({
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: state.authenticated }) }));
 vi.mock("@/components/LoginRequired", () => ({ default: () => <div>로그인이 필요합니다</div> }));
 vi.mock("wouter", () => ({ Link: ({ href, children, ...props }: any) => <a href={href} {...props}>{children}</a> }));
-vi.mock("@/lib/trpc", () => ({
-  trpc: {
-    essaySubmission: { getByUser: { useQuery: () => ({ data: state.essays, isLoading: state.loading }) } },
-    aiAutoFeedback: { getByUser: { useQuery: () => ({ data: state.ai, isLoading: state.loading }) } },
-  },
-}));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/trpc", () => {
+  const mutation = () => ({ useMutation: () => ({ mutate: vi.fn(), isPending: false }) });
+  const invalidate = { invalidate: vi.fn() };
+  return {
+    trpc: {
+      useUtils: () => ({ essaySubmission: { getByUser: invalidate, trashList: invalidate, workspace: invalidate } }),
+      essaySubmission: {
+        getByUser: { useQuery: () => ({ data: state.essays, isLoading: state.loading }) },
+        trashList: { useQuery: () => ({ data: [], isLoading: false }) },
+        trash: mutation(),
+        restore: mutation(),
+        purge: mutation(),
+        emptyTrash: mutation(),
+      },
+      aiAutoFeedback: { getByUser: { useQuery: () => ({ data: state.ai, isLoading: state.loading }) } },
+    },
+  };
+});
 
 import MyWritings from "./MyWritings";
 
@@ -58,6 +71,7 @@ describe("내 글·첨삭 기록(/my-writings)", () => {
     expect(html).toContain("내 글·첨삭 기록");
     expect(html).toContain("내가 쓴 글 (0)");
     expect(html).toContain("AI 첨삭 내역 (0)");
+    expect(html).toContain("휴지통 (0)");
     expect(html).toContain("아직 저장된 글이 없습니다");
     expect(html).toContain('href="/essay-submission"');
     expect(html).toContain('href="/offline-essays"');
@@ -76,6 +90,8 @@ describe("내 글·첨삭 기록(/my-writings)", () => {
     expect(html).toContain('href="/teacher-feedback/2"');
     expect(html).toContain('href="/ai-feedback-compare/9"');
     expect(html).not.toContain('href="/teacher-feedback/1"');
+    // 글마다 휴지통으로 옮기는 삭제 버튼이 있다.
+    expect((html.match(/>\s*삭제<\/button>/g) ?? []).length).toBe(2);
     // 본문은 길게 잘라 미리보기만 보여 준다.
     expect(html).toContain("…");
   });
