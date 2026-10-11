@@ -39,7 +39,7 @@ vi.mock("./db", async (importOriginal) => {
 });
 
 import { appRouter } from "./routers";
-import { getMyTeacherRating, getTeacherRatingDetail, listTeacherRatingOverview, rateTeacherFeedback, summarizeRatings } from "./teacherRatingDb";
+import { getMyTeacherRating, getTeacherProfileStats, getTeacherRatingDetail, listTeacherRatingOverview, rateTeacherFeedback, summarizeRatings } from "./teacherRatingDb";
 import { listCertificateAuthorities, setCertificateAuthority } from "./certificateAuthority";
 
 const student = { id: 21, role: "user" };
@@ -213,5 +213,14 @@ describe("수료증 승인 권한(certificateAuthority)", () => {
     await expect(revoked.admin.resolveCertificateApprovalRequest({ requestId: 1, approved: true })).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("수료증 최종 승인 권한이 없습니다") });
     const guest = appRouter.createCaller({ user: null, req: { headers: {} }, res: {} } as any);
     await expect(guest.admin.setCertificateAuthority({ userId: 9, enabled: true })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+});
+
+describe("교사 상세 집계(getTeacherProfileStats)", () => {
+  it("담당 학생 수와 등록한 첨삭 수를 돌려주고, API는 관리자만 쓸 수 있다", async () => {
+    fake.queue = [[{ n: 4 }], [{ n: 7 }]];
+    await expect(getTeacherProfileStats(9)).resolves.toEqual({ teacherId: 9, assignedStudents: 4, feedbackCount: 7 });
+    const asStudent = appRouter.createCaller({ user: { id: 21, role: "user" }, req: { headers: {} }, res: {} } as any);
+    await expect(asStudent.teacherRating.profile({ teacherId: 9 })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });

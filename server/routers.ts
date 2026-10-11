@@ -13,7 +13,7 @@ import { getLearningAnalytics, getWeeklyStudySummary } from "./learningAnalytics
 import { reviseEssayWithLLM } from "./essayRevisionEngine";
 import { getTeacherFeedbackDashboard } from "./teacherDashboardDb";
 import { listCertificateAuthorities, setCertificateAuthority } from "./certificateAuthority";
-import { rateTeacherFeedback, getMyTeacherRating, listTeacherRatingOverview, getTeacherRatingDetail } from "./teacherRatingDb";
+import { rateTeacherFeedback, getMyTeacherRating, listTeacherRatingOverview, getTeacherRatingDetail, getTeacherProfileStats } from "./teacherRatingDb";
 import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview, trashEssay, restoreEssay, purgeEssay, listTrashedEssays, emptyTrash } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -1668,6 +1668,7 @@ export const appRouter = router({
   teacherRating: router({
     overview: adminProcedure.query(() => listTeacherRatingOverview()),
     detail: adminProcedure.input(z.object({ teacherId: z.number().int().positive() })).query(({ input }) => getTeacherRatingDetail(input.teacherId)),
+    profile: adminProcedure.input(z.object({ teacherId: z.number().int().positive() })).query(({ input }) => getTeacherProfileStats(input.teacherId)),
   }),
 
   // ========== Master Prompt Writing Evaluation Routes ==========

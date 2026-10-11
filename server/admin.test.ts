@@ -35,7 +35,7 @@ describe("관리자 대시보드 및 모바일 네비게이션 검증", () => {
   it("관리자 대시보드 페이지가 권한 확인 및 학습자 전체 분석을 포함한다", () => {
     const source = readFileSync(adminPagePath, "utf8");
     expect(source).toContain("관리자 전용 페이지");
-    expect(source).toContain("학습자 전체 분석 & 관리자 대시보드");
+    expect(source).toContain("회원 전체 현황 & 관리자 대시보드");
     expect(source).toContain("/admin/social-providers");
   });
 

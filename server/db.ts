@@ -2324,6 +2324,8 @@ export async function getStudentDetailStats(
       name: userRecord.name,
       email: userRecord.email,
       role: userRecord.role,
+      teacherLevel: userRecord.teacherLevel,
+      teacherStatus: userRecord.teacherStatus,
       tag: userRecord.tag,
       courseType: getCourseTypeFromUserTag(userRecord.tag),
       courseLabel: getCourseTag(getCourseTypeFromUserTag(userRecord.tag)),

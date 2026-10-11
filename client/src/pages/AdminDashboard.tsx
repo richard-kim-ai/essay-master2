@@ -202,8 +202,8 @@ export default function AdminDashboard() {
               <ShieldCheck className="h-8 w-8" />
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">학습자 전체 분석 & 관리자 대시보드</h1>
-              <p className="text-sm text-slate-600 mt-1">전체 학생 현황, AI 사용량 통계 및 커리큘럼 난이도를 총괄 관리합니다.</p>
+              <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">회원 전체 현황 & 관리자 대시보드</h1>
+              <p className="text-sm text-slate-600 mt-1">전체 회원(학생·교사·관리자) 현황, AI 사용량 통계 및 커리큘럼 난이도를 총괄 관리합니다.</p>
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -232,7 +232,7 @@ export default function AdminDashboard() {
                 {analyticsLoading ? "..." : analytics?.users.totalUsers || 0}명
               </div>
               <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
-                <span>플랫폼 누적 가입 학습자</span>
+                <span>플랫폼 누적 가입 회원(학생·교사·관리자)</span>
                 <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">상세 보기</span>
               </p>
             </CardContent>
@@ -240,7 +240,7 @@ export default function AdminDashboard() {
 
           <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-indigo-400 hover:-translate-y-1 cursor-pointer group">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-indigo-600 transition">오늘 활성 학습자</CardTitle>
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-indigo-600 transition">오늘 활성 회원</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-extrabold text-indigo-600 group-hover:scale-105 transition transform origin-left">
@@ -294,9 +294,9 @@ export default function AdminDashboard() {
                   <div>
                     <CardTitle className="text-xl font-bold flex items-center gap-2">
                       <Users className="h-5 w-5 text-indigo-600" />
-                      <span>전체 학습자 현황 및 상세 관리</span>
+                      <span>전체 회원 현황 및 상세 관리</span>
                     </CardTitle>
-                    <CardDescription>학생을 검색하고 클릭하여 상세 진도 및 메모를 관리하세요.</CardDescription>
+                    <CardDescription>회원을 검색하고 '상세 보기'에서 등급별(학생·교사·관리자) 정보와 메모를 관리하세요.</CardDescription>
                   </div>
                   <span className="text-xs bg-slate-100 text-slate-700 font-semibold px-2.5 py-1 rounded-full">
                     총 {filteredUsers.length}명 검색됨
@@ -321,7 +321,8 @@ export default function AdminDashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">모든 권한</SelectItem>
-                      <SelectItem value="user">학습자</SelectItem>
+                      <SelectItem value="user">학생</SelectItem>
+                      <SelectItem value="teacher">교사</SelectItem>
                       <SelectItem value="admin">관리자</SelectItem>
                     </SelectContent>
                   </Select>
@@ -390,7 +391,7 @@ export default function AdminDashboard() {
                       {filteredUsers.length === 0 ? (
                         <tr>
                           <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
-                            검색 결과와 일치하는 학습자가 없습니다.
+                            검색 결과와 일치하는 회원이 없습니다.
                           </td>
                         </tr>
                       ) : (
@@ -407,8 +408,8 @@ export default function AdminDashboard() {
                             <td className="max-w-36 truncate py-3 px-4 font-semibold text-slate-900">{u.name || `사용자 #${u.id}`}</td>
                             <td className="max-w-52 truncate py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
                             <td className="py-3 px-4">
-                              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-indigo-100 text-indigo-800' : 'bg-indigo-100 text-indigo-800'}`}>
-                                {u.role === 'admin' ? '관리자' : '학습자'}
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-slate-200 text-slate-700' : u.role === 'teacher' ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800'}`} data-role-badge={u.role}>
+                                {u.role === 'admin' ? '관리자' : u.role === 'teacher' ? '교사' : '학생'}
                               </span>
                             </td>
                             <td className="py-3 px-4 text-slate-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
@@ -426,10 +427,10 @@ export default function AdminDashboard() {
                   </table>
                 </div>
                 <div className="space-y-2 md:hidden">
-                  {filteredUsers.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">검색 결과와 일치하는 학습자가 없습니다.</p> : filteredUsers.map((u) => (
+                  {filteredUsers.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">검색 결과와 일치하는 회원이 없습니다.</p> : filteredUsers.map((u) => (
                     <div key={u.id} className={`flex items-center gap-3 rounded-xl border p-3 ${selectedStudentIds.includes(u.id) ? "border-indigo-200 bg-indigo-50/70" : "border-slate-200 bg-white"}`}>
                       <input type="checkbox" checked={selectedStudentIds.includes(u.id)} onChange={() => handleToggleSelectOne(u.id)} className="shrink-0 rounded border-slate-300 text-indigo-600" />
-                      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="truncate text-sm font-bold text-slate-900">{u.name || `사용자 #${u.id}`}</p><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${u.role === "admin" ? "bg-indigo-100 text-indigo-800" : "bg-indigo-100 text-indigo-800"}`}>{u.role === "admin" ? "관리자" : "학습자"}</span></div><p className="mt-0.5 truncate text-xs text-slate-500">{u.email || "소셜 로그인 계정"}</p></div>
+                      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="truncate text-sm font-bold text-slate-900">{u.name || `사용자 #${u.id}`}</p><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${u.role === "admin" ? "bg-slate-200 text-slate-700" : u.role === "teacher" ? "bg-indigo-100 text-indigo-800" : "bg-emerald-100 text-emerald-800"}`}>{u.role === "admin" ? "관리자" : u.role === "teacher" ? "교사" : "학생"}</span></div><p className="mt-0.5 truncate text-xs text-slate-500">{u.email || "소셜 로그인 계정"}</p></div>
                       <Link href={`/admin/student/${u.id}`}><Button size="sm" variant="outline" className="h-8 px-2 text-xs"><Eye className="h-3.5 w-3.5" /></Button></Link>
                     </div>
                   ))}
@@ -624,8 +625,8 @@ export default function AdminDashboard() {
               <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
                 <Users className="w-5 h-5" />
               </div>
-              <span className="font-bold text-slate-800 text-xs">회원·반 관리</span>
-              <span className="text-[10px] text-slate-400 mt-0.5">계정·교사·반 편성</span>
+              <span className="font-bold text-slate-800 text-xs">회원관리</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">계정·권한·교사 평점</span>
             </div>
           </Link>
 

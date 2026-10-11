@@ -56,14 +56,14 @@ const ROUTES: PageRoute[] = [
   { pattern: "/admin/evaluation-models", label: "평가 모델", parent: "/admin" },
   { pattern: "/admin/theory-content", label: "이론 콘텐츠", parent: "/admin" },
   { pattern: "/admin/lesson-connections", label: "레슨 연결", parent: "/admin" },
-  { pattern: "/admin/student/:id", label: "학생 상세", parent: "/admin" },
+  { pattern: "/admin/student/:id", label: "회원 상세", parent: "/master-admin" },
   { pattern: "/admin/social-providers", label: "소셜 로그인 설정", parent: "/admin" },
   { pattern: "/admin/terms", label: "약관·정책", parent: "/admin" },
   { pattern: "/admin/guardian-consents", label: "보호자 동의", parent: "/admin" },
   { pattern: "/admin/billing", label: "결제 관리", parent: "/admin" },
   { pattern: "/admin/ai-governance", label: "AI 운영", parent: "/admin" },
   { pattern: "/admin/academic-permissions", label: "학사 권한", parent: "/admin" },
-  { pattern: "/master-admin", label: "마스터 관리" },
+  { pattern: "/master-admin", label: "회원관리" },
 ];
 
 function matches(pattern: string, path: string): boolean {

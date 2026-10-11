@@ -1,4 +1,4 @@
-import { count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { essaySubmission, teacherFeedback, teacherFeedbackRatings, users } from "../drizzle/schema";
 import * as db from "./db";
@@ -120,4 +120,23 @@ export async function listTeacherRatingOverview(): Promise<TeacherRatingOverview
   });
   // 평가가 있는 교사를 평균이 낮은 순으로, 평가가 없는 교사는 뒤에 둔다.
   return rows.sort((a, b) => (a.average === null ? 1 : 0) - (b.average === null ? 1 : 0) || (a.average ?? 0) - (b.average ?? 0) || b.ratingCount - a.ratingCount);
+}
+
+export interface TeacherProfileStats {
+  teacherId: number;
+  /** 담당 교사로 연결된 학생 수 */
+  assignedStudents: number;
+  /** 지금까지 등록한 교사 첨삭 수 */
+  feedbackCount: number;
+}
+
+/** 회원 상세(교사)에 보여 줄 담당 학생 수와 첨삭 수(관리자용). */
+export async function getTeacherProfileStats(teacherId: number): Promise<TeacherProfileStats> {
+  const database = await db.getDb();
+  if (!database) return { teacherId, assignedStudents: 0, feedbackCount: 0 };
+  const [[students], [feedbacks]] = await Promise.all([
+    database.select({ n: count() }).from(users).where(and(eq(users.teacherId, teacherId), eq(users.role, "user"))),
+    database.select({ n: count() }).from(teacherFeedback).where(eq(teacherFeedback.teacherId, teacherId)),
+  ]);
+  return { teacherId, assignedStudents: Number(students?.n ?? 0), feedbackCount: Number(feedbacks?.n ?? 0) };
 }
