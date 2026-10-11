@@ -4,6 +4,7 @@
 
 ## 완료
 
+- [Local] 로컬 로그인 후 바로 로그아웃 상태가 되던 진짜 원인 수정: .env에 VITE_APP_ID가 비어 있으면 세션 토큰 appId가 비어 검증에서 'Session payload missing required fields'로 거절됨 → 비어 있으면 기본값 essay-master 사용(server/_core/env.ts), 테스트 1건 — 완료 2026-10-12 (Claim 없이 진행한 소규모 작업. 이미 발급된 옛 쿠키는 무효이므로 다시 로그인 필요)
 - [Local] 내 글·AI 첨삭 기록 화면(/my-writings) 추가: '내가 쓴 글'(상태·이어서 쓰기·교사 첨삭 보기·AI 첨삭 보기)과 'AI 첨삭 내역'(점수·원문 비교) 두 탭, 입구는 마이페이지 상단 버튼·프로필 메뉴(PC·모바일)·AI 자동 첨삭 화면 링크·이동 바 경로, 기존 조회 API만 사용(서버 변경 없음), 테스트 5건 — 시작 2026-10-12 02:00, 완료 2026-10-12 (육안 확인 미실시. 기기에만 임시 저장된 글은 오프라인 보관함 링크로 안내. 교사·관리자용 목록은 만들지 않음)
 - [Local] 'SyntaxError: Unexpected token <' 대응: 재배포로 사라진 옛 해시 assets/*.js 요청에 서버가 index.html(200)을 돌려주던 것을 404로 변경(rejectMissingStaticFiles), 서비스 워커(sw.js)가 HTML 응답을 JS 자리에 저장하던 문제 수정(assets/만 캐시 우선, HTML 비저장, 캐시 이름 v2로 올려 옛 캐시 폐기), 테스트 3건 추가·1건 갱신 — 완료 2026-10-12 (Claim 없이 진행한 소규모 작업. 이미 걸린 브라우저는 새 sw.js를 받은 뒤 새로고침해야 풀림)
 - [Local] 로컬(http://localhost) 로그인 후 로그인 상태가 되지 않던 문제 수정: 세션 쿠키가 http에서도 SameSite=None이어서(Secure 없이는 브라우저가 쿠키를 버림) https가 아닐 때만 SameSite=Lax로 낮춤, 운영(https) 속성은 그대로, 테스트 3건 — 완료 2026-10-12 (Claim 없이 진행한 소규모 작업. 관리자 계정은 비밀번호가 없어 scripts/set-login-password.mts로 설정해야 이메일 로그인 가능)
