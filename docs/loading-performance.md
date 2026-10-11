@@ -45,9 +45,14 @@
 - 헤더 확인: `assets/*`는 `Content-Encoding: br`, `Cache-Control: public, max-age=31536000, immutable`, `Vary: Accept-Encoding`. `index.html`은 `no-cache`. SPA 경로(`/mypage`)도 동일하게 압축 응답.
 - 배포 환경(Manus)의 프록시가 이미 압축하고 있었다면 개선 폭은 위 수치보다 작을 수 있습니다.
 
-## 4. 사용자 결정이 필요한 항목
+## 4. Manus 런타임 인라인 스크립트 제거 (적용됨)
 
-**Manus 런타임 인라인 스크립트(367kB)**: `vite-plugin-manus-runtime`이 모든 HTML에 넣습니다. 끄면 `index.html`이 371kB → 4.4kB가 됩니다(측정). 다만 Manus 플랫폼 기능에 쓰이는지 코드로 확인할 수 없어 **기본값은 유지**했습니다. 끄려면 빌드 환경에 `DISABLE_MANUS_RUNTIME=true`를 지정합니다. Manus 호스팅에서 문제가 없는지 확인한 뒤 적용하세요.
+`vite-plugin-manus-runtime`이 모든 HTML에 367kB 스크립트를 인라인으로 넣고 있었습니다. 사용자가 제거를 선택해 `package.json`의 `build`에 `DISABLE_MANUS_RUNTIME=true`를 고정했습니다(`vite.config.ts`가 이 값을 빌드 때 읽음).
+
+- `index.html`: 371,536 → 4,165바이트(brotli 1,146바이트). `manus-runtime` 문자열 0건.
+- 운영 빌드를 가짜 DB로 띄워 헤드리스 Chrome으로 `/login`, `/`가 정상 렌더링되는 것까지 확인했습니다. Manus 플랫폼 쪽 기능(미리보기·배포·관리)은 확인하지 못했습니다.
+- 문제가 생기면 `package.json`의 build에서 `DISABLE_MANUS_RUNTIME=true `만 지우면 원래대로 돌아갑니다. 개발 서버(`pnpm dev`)는 이 값을 주지 않아 그대로 켜져 있습니다.
+- 로컬 빌드에서 `VITE_ANALYTICS_ENDPOINT`가 비어 있으면 분석 스크립트가 `/umami`로 빌드되어 콘솔에 `Unexpected token '<'`가 납니다(런타임 제거와 무관, 기존 동작).
 
 ## 5. 배포 시 해야 할 일
 
