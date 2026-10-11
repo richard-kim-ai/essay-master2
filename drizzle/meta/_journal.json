@@ -365,6 +365,13 @@
       "when": 1791681520419,
       "tag": "0051_institution_contract_usage_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "5",
+      "when": 1791714899007,
+      "tag": "0052_performance_indexes",
+      "breakpoints": true
     }
   ]
 }

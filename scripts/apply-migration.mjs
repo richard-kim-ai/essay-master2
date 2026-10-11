@@ -3,7 +3,7 @@
 // 사용법:  node scripts/apply-migration.mjs drizzle/0049_billing_and_settlement.sql          (적용 계획만 출력)
 //          node scripts/apply-migration.mjs drizzle/0049_billing_and_settlement.sql --apply  (실제 적용)
 //
-// - CREATE TABLE 과 ALTER TABLE ... ADD <컬럼> 만 처리한다. 이미 있는 테이블·컬럼은 건너뛴다(여러 번 실행해도 안전).
+// - CREATE TABLE, ALTER TABLE ... ADD <컬럼>, CREATE INDEX(일반 인덱스) 만 처리한다. 이미 있는 테이블·컬럼·인덱스는 건너뛴다(여러 번 실행해도 안전).
 // - 데이터를 지우거나 바꾸는 문장(DROP·MODIFY·DELETE·UPDATE 등)이 들어 있으면 실행하지 않고 멈춘다.
 // - DB 접속 정보는 출력하지 않는다.
 import { readFileSync } from "node:fs";
@@ -38,15 +38,17 @@ if (!databaseUrl) {
 const sql = readFileSync(resolve(fileArg), "utf8");
 const statements = sql.split("--> statement-breakpoint").map((statement) => statement.trim()).filter(Boolean);
 const isCreateTable = (statement) => /^CREATE TABLE/i.test(statement);
+// 일반 인덱스 하나만 허용한다(UNIQUE 인덱스는 기존 데이터와 충돌할 수 있어 수동 검토 대상).
+const isCreateIndex = (statement) => /^CREATE INDEX `[^`]+` ON `[^`]+` \((`[^`]+`,?)+\);?$/i.test(statement);
 // ALTER는 "컬럼 하나 추가" 한 가지만 허용한다(쉼표로 이어진 다른 ALTER·변경 절이나 추가 문장이 붙어 있으면 거절).
 const isAddColumn = (statement) =>
   /^ALTER TABLE `[^`]+` ADD `[^`]+` [^;]*;?$/i.test(statement) &&
   (statement.match(/\bALTER\b/gi) ?? []).length === 1 &&
   !/,\s*(ADD|ALTER|DROP|MODIFY|CHANGE|RENAME)\b/i.test(statement) &&
   !/\b(DROP|MODIFY|CHANGE|RENAME)\b/i.test(statement);
-const forbidden = statements.filter((statement) => !isCreateTable(statement) && !isAddColumn(statement));
+const forbidden = statements.filter((statement) => !isCreateTable(statement) && !isAddColumn(statement) && !isCreateIndex(statement));
 if (forbidden.length > 0) {
-  console.error("허용되지 않은 문장이 있어 중단합니다(CREATE TABLE·ADD 컬럼만 허용, 수동 검토 필요):");
+  console.error("허용되지 않은 문장이 있어 중단합니다(CREATE TABLE·ADD 컬럼·CREATE INDEX만 허용, 수동 검토 필요):");
   for (const statement of forbidden) console.error(" -", statement.split("\n")[0]);
   process.exit(1);
 }
@@ -63,6 +65,10 @@ try {
       const table = statement.match(/CREATE TABLE `([^`]+)`/i)?.[1];
       label = `테이블 ${table}`;
       [exists] = await connection.query("SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", [table]);
+    } else if (isCreateIndex(statement)) {
+      const [, index, table] = statement.match(/^CREATE INDEX `([^`]+)` ON `([^`]+)`/i);
+      label = `인덱스 ${table}.${index}`;
+      [exists] = await connection.query("SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? LIMIT 1", [table, index]);
     } else {
       const [, table, column] = statement.match(/^ALTER TABLE `([^`]+)` ADD `([^`]+)`/i);
       label = `컬럼 ${table}.${column}`;

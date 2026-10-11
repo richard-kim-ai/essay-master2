@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar, decimal } from "drizzle-orm/mysql-core";
+import { index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -33,7 +33,9 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxEmail: index("idx_users_email").on(table.email),
+}));
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -69,7 +71,10 @@ export const parentStudentLinks = mysqlTable("parent_student_links", {
   status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("approved").notNull(),
   respondedAt: timestamp("respondedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxStudentId: index("idx_parent_student_links_studentId").on(table.studentId),
+  idxParentId: index("idx_parent_student_links_parentId").on(table.parentId),
+}));
 
 // 만 14세 미만 아동 가입 시 법정대리인 동의 기록(개인정보 보호법 제22조의2). 동의 관리대장으로 쓴다.
 export const guardianConsents = mysqlTable("guardian_consents", {
@@ -91,7 +96,9 @@ export const guardianConsents = mysqlTable("guardian_consents", {
   evidenceJson: text("evidenceJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_guardian_consents_userId").on(table.userId),
+}));
 
 export type GuardianConsent = typeof guardianConsents.$inferSelect;
 export type InsertGuardianConsent = typeof guardianConsents.$inferInsert;
@@ -113,7 +120,9 @@ export const learningGroups = mysqlTable("learning_groups", {
   createdBy: int("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxTeacherId: index("idx_learning_groups_teacherId").on(table.teacherId),
+}));
 
 export const learningGroupMembers = mysqlTable("learning_group_members", {
   id: int("id").autoincrement().primaryKey(),
@@ -121,7 +130,10 @@ export const learningGroupMembers = mysqlTable("learning_group_members", {
   studentId: int("studentId").notNull(),
   addedBy: int("addedBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxGroupId: index("idx_learning_group_members_groupId").on(table.groupId),
+  idxStudentId: index("idx_learning_group_members_studentId").on(table.studentId),
+}));
 
 export type LearningGroup = typeof learningGroups.$inferSelect;
 export type LearningGroupMember = typeof learningGroupMembers.$inferSelect;
@@ -173,7 +185,9 @@ export const classAssignmentSubmissions = mysqlTable("class_assignment_submissio
   score: int("score"),
   teacherComment: text("teacherComment"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxStudentId: index("idx_class_assignment_submissions_studentId").on(table.studentId),
+}));
 
 // 교사 최종 채점 전 AI가 생성한 과제별 1차 첨삭 초안과 구조화 평가 근거를 보존합니다.
 export const classAssignmentAiFeedbacks = mysqlTable("class_assignment_ai_feedbacks", {
@@ -325,7 +339,9 @@ export const userPolicyConsents = mysqlTable("user_policy_consents", {
   evidence: varchar("evidence", { length: 120 }).default("signup_confirmation").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_user_policy_consents_userId").on(table.userId),
+}));
 
 export const dataProcessingRequests = mysqlTable("data_processing_requests", {
   id: int("id").autoincrement().primaryKey(),
@@ -354,7 +370,9 @@ export const pushSubscription = mysqlTable("push_subscription", {
   userAgent: text("userAgent"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_push_subscription_userId").on(table.userId),
+}));
 
 export type PushSubscription = typeof pushSubscription.$inferSelect;
 export type InsertPushSubscription = typeof pushSubscription.$inferInsert;
@@ -382,7 +400,9 @@ export const progress = mysqlTable("progress", {
   completedAt: timestamp("completedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_progress_userId").on(table.userId),
+}));
 
 export type Progress = typeof progress.$inferSelect;
 export type InsertProgress = typeof progress.$inferInsert;
@@ -399,7 +419,9 @@ export const quizAnswer = mysqlTable("quiz_answer", {
   clarityScore: decimal("clarityScore", { precision: 3, scale: 2 }), // 명료성 점수 (0-1)
   accuracyScore: decimal("accuracyScore", { precision: 3, scale: 2 }), // 정확성 점수 (0-1)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_quiz_answer_userId").on(table.userId),
+}));
 
 export type QuizAnswer = typeof quizAnswer.$inferSelect;
 export type InsertQuizAnswer = typeof quizAnswer.$inferInsert;
@@ -432,7 +454,9 @@ export const learningToolAttempts = mysqlTable("learning_tool_attempts", {
   toolType: mysqlEnum("toolType", ["quiz", "reordering", "summary"]).notNull(),
   score: int("score").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_learning_tool_attempts_userId").on(table.userId),
+}));
 
 export type LearningToolAttempt = typeof learningToolAttempts.$inferSelect;
 export type InsertLearningToolAttempt = typeof learningToolAttempts.$inferInsert;
@@ -457,7 +481,9 @@ export const certificate = mysqlTable("certificate", {
   issuedAt: timestamp("issuedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_certificate_userId").on(table.userId),
+}));
 
 export type Certificate = typeof certificate.$inferSelect;
 export type InsertCertificate = typeof certificate.$inferInsert;
@@ -473,7 +499,9 @@ export const essaySubmission = mysqlTable("essay_submission", {
   submittedAt: timestamp("submittedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_essay_submission_userId").on(table.userId),
+}));
 
 export type EssaySubmission = typeof essaySubmission.$inferSelect;
 export type InsertEssaySubmission = typeof essaySubmission.$inferInsert;
@@ -490,7 +518,10 @@ export const teacherFeedback = mysqlTable("teacher_feedback", {
   expressionScore: int("expressionScore"), // 표현력 점수
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxEssayId: index("idx_teacher_feedback_essayId").on(table.essayId),
+  idxTeacherId: index("idx_teacher_feedback_teacherId").on(table.teacherId),
+}));
 
 export type TeacherFeedback = typeof teacherFeedback.$inferSelect;
 export type InsertTeacherFeedback = typeof teacherFeedback.$inferInsert;
@@ -539,7 +570,9 @@ export const teacherAiDrafts = mysqlTable("teacher_ai_drafts", {
   approvedAt: timestamp("approvedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxEssayId: index("idx_teacher_ai_drafts_essayId").on(table.essayId),
+}));
 
 export const teacherAiDraftRevisions = mysqlTable("teacher_ai_draft_revisions", {
   id: int("id").autoincrement().primaryKey(),
@@ -590,7 +623,9 @@ export const aiAutoFeedback = mysqlTable("ai_auto_feedback", {
   strengths: text("strengths"), // JSON array
   weaknesses: text("weaknesses"), // JSON array
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_ai_auto_feedback_userId").on(table.userId),
+}));
 
 export type AIAutoFeedback = typeof aiAutoFeedback.$inferSelect;
 export type InsertAIAutoFeedback = typeof aiAutoFeedback.$inferInsert;
@@ -688,7 +723,9 @@ export const aiUsageLogs = mysqlTable("ai_usage_logs", {
   actionType: varchar("actionType", { length: 50 }).notNull(), // 'essay_feedback', 'sentence_quiz', etc.
   tokensUsed: int("tokensUsed").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserIdCreatedAt: index("idx_ai_usage_logs_userId_createdAt").on(table.userId, table.createdAt),
+}));
 
 export type AIUsageLog = typeof aiUsageLogs.$inferSelect;
 export type InsertAIUsageLog = typeof aiUsageLogs.$inferInsert;
@@ -732,7 +769,9 @@ export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
   isActive: int("isActive").default(1).notNull(), // 1: 활성, 0: 비활성
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxCourseType: index("idx_dynamic_curriculum_courseType").on(table.courseType),
+}));
 
 export type DynamicCurriculum = typeof dynamicCurriculum.$inferSelect;
 export type InsertDynamicCurriculum = typeof dynamicCurriculum.$inferInsert;
@@ -821,7 +860,9 @@ export const userBadges = mysqlTable("user_badges", {
   badgeType: varchar("badgeType", { length: 64 }).notNull(), // summary, reordering, quiz, topic_wizard, thesis_checklist
   badgeName: varchar("badgeName", { length: 128 }).notNull(),
   earnedAt: timestamp("earnedAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_user_badges_userId").on(table.userId),
+}));
 
 export type UserBadge = typeof userBadges.$inferSelect;
 export type InsertUserBadge = typeof userBadges.$inferInsert;
@@ -837,7 +878,9 @@ export const questionBank = mysqlTable("question_bank", {
   isActive: int("isActive").default(1).notNull(), // 1: 활성, 0: 비활성
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxCourseType: index("idx_question_bank_courseType").on(table.courseType),
+}));
 
 export type QuestionBank = typeof questionBank.$inferSelect;
 export type InsertQuestionBank = typeof questionBank.$inferInsert;
@@ -910,7 +953,9 @@ export const questionBookmarks = mysqlTable("question_bookmarks", {
   userId: int("userId").notNull(),
   questionId: int("questionId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_question_bookmarks_userId").on(table.userId),
+}));
 
 export type QuestionBookmark = typeof questionBookmarks.$inferSelect;
 export type InsertQuestionBookmark = typeof questionBookmarks.$inferInsert;
@@ -929,7 +974,9 @@ export const curriculumWorkbookQuestions = mysqlTable("curriculum_workbook_quest
   explanation: text("explanation").notNull(),
   questionType: varchar("questionType", { length: 50 }).default("subjective").notNull(), // subjective, objective
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxCourseType: index("idx_curriculum_workbook_questions_courseType").on(table.courseType),
+}));
 
 export type CurriculumWorkbookQuestion = typeof curriculumWorkbookQuestions.$inferSelect;
 export type InsertCurriculumWorkbookQuestion = typeof curriculumWorkbookQuestions.$inferInsert;
@@ -945,7 +992,9 @@ export const curriculumWorkbookAnswers = mysqlTable("curriculum_workbook_answers
   score: int("score").default(0), // 0-100 score
   evaluationJson: text("evaluationJson"), // 서술형 AI 평가의 주제 적합성·논증·근거·분석·표현 기준별 결과
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_curriculum_workbook_answers_userId").on(table.userId),
+}));
 
 export type CurriculumWorkbookAnswer = typeof curriculumWorkbookAnswers.$inferSelect;
 export type InsertCurriculumWorkbookAnswer = typeof curriculumWorkbookAnswers.$inferInsert;
@@ -958,7 +1007,9 @@ export const workbookMistakes = mysqlTable("workbook_mistakes", {
   userAnswer: text("userAnswer").notNull(),
   aiFeedback: text("aiFeedback"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_workbook_mistakes_userId").on(table.userId),
+}));
 
 export type WorkbookMistake = typeof workbookMistakes.$inferSelect;
 export type InsertWorkbookMistake = typeof workbookMistakes.$inferInsert;
@@ -974,7 +1025,9 @@ export const learningToolMistakes = mysqlTable("learning_tool_mistakes", {
   score: int("score").notNull(),
   aiFeedback: text("aiFeedback"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_learning_tool_mistakes_userId").on(table.userId),
+}));
 
 export type LearningToolMistake = typeof learningToolMistakes.$inferSelect;
 export type InsertLearningToolMistake = typeof learningToolMistakes.$inferInsert;
@@ -1039,7 +1092,9 @@ export const appNotifications = mysqlTable("app_notifications", {
   isRead: int("isRead").default(0).notNull(), // 0: 안 읽음, 1: 읽음
   readAt: timestamp("readAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_app_notifications_userId").on(table.userId),
+}));
 
 export type AppNotification = typeof appNotifications.$inferSelect;
 export type InsertAppNotification = typeof appNotifications.$inferInsert;
@@ -1081,7 +1136,9 @@ export const subscriptions = mysqlTable("subscriptions", {
   cancelledAt: timestamp("cancelledAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_subscriptions_userId").on(table.userId),
+}));
 
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = typeof subscriptions.$inferInsert;
