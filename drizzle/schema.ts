@@ -1151,6 +1151,12 @@ export const subscriptions = mysqlTable("subscriptions", {
   currentPeriodEnd: timestamp("currentPeriodEnd").notNull(),
   /** 결제 시점의 AI 평가 한도(요금제가 나중에 바뀌어도 이미 결제한 이용권의 한도는 유지) */
   aiEvaluationsLimit: int("aiEvaluationsLimit").notNull(),
+  /** package: 결제 후 '유료 이용 시작'을 눌러야 기간이 시작되는 30일 상품 / addon: 구매일부터 기간이 시작되는 추가권 */
+  kind: varchar("kind", { length: 16 }).default("package").notNull(),
+  /** 이용 시작 시 기간 계산에 쓰는 일수(결제 시점의 상품 정의를 보존) */
+  periodDays: int("periodDays").default(30).notNull(),
+  /** 1이면 결제는 끝났지만 이용자가 아직 '유료 이용 시작'을 누르지 않은 상태(기간·AI 횟수가 시작되지 않음) */
+  awaitingStart: int("awaitingStart").default(0).notNull(),
   orderId: int("orderId"),
   cancelledAt: timestamp("cancelledAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1158,6 +1164,59 @@ export const subscriptions = mysqlTable("subscriptions", {
 }, (table) => ({
   idxUserId: index("idx_subscriptions_userId").on(table.userId),
 }));
+
+// 교사 첨삭지도권(횟수권). 일반 첨삭 1종을 1·3·5회분으로 판매하고, 이용권 결제자가 구매한다.
+// 신청 1건이 권에서 1회를 차감하고, 전달 전에 취소하면 횟수가 돌아온다. 교사 지급은 계약급여로 따로 집행하므로 정산과 연결하지 않는다.
+export const teacherFeedbackPasses = mysqlTable("teacher_feedback_passes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  productKey: varchar("productKey", { length: 40 }).notNull(), // tf_pass_1 | tf_pass_3 | tf_pass_5
+  /** 구매한 총 횟수와 사용한 횟수(결제 시점의 상품 정의를 보존) */
+  sessions: int("sessions").notNull(),
+  sessionsUsed: int("sessionsUsed").default(0).notNull(),
+  priceKrw: int("priceKrw").notNull(),
+  orderId: int("orderId").notNull(),
+  status: mysqlEnum("status", ["active", "refunded"]).default("active").notNull(),
+  /** 구매일부터 유효기간이 끝나는 시각. 지나면 남은 횟수로 새 신청을 할 수 없다(미사용 잔액의 환급 신청은 가능) */
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUserId: index("idx_tf_passes_userId").on(table.userId),
+  idxOrderId: index("idx_tf_passes_orderId").on(table.orderId),
+}));
+
+export type TeacherFeedbackPass = typeof teacherFeedbackPasses.$inferSelect;
+
+// 교사 첨삭 신청. 첨삭지도권 1회를 차감해 만든다.
+// paid(신청 완료, 교사 대기) → in_progress(교사 작업 중) → delivered(결과 전달) / cancelled(전달 전 취소, 횟수 복원) / refunded(관리자 환불).
+export const teacherFeedbackRequests = mysqlTable("teacher_feedback_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  essayId: int("essayId").notNull(),
+  /** 차감한 첨삭지도권 */
+  passId: int("passId").notNull(),
+  /** 신청 시점에 배정된 담당 교사 */
+  teacherId: int("teacherId").notNull(),
+  status: mysqlEnum("status", ["paid", "in_progress", "delivered", "cancelled", "refunded"]).default("paid").notNull(),
+  /** 완료 예정일: 신청한 날부터 영업일 기준으로 계산해 신청 전에 안내하고, 지나면 학생이 취소·대기를 선택할 수 있다 */
+  dueAt: timestamp("dueAt").notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+  teacherFeedbackId: int("teacherFeedbackId"),
+  reworkCount: int("reworkCount").default(0).notNull(),
+  reworkNote: text("reworkNote"),
+  cancelledAt: timestamp("cancelledAt"),
+  cancelReason: varchar("cancelReason", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUserId: index("idx_tf_requests_userId").on(table.userId),
+  idxTeacherStatus: index("idx_tf_requests_teacherId_status").on(table.teacherId, table.status),
+  idxEssayId: index("idx_tf_requests_essayId").on(table.essayId),
+  idxPassId: index("idx_tf_requests_passId").on(table.passId),
+}));
+
+export type TeacherFeedbackRequest = typeof teacherFeedbackRequests.$inferSelect;
 
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = typeof subscriptions.$inferInsert;

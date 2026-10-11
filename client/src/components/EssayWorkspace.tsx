@@ -28,6 +28,8 @@ import {
   BookOpen,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import TeacherFeedbackRequestDialog from "@/components/TeacherFeedbackRequestDialog";
+import MyTeacherFeedbackRequests from "@/components/MyTeacherFeedbackRequests";
 import { toast } from "sonner";
 import { useEssayWorkspace } from "@/hooks/useEssayWorkspace";
 import {
@@ -94,7 +96,10 @@ export default function EssayWorkspace({
   const [legacy, setLegacy] = useState<any[]>([]);
   const [showImport, setShowImport] = useState(false);
   const [teacherResult, setTeacherResult] = useState("");
-  const teacherRequest = trpc.essaySubmission.requestTeacher.useMutation();
+  const [requestRow, setRequestRow] = useState<{
+    id: number;
+    localId: string;
+  } | null>(null);
   const aiRequest = trpc.aiAutoFeedback.create.useMutation();
   const selected = store.rows.find(
     row => row.localId === selectedId && row.userId === user?.id
@@ -110,7 +115,12 @@ export default function EssayWorkspace({
   const locked = !!selected && selected.status !== "draft";
   const disabled = busy !== null || store.syncing;
 
-  useEffect(() => () => { requestScopeRef.current = "disposed"; }, []);
+  useEffect(
+    () => () => {
+      requestScopeRef.current = "disposed";
+    },
+    []
+  );
   useEffect(() => {
     if (!auth.user) {
       if (!auth.loading && navigator.onLine)
@@ -309,31 +319,36 @@ export default function EssayWorkspace({
     try {
       const row = await readyForRequest();
       if (!row) return;
-      const result = await teacherRequest.mutateAsync({ essayId: row.id! });
-      if (requestScopeRef.current !== requestScope) return;
-      store.commit(
-        store
-          .latestRows()
-          .map(item =>
-            item.localId === row.localId
-              ? { ...item, status: result.status, isDirty: false }
-              : item
-          )
-      );
-      setTeacherResult(
-        "담당 교사에게 첨삭을 요청했습니다. 완료 후 이 화면에서 피드백을 확인할 수 있습니다."
-      );
-      await store.synchronize();
-      if (requestScopeRef.current !== requestScope) return;
-      toast.success("교사 첨삭을 요청했습니다.");
+      setRequestRow({ id: row.id!, localId: row.localId });
     } catch (err) {
       if (requestScopeRef.current === requestScope)
         toast.error(
-          err instanceof Error ? err.message : "교사 첨삭을 요청하지 못했습니다."
+          err instanceof Error
+            ? err.message
+            : "교사 첨삭 신청을 열지 못했습니다."
         );
     } finally {
       if (requestScopeRef.current === requestScope) setBusy(null);
     }
+  };
+  // 신청(결제)이나 기관 계약 요청이 끝나 글이 제출되면 화면의 글 상태를 맞추고 서버와 동기화한다.
+  const onTeacherRequested = async (status: string) => {
+    const target = requestRow;
+    setRequestRow(null);
+    if (!target) return;
+    store.commit(
+      store
+        .latestRows()
+        .map(item =>
+          item.localId === target.localId
+            ? { ...item, status: status as typeof item.status, isDirty: false }
+            : item
+        )
+    );
+    setTeacherResult(
+      "담당 교사에게 첨삭을 신청했습니다. 완료 예정일까지 이 화면에서 진행 상태와 피드백을 확인할 수 있습니다."
+    );
+    await store.synchronize();
   };
   const requestAi = async () => {
     const requestScope = scopeKey;
@@ -899,6 +914,21 @@ export default function EssayWorkspace({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {auth.user?.role === "user" &&
+        auth.user.tag !== "학부모" &&
+        store.online && (
+          <div className="mt-6">
+            <MyTeacherFeedbackRequests />
+          </div>
+        )}
+      <TeacherFeedbackRequestDialog
+        essayId={requestRow?.id ?? null}
+        open={requestRow !== null}
+        onOpenChange={open => {
+          if (!open) setRequestRow(null);
+        }}
+        onRequested={onTeacherRequested}
+      />
     </div>
   );
 }

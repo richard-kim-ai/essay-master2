@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./billingDb", () => ({
   countAiUsage: vi.fn(async () => 0),
-  getCurrentSubscription: vi.fn(async () => undefined),
+  listActiveSubscriptions: vi.fn(async () => []),
+  listAwaitingStartSubscriptions: vi.fn(async () => []),
 }));
 vi.mock("./institutionDb", () => ({
   resolveStudentFunding: vi.fn(),

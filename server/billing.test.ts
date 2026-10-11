@@ -5,8 +5,9 @@ vi.mock("./billingDb", () => ({
   getPaymentOrder: vi.fn(),
   markOrderFailed: vi.fn(),
   confirmOrderAndActivateSubscription: vi.fn(),
-  getCurrentSubscription: vi.fn(),
-  cancelCurrentSubscription: vi.fn(),
+  listActiveSubscriptions: vi.fn(),
+  listAwaitingStartSubscriptions: vi.fn(),
+  startSubscription: vi.fn(),
   listOrdersForUser: vi.fn(),
   listOrdersAdmin: vi.fn(),
   summarizeBilling: vi.fn(),
@@ -47,7 +48,7 @@ import * as institution from "./institutionDb";
 import { appRouter } from "./routers";
 import { getPaymentProvider, mockProvider } from "./billing/providers";
 import { evaluateAiEntitlement } from "./billing/entitlements";
-import { PLANS, formatKrw, getPlan } from "../shared/plans";
+import { PLANS, TEACHER_FEEDBACK_PASSES, formatKrw, getPlan, getPlanName } from "../shared/plans";
 import { computeSettlement, currentMonthKst, defaultRates, emptyCounts, monthRange, resolveRates } from "../shared/settlement";
 import { resetRateLimits } from "./rateLimit";
 import type { TrpcContext } from "./_core/context";
@@ -75,11 +76,38 @@ beforeEach(() => {
 });
 
 describe("이용권 정의", () => {
-  it("요금 페이지에 안내한 가격·횟수와 같다(스타터 월 5회 9,900원, 성장 월 20회 24,900원)", () => {
-    expect(getPlan("starter")).toMatchObject({ priceKrw: 9900, monthlyAiEvaluations: 5 });
-    expect(getPlan("growth")).toMatchObject({ priceKrw: 24900, monthlyAiEvaluations: 20 });
-    expect(PLANS).toHaveLength(2);
+  it("가격 및 환불정책(1·5조)과 같은 상품·가격·횟수·기간이다", () => {
+    expect(PLANS.map((plan) => plan.key)).toEqual(["study", "ai_basic", "ai_focus", "ai_pass"]);
+    expect(getPlan("study")).toMatchObject({ priceKrw: 14900, aiEvaluations: 0, periodDays: 30, kind: "package" });
+    expect(getPlan("ai_basic")).toMatchObject({ priceKrw: 24900, aiEvaluations: 10, periodDays: 30, kind: "package" });
+    expect(getPlan("ai_focus")).toMatchObject({ priceKrw: 39900, aiEvaluations: 20, periodDays: 30, kind: "package" });
+    expect(getPlan("ai_pass")).toMatchObject({ priceKrw: 14900, aiEvaluations: 10, periodDays: 90, kind: "addon" });
     expect(formatKrw(24900)).toBe("24,900원");
+  });
+
+  it("환불 계산용 구성 금액(학습권+AI권)의 합은 가격과 같고, 정책 5조 표와 같다", () => {
+    for (const plan of PLANS) expect(plan.studyAmountKrw + plan.aiAmountKrw).toBe(plan.priceKrw);
+    expect(PLANS.map((plan) => [plan.studyAmountKrw, plan.aiAmountKrw])).toEqual([[14900, 0], [12450, 12450], [13300, 26600], [0, 14900]]);
+  });
+
+  it("교사 첨삭지도권은 일반 첨삭 1종의 1·3·5회분 3종이고, 이용권 목록에는 섞이지 않는다", () => {
+    expect(TEACHER_FEEDBACK_PASSES.map((product) => [product.key, product.sessions, product.priceKrw])).toEqual([["tf_pass_1", 1, 6900], ["tf_pass_3", 3, 19900], ["tf_pass_5", 5, 31900]]);
+    // 횟수가 많을수록 1회당 금액이 같거나 낮다(할인 없이 비싸지지 않는다).
+    const perSession = TEACHER_FEEDBACK_PASSES.map((product) => product.priceKrw / product.sessions);
+    expect(perSession[1]).toBeLessThanOrEqual(perSession[0]);
+    expect(perSession[2]).toBeLessThanOrEqual(perSession[1]);
+    expect(PLANS.some((plan) => plan.key.startsWith("tf_"))).toBe(false);
+    // 관리자 결제 내역 등에서 주문 이름을 알아볼 수 있다.
+    expect(getPlanName("tf_pass_3")).toBe("교사 첨삭지도권 3회분");
+    // 이용권 결제 API로는 교사 첨삭지도권을 결제할 수 없다(별도 구매 흐름에서만 결제).
+    expect(getPlan("tf_pass_1")).toBeUndefined();
+  });
+
+  it("예전 요금제(starter·growth)는 판매하지 않지만 이름은 알아볼 수 있다", () => {
+    expect(getPlan("starter")).toBeUndefined();
+    expect(getPlanName("starter")).toBe("스타터(종료)");
+    expect(getPlanName("growth")).toBe("성장(종료)");
+    expect(getPlanName("ai_basic")).toBe("AI 기본형");
   });
 });
 
@@ -88,14 +116,14 @@ describe("결제 제공자", () => {
     const provider = getPaymentProvider();
     expect(provider).toBe(mockProvider);
     expect(provider.isTest).toBe(true);
-    await expect(provider.createCheckout({ orderId: "EM-1", amountKrw: 9900, planName: "스타터", buyer: { id: 1, name: null, email: null } })).resolves.toEqual({ status: "paid", paymentKey: "mock_EM-1" });
+    await expect(provider.createCheckout({ orderId: "EM-1", amountKrw: 9900, planName: "AI 기본형", buyer: { id: 1, name: null, email: null } })).resolves.toEqual({ status: "paid", paymentKey: "mock_EM-1" });
   });
 
   it("아직 연동되지 않은 실제 제공자는 성공한 것처럼 처리하지 않고 실패한다", async () => {
     for (const name of ["portone", "tosspayments"]) {
       const provider = getPaymentProvider(name);
       expect(provider.isTest).toBe(false);
-      const result = await provider.createCheckout({ orderId: "EM-1", amountKrw: 9900, planName: "스타터", buyer: { id: 1, name: null, email: null } });
+      const result = await provider.createCheckout({ orderId: "EM-1", amountKrw: 9900, planName: "AI 기본형", buyer: { id: 1, name: null, email: null } });
       expect(result.status).toBe("failed");
     }
     expect(() => getPaymentProvider("unknown-pg")).toThrow();
@@ -105,38 +133,78 @@ describe("결제 제공자", () => {
 describe("AI 평가 이용 자격(entitlements)", () => {
   const now = new Date("2026-10-12T00:00:00Z");
   const days = (n: number) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000);
-  const plan = (overrides = {}) => ({ status: "active" as const, planKey: "starter", currentPeriodStart: days(3), currentPeriodEnd: new Date(now.getTime() + 27 * 86400000), aiEvaluationsLimit: 5, ...overrides });
+  const ahead = (n: number) => new Date(now.getTime() + n * 24 * 60 * 60 * 1000);
+  const fresh = { role: "user", createdAt: days(2) };
+  const old = { role: "user", createdAt: days(30) };
+  const sub = (overrides: Record<string, unknown> = {}) => ({ id: 1, status: "active" as const, planKey: "ai_basic", currentPeriodStart: days(3), currentPeriodEnd: ahead(27), aiEvaluationsLimit: 10, used: 0, ...overrides });
 
-  it("가입 7일 안에는 체험 1회, 사용하면 이용권이 필요하다", () => {
-    const fresh = evaluateAiEntitlement({ user: { role: "user", createdAt: days(2) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now });
-    expect(fresh).toMatchObject({ mode: "trial", canUse: true, limit: 1, remaining: 1 });
-    const used = evaluateAiEntitlement({ user: { role: "user", createdAt: days(2) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 1, now });
-    expect(used).toMatchObject({ mode: "trial", canUse: false });
+  it("가입 7일 안에는 무료 체험 AI 2회를 쓰고, 다 쓰면 이용권이 필요하다", () => {
+    expect(evaluateAiEntitlement({ user: fresh, subscriptions: [], usedInTrial: 0, now })).toMatchObject({ mode: "trial", canUse: true, limit: 2, remaining: 2 });
+    expect(evaluateAiEntitlement({ user: fresh, subscriptions: [], usedInTrial: 1, now })).toMatchObject({ mode: "trial", canUse: true, remaining: 1 });
+    const used = evaluateAiEntitlement({ user: fresh, subscriptions: [], usedInTrial: 2, now });
+    expect(used).toMatchObject({ mode: "trial", canUse: false, remaining: 0 });
+    expect(used.reason).toContain("이용권");
   });
 
-  it("체험이 끝나고 이용권이 없으면 이용할 수 없다(예전의 무료 일 5회는 없다)", () => {
-    const result = evaluateAiEntitlement({ user: { role: "user", createdAt: days(30) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now });
+  it("체험이 끝나고 이용권이 없으면 이용할 수 없다", () => {
+    const result = evaluateAiEntitlement({ user: old, subscriptions: [], usedInTrial: 0, now });
     expect(result).toMatchObject({ mode: "none", canUse: false });
     expect(result.reason).toContain("이용권");
   });
 
   it("이용권이 있으면 기간 안에서 결제한 횟수까지 쓴다", () => {
-    expect(evaluateAiEntitlement({ user: { role: "user", createdAt: days(30) }, subscription: plan(), usedInPlanPeriod: 4, usedInTrial: 1, now })).toMatchObject({ mode: "plan", canUse: true, limit: 5, remaining: 1 });
-    expect(evaluateAiEntitlement({ user: { role: "user", createdAt: days(30) }, subscription: plan(), usedInPlanPeriod: 5, usedInTrial: 1, now })).toMatchObject({ mode: "plan", canUse: false, remaining: 0 });
+    expect(evaluateAiEntitlement({ user: old, subscriptions: [sub({ used: 9 })], usedInTrial: 0, now })).toMatchObject({ mode: "plan", canUse: true, limit: 10, remaining: 1 });
+    const exhausted = evaluateAiEntitlement({ user: old, subscriptions: [sub({ used: 10 })], usedInTrial: 0, now });
+    expect(exhausted).toMatchObject({ mode: "plan", canUse: false, remaining: 0 });
+    expect(exhausted.reason).toContain("AI 추가권");
+  });
+
+  it("학습형(AI 0회)은 학습 이용권일 뿐 AI 횟수를 주지 않는다", () => {
+    const result = evaluateAiEntitlement({ user: old, subscriptions: [sub({ planKey: "study", aiEvaluationsLimit: 0 })], usedInTrial: 0, now });
+    expect(result).toMatchObject({ canUse: false, mode: "none" });
+  });
+
+  it("무료 체험분을 먼저 쓰고, 유료는 먼저 만료되는 이용권부터(만료가 같으면 먼저 산 것부터) 차감한다", () => {
+    const later = sub({ id: 5, planKey: "ai_focus", aiEvaluationsLimit: 20, currentPeriodEnd: ahead(20) });
+    const sooner = sub({ id: 9, planKey: "ai_pass", aiEvaluationsLimit: 10, currentPeriodEnd: ahead(10) });
+    const sameEndOlder = sub({ id: 2, planKey: "ai_pass", aiEvaluationsLimit: 10, currentPeriodEnd: ahead(10) });
+    const result = evaluateAiEntitlement({ user: fresh, subscriptions: [later, sooner, sameEndOlder], usedInTrial: 0, now });
+    expect(result.mode).toBe("trial");
+    expect(result.sources?.map((source) => source.kind === "trial" ? "trial" : source.subscriptionId)).toEqual(["trial", 2, 9, 5]);
+    expect(result.remaining).toBe(2 + 10 + 10 + 20);
+    // 체험분을 다 쓰면 만료가 가까운 추가권부터
+    const afterTrial = evaluateAiEntitlement({ user: fresh, subscriptions: [later, sooner, sameEndOlder], usedInTrial: 2, now });
+    expect(afterTrial.mode).toBe("plan");
+    expect(afterTrial.sources?.[0]).toMatchObject({ subscriptionId: 2 });
+  });
+
+  it("여러 이용권의 남은 횟수는 합산되고, 다 쓴 이용권은 건너뛴다", () => {
+    const first = sub({ id: 1, aiEvaluationsLimit: 10, used: 10, currentPeriodEnd: ahead(5) });
+    const second = sub({ id: 2, planKey: "ai_pass", aiEvaluationsLimit: 10, used: 4, currentPeriodEnd: ahead(60) });
+    const result = evaluateAiEntitlement({ user: old, subscriptions: [first, second], usedInTrial: 0, now });
+    expect(result).toMatchObject({ mode: "plan", canUse: true, limit: 20, used: 14, remaining: 6 });
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources?.[0]).toMatchObject({ subscriptionId: 2, remaining: 6 });
   });
 
   it("해지한 이용권도 결제한 기간이 끝날 때까지 유효하고, 만료되면 무효다", () => {
-    expect(evaluateAiEntitlement({ user: { role: "user", createdAt: days(30) }, subscription: plan({ status: "cancelled" }), usedInPlanPeriod: 0, usedInTrial: 0, now }).mode).toBe("plan");
-    expect(evaluateAiEntitlement({ user: { role: "user", createdAt: days(30) }, subscription: plan({ currentPeriodEnd: days(1) }), usedInPlanPeriod: 0, usedInTrial: 0, now }).mode).toBe("none");
-    expect(evaluateAiEntitlement({ user: { role: "user", createdAt: days(30) }, subscription: plan({ status: "expired" }), usedInPlanPeriod: 0, usedInTrial: 0, now }).mode).toBe("none");
+    expect(evaluateAiEntitlement({ user: old, subscriptions: [sub({ status: "cancelled" })], usedInTrial: 0, now }).mode).toBe("plan");
+    expect(evaluateAiEntitlement({ user: old, subscriptions: [sub({ currentPeriodEnd: days(1) })], usedInTrial: 0, now }).mode).toBe("none");
+    expect(evaluateAiEntitlement({ user: old, subscriptions: [sub({ status: "expired" })], usedInTrial: 0, now }).mode).toBe("none");
+  });
+
+  it("시작 대기 이용권이 있으면 이용할 수 없을 때 '유료 이용 시작'을 안내한다", () => {
+    const result = evaluateAiEntitlement({ user: old, subscriptions: [], awaitingStartCount: 1, usedInTrial: 0, now });
+    expect(result).toMatchObject({ mode: "none", canUse: false, awaitingStartCount: 1 });
+    expect(result.reason).toContain("유료 이용 시작");
   });
 
   it("관리자·교사는 한도가 없고, 학부모는 이용할 수 없다", () => {
-    expect(evaluateAiEntitlement({ user: { role: "admin", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).mode).toBe("unlimited");
-    expect(evaluateAiEntitlement({ user: { role: "teacher", teacherStatus: "approved", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).mode).toBe("unlimited");
+    expect(evaluateAiEntitlement({ user: { role: "admin", createdAt: days(1) }, subscriptions: [], usedInTrial: 0, now }).mode).toBe("unlimited");
+    expect(evaluateAiEntitlement({ user: { role: "teacher", teacherStatus: "approved", createdAt: days(1) }, subscriptions: [], usedInTrial: 0, now }).mode).toBe("unlimited");
     // 승인 전 교사는 한도 없이 쓸 수 없다.
-    expect(evaluateAiEntitlement({ user: { role: "teacher", teacherStatus: "pending", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).canUse).toBe(false);
-    expect(evaluateAiEntitlement({ user: { role: "user", tag: "학부모", createdAt: days(1) }, subscription: null, usedInPlanPeriod: 0, usedInTrial: 0, now }).canUse).toBe(false);
+    expect(evaluateAiEntitlement({ user: { role: "teacher", teacherStatus: "pending", createdAt: days(1) }, subscriptions: [], usedInTrial: 0, now }).canUse).toBe(false);
+    expect(evaluateAiEntitlement({ user: { role: "user", tag: "학부모", createdAt: days(1) }, subscriptions: [], usedInTrial: 0, now }).canUse).toBe(false);
   });
 });
 
@@ -145,54 +213,88 @@ describe("이용권 결제(billing)", () => {
 
   beforeEach(() => {
     vi.mocked(billingDb.createPaymentOrder).mockResolvedValue(order as any);
-    vi.mocked(billingDb.confirmOrderAndActivateSubscription).mockResolvedValue({ id: 3, planKey: "starter" } as any);
+    vi.mocked(billingDb.confirmOrderAndActivateSubscription).mockResolvedValue({ id: 3, planKey: "ai_basic", awaitingStart: 1 } as any);
   });
 
-  it("임시 결제에서는 결제하면 곧바로 이용권이 만들어진다(주문은 테스트 결제로 기록)", async () => {
-    const result = await callerFor(student).billing.startCheckout({ planKey: "starter" });
+  it("임시 결제에서는 결제하면 곧바로 결제가 완료된다(주문은 테스트 결제로 기록, 30일 상품은 시작 대기)", async () => {
+    const result = await callerFor(student).billing.startCheckout({ planKey: "ai_basic" });
     expect(result).toMatchObject({ status: "paid", isTest: true, orderId: 7 });
-    expect(billingDb.createPaymentOrder).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, planKey: "starter", amountKrw: 9900, provider: "mock", isTest: true }));
-    expect(billingDb.confirmOrderAndActivateSubscription).toHaveBeenCalledWith(expect.objectContaining({ orderId: 7, planKey: "starter", periodDays: 30, aiEvaluationsLimit: 5 }));
+    expect(billingDb.createPaymentOrder).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, planKey: "ai_basic", amountKrw: 24900, provider: "mock", isTest: true }));
+    expect(billingDb.confirmOrderAndActivateSubscription).toHaveBeenCalledWith(expect.objectContaining({ orderId: 7, planKey: "ai_basic", kind: "package", periodDays: 30, aiEvaluationsLimit: 10 }));
   });
 
-  it("금액과 이용 횟수는 서버의 요금제 정의로 정하고, 클라이언트가 보낸 값은 쓰지 않는다", async () => {
-    await callerFor(student).billing.startCheckout({ planKey: "growth", amountKrw: 1, aiEvaluationsLimit: 9999 } as any);
-    expect(billingDb.createPaymentOrder).toHaveBeenCalledWith(expect.objectContaining({ amountKrw: 24900 }));
+  it("AI 추가권은 구매일부터 90일·AI 10회로 만들어진다", async () => {
+    await callerFor(student).billing.startCheckout({ planKey: "ai_pass" });
+    expect(billingDb.confirmOrderAndActivateSubscription).toHaveBeenCalledWith(expect.objectContaining({ planKey: "ai_pass", kind: "addon", periodDays: 90, aiEvaluationsLimit: 10 }));
+  });
+
+  it("학습형은 AI 횟수 0회로 만들어진다", async () => {
+    await callerFor(student).billing.startCheckout({ planKey: "study" });
+    expect(billingDb.createPaymentOrder).toHaveBeenCalledWith(expect.objectContaining({ amountKrw: 14900 }));
+    expect(billingDb.confirmOrderAndActivateSubscription).toHaveBeenCalledWith(expect.objectContaining({ kind: "package", aiEvaluationsLimit: 0 }));
+  });
+
+  it("금액과 이용 횟수는 서버의 상품 정의로 정하고, 클라이언트가 보낸 값은 쓰지 않는다", async () => {
+    await callerFor(student).billing.startCheckout({ planKey: "ai_focus", amountKrw: 1, aiEvaluationsLimit: 9999 } as any);
+    expect(billingDb.createPaymentOrder).toHaveBeenCalledWith(expect.objectContaining({ amountKrw: 39900 }));
     expect(billingDb.confirmOrderAndActivateSubscription).toHaveBeenCalledWith(expect.objectContaining({ aiEvaluationsLimit: 20 }));
     await expect(callerFor(student).billing.startCheckout({ planKey: "free" as any })).rejects.toThrow();
+    // 판매를 종료한 예전 요금제로는 결제할 수 없다.
+    await expect(callerFor(student).billing.startCheckout({ planKey: "starter" as any })).rejects.toThrow();
   });
 
   it("학습자만 결제할 수 있다(학부모·교사·관리자·비로그인 불가)", async () => {
     for (const user of [parent, teacher, admin]) {
-      await expect(callerFor(user).billing.startCheckout({ planKey: "starter" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(callerFor(user).billing.startCheckout({ planKey: "ai_basic" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
-    await expect(callerFor(null).billing.startCheckout({ planKey: "starter" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(callerFor(null).billing.startCheckout({ planKey: "ai_basic" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(billingDb.createPaymentOrder).not.toHaveBeenCalled();
   });
 
   it("실제 제공자가 연동되지 않은 상태에서는 이용권을 만들지 않고 실패 처리한다", async () => {
     process.env.PAYMENT_PROVIDER = "portone";
-    await expect(callerFor(student).billing.startCheckout({ planKey: "starter" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(callerFor(student).billing.startCheckout({ planKey: "ai_basic" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(billingDb.markOrderFailed).toHaveBeenCalledWith(7, expect.stringContaining("연동"));
     expect(billingDb.confirmOrderAndActivateSubscription).not.toHaveBeenCalled();
   });
 
   it("결제 요청을 짧은 시간에 반복하면 제한한다", async () => {
     const caller = callerFor(student);
-    for (let i = 0; i < 10; i += 1) await caller.billing.startCheckout({ planKey: "starter" });
-    await expect(caller.billing.startCheckout({ planKey: "starter" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    for (let i = 0; i < 10; i += 1) await caller.billing.startCheckout({ planKey: "ai_basic" });
+    await expect(caller.billing.startCheckout({ planKey: "ai_basic" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
   });
 
   it("요금제 목록은 로그인하지 않아도 보이고, 임시 결제 여부를 알려 준다", async () => {
     await expect(callerFor(null).billing.plans()).resolves.toMatchObject({ provider: "mock", isTest: true });
   });
 
-  it("해지 시 이용권이 없으면 안내하고, 있으면 남은 기간을 알려 준다", async () => {
-    vi.mocked(billingDb.cancelCurrentSubscription).mockResolvedValueOnce(undefined);
-    await expect(callerFor(student).billing.cancelSubscription()).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    const end = new Date("2026-11-01T00:00:00Z");
-    vi.mocked(billingDb.cancelCurrentSubscription).mockResolvedValueOnce({ currentPeriodEnd: end } as any);
-    await expect(callerFor(student).billing.cancelSubscription()).resolves.toEqual({ periodEnd: end });
+  it("'유료 이용 시작'은 학습자 본인이 누른 시각부터 기간을 시작한다(본인 이용권만, 한 번만)", async () => {
+    const periodStart = new Date("2026-10-13T00:00:00Z");
+    const periodEnd = new Date("2026-11-12T00:00:00Z");
+    vi.mocked(billingDb.startSubscription).mockResolvedValueOnce({ id: 3, currentPeriodStart: periodStart, currentPeriodEnd: periodEnd } as any);
+    await expect(callerFor(student).billing.startPaidUse({ subscriptionId: 3 })).resolves.toEqual({ periodStart, periodEnd });
+    expect(billingDb.startSubscription).toHaveBeenCalledWith(10, 3);
+
+    // 이미 시작했거나 환불됐거나 남의 이용권이면 시작하지 않는다.
+    vi.mocked(billingDb.startSubscription).mockResolvedValueOnce(undefined);
+    await expect(callerFor(student).billing.startPaidUse({ subscriptionId: 3 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("학습자가 아니면 '유료 이용 시작'을 할 수 없다", async () => {
+    for (const user of [parent, teacher, admin]) {
+      await expect(callerFor(user).billing.startPaidUse({ subscriptionId: 3 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    await expect(callerFor(null).billing.startPaidUse({ subscriptionId: 3 })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(billingDb.startSubscription).not.toHaveBeenCalled();
+  });
+
+  it("내 이용권 조회는 이용 중인 것·시작 대기인 것·AI 이용 자격을 함께 돌려준다", async () => {
+    vi.mocked(billingDb.listActiveSubscriptions).mockResolvedValue([]);
+    vi.mocked(billingDb.listAwaitingStartSubscriptions).mockResolvedValue([{ id: 3, planKey: "ai_basic" }] as any);
+    const result = await callerFor(student).billing.mySubscription();
+    expect(result.awaitingStart).toHaveLength(1);
+    expect(result.subscriptions).toEqual([]);
+    expect(result.entitlement).toBeDefined();
   });
 });
 

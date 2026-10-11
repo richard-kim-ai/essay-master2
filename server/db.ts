@@ -122,6 +122,8 @@ import {
   type TheoryLessonDraftCandidate,
   type TheoryLessonRequestInput,
 } from "./theoryLessonContent";
+
+import { DEFAULT_REFUND_POLICY, REFUND_POLICY_KEY } from "./refundPolicy";
 import { generateDetailedSentenceFeedback } from "./sentenceFeedbackEngine";
 import {
   createRequestFingerprint,
@@ -250,13 +252,11 @@ export async function saveDifficultyOperationPreset(
       .set({ content, updatedBy: adminId, updatedAt: new Date() })
       .where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
   } else {
-    await db
-      .insert(siteSettings)
-      .values({
-        settingKey: DIFFICULTY_OPERATION_SETTING_KEY,
-        content,
-        updatedBy: adminId,
-      });
+    await db.insert(siteSettings).values({
+      settingKey: DIFFICULTY_OPERATION_SETTING_KEY,
+      content,
+      updatedBy: adminId,
+    });
   }
   return getDifficultyOperationPreset();
 }
@@ -1798,14 +1798,12 @@ export async function updateEvaluationReviewQueueItem(input: {
     const detail =
       input.resolutionNote?.trim() ||
       "담당자가 첨삭 결과를 검토했습니다. 학습 화면에서 결과를 다시 확인해 주세요.";
-    await db
-      .insert(appNotifications)
-      .values({
-        userId: existing.userId,
-        title: "AI 첨삭 인간 검수 완료",
-        message: detail,
-        category: "evaluation_review",
-      });
+    await db.insert(appNotifications).values({
+      userId: existing.userId,
+      title: "AI 첨삭 인간 검수 완료",
+      message: detail,
+      category: "evaluation_review",
+    });
   }
 }
 
@@ -1868,14 +1866,12 @@ export async function updateEvaluationAppeal(input: {
     const detail =
       input.adminNote?.trim() ||
       "관리자 검토가 완료되었습니다. 첨삭 결과와 안내 내용을 확인해 주세요.";
-    await db
-      .insert(appNotifications)
-      .values({
-        userId: existing.userId,
-        title: `AI 첨삭 이의제기 ${statusLabel}`,
-        message: detail,
-        category: "evaluation_review",
-      });
+    await db.insert(appNotifications).values({
+      userId: existing.userId,
+      title: `AI 첨삭 이의제기 ${statusLabel}`,
+      message: detail,
+      category: "evaluation_review",
+    });
   }
 }
 
@@ -3092,12 +3088,17 @@ export async function adminDeleteCurriculumCategory(id: number) {
 
 export async function getSiteSetting(settingKey: string) {
   const db = await getDb();
-  if (!db) return defaultPolicyContent(settingKey);
+  // 가격·환불정책은 동의 문서 목록과 분리해 두고, 관리자가 저장하기 전에는 게시용 기본 문구를 보여 준다.
+  const fallback =
+    settingKey === REFUND_POLICY_KEY
+      ? DEFAULT_REFUND_POLICY
+      : defaultPolicyContent(settingKey);
+  if (!db) return fallback;
   const [row] = await db
     .select()
     .from(siteSettings)
     .where(eq(siteSettings.settingKey, settingKey));
-  return row?.content ?? defaultPolicyContent(settingKey);
+  return row?.content ?? fallback;
 }
 
 export async function saveSiteSetting(
@@ -4468,15 +4469,13 @@ export async function createAdminAuditLog(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db
-    .insert(adminAuditLogs)
-    .values({
-      actorId: input.actorId,
-      targetUserId: input.targetUserId ?? null,
-      action: input.action,
-      summary: input.summary,
-      metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
-    });
+  await db.insert(adminAuditLogs).values({
+    actorId: input.actorId,
+    targetUserId: input.targetUserId ?? null,
+    action: input.action,
+    summary: input.summary,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  });
 }
 
 export async function getAdminAuditLogs(limit = 100) {
@@ -4690,14 +4689,12 @@ export async function recordClassAttendance(
       .set(values)
       .where(eq(classAttendance.id, existing.id));
   else
-    await db
-      .insert(classAttendance)
-      .values({
-        groupId: input.groupId,
-        studentId: input.studentId,
-        attendanceDate: input.attendanceDate,
-        ...values,
-      });
+    await db.insert(classAttendance).values({
+      groupId: input.groupId,
+      studentId: input.studentId,
+      attendanceDate: input.attendanceDate,
+      ...values,
+    });
   return true;
 }
 
@@ -4716,16 +4713,14 @@ export async function publishClassAnnouncement(
     .insert(classAnnouncements)
     .values({ ...input, createdBy: teacherId });
   if (members.length)
-    await db
-      .insert(appNotifications)
-      .values(
-        members.map(member => ({
-          userId: member.studentId,
-          title: `[반 공지] ${input.title}`,
-          message: input.content,
-          category: "class_announcement",
-        }))
-      );
+    await db.insert(appNotifications).values(
+      members.map(member => ({
+        userId: member.studentId,
+        title: `[반 공지] ${input.title}`,
+        message: input.content,
+        category: "class_announcement",
+      }))
+    );
   return true;
 }
 
@@ -4745,30 +4740,26 @@ export async function createClassAssignment(
     .select()
     .from(learningGroupMembers)
     .where(eq(learningGroupMembers.groupId, input.groupId));
-  const [inserted] = await db
-    .insert(classAssignments)
-    .values({
-      ...input,
-      dueAt: input.dueAt ?? null,
-      createdBy: teacherId,
-      isActive: 1,
-    });
+  const [inserted] = await db.insert(classAssignments).values({
+    ...input,
+    dueAt: input.dueAt ?? null,
+    createdBy: teacherId,
+    isActive: 1,
+  });
   const assignmentId = Number(inserted.insertId);
   const dueLabel = input.dueAt
     ? ` 마감: ${input.dueAt.toLocaleDateString("ko-KR")}`
     : "";
   if (members.length)
-    await db
-      .insert(appNotifications)
-      .values(
-        members.map(member => ({
-          userId: member.studentId,
-          assignmentId,
-          title: `[반 과제] ${input.title}`,
-          message: `${input.instructions}${dueLabel}`,
-          category: "class_assignment",
-        }))
-      );
+    await db.insert(appNotifications).values(
+      members.map(member => ({
+        userId: member.studentId,
+        assignmentId,
+        title: `[반 과제] ${input.title}`,
+        message: `${input.instructions}${dueLabel}`,
+        category: "class_assignment",
+      }))
+    );
   return { assignmentId };
 }
 
@@ -5258,15 +5249,13 @@ export async function reviewStudentClassAssignment(
         eq(classAssignmentAiFeedbacks.status, "generated")
       )
     );
-  await db
-    .insert(appNotifications)
-    .values({
-      userId: submission.studentId,
-      assignmentId: assignment.id,
-      title: `[과제 채점 완료] ${assignment.title}`,
-      message: `교사가 과제를 채점했습니다. 점수 ${input.score}점과 피드백을 확인하세요.`,
-      category: "teacher_feedback",
-    });
+  await db.insert(appNotifications).values({
+    userId: submission.studentId,
+    assignmentId: assignment.id,
+    title: `[과제 채점 완료] ${assignment.title}`,
+    message: `교사가 과제를 채점했습니다. 점수 ${input.score}점과 피드백을 확인하세요.`,
+    category: "teacher_feedback",
+  });
   const [updated] = await db
     .select()
     .from(classAssignmentSubmissions)
@@ -7067,16 +7056,14 @@ export async function ensureReorderingQuestionBankV2() {
           updated++;
         }
       } else {
-        await db
-          .insert(questionBank)
-          .values({
-            courseType,
-            toolType: "reordering",
-            title,
-            contentData,
-            difficulty: seed.difficulty,
-            isActive: 1,
-          });
+        await db.insert(questionBank).values({
+          courseType,
+          toolType: "reordering",
+          title,
+          contentData,
+          difficulty: seed.difficulty,
+          isActive: 1,
+        });
         inserted++;
       }
     }

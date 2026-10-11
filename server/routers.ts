@@ -5,6 +5,7 @@ import { storagePut } from "./storage";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
+import { REFUND_POLICY_KEY } from "./refundPolicy";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse, requireLearnerCourse } from "./questionBankAccess";
@@ -16,10 +17,11 @@ import { normalizeAllowedDomains, validateExternalEvaluationEndpoint } from "./e
 import { getHumanEvaluationQualityMetrics } from "./evaluationMetrics";
 import { evaluateWritingHeuristic, getHumanReviewReasons } from "./writingCorrectionEngine";
 import { evaluateWritingWithLLM } from "./writingEvaluationEngine";
-import { getTrialAccess, isEligibleTrialEvaluation, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
+import { getTrialAccess, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
 
 // 샘플 체험(비로그인) AI 첨삭 실체험 남용 방지 한도
-const SAMPLE_AI_SESSION_LIMIT = 3;
+// 정책: 무료 AI 제공량은 샘플 테스트 1회 + 계정 체험 2회 = 총 3회. 샘플 테스트는 1회다.
+const SAMPLE_AI_SESSION_LIMIT = 1;
 const SAMPLE_AI_IP_DAILY_LIMIT = 10;
 const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
 // 세션 토큰·IP 헤더를 바꿔도 넘을 수 없는 서비스 전체 일일 상한(AI 비용 보호).
@@ -31,9 +33,11 @@ import { billingRouter, settlementRouter } from "./billingRouter";
 import { institutionRouter } from "./institutionRouter";
 import { clearGuardianStatusCache } from "./_core/trpc";
 import { recordActivitySafely, toBudgetTrpcError, withGroupBudget, withTeacherStudentBudget } from "./institutionService";
-import { budgetOps as institutionBudgetOps } from "./institutionDb";
+import { budgetOps as institutionBudgetOps, resolveStudentFunding } from "./institutionDb";
+import * as tfRequestDb from "./teacherFeedbackRequestDb";
+import { teacherFeedbackRequestRouter } from "./teacherFeedbackRequestRouter";
 import * as billingDb from "./billingDb";
-import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement } from "./billing/service";
+import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement, planActionType, planActionTypes } from "./billing/service";
 import { consumeRateLimit, RATE_RULES, type RateLimitRule } from "./rateLimit";
 import {
   GUARDIAN_AGREEMENT_LABELS,
@@ -209,6 +213,26 @@ async function assertTeacherEssayAccess(user: { id: number; role: string; teache
   return essay;
 }
 
+/**
+ * 교사가 첨삭을 처음 등록해도 되는 글인지 확인한다. 학생이 교사 첨삭을 신청·결제한 글(결제 완료·작업 중 신청이 있는 글)만 가능하다.
+ * 예외: 관리자, 그리고 기관 계약이 비용을 부담하는 학생(기존 계약 예산 경로). 교사 지급은 계약급여로 따로 집행하므로 신청 가격과 연결하지 않는다.
+ * 돌려주는 request가 있으면 학생이 결제한 신청이다(기관 예산을 차감하지 않는다).
+ */
+async function assertTeacherMayDeliver(user: { id: number; role: string }, essay: { id: number; userId: number }) {
+  const request = await tfRequestDb.getOpenRequestByEssay(essay.id);
+  if (request || user.role === "admin") return { request };
+  const funding = await resolveStudentFunding(essay.userId);
+  if (funding.kind === "contract") return { request: undefined };
+  throw new TRPCError({ code: "FORBIDDEN", message: "학생이 교사 첨삭을 신청·결제한 글만 첨삭할 수 있습니다." });
+}
+
+/** 결과를 전달하면 신청을 '전달 완료'로 바꾸고 학생에게 알린다. 열린 신청이 없으면 아무 일도 하지 않는다. */
+async function completeFeedbackRequest(essay: { id: number; userId: number; title: string }, feedbackId: number | null) {
+  const changed = await tfRequestDb.markDeliveredByEssay(essay.id, feedbackId).catch(() => false);
+  if (changed) await tfRequestDb.notifyUser(essay.userId, "교사 첨삭이 도착했어요", `「${essay.title}」의 교사 첨삭이 완료되었습니다. 결과를 확인해 보세요.`).catch(() => undefined);
+  return changed;
+}
+
 // 제출 글과 그 첨삭은 글 주인·배정 교사·관리자만 볼 수 있다(글 번호만으로 남의 글을 열 수 없게 한다).
 async function assertEssayReadAccess(user: { id: number; role: string; teacherStatus?: string | null }, essayId: number) {
   const essay = await db.getEssaySubmissionById(essayId);
@@ -224,7 +248,7 @@ async function assertEssayReadAccess(user: { id: number; role: string; teacherSt
 const SCORE_0_100 = z.number().int().min(0).max(100);
 
 // 로그인하지 않아도 읽을 수 있는 사이트 설정(공개 문서)
-const PUBLIC_SITE_SETTING_KEYS = ["terms_of_service", "privacy_policy"];
+const PUBLIC_SITE_SETTING_KEYS = ["terms_of_service", "privacy_policy", REFUND_POLICY_KEY];
 
 function assertApprovedTeacherOrAdmin(user: { role: string; teacherStatus?: string | null }) {
   if (user.role === "admin") return;
@@ -338,11 +362,15 @@ export const appRouter = router({
         const approve = () => db.approveTeacherAiDraft({ draftId: input.draftId, teacherId: draft.teacherId, finalComment: input.finalComment });
         // 첨삭이 이 승인으로 처음 만들어질 때만 '첨삭' 예산을 쓰고 장부에 기록한다(이미 있던 첨삭을 고치는 것은 새 활동이 아니다).
         const firstCompletion = !feedbackBefore && Boolean(essayBefore);
-        const result = firstCompletion && essayBefore
+        // 처음 전달하는 글은 학생이 신청·결제한 글(또는 기관 계약 학생)이어야 한다.
+        const gate = firstCompletion && essayBefore ? await assertTeacherMayDeliver(ctx.user, essayBefore) : { request: undefined };
+        const result = firstCompletion && essayBefore && !gate.request
           ? await withTeacherStudentBudget({ teacherId: draft.teacherId, studentId: essayBefore.userId, budgetType: "human", actorId: ctx.user.id, sourceType: "essay_feedback" }, approve, (created) => (created as { id?: number } | undefined)?.id)
           : await approve();
         if (firstCompletion && essayBefore && (result as { id?: number } | undefined)?.id) await recordActivitySafely({ activityType: "essay_feedback", sourceId: (result as { id: number }).id, teacherId: draft.teacherId, studentId: essayBefore.userId });
         const essay = await db.getEssaySubmissionById(draft.essayId);
+        // 신청된 글이면 전달 완료로 바꾼다(처음 전달이든 보완 후 재전달이든 열린 신청이 있을 때만 바뀐다).
+        if (essay) await completeFeedbackRequest(essay, (result as { id?: number } | undefined)?.id ?? null);
         if (essay) void sendPushToUser(essay.userId, { title: "교사 승인 첨삭이 도착했어요", body: `${essay.title}의 최종 첨삭을 확인해보세요.`, url: `/teacher-feedback/${essay.id}`, tag: `teacher-ai-approved-${draft.id}` });
         return result;
       }),
@@ -1401,7 +1429,12 @@ export const appRouter = router({
       title: z.string().trim().min(1).max(255), content: z.string().max(20000), baseRevision: z.number().int().min(0).optional(),
     })).mutation(({ ctx, input }) => syncEssayDraft(ctx.user.id, input)),
     requestTeacher: protectedProcedure.input(z.object({ essayId: z.number().int().positive() }))
-      .mutation(({ ctx, input }) => requestEssayTeacherFeedback(ctx.user.id, input.essayId)),
+      .mutation(async ({ ctx, input }) => {
+        // 개인 학생의 교사 첨삭은 신청·결제(teacherFeedbackRequest.create)가 필요하다. 이 무료 요청은 기관 계약이 비용을 부담하는 학생만 쓴다.
+        const funding = await resolveStudentFunding(ctx.user.id);
+        if (funding.kind !== "contract") throw new TRPCError({ code: "FORBIDDEN", message: "교사 첨삭은 신청·결제 후 이용할 수 있습니다. 이용권 결제자가 '교사 첨삭 신청'에서 상품을 선택해 주세요." });
+        return requestEssayTeacherFeedback(ctx.user.id, input.essayId);
+      }),
     getByUser: protectedProcedure.query(({ ctx }) =>
       db.getEssaySubmissionsByUser(ctx.user.id)
     ),
@@ -1455,6 +1488,8 @@ export const appRouter = router({
       }),
   }),
 
+  teacherFeedbackRequest: teacherFeedbackRequestRouter,
+
   // ========== Teacher Feedback Routes ==========
   teacherFeedback: router({
     // 첨삭 조회: 글 주인·배정 교사·관리자만. 쓰기: 배정 교사·관리자만(학생이 교사 점수·코멘트를 만들거나 바꿀 수 없다).
@@ -1479,20 +1514,26 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const essay = await assertTeacherEssayAccess(ctx.user, input.essayId);
         if (await db.getTeacherFeedbackByEssay(input.essayId)) throw new TRPCError({ code: "CONFLICT", message: "이미 첨삭이 등록된 제출물입니다. 기존 첨삭을 수정해 주세요." });
-        // 기관 계약 반의 학생이면 계약의 '첨삭' 예산을 쓰고, 정산 대상 여부는 이 시점의 정책으로 장부에 고정한다.
-        const feedback = await withTeacherStudentBudget(
-          { teacherId: ctx.user.id, studentId: essay.userId, budgetType: "human", actorId: ctx.user.id, sourceType: "essay_feedback" },
-          () => db.createTeacherFeedback({
-            essayId: input.essayId,
-            teacherId: ctx.user.id,
-            overallComment: input.overallComment,
-            overallScore: input.overallScore,
-            structureScore: input.structureScore,
-            logicScore: input.logicScore,
-            expressionScore: input.expressionScore,
-          }),
-          (created) => (created as { id?: number })?.id,
-        );
+        const gate = await assertTeacherMayDeliver(ctx.user, essay);
+        const createFeedback = () => db.createTeacherFeedback({
+          essayId: input.essayId,
+          teacherId: ctx.user.id,
+          overallComment: input.overallComment,
+          overallScore: input.overallScore,
+          structureScore: input.structureScore,
+          logicScore: input.logicScore,
+          expressionScore: input.expressionScore,
+        });
+        // 학생이 결제한 신청이면 기관 예산을 차감하지 않는다. 신청 없이 등록하는 경우(기관 계약 학생)는 계약의 '첨삭' 예산을 쓰고,
+        // 정산 대상 여부는 이 시점의 정책으로 장부에 고정한다.
+        const feedback = gate.request
+          ? await createFeedback()
+          : await withTeacherStudentBudget(
+              { teacherId: ctx.user.id, studentId: essay.userId, budgetType: "human", actorId: ctx.user.id, sourceType: "essay_feedback" },
+              createFeedback,
+              (created) => (created as { id?: number })?.id,
+            );
+        if (gate.request) await completeFeedbackRequest(essay, (feedback as { id?: number })?.id ?? null);
         if ((feedback as { id?: number })?.id) await recordActivitySafely({ activityType: "essay_feedback", sourceId: (feedback as { id: number }).id, teacherId: ctx.user.id, studentId: essay.userId });
         void sendPushToUser(essay.userId, { title: "새로운 첨삭 피드백이 도착했어요", body: `${essay.title}에 선생님 피드백이 등록되었습니다.`, url: `/teacher-feedback?essayId=${essay.id}`, tag: `feedback-${essay.id}` });
         return feedback;
@@ -1512,14 +1553,17 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const feedback = await db.getTeacherFeedbackById(input.id);
         if (!feedback) throw new TRPCError({ code: "NOT_FOUND", message: "첨삭을 찾을 수 없습니다." });
-        await assertTeacherEssayAccess(ctx.user, feedback.essayId);
-        return db.updateTeacherFeedback(input.id, {
+        const essayForUpdate = await assertTeacherEssayAccess(ctx.user, feedback.essayId);
+        const updated = await db.updateTeacherFeedback(input.id, {
           overallComment: input.overallComment,
           overallScore: input.overallScore,
           structureScore: input.structureScore,
           logicScore: input.logicScore,
           expressionScore: input.expressionScore,
         });
+        // 학생이 보완을 요청해 다시 작업 중이던 신청이면 수정 저장으로 다시 '전달 완료'가 된다.
+        await completeFeedbackRequest(essayForUpdate, input.id);
+        return updated;
       }),
 
     getComments: protectedProcedure
@@ -1634,7 +1678,7 @@ export const appRouter = router({
       db.getAIAutoFeedbackByUser(ctx.user.id, studentQuestionCourse(ctx.user))
     ),
 
-    // 이용 자격: 이용권(기간 안) > 7일 무료 체험 > 이용권 필요. 관리자·교사는 한도가 없다.
+    // 이용 자격: 7일 무료 체험분 먼저 → 이용 중인 유료 이용권(먼저 만료되는 순서). 관리자·교사는 한도가 없다.
     getTodayQuota: protectedProcedure.query(async ({ ctx }) => {
         const entitlement = await getAiEntitlement(ctx.user);
         return {
@@ -1650,6 +1694,7 @@ export const appRouter = router({
           periodOnly: entitlement.periodOnly ?? false,
           overage: entitlement.overage ?? 0,
           periodEnd: entitlement.periodEnd ?? null,
+          awaitingStartCount: entitlement.awaitingStartCount ?? 0,
           reason: entitlement.reason ?? null,
         };
       }),
@@ -1693,9 +1738,6 @@ export const appRouter = router({
         // 한도와 별개로 시간당 호출 횟수를 제한한다(비용이 큰 AI 호출의 남용 방지).
         enforceRateLimit("ai-feedback", String(ctx.user.id), RATE_RULES.aiFeedbackByUser);
         const entitlement = await getAiEntitlement(ctx.user);
-        if (entitlement.mode === "trial" && !isEligibleTrialEvaluation(input)) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "7일 무료 체험의 AI 논술 평가는 레슨 1의 첫 서술형 제출에만 제공됩니다." });
-        }
         if (!entitlement.canUse) {
           throw new TRPCError({ code: "FORBIDDEN", message: entitlement.reason ?? "AI 논술 평가를 이용할 수 없습니다. 요금정책에서 이용권을 확인해 주세요." });
         }
@@ -1712,9 +1754,16 @@ export const appRouter = router({
           }
         }
         if (entitlement.mode === "trial" || entitlement.mode === "plan") {
-          const actionType = entitlement.mode === "trial" ? AI_ACTION_TRIAL : AI_ACTION_PLAN;
-          const reservation = await billingDb.reserveAiUsage({ userId: ctx.user.id, actionType, countedActionTypes: [actionType], since: entitlement.periodStart, limit: entitlement.limit });
-          if (!reservation.reserved) throw new TRPCError({ code: "FORBIDDEN", message: entitlement.mode === "trial" ? "7일 무료 체험의 AI 논술 평가 1회를 사용했습니다. 이용권을 선택하면 계속 이용할 수 있습니다." : "이번 이용 기간의 AI 평가 횟수를 모두 사용했습니다." });
+          // 무료 체험분 → 먼저 만료되는 유료 이용권 순서로, 남은 횟수가 있는 첫 묶음에서 1회를 예약한다.
+          // 동시에 다른 요청이 마지막 횟수를 가져가 예약에 실패하면 다음 묶음으로 넘어간다.
+          let reservation: { reserved: boolean; reservationId: number } = { reserved: false, reservationId: 0 };
+          for (const source of entitlement.sources ?? []) {
+            const actionType = source.kind === "trial" ? AI_ACTION_TRIAL : planActionType(source.subscriptionId ?? 0);
+            const countedActionTypes = source.kind === "trial" ? [AI_ACTION_TRIAL] : planActionTypes({ id: source.subscriptionId ?? 0, planKey: source.planKey ?? "" });
+            reservation = await billingDb.reserveAiUsage({ userId: ctx.user.id, actionType, countedActionTypes, since: source.periodStart, limit: source.limit });
+            if (reservation.reserved) break;
+          }
+          if (!reservation.reserved) throw new TRPCError({ code: "FORBIDDEN", message: "AI 평가·첨삭 횟수를 모두 사용했습니다. 요금정책에서 AI 추가권 등 이용권을 확인해 주세요." });
           reservationId = reservation.reservationId;
         }
         // 예약한 사용 횟수는 AI 평가가 성공적으로 저장될 때만 유지한다(오류·대체 결과·저장 실패는 돌려준다). 여러 번 불러도 안전하다.

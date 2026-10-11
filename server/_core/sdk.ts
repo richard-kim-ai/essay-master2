@@ -218,11 +218,8 @@ class SDKServer {
       });
       const { openId, appId, name, pv } = payload as Record<string, unknown>;
 
-      if (
-        !isNonEmptyString(openId) ||
-        !isNonEmptyString(appId) ||
-        !isNonEmptyString(name)
-      ) {
+      // 사용자는 openId로 DB에서 찾는다. name은 표시용이라 비어 있어도(이름이 없는 계정의 세션) 거절하지 않는다.
+      if (!isNonEmptyString(openId) || !isNonEmptyString(appId) || typeof name !== "string") {
         console.warn("[Auth] Session payload missing required fields");
         return null;
       }

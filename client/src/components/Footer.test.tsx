@@ -14,11 +14,15 @@ import Footer, { FOOTER_MENU } from "./Footer";
 import { COPYRIGHT_INFO } from "@/lib/contact";
 
 describe("Footer", () => {
-  it("모든 화면에서 약관·개인정보처리방침·문의 메일·저작권을 보여준다", () => {
+  it("모든 화면에서 약관·개인정보처리방침·가격환불정책·문의 메일·저작권을 보여준다", () => {
     for (const variant of ["default", "compact"] as const) {
       const html = renderToStaticMarkup(<Footer variant={variant} />);
       expect(html).toContain("이용약관");
       expect(html).toContain("개인정보처리방침");
+      expect(html).toContain("가격·환불정책");
+      // 가격·환불정책은 개인정보처리방침 바로 옆에 둔다.
+      expect(html.indexOf("개인정보처리방침")).toBeLessThan(html.indexOf("가격·환불정책"));
+      expect(html.indexOf("가격·환불정책")).toBeLessThan(html.indexOf("문의 ceo@ufinsu.com"));
       expect(html).toContain('href="mailto:ceo@ufinsu.com"');
       expect(html).toContain(`© ${new Date().getFullYear()} 논술 마스터`);
     }

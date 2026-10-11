@@ -62,7 +62,7 @@
 | 경로 | 화면 |
 |---|---|
 | `/` | 홈 |
-| `/pricing` | 요금 정책 — 7일 무료 체험, 스타터, 성장, 교사·기관 문의 |
+| `/pricing` | 요금 정책 — 7일 무료 체험, 학습형, AI 기본형, AI 집중형, AI 추가권, 교사·기관 문의 |
 | `/sample` | 샘플 체험 — 저장 없이 4개 과정 둘러보기, 제한된 AI 첨삭 체험 |
 | `/curriculum`, `/curriculum/:courseType/:level` | 커리큘럼 소개·상세 |
 | `/essay-archive`, 학습 도구 6종 | 비로그인 시 **미리보기**(클릭·입력·서버 요청 차단, 클릭하면 로그인 팝업) |
@@ -104,7 +104,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | `/admin/question-bank` | 문제은행 (CSV 가져오기, AI 문항 생성, 휴지통, 난이도, 피드백) |
 | `/admin/evaluation-models` | AI 평가 모델, 운영 지표, 검수 큐 |
 | `/admin/ai-governance` | AI 학습 데이터 거버넌스 |
-| `/admin/terms` | 약관·정책 문서, 사이트 설정(회사 정보 등) |
+| `/admin/terms` | 이용약관·개인정보처리방침·가격환불정책(푸터 팝업에 반영), 사이트 설정(회사 정보 등) |
 | `/admin/guardian-consents` | 보호자 동의 관리대장 (재발송·철회) |
 | `/admin/social-providers` | 소셜 로그인 제공자 설정 |
 | `/admin/certificates` | 수료증, 승인 정책·요청 |
@@ -241,10 +241,11 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 
 | 항목 | 내용 |
 |---|---|
-| 이용권 정의 | `shared/plans.ts` 한 곳: 스타터 9,900원/30일 · AI 평가 5회, 성장 24,900원/30일 · AI 평가 20회 |
-| 7일 무료 체험 | 가입일부터 7일, 레슨 1 서술형 AI 평가 1회 (`trialPolicy.ts`) |
-| AI 이용 자격 우선순위 | 기관 계약 > 이용권(기간 안) > 체험 > 이용 불가 (`server/billing/service.ts`). 교사·관리자는 학습자 한도 대상 아님 |
+| 이용권 정의 | `shared/plans.ts` 한 곳(가격·환불정책 1·5조와 동일): 학습형 14,900원/30일(AI 0회) · AI 기본형 24,900원/30일(AI 10회) · AI 집중형 39,900원/30일(AI 20회) · AI 추가권 14,900원/90일(AI 10회, 중복 구매). 30일 상품은 결제 후 '유료 이용 시작'을 눌러야 기간이 시작되고(`subscriptions.awaitingStart`), 추가권은 구매일부터 시작 |
+| 7일 무료 체험 | 가입일부터 7일, 계정 체험 AI 평가·첨삭 2회(`trialPolicy.ts`) + 샘플 체험 1회 = 무료 총 3회 |
+| AI 차감 순서 | 기관 계약 > (무료 체험분 먼저 → 유료 이용권은 먼저 만료되는 것부터, 같으면 먼저 산 것부터). 이용권별로 `essay_feedback:<이용권 id>`로 기록·예약(`server/billing/entitlements.ts`, `service.ts`). 교사·관리자는 학습자용 한도 대상 아님 |
 | 결제 | 제공자 추상화(`PAYMENT_PROVIDER`)와 **임시 mock 결제**. 실제 PG 미연동 |
+| 교사 첨삭지도권(횟수권) | 이용권 결제자가 앱 안에서 일반 첨삭 1종을 1회분 6,900원·3회분 19,900원·5회분 31,900원(구매일부터 90일)으로 구매하고, 신청할 때마다 1회 차감(`teacher_feedback_passes`, `teacher_feedback_requests`). 완료 예정일=신청일부터 3영업일, 전달 전 취소 시 횟수 복원, 신청 없는 글은 교사가 첨삭 등록 불가(기관 계약 학생 예외). 교사 지급은 계약급여로 별건 |
 | 이용권 화면 | `/checkout`: 플랜 조회, 결제 시작, 구독 취소(결제 기간 끝까지 유효) |
 | 관리자 | 결제 요약·주문·구독·환불, 교사 정산 산출·대사·확정·지급 표시, 단가·원천징수율 설정 |
 | 교사 정산 | 확정 정산서는 초안 갱신이 덮어쓰지 못함, 테스트 주문은 매출 제외 |
@@ -260,7 +261,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | 커리큘럼·이론 | `curriculum`, `dynamic_curriculum`, `lesson_theory_content`, `lesson_theory_drafts`, `lesson_theory_progress`, `workbook_lesson_connections` |
 | 문제·워크북 | `question_bank`, `question_bank_trash`, `question_bank_maintenance_settings`, `question_bank_operation_logs`, `question_feedbacks`, `question_bookmarks`, `curriculum_workbook_questions`, `curriculum_workbook_answers`, `workbook_mistakes`, `workbook_teacher_feedback`, `learning_tool_mistakes`, `learning_tool_attempts`, `quiz_answer`, `sentence_feedback_cache` |
 | 진행·성과 | `progress`, `certificate`, `certificate_archives`, `certificate_approval_policies`, `certificate_approval_requests`, `user_badges`, `ai_lesson_guide_histories` |
-| 논술·첨삭 | `essay_submission`, `teacher_feedback`, `feedback_comment`, `teacher_feedback_templates`, `approved_writing_examples` |
+| 논술·첨삭 | `essay_submission`, `teacher_feedback`, `teacher_feedback_passes`, `teacher_feedback_requests`, `feedback_comment`, `teacher_feedback_templates`, `approved_writing_examples` |
 | AI | `ai_auto_feedback`, `ai_usage_logs`, `sample_ai_usage_log`, `evaluation_model_configs`, `writing_evaluation_records`, `evaluation_model_operations`, `evaluation_review_queue`, `evaluation_appeals`, `teacher_ai_profiles`, `teacher_ai_style_examples`, `teacher_ai_drafts`, `teacher_ai_draft_revisions` |
 | 반 운영 | `learning_groups`, `learning_group_members`, `class_attendance`, `class_announcements`, `class_assignments`, `class_assignment_submissions`, `class_assignment_ai_feedbacks` |
 | 알림 | `app_notifications`, `push_subscription` |
@@ -318,6 +319,7 @@ AI 문장 교정 `/quiz` · 단락 재구성 `/paragraph-reordering` · 요약 �
 | `todo.md` | 진행(Claim)·완료·로드맵 |
 | `ESSAY_MASTER_MINDMAP.md/.mmd`, `docs/current-work-mindmap.md` | 마인드맵 |
 | `docs/institution-contracts.md` | 기관 계약·정산 제외 |
+| `docs/teacher-feedback-purchase-design.md` | 교사 첨삭지도권(횟수권) 설계·구현 기록 |
 | `docs/payment-integration.md` | 결제 연동 |
 | `docs/ai-learning-data-governance-policy.md` | AI 학습 데이터 정책 |
 | `docs/privacy-policy-under14-section.md` | 만 14세 미만 개인정보처리방침 초안 |

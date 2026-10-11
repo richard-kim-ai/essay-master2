@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "2f748633-ebfa-4459-8d5e-ab294eac002f",
-  "prevId": "46a100e7-b67b-4fc0-8b44-609209c7388a",
+  "id": "b6e1d89d-d342-4e76-8001-3296b50d861e",
+  "prevId": "c81dc9d8-7c3c-4e23-b7fe-551075c94aaf",
   "tables": {
     "admin_audit_logs": {
       "name": "admin_audit_logs",
@@ -4181,27 +4181,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "courseType": {
-          "name": "courseType",
-          "type": "enum('elementary','middle_high','high_univ','general_adult')",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "curriculumSource": {
-          "name": "curriculumSource",
-          "type": "enum('static','dynamic')",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "level": {
-          "name": "level",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "score": {
           "name": "score",
           "type": "int",
@@ -4250,16 +4229,6 @@
             "userId"
           ],
           "isUnique": false
-        },
-        "uq_progress_learning_module": {
-          "name": "uq_progress_learning_module",
-          "columns": [
-            "userId",
-            "courseType",
-            "curriculumSource",
-            "curriculumId"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {},
@@ -5294,6 +5263,30 @@
           "notNull": true,
           "autoincrement": false
         },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'package'"
+        },
+        "periodDays": {
+          "name": "periodDays",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 30
+        },
+        "awaitingStart": {
+          "name": "awaitingStart",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "orderId": {
           "name": "orderId",
           "type": "int",
@@ -5996,6 +5989,277 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "teacher_feedback_passes": {
+      "name": "teacher_feedback_passes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "productKey": {
+          "name": "productKey",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sessions": {
+          "name": "sessions",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sessionsUsed": {
+          "name": "sessionsUsed",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "priceKrw": {
+          "name": "priceKrw",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "orderId": {
+          "name": "orderId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('active','refunded')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "idx_tf_passes_userId": {
+          "name": "idx_tf_passes_userId",
+          "columns": [
+            "userId"
+          ],
+          "isUnique": false
+        },
+        "idx_tf_passes_orderId": {
+          "name": "idx_tf_passes_orderId",
+          "columns": [
+            "orderId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "teacher_feedback_passes_id": {
+          "name": "teacher_feedback_passes_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "teacher_feedback_requests": {
+      "name": "teacher_feedback_requests",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "userId": {
+          "name": "userId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "essayId": {
+          "name": "essayId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "passId": {
+          "name": "passId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "teacherId": {
+          "name": "teacherId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('paid','in_progress','delivered','cancelled','refunded')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'paid'"
+        },
+        "dueAt": {
+          "name": "dueAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deliveredAt": {
+          "name": "deliveredAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "teacherFeedbackId": {
+          "name": "teacherFeedbackId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reworkCount": {
+          "name": "reworkCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "reworkNote": {
+          "name": "reworkNote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancelledAt": {
+          "name": "cancelledAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cancelReason": {
+          "name": "cancelReason",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "idx_tf_requests_userId": {
+          "name": "idx_tf_requests_userId",
+          "columns": [
+            "userId"
+          ],
+          "isUnique": false
+        },
+        "idx_tf_requests_teacherId_status": {
+          "name": "idx_tf_requests_teacherId_status",
+          "columns": [
+            "teacherId",
+            "status"
+          ],
+          "isUnique": false
+        },
+        "idx_tf_requests_essayId": {
+          "name": "idx_tf_requests_essayId",
+          "columns": [
+            "essayId"
+          ],
+          "isUnique": false
+        },
+        "idx_tf_requests_passId": {
+          "name": "idx_tf_requests_passId",
+          "columns": [
+            "passId"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "teacher_feedback_requests_id": {
+          "name": "teacher_feedback_requests_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "teacher_feedback_templates": {
       "name": "teacher_feedback_templates",
       "columns": {
@@ -6675,7 +6939,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'과정 미선택'"
+          "default": "'일반'"
         },
         "createdAt": {
           "name": "createdAt",

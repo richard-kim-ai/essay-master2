@@ -146,7 +146,12 @@ export default function AIAutoFeedback() {
   if (scopeRef.current !== scopeKey) scopeRef.current = scopeKey;
   const canRequestEvaluation = isAuthenticated && canLearn && !!courseType;
 
-  useEffect(() => () => { scopeRef.current = "disposed"; }, []);
+  useEffect(
+    () => () => {
+      scopeRef.current = "disposed";
+    },
+    []
+  );
 
   useEffect(() => {
     if (resetScopeRef.current === scopeKey) return;
@@ -177,11 +182,19 @@ export default function AIAutoFeedback() {
 
   const createFeedbackMutation = trpc.aiAutoFeedback.create.useMutation({
     onSuccess: () => {
-      if (feedbackScopeRef.current === scopeRef.current && scopeRef.current !== "disposed") void refetchQuota();
+      if (
+        feedbackScopeRef.current === scopeRef.current &&
+        scopeRef.current !== "disposed"
+      )
+        void refetchQuota();
     },
     onError: () => {
       // 한도·이용권 문제는 서버 메시지를 그대로 보여 주기 위해 아래 제출 처리에서 안내하고, 남은 횟수는 다시 불러온다.
-      if (feedbackScopeRef.current === scopeRef.current && scopeRef.current !== "disposed") void refetchQuota();
+      if (
+        feedbackScopeRef.current === scopeRef.current &&
+        scopeRef.current !== "disposed"
+      )
+        void refetchQuota();
     },
   });
   const appealMutation = trpc.evaluationAppeals.create.useMutation({
@@ -392,6 +405,19 @@ export default function AIAutoFeedback() {
                           {quota.reason}
                         </p>
                       )}
+                    {!institutional && quota.awaitingStartCount > 0 && (
+                      <p className="mt-1 text-xs text-amber-800">
+                        결제한 이용권 {quota.awaitingStartCount}개가 시작 대기
+                        중입니다.{" "}
+                        <Link
+                          href="/checkout"
+                          className="font-semibold underline"
+                        >
+                          결제 화면
+                        </Link>
+                        에서 '유료 이용 시작'을 눌러 주세요.
+                      </p>
+                    )}
                   </div>
                 </div>
                 {needsPlan && user?.role === "user" ? (

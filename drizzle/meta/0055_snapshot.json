@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "46a100e7-b67b-4fc0-8b44-609209c7388a",
+  "id": "c81dc9d8-7c3c-4e23-b7fe-551075c94aaf",
   "prevId": "a351f9de-3fe0-4d7e-b639-6be76528a3f3",
   "tables": {
     "admin_audit_logs": {
@@ -4181,27 +4181,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "courseType": {
-          "name": "courseType",
-          "type": "enum('elementary','middle_high','high_univ','general_adult')",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "curriculumSource": {
-          "name": "curriculumSource",
-          "type": "enum('static','dynamic')",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "level": {
-          "name": "level",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "score": {
           "name": "score",
           "type": "int",
@@ -4250,16 +4229,6 @@
             "userId"
           ],
           "isUnique": false
-        },
-        "uq_progress_learning_module": {
-          "name": "uq_progress_learning_module",
-          "columns": [
-            "userId",
-            "courseType",
-            "curriculumSource",
-            "curriculumId"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {},
@@ -5293,6 +5262,30 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'package'"
+        },
+        "periodDays": {
+          "name": "periodDays",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 30
+        },
+        "awaitingStart": {
+          "name": "awaitingStart",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "orderId": {
           "name": "orderId",
