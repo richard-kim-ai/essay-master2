@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 관리자 메뉴 중복·약관 설정 정리, AI 첨삭 LLM_EMPTY_RESPONSE 복구·이용권 차감 확인 (server/writingEvaluationEngine.ts, essayRevisionEngine.ts, AdminDashboard.tsx, AdminAIGovernance.tsx, AdminTermsManager.tsx) — 시작 2026-10-13 09:00
 
 ## 완료
 
