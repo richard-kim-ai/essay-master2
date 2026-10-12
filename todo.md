@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 학부모 계정 정리: 학부모 코멘트가 학생 운영자 메모에 섞여 저장돼 학생에게 안 보이던 문제(전용 테이블·학생 화면·알림), 학부모 메뉴·접근 제한, 학부모 포털의 실제 학습 데이터 표시 (server/parentCommentDb.ts, parentPortalDb.ts, Navigation.tsx, ParentPortal.tsx, MyPageHub.tsx) — 시작 2026-10-13 04:30
 
 ## 완료
 
