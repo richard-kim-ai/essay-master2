@@ -463,7 +463,7 @@ export const appRouter = router({
     selectMyTeacher: protectedProcedure
       .input(z.object({ teacherId: z.number().int().positive().nullable() }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.user.role !== "user") throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 담당 교사를 선택할 수 있습니다." });
+        if (!isLearnerAccount(ctx.user)) throw new TRPCError({ code: "FORBIDDEN", message: "학습자 계정만 담당 교사를 선택할 수 있습니다." });
         if (input.teacherId) {
           const candidates = await db.getApprovedTeachersForRecommendation(requireLearnerCourse(ctx.user));
           if (!candidates.some((teacher) => teacher.id === input.teacherId)) {
@@ -2622,6 +2622,17 @@ export const appRouter = router({
         return await db.saveSiteSetting(input.settingKey, input.content, ctx.user.id);
       }),
     // 회원 및 권한 통합 관리: 관리자·첨삭교사의 수료증 승인 권한 현황과 부여·회수.
+    // 관리자가 학부모 회원 상세에서 보는 자녀 연결 현황(승인된 자녀 + 승인 대기·거절 요청).
+    getParentLinks: protectedProcedure
+      .input(z.object({ userId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        const [linked, requests] = await Promise.all([db.getLinkedStudentsForParent(input.userId), db.getParentLinkRequests(input.userId)]);
+        return {
+          linked: linked.map((student) => ({ id: student.id, name: student.name, email: student.email, courseLabel: student.courseLabel ?? student.tag ?? null })),
+          requests: requests.map((request) => ({ linkId: request.linkId, studentName: request.studentName, studentEmail: request.studentEmail, status: request.status })),
+        };
+      }),
     // 기능(API)별 AI 호출 수·토큰 사용량(최근 N일).
     aiUsageSummary: protectedProcedure
       .input(z.object({ days: z.number().int().min(1).max(365).default(30) }).optional())

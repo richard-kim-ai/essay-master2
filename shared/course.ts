@@ -47,3 +47,14 @@ export function isLearnerAccount(
 ) {
   return user?.role === "user" && user.tag !== "학부모";
 }
+
+// 계정 종류. 학부모는 role이 "user"이고 tag가 "학부모"인 계정이라 role만 보면 학습자와 구분되지 않는다.
+// 관리자 화면의 표시·필터·지정 컨트롤이 같은 기준을 쓰도록 여기서만 정한다.
+export type AccountKind = "admin" | "teacher" | "parent" | "student";
+export const ACCOUNT_KIND_LABELS: Record<AccountKind, string> = { admin: "관리자", teacher: "교사", parent: "학부모", student: "학생" };
+
+export function getAccountKind(user?: { role: string; tag?: string | null } | null): AccountKind {
+  if (user?.role === "admin") return "admin";
+  if (user?.role === "teacher") return "teacher";
+  return user?.tag === "학부모" ? "parent" : "student";
+}

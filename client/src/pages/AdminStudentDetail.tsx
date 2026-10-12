@@ -10,16 +10,47 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import TeacherRatingPanel from "@/components/TeacherRatingPanel";
 import CertificateAuthorityControl, { AUTHORITY_LABEL } from "@/components/CertificateAuthorityControl";
+import { getAccountKind } from "@shared/course";
 
-// 회원 등급에 따라 화면 용어와 구성이 달라진다: 학생(학습·제출 내역), 교사(평점·후기·수료증 검토 권한), 관리자(수료증 최종 승인 권한).
-const ROLE_LABEL = { user: "학생", teacher: "교사", admin: "관리자" } as const;
+// 회원 등급에 따라 화면 용어와 구성이 달라진다: 학생(학습·제출 내역), 학부모(연결된 자녀), 교사(평점·후기·수료증 검토 권한), 관리자(수료증 최종 승인 권한).
+const ROLE_LABEL = { user: "학생", parent: "학부모", teacher: "교사", admin: "관리자" } as const;
 type Role = keyof typeof ROLE_LABEL;
 
 const NOTES = {
   user: { title: "학습 상담 및 특이사항 메모", description: "선생님이나 관리자만 열람하고 수정할 수 있는 학생별 메모장입니다.", placeholder: "예: 글쓰기 구조는 우수하나 어휘 선택에 대한 피드백 필요 (학부모 상담 일지 등)..." },
+  parent: { title: "학부모 상담 메모", description: "관리자만 열람하는 학부모별 메모장입니다. 자녀 연결 문의나 상담 내용을 남겨 두세요.", placeholder: "예: 자녀 연결 요청 문의, 결제 관련 상담 내용 등..." },
   teacher: { title: "교사 평가·관리 메모", description: "관리자만 열람하는 교사별 메모장입니다. 평점·후기 확인 결과와 면담·조치 내용을 남겨 두세요.", placeholder: "예: 최근 한 달 낮은 평가 2건 확인, 면담 후 첨삭 기준 안내함..." },
   admin: { title: "관리자 계정 메모", description: "관리자만 열람하는 계정 메모장입니다.", placeholder: "예: 담당 업무, 권한 부여 사유 등..." },
 } as const;
+
+// 학부모 회원 상세: 연결된 자녀와 연결 요청 현황.
+function ParentLinksCard({ userId }: { userId: number }) {
+  const links = trpc.admin.getParentLinks.useQuery({ userId });
+  const data = links.data;
+  return (
+    <Card className="border-slate-200 shadow-sm" data-testid="parent-links-card">
+      <CardHeader>
+        <CardTitle className="text-lg font-bold">연결된 자녀</CardTitle>
+        <CardDescription>학생이 승인한 연결만 학부모가 자녀의 학습 현황을 볼 수 있습니다. 학부모 계정은 학습 과정·레벨·담당 교사가 없습니다.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {links.isLoading ? <p className="text-slate-500">불러오는 중입니다...</p> : !data || (data.linked.length === 0 && data.requests.length === 0) ? <p className="text-slate-500" data-testid="no-parent-links">연결된 자녀가 없습니다.</p> : (
+          <>
+            {data.linked.map((student) => (
+              <div key={student.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50/60 p-3">
+                <span className="font-semibold text-slate-900">{student.name || `학생 #${student.id}`} <span className="font-normal text-slate-500">· {student.courseLabel || "과정 미설정"}</span></span>
+                <Link href={`/admin/student/${student.id}`}><Button size="sm" variant="outline" className="h-8 text-xs">자녀 상세 보기</Button></Link>
+              </div>
+            ))}
+            {data.requests.map((request) => (
+              <div key={request.linkId} className="rounded-lg bg-amber-50 p-3 text-amber-950">{request.studentName || request.studentEmail || "학생"} · {request.status === "pending" ? "자녀의 승인을 기다리는 중" : "자녀가 연결을 거절함"}</div>
+            ))}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function AdminStudentDetail() {
   const { user, loading: authLoading } = useAuth();
@@ -86,7 +117,9 @@ export default function AdminStudentDetail() {
     );
   }
 
-  const role: Role = (["user", "teacher", "admin"] as const).includes(member.user.role as Role) ? (member.user.role as Role) : "user";
+  // 학부모는 role이 "user"이고 tag가 "학부모"인 계정이라 role만 보면 학생과 구분되지 않는다.
+  const kind = getAccountKind(member.user as { role: string; tag?: string | null });
+  const role: Role = kind === "student" ? "user" : kind;
   const roleLabel = ROLE_LABEL[role];
   const notesText = NOTES[role];
   const authority = authorities.data?.find((row) => row.userId === member.user.id);
@@ -102,7 +135,7 @@ export default function AdminStudentDetail() {
             </Button>
           </Link>
           <span className="text-xs font-semibold px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full" data-testid="member-role-badge">
-            {roleLabel} 상세 {role === "user" ? "분석 및 관리자 메모" : role === "teacher" ? "· 평점·후기 관리" : "· 권한 관리"}
+            {roleLabel} 상세 {role === "user" ? "분석 및 관리자 메모" : role === "parent" ? "· 자녀 연결 현황" : role === "teacher" ? "· 평점·후기 관리" : "· 권한 관리"}
           </span>
         </div>
 
@@ -139,7 +172,7 @@ export default function AdminStudentDetail() {
         </Card>
 
         {/* 교사·관리자: 수료증 승인 권한 */}
-        {role !== "user" && (
+        {(role === "teacher" || role === "admin") && (
           <Card className="border-slate-200 shadow-sm" data-testid="member-authority-card">
             <CardHeader>
               <CardTitle className="text-lg font-bold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-indigo-600" /> 수료증 승인 권한</CardTitle>
@@ -158,6 +191,8 @@ export default function AdminStudentDetail() {
         )}
 
         {/* 교사: 평점·후기 */}
+        {role === "parent" && <ParentLinksCard userId={member.user.id} />}
+
         {role === "teacher" && (
           <section aria-labelledby="teacher-rating-title" className="space-y-3">
             <h2 id="teacher-rating-title" className="flex items-center gap-2 text-xl font-bold text-slate-900"><Star className="w-5 h-5 text-amber-500" /> 교사 평점·후기</h2>

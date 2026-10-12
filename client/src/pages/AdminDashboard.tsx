@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ACCOUNT_KIND_LABELS, getAccountKind } from "@shared/course";
 import { Input } from "@/components/ui/input";
 import AiUsageSummary from "@/components/AiUsageSummary";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -96,7 +97,14 @@ export default function AdminDashboard() {
       toast.error("선택된 학생이 없습니다.");
       return;
     }
-    updateBatchTagMutation.mutate({ studentIds: selectedStudentIds, tag });
+    // 과정 변경은 학습자 계정만 대상이다(학부모·교사·관리자는 제외하고 알린다).
+    const learnerIds = (analytics?.users.users ?? []).filter((u) => selectedStudentIds.includes(u.id) && getAccountKind(u) === "student").map((u) => u.id);
+    if (learnerIds.length === 0) {
+      toast.error("과정은 학습자 계정만 바꿀 수 있습니다. 선택한 계정 중 학습자가 없습니다.");
+      return;
+    }
+    if (learnerIds.length < selectedStudentIds.length) toast.info(`학습자 ${learnerIds.length}명만 변경합니다. 학부모·교사·관리자 ${selectedStudentIds.length - learnerIds.length}명은 제외했습니다.`);
+    updateBatchTagMutation.mutate({ studentIds: learnerIds, tag });
   };
 
   const handleSendBatchEmail = () => {
@@ -120,7 +128,7 @@ export default function AdminDashboard() {
         (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
         String(u.id).includes(searchQuery);
 
-      const matchRole = roleFilter === "all" || u.role === roleFilter;
+      const matchRole = roleFilter === "all" || getAccountKind(u) === roleFilter;
 
       return matchQuery && matchRole;
     });
@@ -204,7 +212,7 @@ export default function AdminDashboard() {
             </div>
             <div>
               <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">회원 전체 현황 & 관리자 대시보드</h1>
-              <p className="text-sm text-slate-600 mt-1">전체 회원(학생·교사·관리자) 현황, AI 사용량 통계 및 커리큘럼 난이도를 총괄 관리합니다.</p>
+              <p className="text-sm text-slate-600 mt-1">전체 회원(학생·학부모·교사·관리자) 현황, AI 사용량 통계 및 커리큘럼 난이도를 총괄 관리합니다.</p>
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -233,7 +241,7 @@ export default function AdminDashboard() {
                 {analyticsLoading ? "..." : analytics?.users.totalUsers || 0}명
               </div>
               <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
-                <span>플랫폼 누적 가입 회원(학생·교사·관리자)</span>
+                <span>플랫폼 누적 가입 회원(학생·학부모·교사·관리자)</span>
                 <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">상세 보기</span>
               </p>
             </CardContent>
@@ -297,7 +305,7 @@ export default function AdminDashboard() {
                       <Users className="h-5 w-5 text-indigo-600" />
                       <span>전체 회원 현황 및 상세 관리</span>
                     </CardTitle>
-                    <CardDescription>회원을 검색하고 '상세 보기'에서 등급별(학생·교사·관리자) 정보와 메모를 관리하세요.</CardDescription>
+                    <CardDescription>회원을 검색하고 '상세 보기'에서 등급별(학생·학부모·교사·관리자) 정보와 메모를 관리하세요.</CardDescription>
                   </div>
                   <span className="text-xs bg-slate-100 text-slate-700 font-semibold px-2.5 py-1 rounded-full">
                     총 {filteredUsers.length}명 검색됨
@@ -322,7 +330,8 @@ export default function AdminDashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">모든 권한</SelectItem>
-                      <SelectItem value="user">학생</SelectItem>
+                      <SelectItem value="student">학생</SelectItem>
+                      <SelectItem value="parent">학부모</SelectItem>
                       <SelectItem value="teacher">교사</SelectItem>
                       <SelectItem value="admin">관리자</SelectItem>
                     </SelectContent>
@@ -410,7 +419,7 @@ export default function AdminDashboard() {
                             <td className="max-w-52 truncate py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
                             <td className="py-3 px-4">
                               <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-slate-200 text-slate-700' : u.role === 'teacher' ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800'}`} data-role-badge={u.role}>
-                                {u.role === 'admin' ? '관리자' : u.role === 'teacher' ? '교사' : '학생'}
+                                {ACCOUNT_KIND_LABELS[getAccountKind(u)]}
                               </span>
                             </td>
                             <td className="py-3 px-4 text-slate-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>

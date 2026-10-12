@@ -4457,7 +4457,8 @@ export async function assignStudentTeacher(
     .select()
     .from(users)
     .where(eq(users.id, studentId));
-  if (!student || student.role !== "user")
+  // 학부모 계정(role=user, tag=학부모)은 학습자가 아니므로 담당 교사를 지정하지 않는다.
+  if (!student || !isLearnerAccount(student))
     throw new Error("학습자를 찾을 수 없습니다.");
   if (teacherId) {
     const [teacher] = await db
@@ -4501,7 +4502,8 @@ export async function setStudentOwnTeacher(
       preferredTeacherId: nextTeacherId,
       updatedAt: new Date(),
     })
-    .where(and(eq(users.id, studentId), eq(users.role, "user")));
+    // 학부모 계정에는 담당 교사를 지정하지 않는다.
+    .where(and(eq(users.id, studentId), eq(users.role, "user"), ne(users.tag, "학부모")));
   return nextTeacherId;
 }
 

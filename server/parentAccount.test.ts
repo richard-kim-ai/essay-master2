@@ -21,6 +21,7 @@ vi.mock("./db", async (importOriginal) => {
 
 import { addParentComment, listParentCommentsForStudent, parseLegacyParentComments } from "./parentCommentDb";
 import { isBlockedForParent, isParentAccount } from "../client/src/lib/parentAccess";
+import { ACCOUNT_KIND_LABELS, getAccountKind } from "../shared/course";
 
 // 운영 DB에 실제로 들어 있던 옛 형식(학생의 운영자 메모에 한 줄로 저장)
 const LEGACY = "[학부모 코멘트(홍서방)] 힘내라 짜샤... (10/12/2026, 6:59:46 PM)";
@@ -105,5 +106,21 @@ describe("학부모 계정의 화면 접근", () => {
     for (const path of ["/", "/parent-portal", "/pricing", "/checkout", "/checkout?student=3", "/notifications", "/essay-archive", "/login", "/sample", "/mypagex"]) {
       expect(isBlockedForParent(path), path).toBe(false);
     }
+  });
+});
+
+describe("계정 종류 구분(관리자 화면 표시 기준)", () => {
+  it("학부모(role=user, tag=학부모)는 학생이 아니라 학부모로 구분한다", () => {
+    expect(getAccountKind({ role: "user", tag: "학부모" })).toBe("parent");
+    expect(getAccountKind({ role: "user", tag: "고등/대입" })).toBe("student");
+    expect(getAccountKind({ role: "user", tag: "과정 미선택" })).toBe("student");
+    expect(getAccountKind({ role: "user" })).toBe("student");
+    expect(getAccountKind({ role: "teacher", tag: "첨삭교사" })).toBe("teacher");
+    expect(getAccountKind({ role: "admin", tag: "일반" })).toBe("admin");
+    expect(getAccountKind(null)).toBe("student");
+  });
+
+  it("표시 이름은 관리자·교사·학부모·학생이다", () => {
+    expect(ACCOUNT_KIND_LABELS).toEqual({ admin: "관리자", teacher: "교사", parent: "학부모", student: "학생" });
   });
 });

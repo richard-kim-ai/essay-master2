@@ -104,3 +104,10 @@ describe("parent.myComments", () => {
     for (const user of [parent, teacher, admin]) expect(await callerFor(user).parent.myComments()).toEqual([]);
   });
 });
+
+describe("학부모 계정에는 담당 교사를 지정하지 않는다", () => {
+  it("학부모가 스스로 담당 교사를 고를 수 없다", async () => {
+    await expect(callerFor(parent).auth.selectMyTeacher({ teacherId: 40 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(callerFor(parent).auth.selectMyTeacher({ teacherId: null })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
