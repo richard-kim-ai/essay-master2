@@ -42,6 +42,8 @@ import { budgetOps as institutionBudgetOps, resolveStudentFunding } from "./inst
 import * as tfRequestDb from "./teacherFeedbackRequestDb";
 import { teacherFeedbackRequestRouter } from "./teacherFeedbackRequestRouter";
 import * as billingDb from "./billingDb";
+import { addParentComment, listParentCommentsForStudent } from "./parentCommentDb";
+import { getParentStudentOverview } from "./parentPortalDb";
 import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement, planActionType, planActionTypes } from "./billing/service";
 import { consumeRateLimit, RATE_RULES, type RateLimitRule } from "./rateLimit";
 import {
@@ -2867,8 +2869,8 @@ export const appRouter = router({
         if (!isAuthorized) {
           throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생의 학습 정보에 접근할 권한이 없습니다." });
         }
-        // 운영자 내부 메모는 관리자에게만 보여준다.
-        return await db.getStudentDetailStats(input.studentId, { includeAdminNotes: isAdmin });
+        // 화면에 필요한 실제 학습 기록만 내려보낸다(자녀 이메일·운영자 메모·작성 중 초안 제외).
+        return getParentStudentOverview(input.studentId);
       }),
     addComment: protectedProcedure
       .input(z.object({ studentId: z.number(), comment: z.string().min(1).max(1000) }))
@@ -2880,14 +2882,20 @@ export const appRouter = router({
         }
         const studentUser = await db.getUserById(input.studentId);
         if (!studentUser) throw new TRPCError({ code: "NOT_FOUND", message: "학생을 찾을 수 없습니다." });
-        const existingNotes = studentUser.adminNotes || "";
-        // 한 코멘트가 한 줄로 저장되어야 keepParentCommentsOnly가 줄 단위로 걸러낼 수 있다.
-        const singleLineComment = input.comment.trim().replace(/\s*\n\s*/g, " ");
-        const newMemo = `[학부모 코멘트(${ctx.user.name || "학부모"})] ${singleLineComment} (${new Date().toLocaleString()})`;
-        const updatedNotes = existingNotes ? `${existingNotes}\n${newMemo}` : newMemo;
-        await db.updateStudentAdminNotes(input.studentId, updatedNotes);
+        // 학생 본인이 읽을 수 있도록 전용 테이블에 저장한다(운영자 메모에는 쓰지 않는다). 학생에게 알림도 보낸다.
+        try {
+          await addParentComment({ studentId: input.studentId, parentId: ctx.user.id, parentName: ctx.user.name, comment: input.comment });
+        } catch (error) {
+          console.error("[parent.addComment] 저장 실패:", error instanceof Error ? error.message : error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "코멘트를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요." });
+        }
         return true;
       }),
+    // 학생 본인이 받은 학부모 코멘트(최신순). 학부모·교사·관리자 계정은 받는 쪽이 아니므로 빈 목록을 돌려준다.
+    myComments: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "user" || ctx.user.tag === "학부모") return [];
+      return listParentCommentsForStudent(ctx.user.id, ctx.user.adminNotes);
+    }),
   }),
 });
 

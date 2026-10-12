@@ -108,6 +108,23 @@ export type InsertGuardianConsent = typeof guardianConsents.$inferInsert;
 export type ParentStudentLink = typeof parentStudentLinks.$inferSelect;
 export type InsertParentStudentLink = typeof parentStudentLinks.$inferInsert;
 
+// 학부모가 연결된 자녀에게 남기는 응원·지도 코멘트. 예전에는 학생의 운영자 메모(users.adminNotes)에 한 줄 문자열로 섞여 저장되어
+// 학생 화면에서 볼 수 없었다. 학생 본인이 읽을 수 있도록 별도 테이블에 둔다.
+export const parentComments = mysqlTable("parent_comments", {
+  id: int("id").autoincrement().primaryKey(),
+  studentId: int("studentId").notNull(),
+  parentId: int("parentId").notNull(),
+  // 작성 당시 학부모 이름(이름을 바꿔도 기록은 그대로).
+  parentName: varchar("parentName", { length: 100 }),
+  comment: text("comment").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  idxStudentCreated: index("idx_parent_comments_studentId_createdAt").on(table.studentId, table.createdAt),
+}));
+
+export type ParentComment = typeof parentComments.$inferSelect;
+export type InsertParentComment = typeof parentComments.$inferInsert;
+
 // 학습자는 학급 또는 주제별 그룹에 소속될 수 있으며, 그룹마다 승인 교사를 한 명 지정합니다.
 export const learningGroups = mysqlTable("learning_groups", {
   id: int("id").autoincrement().primaryKey(),

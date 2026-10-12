@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { isParentAccount } from "@/lib/parentAccess";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -59,11 +60,22 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
+// 학부모 계정은 학습 도구·커리큘럼 같은 학습자 메뉴 대신 학부모 포털(자녀 학습 현황·코멘트)을 쓴다.
+const PARENT_NAV_ITEMS: NavItem[] = [
+  { label: "학부모 포털", href: "/parent-portal", icon: User },
+  { label: "아카이브", href: "/essay-archive", icon: GraduationCap },
+  { label: "요금정책", href: "/pricing", icon: CreditCard },
+];
+
 export default function Navigation() {
   const { user, isAuthenticated, logout, refresh } = useAuth() as any;
   const [location] = useLocation();
   // 첨삭교사 계정은 학습자용 메뉴(마이페이지 허브·학습 대시보드·내 글·오프라인 보관함·수료증)를 쓰지 않는다. 교사 마이페이지에서 일한다.
   const isTeacherAccount = user?.role === "teacher";
+  const isParent = isParentAccount(user);
+  // 교사·학부모는 학습자용 메뉴(마이페이지 허브·학습 대시보드·내 글·오프라인 보관함·수료증)를 쓰지 않는다.
+  const hidesLearnerMenus = isTeacherAccount || isParent;
+  const navItems = isParent ? PARENT_NAV_ITEMS : NAV_ITEMS;
   const [openMobileSubmenu, setOpenMobileSubmenu] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -144,7 +156,7 @@ export default function Navigation() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-1">
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               if (item.submenu) {
                 return (
@@ -407,7 +419,7 @@ export default function Navigation() {
                           </DropdownMenuItem>
                         </Link>
                       )}
-                      {!isTeacherAccount && (
+                      {!hidesLearnerMenus && (
                         <Link href="/mypage">
                           <DropdownMenuItem className="cursor-pointer font-bold text-indigo-700 bg-indigo-50/50 mb-1">
                             <User className="w-4 h-4 mr-2 text-indigo-600" />
@@ -415,7 +427,7 @@ export default function Navigation() {
                           </DropdownMenuItem>
                         </Link>
                       )}
-                      {!isTeacherAccount && (
+                      {!hidesLearnerMenus && (
                         <Link href="/dashboard-detail">
                           <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
                             <BarChart3 className="w-4 h-4 mr-2 text-indigo-600" />
@@ -423,7 +435,7 @@ export default function Navigation() {
                           </DropdownMenuItem>
                         </Link>
                       )}
-                      {!isTeacherAccount && (
+                      {!hidesLearnerMenus && (
                         <Link href="/my-writings">
                           <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
                             <Edit3 className="w-4 h-4 mr-2 text-indigo-600" />
@@ -431,7 +443,7 @@ export default function Navigation() {
                           </DropdownMenuItem>
                         </Link>
                       )}
-                      {!isTeacherAccount && (
+                      {!hidesLearnerMenus && (
                         <Link href="/offline-essays">
                           <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
                             <FileText className="w-4 h-4 mr-2 text-indigo-600" />
@@ -439,7 +451,7 @@ export default function Navigation() {
                           </DropdownMenuItem>
                         </Link>
                       )}
-                      {!isTeacherAccount && (
+                      {!hidesLearnerMenus && (
                         <Link href="/certificate">
                           <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
                             <Award className="w-4 h-4 mr-2 text-indigo-600" />
@@ -527,7 +539,7 @@ export default function Navigation() {
 
                       {/* Mobile MyPage / Account Submenu Section */}
                       <div className="border-b border-slate-200 pb-3 mb-2">
-                        {!isTeacherAccount && <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">마이페이지 & 개인 기록</p>}
+                        {!hidesLearnerMenus && <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">마이페이지 & 개인 기록</p>}
                         {user?.tag === "학부모" && (
                           <Link href="/parent-portal">
                             <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50">
@@ -536,7 +548,7 @@ export default function Navigation() {
                             </button>
                           </Link>
                         )}
-                        {!isTeacherAccount && (
+                        {!hidesLearnerMenus && (
                           <Link href="/mypage">
                             <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
                               <User className="w-4 h-4 text-indigo-600" />
@@ -544,7 +556,7 @@ export default function Navigation() {
                             </button>
                           </Link>
                         )}
-                        {!isTeacherAccount && (
+                        {!hidesLearnerMenus && (
                           <Link href="/dashboard-detail">
                             <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
                               <BarChart3 className="w-4 h-4 text-indigo-600" />
@@ -552,7 +564,7 @@ export default function Navigation() {
                             </button>
                           </Link>
                         )}
-                        {!isTeacherAccount && (
+                        {!hidesLearnerMenus && (
                           <Link href="/my-writings">
                             <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
                               <Edit3 className="w-4 h-4 text-indigo-600" />
@@ -560,7 +572,7 @@ export default function Navigation() {
                             </button>
                           </Link>
                         )}
-                        {!isTeacherAccount && (
+                        {!hidesLearnerMenus && (
                           <Link href="/offline-essays">
                             <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
                               <FileText className="w-4 h-4 text-indigo-600" />
@@ -568,7 +580,7 @@ export default function Navigation() {
                             </button>
                           </Link>
                         )}
-                        {!isTeacherAccount && (
+                        {!hidesLearnerMenus && (
                           <Link href="/certificate">
                             <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
                               <Award className="w-4 h-4 text-indigo-600" />
@@ -579,7 +591,7 @@ export default function Navigation() {
                       </div>
 
                       {/* Mobile Navigation Items */}
-                      {NAV_ITEMS.map((item) => {
+                      {navItems.map((item) => {
                         const Icon = item.icon;
                         const isOpen = openMobileSubmenu === item.label;
 
@@ -712,7 +724,7 @@ export default function Navigation() {
 
                       <div className="border-t border-slate-200 pt-4 space-y-2">
                         {/* 학습 도구 하위 메뉴도 모바일에서 보이도록 펼쳐서 보여준다 */}
-                        {NAV_ITEMS.flatMap((navItem) => navItem.submenu ?? [navItem]).map((item) => {
+                        {navItems.flatMap((navItem) => navItem.submenu ?? [navItem]).map((item) => {
                           const Icon = item.icon;
 
                           return (

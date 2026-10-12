@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isParentAccount } from "@/lib/parentAccess";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { BookOpen, BarChart3, Award, ArrowRight, Sparkles } from "lucide-react";
@@ -6,14 +8,18 @@ import { BookOpen, BarChart3, Award, ArrowRight, Sparkles } from "lucide-react";
 export function OnboardingModal() {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(1);
+  // 이 안내는 학습자용(과정 선택·학습 도구·수료증)이라 학부모 계정에는 띄우지 않는다.
+  const { user } = useAuth();
+  const isParent = isParentAccount(user);
 
   useEffect(() => {
+    if (isParent) return;
     const hasSeen = localStorage.getItem("essay-master-onseen");
     if (!hasSeen) {
       const timer = setTimeout(() => setOpen(true), 800);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [isParent]);
 
   const handleClose = () => {
     localStorage.setItem("essay-master-onseen", "true");
@@ -40,6 +46,8 @@ export function OnboardingModal() {
       desc: "학습을 완료할 때마다 뱃지가 자동으로 수여되며, 고해상도 수료증과 소셜 미디어 공유 기능으로 성취감을 만끽하세요!",
     },
   ];
+
+  if (isParent) return null;
 
   const current = steps[step - 1];
   const Icon = current.icon;

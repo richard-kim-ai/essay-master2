@@ -2,7 +2,9 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { lazy, Suspense } from "react";
-import { Route, Switch, useLocation } from "wouter";
+import { Redirect, Route, Switch, useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isBlockedForParent, isParentAccount, PARENT_HOME } from "@/lib/parentAccess";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Layout from "./components/Layout";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -77,7 +79,10 @@ function RouteLoadingFallback() {
 
 function Router() {
   const course = useLearningCourse();
+  const { user } = useAuth();
   const [path] = useLocation();
+  // 학부모 계정은 학습자 전용 화면(학습 도구·내 글·수료증·결제 등)을 쓰지 않는다. 직접 주소로 들어와도 학부모 포털로 보낸다.
+  if (isParentAccount(user) && isBlockedForParent(path)) return <Redirect to={PARENT_HOME} />;
   const learningPaths = ["/mypage", "/dashboard", "/curriculum", "/workbook", "/quiz", "/summary-practice", "/paragraph-reordering", "/topic-wizard", "/thesis-checklist", "/essay-archive", "/ai-auto-feedback", "/mistake-notebook", "/ai-guide-history", "/writing-examples", "/certificate"];
   if (course.needsSelection && learningPaths.some(prefix => path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}-`))) return <Layout><CourseEnrollment /></Layout>;
   return (

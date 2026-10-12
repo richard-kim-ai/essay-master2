@@ -7,6 +7,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import ParentLinkRequests from "@/components/ParentLinkRequests";
+import ParentComments from "@/components/ParentComments";
 import StudentLearningSettings from "@/components/StudentLearningSettings";
 import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine, FileText, PenLine, Sparkles } from "lucide-react";
 import { useLocation } from "wouter";
@@ -158,6 +159,7 @@ export default function MyPageHub() {
 
         {user?.role === "user" && user?.tag !== "학부모" && <StudentLearningSettings />}
         {user?.role === "user" && user?.tag !== "학부모" && <ParentLinkRequests />}
+        {user?.role === "user" && user?.tag !== "학부모" && <ParentComments />}
 
         {/* 이번 주 학습 요약: 최근 7일의 실제 기록(워크북 답안·학습 도구·레벨 완료)에서 계산한 값이다 */}
         <div className="grid gap-3 sm:grid-cols-3" data-testid="hub-weekly-summary">

@@ -4,6 +4,7 @@ import {
   getHomePrimaryAction,
 } from "@/lib/homeExperience";
 import { getTrialStatus } from "@/lib/trialExperience";
+import { isParentAccount, PARENT_HOME } from "@/lib/parentAccess";
 import { applyHomeSeo } from "@/lib/homeSeo";
 import { useLearningCourse } from "@/hooks/useLearningCourse";
 import { Link } from "wouter";
@@ -89,9 +90,11 @@ export default function Home() {
   useEffect(() => applyHomeSeo(), []);
   const { user, isAuthenticated } = useAuth();
   const { effectiveCourse, courseLabel, canPersist, needsSelection } = useLearningCourse();
-  const primaryAction = getHomePrimaryAction(isAuthenticated, user?.role);
+  // 학부모 계정은 학습자 허브가 아니라 학부모 포털로 안내한다(학습자 전용 체험·과정 안내도 보이지 않는다).
+  const isParent = isParentAccount(user);
+  const primaryAction = isParent ? { ...getHomePrimaryAction(isAuthenticated, user?.role), href: PARENT_HOME } : getHomePrimaryAction(isAuthenticated, user?.role);
   const trial = getTrialStatus(user?.createdAt);
-  const isLearnerTrial = isAuthenticated && user?.role === "user" && trial?.isActive;
+  const isLearnerTrial = isAuthenticated && user?.role === "user" && !isParent && trial?.isActive;
   const primaryActionLabel = "지금 시작하기";
 
   return (

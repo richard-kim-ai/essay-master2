@@ -98,8 +98,9 @@ describe("첨삭교사 계정의 메뉴", () => {
 
   it("학습자용 메뉴(마이페이지 허브·학습 대시보드·내 글·첨삭 기록·오프라인 보관함·수료증)는 교사 계정에서 숨기고, PC·모바일 모두 같은 조건을 쓴다", () => {
     expect(navigation).toContain('const isTeacherAccount = user?.role === "teacher";');
+    expect(navigation).toContain("const hidesLearnerMenus = isTeacherAccount || isParent;");
     for (const href of ["/mypage", "/dashboard-detail", "/my-writings", "/offline-essays", "/certificate"]) {
-      const matches = navigation.match(new RegExp(`\\{!isTeacherAccount && \\(\\s*<Link href="${href}">`, "g")) ?? [];
+      const matches = navigation.match(new RegExp(`\\{!hidesLearnerMenus && \\(\\s*<Link href="${href}">`, "g")) ?? [];
       expect(matches.length, `${href} 메뉴(PC·모바일 2곳)`).toBe(2);
     }
   });
@@ -112,5 +113,37 @@ describe("첨삭교사 계정의 메뉴", () => {
 
   it("교사가 학습자 허브(/mypage)에 직접 들어오면 교사 마이페이지로 보낸다", () => {
     expect(read("./pages/MyPageHub.tsx")).toContain('setLocation("/teacher-mypage")');
+  });
+});
+
+describe("학부모 계정의 화면 구성", () => {
+  const navigation = read("./components/Navigation.tsx");
+
+  it("상단 메뉴는 학부모 포털·아카이브·요금정책만 두고 학습 도구·커리큘럼은 숨긴다", () => {
+    const block = navigation.slice(navigation.indexOf("const PARENT_NAV_ITEMS"), navigation.indexOf("export default function Navigation"));
+    expect(block).toContain('href: "/parent-portal"');
+    expect(block).not.toContain("학습 도구");
+    expect(block).not.toContain('"/curriculum"');
+    expect(navigation).toContain("const navItems = isParent ? PARENT_NAV_ITEMS : NAV_ITEMS;");
+    // 데스크톱·모바일 메뉴 모두 같은 목록을 쓴다
+    expect(navigation).not.toMatch(/\bNAV_ITEMS\.(map|flatMap)\(/);
+  });
+
+  it("학부모가 학습자 전용 주소로 들어오면 학부모 포털로 보낸다", () => {
+    const app = read("./App.tsx");
+    expect(app).toContain("isParentAccount(user) && isBlockedForParent(path)");
+    expect(app).toContain("<Redirect to={PARENT_HOME} />");
+  });
+
+  it("홈의 '7일 무료 체험 중' 안내와 온보딩 모달, 시작 버튼은 학습자 전용이라 학부모에게는 학부모 포털로 안내한다", () => {
+    const home = read("./pages/Home.tsx");
+    expect(home).toContain('role === "user" && !isParent && trial?.isActive');
+    expect(home).toContain("href: PARENT_HOME");
+    expect(read("./components/OnboardingModal.tsx")).toContain("if (isParent) return null;");
+  });
+
+  it("학생 마이페이지에는 학부모 코멘트 영역을 두고, 학부모 계정에는 두지 않는다", () => {
+    const hub = read("./pages/MyPageHub.tsx");
+    expect(hub).toContain('{user?.role === "user" && user?.tag !== "학부모" && <ParentComments />}');
   });
 });
