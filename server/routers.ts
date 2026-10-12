@@ -1,4 +1,5 @@
 import {chooseLearningCourse, chooseLearningCourseInput} from "./courseEnrollment";
+import { userFacingProviderReason } from "./_core/llmErrors";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { storagePut } from "./storage";
@@ -208,6 +209,11 @@ async function validateSignupConsents(
       consentType: consentTypeForPolicy(document.policyKey),
       accepted: true,
     }));
+}
+
+/** 사용자에게 돌려주는 평가 결과에서 공급자 원문 오류(JSON·키 오류)를 안내 문구로 바꾼다. 원문은 DB의 평가 기록과 서버 로그에만 남는다. */
+function publicEvaluation<T extends { provider_error?: string | null }>(result: T): T {
+  return { ...result, provider_error: userFacingProviderReason(result.provider_error) };
 }
 
 async function assertTeacherEssayAccess(user: { id: number; role: string; teacherStatus?: string | null }, essayId: number) {
@@ -1681,7 +1687,7 @@ export const appRouter = router({
       enforceRateLimit("eval-engine", String(ctx.user.id), RATE_RULES.evalEngineByUser);
       const result = await evaluateWritingWithLLM(input);
       await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
-      return result;
+      return publicEvaluation(result);
     }),
     evaluateAndCorrect: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
       // 학습자용 한도(체험·일일·이용권)를 거치지 않는 도구이므로 승인된 교사와 관리자만 쓰고, 호출 횟수도 제한한다.
@@ -1689,7 +1695,7 @@ export const appRouter = router({
       enforceRateLimit("eval-engine", String(ctx.user.id), RATE_RULES.evalEngineByUser);
       const result = await evaluateWritingWithLLM(input);
       await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
-      return result;
+      return publicEvaluation(result);
     }),
     reevaluate: protectedProcedure.input(z.object({ metadata: z.record(z.string(), z.unknown()), task: z.string().trim().min(1).max(10000), submission: z.object({ essay_text: z.string().trim().min(1).max(20000) }) })).mutation(async ({ ctx, input }) => {
       // 학습자용 한도(체험·일일·이용권)를 거치지 않는 도구이므로 승인된 교사와 관리자만 쓰고, 호출 횟수도 제한한다.
@@ -1697,7 +1703,7 @@ export const appRouter = router({
       enforceRateLimit("eval-engine", String(ctx.user.id), RATE_RULES.evalEngineByUser);
       const result = await evaluateWritingWithLLM(input);
       await db.logAIUsage(ctx.user.id, "writing_evaluation_v1", result.token_usage);
-      return result;
+      return publicEvaluation(result);
     }),
   }),
 
@@ -1737,11 +1743,11 @@ export const appRouter = router({
 
         // AI 호출 전에 사용 기록을 먼저 남겨 동시에 여러 번 보내는 요청이 한도를 넘지 못하게 한다.
         await db.logSampleAiUsage(input.sessionToken, ipHash);
-        return await evaluateWritingWithLLM({
+        return publicEvaluation(await evaluateWritingWithLLM({
           metadata: { source: "sample_experience", ...(input.courseType ? { course_type: input.courseType } : {}) },
           task: input.task,
           submission: { essay_text: input.essayText },
-        });
+        }));
       }),
   }),
 
@@ -1877,7 +1883,7 @@ export const appRouter = router({
         const evaluationRecordId = Number((record as { insertId?: number }).insertId || 0);
         const reviewReasons = getHumanReviewReasons(feedback, heuristic.overallScore, Boolean(input.sourceVerificationFailed));
         if (reviewReasons.length && evaluationRecordId) await db.createEvaluationReviewQueueItem({ evaluationRecordId, userId: ctx.user.id, reasonsJson: JSON.stringify(reviewReasons) });
-        return { ...(savedFeedback as object), ...feedback, id: feedbackId, evaluationRecordId, reviewQueued: reviewReasons.length > 0, personalized: Boolean(learnerHistory) };
+        return { ...(savedFeedback as object), ...feedback, provider_error: userFacingProviderReason(feedback.provider_error), id: feedbackId, evaluationRecordId, reviewQueued: reviewReasons.length > 0, personalized: Boolean(learnerHistory) };
         } catch (error) {
           await releaseAll();
           throw error;

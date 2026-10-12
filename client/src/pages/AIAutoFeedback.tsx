@@ -635,13 +635,16 @@ export default function AIAutoFeedback() {
                         {feedback.correctionStatus === "completed"
                           ? "완료"
                           : feedback.correctionStatus === "fallback"
-                            ? "원문 보존 폴백"
+                            ? "기본 점검 결과 (AI 모델 미사용)"
                             : "처리 실패"}
                       </p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        모델 {feedback.modelId} · 처리 시간 {feedback.latencyMs}
-                        ms
-                      </p>
+                      {/* AI 모델을 쓰지 못한 결과에는 모델명·처리 시간(0ms)을 보여 주지 않는다 */}
+                      {feedback.correctionStatus === "completed" && (
+                        <p className="mt-1 text-xs text-slate-600">
+                          모델 {feedback.modelId} · 처리 시간 {feedback.latencyMs}
+                          ms
+                        </p>
+                      )}
                       {feedback.providerError && (
                         <p className="mt-2 text-xs font-medium text-amber-800">
                           모델 응답을 사용할 수 없어 안전한 기본 점검 결과를

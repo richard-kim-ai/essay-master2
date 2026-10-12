@@ -110,6 +110,8 @@ export async function evaluateWritingWithLLM(request: SemanticEvaluationRequest)
     if (!parsed) throw new Error("LLM_INVALID_EVALUATION_CONTRACT");
     return { ...parsed, fallback_used: false, provider_error: null, token_usage: totalTokens };
   } catch (error) {
+    // 사유 원문은 서버 로그에만 남긴다(사용자에게는 안내 문구로 바꿔 보여 준다).
+    console.warn("[AI 평가] 모델 호출 실패 — 기본 점검 결과로 대체:", error instanceof Error ? error.message.slice(0, 300) : error);
     const fallbackRequest: WritingCorrectionRequest = { essayTitle: String(request.metadata.title ?? "논술 답안"), essayContent: request.submission.essay_text, courseType: "general_adult", level: 1 };
     const fallback = evaluateWritingHeuristic(fallbackRequest);
     return {

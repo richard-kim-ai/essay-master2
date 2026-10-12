@@ -300,6 +300,9 @@ const computeBackoffDelay = (
 
 // Retries non-2xx responses and network errors with exponential backoff, then
 // returns the final Response so callers keep their existing error handling.
+// 키 오류(401·403)나 잘못된 요청(400 등)은 다시 시도해도 같은 결과라 재시도하지 않는다(대기만 길어진다). 시간 초과·과다 요청·서버 오류만 재시도한다.
+const isRetryableStatus = (status: number) => status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+
 const fetchWithBackoff = async (
   url: string,
   init: FetchInit
@@ -309,7 +312,7 @@ const fetchWithBackoff = async (
   for (let attempt = 0; attempt <= RETRY_MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(url, init);
-      if (response.ok || attempt === RETRY_MAX_RETRIES) {
+      if (response.ok || attempt === RETRY_MAX_RETRIES || !isRetryableStatus(response.status)) {
         return response;
       }
 
