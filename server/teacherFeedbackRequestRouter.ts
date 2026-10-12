@@ -10,6 +10,7 @@ import { protectedProcedure, router } from "./_core/trpc";
 import * as billingDb from "./billingDb";
 import { getPaymentProvider } from "./billing/providers";
 import * as db from "./db";
+import { notifyGiftPurchase, resolvePurchaseTarget } from "./giftPurchase";
 import { resolveStudentFunding } from "./institutionDb";
 import { sendPushToUser } from "./push";
 import { RATE_RULES, consumeRateLimit } from "./rateLimit";
@@ -34,12 +35,18 @@ function assertAdmin(user: SessionUser) {
 }
 
 /** 이용권 결제자인지: 현재 이용 중인 유료 이용권(시작한 이용권, 기간 안)이 있어야 하고, 시작 대기 이용권은 포함하지 않는다. */
-async function checkPassHolder(userId: number) {
+async function checkPassHolder(userId: number, forGift = false) {
   const [active, awaiting] = await Promise.all([billingDb.listActiveSubscriptions(userId), billingDb.listAwaitingStartSubscriptions(userId)]);
   const reasons: string[] = [];
   if (active.length === 0) {
-    reasons.push("이용권 결제자만 구매·신청할 수 있습니다. 이용권을 결제하고 이용 중이어야 합니다.");
-    if (awaiting.length > 0) reasons.push("결제한 이용권이 '시작 대기' 상태입니다. 결제 화면에서 '유료 이용 시작'을 눌러 주세요.");
+    if (forGift) {
+      // 학부모가 자녀에게 구매해 주는 경우: 자녀가 이용 중인 이용권이 있어야 첨삭지도권을 받을 수 있다.
+      reasons.push("자녀가 이용 중인 이용권이 있어야 첨삭지도권을 구매해 줄 수 있습니다. 먼저 이용권을 구매해 주세요.");
+      if (awaiting.length > 0) reasons.push("구매한 이용권이 '시작 대기' 상태입니다. 자녀가 이용권 화면에서 '유료 이용 시작'을 누르면 첨삭지도권을 구매할 수 있습니다.");
+    } else {
+      reasons.push("이용권 결제자만 구매·신청할 수 있습니다. 이용권을 결제하고 이용 중이어야 합니다.");
+      if (awaiting.length > 0) reasons.push("결제한 이용권이 '시작 대기' 상태입니다. 결제 화면에서 '유료 이용 시작'을 눌러 주세요.");
+    }
   }
   return { ok: active.length > 0, reasons };
 }
@@ -101,12 +108,16 @@ export const teacherFeedbackRequestRouter = router({
   products: protectedProcedure.query(() => TEACHER_FEEDBACK_PASSES),
 
   /** 내 첨삭지도권(잔여 횟수·유효기간)과 구매 가능 여부(이용권 결제자). */
-  passes: protectedProcedure.query(async ({ ctx }) => {
+  passes: protectedProcedure.input(z.object({ studentId: z.number().int().positive().optional() }).optional()).query(async ({ ctx, input }) => {
     const now = new Date();
-    const learner = ctx.user.role === "user" && ctx.user.tag !== "학부모";
+    // 학부모는 연결된 자녀의 첨삭지도권을 본다(자녀를 고르지 않았거나 연결되지 않았으면 구매 불가 안내).
+    const isParent = ctx.user.role === "user" && ctx.user.tag === "학부모";
+    const learner = ctx.user.role === "user" && !isParent;
+    const giftTarget = isParent && input?.studentId ? await resolvePurchaseTarget(ctx.user, input.studentId).catch(() => null) : null;
+    const subjectId = giftTarget ? giftTarget.beneficiaryId : learner ? ctx.user.id : null;
     const [passes, holder] = await Promise.all([
-      learner ? requestDb.listPassesForUser(ctx.user.id) : Promise.resolve([]),
-      learner ? checkPassHolder(ctx.user.id) : Promise.resolve({ ok: false, reasons: ["학습자 계정만 구매할 수 있습니다."] }),
+      subjectId ? requestDb.listPassesForUser(subjectId) : Promise.resolve([]),
+      subjectId ? checkPassHolder(subjectId, Boolean(giftTarget)) : Promise.resolve({ ok: false, reasons: [isParent ? "첨삭지도권을 받을 자녀를 선택해 주세요. 자녀 계정을 먼저 연결해야 합니다." : "학습자 계정만 구매할 수 있습니다."] }),
     ]);
     return {
       passes: passes.map((pass) => describePass(pass, now)),
@@ -118,19 +129,21 @@ export const teacherFeedbackRequestRouter = router({
 
   /** 첨삭지도권 구매: 이용권 결제자만 가능하다. 결제가 끝나면 권이 만들어진다(구매일부터 유효기간). */
   purchasePass: protectedProcedure
-    .input(z.object({ productKey: passKeySchema }))
+    .input(z.object({ productKey: passKeySchema, /** 학부모가 연결된 자녀에게 구매해 줄 때 자녀의 계정 id */ studentId: z.number().int().positive().optional() }))
     .mutation(async ({ ctx, input }) => {
-      assertLearner(ctx.user);
+      // 학생 본인이면 본인에게, 학부모면 연결을 승인한 자녀에게 지급한다.
+      const target = await resolvePurchaseTarget(ctx.user, input.studentId);
       const limit = consumeRateLimit("checkout", String(ctx.user.id), RATE_RULES.checkoutByUser);
       if (!limit.allowed) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "결제 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." });
       const product = getTeacherFeedbackPass(input.productKey);
       if (!product) throw new TRPCError({ code: "BAD_REQUEST", message: "선택한 첨삭지도권을 찾을 수 없습니다." });
-      const holder = await checkPassHolder(ctx.user.id);
+      const holder = await checkPassHolder(target.beneficiaryId, target.isGift);
       if (!holder.ok) throw new TRPCError({ code: "BAD_REQUEST", message: holder.reasons[0] });
 
       const provider = getPaymentProvider();
       const order = await billingDb.createPaymentOrder({
-        userId: ctx.user.id,
+        userId: target.beneficiaryId,
+        payerUserId: target.payerUserId,
         planKey: product.key,
         amountKrw: product.priceKrw,
         provider: provider.name,
@@ -156,7 +169,7 @@ export const teacherFeedbackRequestRouter = router({
         pass = await requestDb.createPassForPaidOrder({
           orderId: order.id,
           paymentKey: result.paymentKey,
-          userId: ctx.user.id,
+          userId: target.beneficiaryId,
           productKey: product.key,
           sessions: product.sessions,
           priceKrw: product.priceKrw,
@@ -169,7 +182,8 @@ export const teacherFeedbackRequestRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: "교사 첨삭지도권을 저장하지 못했습니다. 결제는 취소되었으니 잠시 후 다시 시도해 주세요." });
       }
       if (!pass) throw new TRPCError({ code: "CONFLICT", message: "이미 처리된 결제입니다." });
-      return { status: "paid" as const, orderId: order.id, redirectUrl: null, isTest: provider.isTest, pass: describePass(pass) };
+      if (target.isGift) await notifyGiftPurchase({ studentId: target.beneficiaryId, parentName: ctx.user.name ?? null, itemName: product.name });
+      return { status: "paid" as const, orderId: order.id, redirectUrl: null, isTest: provider.isTest, pass: describePass(pass), giftedTo: target.isGift ? target.beneficiaryName : null };
     }),
 
   /** 신청 전 안내: 남은 횟수·완료 예정일·담당 교사·신청 가능 여부와 이유. 아무것도 만들지 않는다. */

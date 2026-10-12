@@ -19,6 +19,10 @@ import * as institution from "./institutionDb";
 import { exclusionLabel, isSettlementExcluded, type AutomaticExclusion } from "../shared/institution";
 import { getPaymentProvider } from "./billing/providers";
 import { getAiEntitlement } from "./billing/service";
+import { getUserById } from "./db";
+import { isParentActor, notifyGiftPurchase, resolvePurchaseTarget } from "./giftPurchase";
+import * as requestDb from "./teacherFeedbackRequestDb";
+import { totalRemainingSessions } from "../shared/teacherFeedbackRequest";
 import { RATE_RULES, consumeRateLimit } from "./rateLimit";
 
 type SessionUser = { id: number; role: string; tag?: string | null; teacherStatus?: string | null };
@@ -79,12 +83,31 @@ export const billingRouter = router({
     return { subscriptions: active, awaitingStart, entitlement };
   }),
 
-  myOrders: protectedProcedure.query(({ ctx }) => billingDb.listOrdersForUser(ctx.user.id)),
+  // 학부모는 자녀에게 구매해 준 주문(결제한 사람 기준), 그 밖의 계정은 본인에게 지급된 주문(학부모가 사 준 것 포함)을 본다.
+  myOrders: protectedProcedure.query(({ ctx }) => (isParentActor(ctx.user) ? billingDb.listOrdersByPayer(ctx.user.id) : billingDb.listOrdersForUser(ctx.user.id))),
+
+  /** 학부모가 연결된 자녀의 이용권·남은 횟수를 본다(구매 전에 현재 상태를 확인하는 용도). */
+  studentBilling: protectedProcedure
+    .input(z.object({ studentId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const target = await resolvePurchaseTarget(ctx.user, input.studentId);
+      const student = await getUserById(target.beneficiaryId);
+      if (!student) throw new TRPCError({ code: "NOT_FOUND", message: "자녀 계정을 찾을 수 없습니다." });
+      const now = new Date();
+      const [active, awaitingStart, entitlement, passes] = await Promise.all([
+        billingDb.listActiveSubscriptions(student.id),
+        billingDb.listAwaitingStartSubscriptions(student.id),
+        getAiEntitlement(student),
+        requestDb.listPassesForUser(student.id),
+      ]);
+      return { studentName: student.name, subscriptions: active, awaitingStart, entitlement, passRemaining: totalRemainingSessions(passes, now) };
+    }),
 
   startCheckout: protectedProcedure
-    .input(z.object({ planKey: z.enum(["study", "ai_basic", "ai_focus", "ai_pass"]) }))
+    .input(z.object({ planKey: z.enum(["study", "ai_basic", "ai_focus", "ai_pass"]), /** 학부모가 연결된 자녀에게 구매해 줄 때 자녀의 계정 id */ studentId: z.number().int().positive().optional() }))
     .mutation(async ({ ctx, input }) => {
-      assertLearner(ctx.user);
+      // 학생 본인이면 본인에게, 학부모면 연결을 승인한 자녀에게 이용권을 지급한다.
+      const target = await resolvePurchaseTarget(ctx.user, input.studentId);
       const limit = consumeRateLimit("checkout", String(ctx.user.id), RATE_RULES.checkoutByUser);
       if (!limit.allowed) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "결제 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." });
 
@@ -92,7 +115,8 @@ export const billingRouter = router({
       if (!plan) throw new TRPCError({ code: "BAD_REQUEST", message: "선택한 이용권을 찾을 수 없습니다." });
       const provider = getPaymentProvider();
       const order = await billingDb.createPaymentOrder({
-        userId: ctx.user.id,
+        userId: target.beneficiaryId,
+        payerUserId: target.payerUserId,
         planKey: plan.key,
         amountKrw: plan.priceKrw,
         provider: provider.name,
@@ -122,7 +146,8 @@ export const billingRouter = router({
         periodDays: plan.periodDays,
         aiEvaluationsLimit: plan.aiEvaluations,
       });
-      return { status: "paid" as const, orderId: order.id, redirectUrl: null, isTest: provider.isTest, subscription: subscription ?? null };
+      if (target.isGift && subscription) await notifyGiftPurchase({ studentId: target.beneficiaryId, parentName: ctx.user.name ?? null, itemName: plan.name, needsStart: subscription.awaitingStart === 1 });
+      return { status: "paid" as const, orderId: order.id, redirectUrl: null, isTest: provider.isTest, subscription: subscription ?? null, giftedTo: target.isGift ? target.beneficiaryName : null };
     }),
 
   /**

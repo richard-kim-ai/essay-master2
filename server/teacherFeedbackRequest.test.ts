@@ -28,7 +28,7 @@ vi.mock("./teacherFeedbackRequestDb", () => ({
 }));
 vi.mock("./db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./db")>();
-  return { ...actual, getEssaySubmissionById: vi.fn(), getUserById: vi.fn(), getTeacherFeedbackByEssay: vi.fn() };
+  return { ...actual, getEssaySubmissionById: vi.fn(), getUserById: vi.fn(), getTeacherFeedbackByEssay: vi.fn(), getLinkedStudentsForParent: vi.fn() };
 });
 const fundingState = vi.hoisted(() => ({ kind: "none" as "none" | "contract" }));
 vi.mock("./institutionDb", async (importOriginal) => {
@@ -40,7 +40,10 @@ vi.mock("./push", async (importOriginal) => {
   return { ...actual, sendPushToUser: vi.fn(async () => ({ sent: 0, skipped: true })) };
 });
 
+vi.mock("./giftPurchase", async (importOriginal) => ({ ...(await importOriginal<typeof import("./giftPurchase")>()), notifyGiftPurchase: vi.fn(async () => undefined) }));
+
 import * as billingDb from "./billingDb";
+import { notifyGiftPurchase } from "./giftPurchase";
 import * as db from "./db";
 import * as requestDb from "./teacherFeedbackRequestDb";
 import { appRouter } from "./routers";
@@ -191,12 +194,53 @@ describe("첨삭지도권 목록·구매(passes, purchasePass)", () => {
     expect(status.buyReasons.join(" ")).toContain("유료 이용 시작");
   });
 
-  it("학습자만 구매할 수 있다(학부모·교사·관리자·비로그인 불가)", async () => {
-    for (const user of [parent, teacher, admin]) {
+  it("학습자만 본인에게 구매할 수 있다(교사·관리자·비로그인 불가, 학부모는 자녀를 지정하지 않으면 불가)", async () => {
+    for (const user of [teacher, admin]) {
       await expect(callerFor(user).teacherFeedbackRequest.purchasePass({ productKey: "tf_pass_1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
+    await expect(callerFor(parent).teacherFeedbackRequest.purchasePass({ productKey: "tf_pass_1" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(callerFor(null).teacherFeedbackRequest.purchasePass({ productKey: "tf_pass_1" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(billingDb.createPaymentOrder).not.toHaveBeenCalled();
+  });
+
+  describe("학부모가 연결된 자녀에게 첨삭지도권 구매해 주기", () => {
+    beforeEach(() => {
+      vi.mocked(db.getLinkedStudentsForParent).mockResolvedValue([{ id: 10, name: "홍길동" }] as any);
+    });
+
+    it("자녀가 이용권을 이용 중이면 구매할 수 있고, 권은 자녀 계정에 생기며 주문에는 학부모가 결제자로 기록된다", async () => {
+      const result = await callerFor(parent).teacherFeedbackRequest.purchasePass({ productKey: "tf_pass_3", studentId: 10 });
+      expect(result).toMatchObject({ status: "paid", giftedTo: "홍길동" });
+      expect(billingDb.listActiveSubscriptions).toHaveBeenCalledWith(10);
+      expect(billingDb.createPaymentOrder).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, payerUserId: 11, planKey: "tf_pass_3", amountKrw: 19900 }));
+      expect(requestDb.createPassForPaidOrder).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, productKey: "tf_pass_3", sessions: 3 }));
+      expect(notifyGiftPurchase).toHaveBeenCalledWith(expect.objectContaining({ studentId: 10 }));
+    });
+
+    it("자녀가 이용 중인 이용권이 없으면 먼저 이용권을 구매해 달라고 안내하고 결제하지 않는다", async () => {
+      vi.mocked(billingDb.listActiveSubscriptions).mockResolvedValue([]);
+      await expect(callerFor(parent).teacherFeedbackRequest.purchasePass({ productKey: "tf_pass_1", studentId: 10 })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("자녀가 이용 중인 이용권") });
+      expect(billingDb.createPaymentOrder).not.toHaveBeenCalled();
+      const status = await callerFor(parent).teacherFeedbackRequest.passes({ studentId: 10 });
+      expect(status.canBuy).toBe(false);
+      expect(status.buyReasons.join(" ")).toContain("자녀");
+    });
+
+    it("연결되지 않은 학생에게는 구매할 수 없고, 자녀 없이 조회하면 자녀 선택을 안내한다", async () => {
+      await expect(callerFor(parent).teacherFeedbackRequest.purchasePass({ productKey: "tf_pass_1", studentId: 99 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(billingDb.createPaymentOrder).not.toHaveBeenCalled();
+      const none = await callerFor(parent).teacherFeedbackRequest.passes();
+      expect(none.canBuy).toBe(false);
+      expect(none.buyReasons.join(" ")).toContain("자녀를 선택");
+    });
+
+    it("학부모가 보는 첨삭지도권은 자녀의 것이다", async () => {
+      vi.mocked(requestDb.listPassesForUser).mockResolvedValue([pass({ sessionsUsed: 1 })] as any);
+      const result = await callerFor(parent).teacherFeedbackRequest.passes({ studentId: 10 });
+      expect(requestDb.listPassesForUser).toHaveBeenCalledWith(10);
+      expect(result.totalRemaining).toBe(2);
+      expect(result.canBuy).toBe(true);
+    });
   });
 
   it("건별(핵심·일반·종합) 상품은 더 이상 구매할 수 없다", async () => {

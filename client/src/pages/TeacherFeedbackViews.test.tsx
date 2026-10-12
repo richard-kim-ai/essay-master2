@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: null as any,
+  parentComments: [] as any[],
   rate: vi.fn(),
   addComment: vi.fn(async (..._args: unknown[]) => ({})),
   myRating: null as null | { rating: number; review: string | null; updatedAt: Date },
@@ -34,6 +35,7 @@ vi.mock("@/lib/trpc", () => {
         myRating: { useQuery: () => ({ data: mocks.myRating, isLoading: false }) },
         rate: { useMutation: () => ({ mutate: mocks.rate, isPending: false }) },
       },
+      parent: { commentsForEssay: { useQuery: () => ({ data: mocks.parentComments }) } },
       teacherOperations: { feedbackTemplates: query([]), saveFeedbackTemplate: mutation(), deleteFeedbackTemplate: mutation() },
       teacherAi: { draftsForEssay: query([]), revisionsForDraft: query([]), generateDraft: mutation(), saveDraftRevision: mutation(), approveDraft: mutation() },
     },
@@ -56,6 +58,7 @@ beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.myRating = null;
+  mocks.parentComments = [];
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -63,6 +66,36 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+});
+
+describe("첨삭 결과 보기: 학부모 코멘트 연동", () => {
+  const parentComment = { id: "3", parentName: "홍서방", comment: "근거를 하나 더 써 보자", essayId: 5, essayTitle: "교육과 기술", createdAt: new Date("2026-10-12T09:00:00Z"), legacy: false };
+
+  it("학생이 보는 첨삭 결과에 이 글에 달린 학부모 코멘트가 교사 코멘트와 함께 보인다", async () => {
+    mocks.user = { id: 21, role: "user" };
+    mocks.parentComments = [parentComment];
+    await render();
+    const parent = container.querySelector('[data-testid="essay-parent-comments"]');
+    expect(parent).toBeTruthy();
+    expect(parent!.textContent).toContain("근거를 하나 더 써 보자");
+    expect(parent!.textContent).toContain("홍서방");
+    // 교사 코멘트도 그대로 보인다
+    expect(container.textContent).toContain("근거를 보강하세요");
+  });
+
+  it("교사에게도 같은 글의 학부모 코멘트가 보인다", async () => {
+    mocks.user = { id: 9, role: "teacher", teacherStatus: "approved" };
+    mocks.parentComments = [parentComment];
+    await render();
+    expect(container.querySelector('[data-testid="essay-parent-comments"]')!.textContent).toContain("근거를 하나 더 써 보자");
+  });
+
+  it("학부모 코멘트가 없으면 영역 자체를 보이지 않는다", async () => {
+    mocks.user = { id: 21, role: "user" };
+    mocks.parentComments = [];
+    await render();
+    expect(container.querySelector('[data-testid="essay-parent-comments"]')).toBeNull();
+  });
 });
 
 describe("첨삭 결과 보기: 학생", () => {

@@ -142,6 +142,17 @@ describe("학부모 계정의 화면 구성", () => {
     expect(read("./components/OnboardingModal.tsx")).toContain("if (isParent) return null;");
   });
 
+  it("학부모 메뉴는 PC·모바일 모두 학부모 마이페이지와 '자녀에게 이용권 구매'(/checkout)를 둔다", () => {
+    expect((navigation.match(/<Link href="\/checkout">/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect((navigation.match(/자녀에게 이용권 구매/g) ?? []).length).toBe(2);
+    expect((navigation.match(/학부모 마이페이지 \(자녀 학습 현황\)/g) ?? []).length).toBe(2);
+  });
+
+  it("결제 화면은 학부모에게는 자녀 구매 화면을 보이고, 주소 차단 목록에서 /checkout은 열어 둔다", () => {
+    expect(read("./pages/Checkout.tsx")).toContain("if (isParentAccount(user)) return <ParentPurchase />;");
+    expect(read("./lib/parentAccess.ts")).not.toMatch(/"\/checkout",/);
+  });
+
   it("학생 마이페이지에는 학부모 코멘트 영역을 두고, 학부모 계정에는 두지 않는다", () => {
     const hub = read("./pages/MyPageHub.tsx");
     expect(hub).toContain('{user?.role === "user" && user?.tag !== "학부모" && <ParentComments />}');

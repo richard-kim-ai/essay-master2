@@ -36,10 +36,11 @@ async function requireDb() {
 
 // ========== 주문·이용권 ==========
 
-export async function createPaymentOrder(input: { userId: number; planKey: string; amountKrw: number; provider: string; isTest: boolean; providerOrderId: string }) {
+export async function createPaymentOrder(input: { userId: number; planKey: string; amountKrw: number; provider: string; isTest: boolean; providerOrderId: string; /** 학부모가 자녀에게 구매해 주는 주문이면 결제한 학부모(userId는 이용권을 받는 학생) */ payerUserId?: number | null }) {
   const db = await requireDb();
   await db.insert(paymentOrders).values({
     userId: input.userId,
+    payerUserId: input.payerUserId ?? null,
     planKey: input.planKey,
     amountKrw: input.amountKrw,
     provider: input.provider,
@@ -130,6 +131,12 @@ export async function startSubscription(userId: number, subscriptionId: number, 
 export async function listOrdersForUser(userId: number, limit = 20) {
   const db = await requireDb();
   return db.select().from(paymentOrders).where(eq(paymentOrders.userId, userId)).orderBy(desc(paymentOrders.createdAt)).limit(limit);
+}
+
+/** 학부모가 자녀에게 구매해 준 주문(결제한 사람 기준). */
+export async function listOrdersByPayer(payerUserId: number, limit = 20) {
+  const db = await requireDb();
+  return db.select().from(paymentOrders).where(eq(paymentOrders.payerUserId, payerUserId)).orderBy(desc(paymentOrders.createdAt)).limit(limit);
 }
 
 export async function listOrdersAdmin(input: { status?: "pending" | "paid" | "failed" | "cancelled" | "refunded"; search?: string; limit: number; offset: number }) {

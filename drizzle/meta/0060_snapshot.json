@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "3c27ee2e-9860-4776-a713-35711ef2d6d1",
+  "id": "d59c419f-87a5-400c-9301-d05c42a68874",
   "prevId": "3298a06e-de80-4107-af6c-83993428b43d",
   "tables": {
     "admin_audit_logs": {
@@ -3877,6 +3877,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "essayId": {
+          "name": "essayId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "comment": {
           "name": "comment",
           "type": "text",
@@ -3899,6 +3906,13 @@
           "columns": [
             "studentId",
             "createdAt"
+          ],
+          "isUnique": false
+        },
+        "idx_parent_comments_essayId": {
+          "name": "idx_parent_comments_essayId",
+          "columns": [
+            "essayId"
           ],
           "isUnique": false
         }
@@ -4050,6 +4064,13 @@
           "type": "varchar(80)",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "payerUserId": {
+          "name": "payerUserId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "providerPaymentKey": {

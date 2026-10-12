@@ -5,16 +5,44 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { BookOpen, Award, Bot, ClipboardList, MessageSquare, Send, UserCheck, TrendingUp, ArrowLeft, Link as LinkIcon, UserPlus } from "lucide-react";
+import { BookOpen, Award, Bot, ClipboardList, Gift, Send, UserCheck, TrendingUp, ArrowLeft, Link as LinkIcon, UserPlus } from "lucide-react";
 import { Link } from "wouter";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChildBillingSummary } from "@/components/ParentPurchase";
 
 const formatDate = (value: string | Date | null | undefined) => (value ? new Date(value).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }) : "–");
+
+type EssayComment = { id: string; parentName: string; comment: string; createdAt: Date | string | null };
+
+// 한 편의 글에 남긴 코멘트와 새 코멘트 입력. 글 없이는 코멘트를 보낼 수 없다(학생이 어떤 글에 대한 말인지 알 수 있도록).
+function EssayCommentBox({ essayId, studentId, comments, addComment }: { essayId: number; studentId: number; comments: EssayComment[]; addComment: { mutate: (vars: { studentId: number; essayId: number; comment: string }, options?: { onSuccess?: () => void }) => void; isPending: boolean } }) {
+  const [text, setText] = useState("");
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`essay-comment-box-${essayId}`}>
+      <p className="text-xs font-semibold text-slate-700">이 글에 남긴 코멘트 ({comments.length})</p>
+      {comments.map((item) => (
+        <div key={item.id} className="rounded-md bg-white p-2 text-xs text-slate-700"><p className="whitespace-pre-wrap">{item.comment}</p><p className="mt-1 text-[11px] text-slate-400">{item.parentName} · {item.createdAt ? formatDate(item.createdAt) : "날짜 미상"}</p></div>
+      ))}
+      <form
+        className="space-y-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!text.trim()) return;
+          addComment.mutate({ studentId, essayId, comment: text.trim() }, { onSuccess: () => setText("") });
+        }}
+      >
+        <textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} required placeholder="이 글에 대한 응원이나 지도 한마디를 남겨 보세요." className="min-h-[80px] w-full rounded-lg border border-slate-200 bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <Button type="submit" size="sm" disabled={addComment.isPending} className="gap-1 bg-indigo-600 text-white hover:bg-indigo-700"><Send className="h-3.5 w-3.5" />{addComment.isPending ? "보내는 중..." : "이 글에 코멘트 보내기"}</Button>
+      </form>
+    </div>
+  );
+}
 
 export default function ParentPortal() {
   const [studentEmailInput, setStudentEmailInput] = useState("");
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkedStudentId, setLinkedStudentId] = useState<number | null>(null);
-  const [commentText, setCommentText] = useState("");
+  const [tab, setTab] = useState("overview");
 
   const utils = trpc.useUtils();
   const { data: linkedStudents, isLoading: linkedLoading, refetch: refetchLinked } = trpc.parent.linkedStudents.useQuery();
@@ -49,8 +77,7 @@ export default function ParentPortal() {
 
   const addCommentMutation = trpc.parent.addComment.useMutation({
     onSuccess: () => {
-      toast.success("코멘트를 보냈습니다. 자녀의 마이페이지와 알림에서 볼 수 있습니다.");
-      setCommentText("");
+      toast.success("코멘트를 보냈습니다. 자녀의 첨삭 결과 화면과 알림에서 볼 수 있습니다.");
       refetchDetail();
     },
     onError: (err: any) => {
@@ -62,12 +89,6 @@ export default function ParentPortal() {
     e.preventDefault();
     if (!studentEmailInput.trim()) return;
     linkMutation.mutate({ studentEmail: studentEmailInput.trim().toLowerCase() });
-  };
-
-  const handleAddComment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!commentText.trim() || !linkedStudentId) return;
-    addCommentMutation.mutate({ studentId: linkedStudentId, comment: commentText.trim() });
   };
 
   // 연동된 학생이 처음 로드될 때만 첫 번째 학생을 선택합니다.
@@ -144,9 +165,15 @@ export default function ParentPortal() {
           </Button>
         </Card>
       ) : studentDetail ? (
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Left 2 Cols */}
-          <div className="lg:col-span-2 space-y-6">
+        <Tabs value={tab} onValueChange={setTab} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 sm:max-w-3xl">
+            <TabsTrigger value="overview">학습 현황</TabsTrigger>
+            <TabsTrigger value="writing">글·첨삭</TabsTrigger>
+            <TabsTrigger value="certificates">수료증</TabsTrigger>
+            <TabsTrigger value="billing">이용권·구매</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-6">
             <Card className="border-slate-200 shadow-sm" data-testid="parent-overview">
               <CardHeader>
                 <CardTitle className="text-lg font-bold flex items-center gap-2">
@@ -216,56 +243,6 @@ export default function ParentPortal() {
               </CardContent>
             </Card>
 
-            <Card className="border-slate-200 shadow-sm" data-testid="parent-essays">
-              <CardHeader>
-                <CardTitle className="text-base font-bold flex items-center gap-2"><BookOpen className="h-4 w-4 text-indigo-600" /> 제출한 글과 선생님 첨삭</CardTitle>
-                <CardDescription>제출했거나 첨삭을 받은 글만 보입니다. 작성 중인 초안은 자녀만 볼 수 있습니다.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {studentDetail.essays.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-slate-500" data-testid="no-essays">아직 제출한 글이 없습니다.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {studentDetail.essays.map((essay) => (
-                      <details key={essay.id} className="rounded-xl border border-slate-100 bg-slate-50">
-                        <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 p-4">
-                          <span>
-                            <span className="font-semibold text-sm text-slate-900">{essay.title}</span>
-                            <span className="ml-2 text-xs text-slate-500">{formatDate(essay.submittedAt ?? essay.updatedAt)}</span>
-                          </span>
-                          <span className="flex items-center gap-2">
-                            {essay.teacherScore !== null && <span className="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold">선생님 점수 {essay.teacherScore}점</span>}
-                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${essay.status === "reviewed" ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-slate-600 bg-white border-slate-200"}`}>{essay.status === "reviewed" ? "첨삭 완료" : "제출 완료"}</span>
-                          </span>
-                        </summary>
-                        <div className="space-y-3 border-t border-slate-100 bg-white p-4 text-sm">
-                          <p className="whitespace-pre-wrap leading-6 text-slate-700">{essay.content}</p>
-                          {essay.teacherComment && <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3"><p className="mb-1 text-xs font-semibold text-indigo-700">선생님 총평</p><p className="whitespace-pre-wrap text-slate-700">{essay.teacherComment}</p></div>}
-                        </div>
-                      </details>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200 shadow-sm" data-testid="parent-ai-feedbacks">
-              <CardHeader>
-                <CardTitle className="text-base font-bold flex items-center gap-2"><Bot className="h-4 w-4 text-sky-600" /> AI 첨삭 내역</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {studentDetail.aiFeedbacks.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-slate-500">아직 AI 첨삭 기록이 없습니다.</p>
-                ) : (
-                  <ul className="divide-y divide-slate-100 text-sm">
-                    {studentDetail.aiFeedbacks.map((row) => (
-                      <li key={row.id} className="flex items-center justify-between gap-3 py-2"><span className="text-slate-800">{row.title}</span><span className="shrink-0 text-xs text-slate-500">{row.overallScore !== null ? `${row.overallScore}점` : "기본 점검"} · {formatDate(row.createdAt)}</span></li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-
             <Card className="border-amber-100 shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base font-bold">
@@ -295,43 +272,57 @@ export default function ParentPortal() {
               </CardContent>
             </Card>
 
-            {studentDetail.certificates.length > 0 && (
-              <Card className="border-slate-200 shadow-sm" data-testid="parent-certificates">
-                <CardHeader><CardTitle className="text-base font-bold flex items-center gap-2"><Award className="h-4 w-4 text-indigo-600" /> 취득한 수료증</CardTitle></CardHeader>
-                <CardContent>
-                  <ul className="divide-y divide-slate-100 text-sm">
-                    {studentDetail.certificates.map((cert) => (
-                      <li key={cert.id} className="flex items-center justify-between py-2"><span className="text-slate-800">{cert.title || (cert.certificateType === "graduation_certificate" ? "졸업 수료증" : `${cert.level ?? ""}단계 수료증`)}</span><span className="text-xs text-slate-500">{formatDate(cert.issuedAt)}</span></li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-          </div>
+          </TabsContent>
 
-          {/* Right Col */}
-          <div className="space-y-6">
-            <Card className="border-slate-200 shadow-sm">
+          <TabsContent value="writing" className="space-y-6">
+            <Card className="border-slate-200 shadow-sm" data-testid="parent-essays">
               <CardHeader>
-                <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-indigo-600" /> 자녀에게 응원·지도 코멘트
-                </CardTitle>
-                <CardDescription>남긴 코멘트는 자녀의 마이페이지에 보이고, 알림으로도 전달됩니다.</CardDescription>
+                <CardTitle className="text-base font-bold flex items-center gap-2"><BookOpen className="h-4 w-4 text-indigo-600" /> 제출한 글과 선생님 첨삭</CardTitle>
+                <CardDescription>제출했거나 첨삭을 받은 글만 보입니다. 글을 열면 선생님 총평을 보고, 그 글에 코멘트를 남길 수 있습니다. 작성 중인 초안은 자녀만 볼 수 있습니다.</CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleAddComment} className="space-y-3">
-                  <textarea
-                    placeholder="예: 오늘 논술 과제 수고했어! 논리 전개 방식을 조금 더 다듬어보자."
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    maxLength={1000}
-                    className="w-full min-h-[120px] rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    required
-                  />
-                  <Button type="submit" disabled={addCommentMutation.isPending} className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
-                    <Send className="h-4 w-4" /> {addCommentMutation.isPending ? "등록 중..." : "코멘트 보내기"}
-                  </Button>
-                </form>
+                {studentDetail.essays.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-500" data-testid="no-essays">아직 제출한 글이 없습니다.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {studentDetail.essays.map((essay) => (
+                      <details key={essay.id} className="rounded-xl border border-slate-100 bg-slate-50">
+                        <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 p-4">
+                          <span>
+                            <span className="font-semibold text-sm text-slate-900">{essay.title}</span>
+                            <span className="ml-2 text-xs text-slate-500">{formatDate(essay.submittedAt ?? essay.updatedAt)}</span>
+                          </span>
+                          <span className="flex items-center gap-2">
+                            {essay.teacherScore !== null && <span className="text-xs px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-bold">선생님 점수 {essay.teacherScore}점</span>}
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${essay.status === "reviewed" ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-slate-600 bg-white border-slate-200"}`}>{essay.status === "reviewed" ? "첨삭 완료" : "제출 완료"}</span>
+                          </span>
+                        </summary>
+                        <div className="space-y-3 border-t border-slate-100 bg-white p-4 text-sm">
+                          <p className="whitespace-pre-wrap leading-6 text-slate-700">{essay.content}</p>
+                          {essay.teacherComment && <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3"><p className="mb-1 text-xs font-semibold text-indigo-700">선생님 총평</p><p className="whitespace-pre-wrap text-slate-700">{essay.teacherComment}</p></div>}
+                          <EssayCommentBox essayId={essay.id} comments={studentDetail.comments.filter((item) => item.essayId === essay.id)} addComment={addCommentMutation} studentId={studentDetail.student.id} />
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200 shadow-sm" data-testid="parent-ai-feedbacks">
+              <CardHeader>
+                <CardTitle className="text-base font-bold flex items-center gap-2"><Bot className="h-4 w-4 text-sky-600" /> AI 첨삭 내역</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {studentDetail.aiFeedbacks.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-slate-500">아직 AI 첨삭 기록이 없습니다.</p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 text-sm">
+                    {studentDetail.aiFeedbacks.map((row) => (
+                      <li key={row.id} className="flex items-center justify-between gap-3 py-2"><span className="text-slate-800">{row.title}</span><span className="shrink-0 text-xs text-slate-500">{row.overallScore !== null ? `${row.overallScore}점` : "기본 점검"} · {formatDate(row.createdAt)}</span></li>
+                    ))}
+                  </ul>
+                )}
               </CardContent>
             </Card>
 
@@ -347,15 +338,43 @@ export default function ParentPortal() {
                     {studentDetail.comments.map((item) => (
                       <div key={item.id} className="p-3 rounded-lg bg-indigo-50/40 border border-indigo-100 text-xs text-slate-700 leading-relaxed">
                         <p className="whitespace-pre-wrap">{item.comment}</p>
-                        <p className="mt-1 text-[11px] text-slate-400">{item.parentName} · {item.createdAt ? formatDate(item.createdAt) : "날짜 미상"}</p>
+                        <p className="mt-1 text-[11px] text-slate-400">{item.essayTitle ? `「${item.essayTitle}」 · ` : "글과 연결되지 않은 이전 코멘트 · "}{item.parentName} · {item.createdAt ? formatDate(item.createdAt) : "날짜 미상"}</p>
                       </div>
                     ))}
                   </div>
                 )}
               </CardContent>
             </Card>
-          </div>
-        </div>
+          </TabsContent>
+
+          <TabsContent value="certificates" className="space-y-6">
+            <Card className="border-slate-200 shadow-sm" data-testid="parent-certificates">
+              <CardHeader><CardTitle className="text-base font-bold flex items-center gap-2"><Award className="h-4 w-4 text-indigo-600" /> 취득한 수료증</CardTitle></CardHeader>
+              <CardContent>
+                {studentDetail.certificates.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-500">아직 취득한 수료증이 없습니다.</p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 text-sm">
+                    {studentDetail.certificates.map((cert) => (
+                      <li key={cert.id} className="flex items-center justify-between py-2"><span className="text-slate-800">{cert.title || (cert.certificateType === "graduation_certificate" ? "졸업 수료증" : `${cert.level ?? ""}단계 수료증`)}</span><span className="text-xs text-slate-500">{formatDate(cert.issuedAt)}</span></li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="billing" className="space-y-6">
+            <Card className="space-y-4 border-slate-200 p-5 shadow-sm" data-testid="parent-billing-tab">
+              <div>
+                <h2 className="flex items-center gap-2 text-base font-bold text-slate-900"><Gift className="h-4 w-4 text-indigo-600" /> {studentDetail.student.name || "자녀"} 학생의 이용권</h2>
+                <p className="mt-1 text-xs text-slate-500">이용권과 교사 첨삭지도권은 자녀 계정에 지급됩니다.</p>
+              </div>
+              <ChildBillingSummary studentId={studentDetail.student.id} />
+              <Link href={`/checkout?student=${studentDetail.student.id}`}><Button className="bg-indigo-600 text-white hover:bg-indigo-700">이용권·첨삭지도권 구매해 주기</Button></Link>
+            </Card>
+          </TabsContent>
+        </Tabs>
       ) : null}
 
       {/* Link Student Modal */}

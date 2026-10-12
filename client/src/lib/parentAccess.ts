@@ -10,6 +10,7 @@ export function isParentAccount(user: AccountLike): boolean {
 }
 
 // 학습자 전용 화면의 주소(접두어). 학부모가 직접 주소로 들어와도 포털로 보낸다.
+// 단, /checkout은 학부모가 연결된 자녀에게 이용권을 구매해 주는 화면이라 열어 둔다.
 export const PARENT_BLOCKED_PREFIXES = [
   "/mypage",
   "/dashboard",
@@ -23,7 +24,6 @@ export const PARENT_BLOCKED_PREFIXES = [
   "/ai-guide-history",
   "/teacher-feedback",
   "/certificate",
-  "/checkout",
   "/workbook",
   "/curriculum",
   "/quiz",

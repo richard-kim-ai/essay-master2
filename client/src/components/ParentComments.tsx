@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "wouter";
 import { MessageSquare } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
@@ -21,8 +22,9 @@ export default function ParentComments() {
       <ul className="max-h-80 space-y-2 overflow-y-auto pr-1">
         {data.map((item) => (
           <li key={item.id} className="rounded-xl bg-indigo-50/50 p-3">
+            {item.essayId && <Link href={`/teacher-feedback/${item.essayId}`} className="mb-1 block text-xs font-semibold text-indigo-700 underline underline-offset-2">「{item.essayTitle || "내 글"}」 첨삭 결과에서 보기</Link>}
             <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">{item.comment}</p>
-            <p className="mt-1 text-xs text-slate-500">{item.parentName}{item.createdAt ? ` · ${formatDate(item.createdAt)}` : ""}</p>
+            <p className="mt-1 text-xs text-slate-500">{item.parentName}{item.essayId ? "" : " · 글과 연결되지 않은 이전 코멘트"}{item.createdAt ? ` · ${formatDate(item.createdAt)}` : ""}</p>
           </li>
         ))}
       </ul>

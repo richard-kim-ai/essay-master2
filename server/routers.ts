@@ -42,7 +42,7 @@ import { budgetOps as institutionBudgetOps, resolveStudentFunding } from "./inst
 import * as tfRequestDb from "./teacherFeedbackRequestDb";
 import { teacherFeedbackRequestRouter } from "./teacherFeedbackRequestRouter";
 import * as billingDb from "./billingDb";
-import { addParentComment, listParentCommentsForStudent } from "./parentCommentDb";
+import { addParentComment, assertCommentableEssay, listParentCommentsForEssay, listParentCommentsForStudent } from "./parentCommentDb";
 import { getParentStudentOverview } from "./parentPortalDb";
 import { AI_ACTION_PLAN, AI_ACTION_TRIAL, getAiEntitlement, planActionType, planActionTypes } from "./billing/service";
 import { consumeRateLimit, RATE_RULES, type RateLimitRule } from "./rateLimit";
@@ -2872,24 +2872,43 @@ export const appRouter = router({
         // 화면에 필요한 실제 학습 기록만 내려보낸다(자녀 이메일·운영자 메모·작성 중 초안 제외).
         return getParentStudentOverview(input.studentId);
       }),
+    // 학부모가 연결된 자녀의 "제출한 글"에 코멘트를 남긴다. 글 없이는 보낼 수 없다(학생에게 맥락이 없는 코멘트가 되므로).
     addComment: protectedProcedure
-      .input(z.object({ studentId: z.number(), comment: z.string().min(1).max(1000) }))
+      .input(z.object({ studentId: z.number(), essayId: z.number().int().positive(), comment: z.string().trim().min(1).max(1000) }))
       .mutation(async ({ ctx, input }) => {
+        if (ctx.user.role !== "user" || ctx.user.tag !== "학부모") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "학부모 계정만 코멘트를 남길 수 있습니다." });
+        }
         const linked = await db.getLinkedStudentsForParent(ctx.user.id);
-        const isAuthorized = ctx.user.role === "admin" || linked.some(s => s.id === input.studentId);
-        if (!isAuthorized) {
+        if (!linked.some(s => s.id === input.studentId)) {
           throw new TRPCError({ code: "FORBIDDEN", message: "해당 학생에게 코멘트를 남길 권한이 없습니다." });
         }
-        const studentUser = await db.getUserById(input.studentId);
-        if (!studentUser) throw new TRPCError({ code: "NOT_FOUND", message: "학생을 찾을 수 없습니다." });
-        // 학생 본인이 읽을 수 있도록 전용 테이블에 저장한다(운영자 메모에는 쓰지 않는다). 학생에게 알림도 보낸다.
+        // 자녀가 제출했거나 첨삭을 받은 글인지 확인한다(초안·남의 글·삭제된 글은 거절).
+        const essayTitle = await assertCommentableEssay(input.studentId, input.essayId);
+        // 학생 본인이 읽을 수 있도록 전용 테이블에 글과 연결해 저장한다(운영자 메모에는 쓰지 않는다). 학생에게 알림도 보낸다.
         try {
-          await addParentComment({ studentId: input.studentId, parentId: ctx.user.id, parentName: ctx.user.name, comment: input.comment });
+          await addParentComment({ studentId: input.studentId, parentId: ctx.user.id, parentName: ctx.user.name, essayId: input.essayId, essayTitle, comment: input.comment });
         } catch (error) {
           console.error("[parent.addComment] 저장 실패:", error instanceof Error ? error.message : error);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "코멘트를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요." });
         }
         return true;
+      }),
+    // 한 편의 글에 달린 학부모 코멘트. 글을 쓴 학생, 연결된 학부모, 담당 교사·관리자가 첨삭 결과 화면에서 교사 코멘트와 함께 본다.
+    commentsForEssay: protectedProcedure
+      .input(z.object({ essayId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        const essay = await db.getEssaySubmissionById(input.essayId);
+        if (!essay) throw new TRPCError({ code: "NOT_FOUND", message: "글을 찾을 수 없습니다." });
+        let allowed = ctx.user.role === "admin" || essay.userId === ctx.user.id;
+        if (!allowed && ctx.user.role === "user" && ctx.user.tag === "학부모") {
+          allowed = (await db.getLinkedStudentsForParent(ctx.user.id)).some(s => s.id === essay.userId);
+        }
+        if (!allowed && ctx.user.role === "teacher") {
+          allowed = await assertTeacherEssayAccess(ctx.user, input.essayId).then(() => true, () => false);
+        }
+        if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: "이 글의 코멘트를 볼 권한이 없습니다." });
+        return listParentCommentsForEssay(input.essayId);
       }),
     // 학생 본인이 받은 학부모 코멘트(최신순). 학부모·교사·관리자 계정은 받는 쪽이 아니므로 빈 목록을 돌려준다.
     myComments: protectedProcedure.query(async ({ ctx }) => {

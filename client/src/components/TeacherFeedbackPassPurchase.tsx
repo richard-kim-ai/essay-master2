@@ -14,9 +14,9 @@ function formatDate(value: Date | string) {
  * 교사 첨삭지도권 구매·보유 현황. 일반 첨삭 1종을 1·3·5회분으로 판매하고, 신청할 때마다 1회씩 차감한다.
  * 이용권(학습형·AI 기본형·AI 집중형·AI 추가권)을 이용 중인 학습자만 구매할 수 있다.
  */
-export default function TeacherFeedbackPassPurchase({ compact = false }: { compact?: boolean }) {
+export default function TeacherFeedbackPassPurchase({ compact = false, studentId }: { compact?: boolean; /** 학부모가 연결된 자녀에게 구매해 줄 때 자녀의 계정 id */ studentId?: number }) {
   const utils = trpc.useUtils();
-  const query = trpc.teacherFeedbackRequest.passes.useQuery();
+  const query = trpc.teacherFeedbackRequest.passes.useQuery(studentId ? { studentId } : undefined);
   const plans = trpc.billing.plans.useQuery();
   const [selected, setSelected] = useState<TeacherFeedbackPassKey>("tf_pass_3");
   const purchase = trpc.teacherFeedbackRequest.purchasePass.useMutation({
@@ -25,7 +25,7 @@ export default function TeacherFeedbackPassPurchase({ compact = false }: { compa
         window.location.assign(result.redirectUrl);
         return;
       }
-      toast.success("교사 첨삭지도권을 구매했습니다. 글쓰기 화면에서 교사 첨삭을 신청할 수 있어요.");
+      toast.success(studentId ? `${result.giftedTo || "자녀"} 학생에게 교사 첨삭지도권을 구매했습니다. 자녀가 글쓰기 화면에서 교사 첨삭을 신청할 수 있어요.` : "교사 첨삭지도권을 구매했습니다. 글쓰기 화면에서 교사 첨삭을 신청할 수 있어요.");
       await Promise.all([utils.teacherFeedbackRequest.passes.invalidate(), utils.teacherFeedbackRequest.quote.invalidate(), utils.billing.myOrders.invalidate()]);
     },
     onError: (error) => toast.error(error.message || "교사 첨삭지도권을 구매하지 못했습니다."),
@@ -75,7 +75,7 @@ export default function TeacherFeedbackPassPurchase({ compact = false }: { compa
       {data && !data.canBuy && (
         <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="status">
           <ul className="list-disc space-y-1 pl-5">{data.buyReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-          <Link href="/checkout"><Button size="sm" className="bg-indigo-600 text-white hover:bg-indigo-700">이용권 결제하러 가기</Button></Link>
+          <Link href="/checkout"><Button size="sm" className="bg-indigo-600 text-white hover:bg-indigo-700">{studentId ? "자녀에게 이용권 구매하기" : "이용권 결제하러 가기"}</Button></Link>
         </div>
       )}
 
@@ -85,7 +85,7 @@ export default function TeacherFeedbackPassPurchase({ compact = false }: { compa
 
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 p-3">
         <p className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />{product ? `${product.name} · ${formatKrw(product.priceKrw)}` : ""}</p>
-        <Button className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={purchase.isPending || !data?.canBuy} onClick={() => purchase.mutate({ productKey: selected })}>
+        <Button className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={purchase.isPending || !data?.canBuy} onClick={() => purchase.mutate({ productKey: selected, ...(studentId ? { studentId } : {}) })}>
           {purchase.isPending ? "결제 중..." : "첨삭지도권 구매"}
         </Button>
       </div>

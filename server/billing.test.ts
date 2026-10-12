@@ -9,6 +9,7 @@ vi.mock("./billingDb", () => ({
   listAwaitingStartSubscriptions: vi.fn(),
   startSubscription: vi.fn(),
   listOrdersForUser: vi.fn(),
+  listOrdersByPayer: vi.fn(),
   listOrdersAdmin: vi.fn(),
   summarizeBilling: vi.fn(),
   listSubscriptionsAdmin: vi.fn(),
@@ -43,7 +44,13 @@ vi.mock("./institutionDb", () => ({
   resolveStudentFunding: vi.fn(async () => ({ kind: "none" })),
 }));
 
+vi.mock("./db", async (importOriginal) => ({ ...(await importOriginal<typeof import("./db")>()), getLinkedStudentsForParent: vi.fn(), getUserById: vi.fn() }));
+vi.mock("./giftPurchase", async (importOriginal) => ({ ...(await importOriginal<typeof import("./giftPurchase")>()), notifyGiftPurchase: vi.fn(async () => undefined) }));
+vi.mock("./teacherFeedbackRequestDb", async (importOriginal) => ({ ...(await importOriginal<typeof import("./teacherFeedbackRequestDb")>()), listPassesForUser: vi.fn(async () => []) }));
+
 import * as billingDb from "./billingDb";
+import * as db from "./db";
+import { notifyGiftPurchase } from "./giftPurchase";
 import * as institution from "./institutionDb";
 import { appRouter } from "./routers";
 import { getPaymentProvider, mockProvider } from "./billing/providers";
@@ -243,12 +250,63 @@ describe("이용권 결제(billing)", () => {
     await expect(callerFor(student).billing.startCheckout({ planKey: "starter" as any })).rejects.toThrow();
   });
 
-  it("학습자만 결제할 수 있다(학부모·교사·관리자·비로그인 불가)", async () => {
-    for (const user of [parent, teacher, admin]) {
+  it("학습자만 본인에게 결제할 수 있다(교사·관리자·비로그인 불가, 학부모는 자녀를 지정하지 않으면 불가)", async () => {
+    for (const user of [teacher, admin]) {
       await expect(callerFor(user).billing.startCheckout({ planKey: "ai_basic" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
+    await expect(callerFor(parent).billing.startCheckout({ planKey: "ai_basic" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("자녀를 선택") });
     await expect(callerFor(null).billing.startCheckout({ planKey: "ai_basic" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(billingDb.createPaymentOrder).not.toHaveBeenCalled();
+  });
+
+  it("본인 결제는 결제자를 따로 기록하지 않는다", async () => {
+    await callerFor(student).billing.startCheckout({ planKey: "ai_basic" });
+    expect(billingDb.createPaymentOrder).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, payerUserId: null }));
+    expect(notifyGiftPurchase).not.toHaveBeenCalled();
+  });
+
+  describe("학부모가 연결된 자녀에게 구매해 주기", () => {
+    beforeEach(() => {
+      vi.mocked(db.getLinkedStudentsForParent).mockResolvedValue([{ id: 10, name: "홍길동" }] as any);
+    });
+
+    it("이용권은 자녀(학생) 계정에 지급되고 주문에는 결제한 학부모가 기록되며, 자녀에게 알림이 간다", async () => {
+      const result = await callerFor(parent).billing.startCheckout({ planKey: "ai_basic", studentId: 10 });
+      expect(result).toMatchObject({ status: "paid", giftedTo: "홍길동" });
+      expect(billingDb.createPaymentOrder).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, payerUserId: 11, planKey: "ai_basic", amountKrw: 24900 }));
+      expect(notifyGiftPurchase).toHaveBeenCalledWith(expect.objectContaining({ studentId: 10, itemName: getPlanName("ai_basic"), needsStart: true }));
+    });
+
+    it("연결을 승인하지 않은 학생에게는 구매해 줄 수 없다", async () => {
+      await expect(callerFor(parent).billing.startCheckout({ planKey: "ai_basic", studentId: 99 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(billingDb.createPaymentOrder).not.toHaveBeenCalled();
+    });
+
+    it("학생·교사가 다른 학생 id를 보내 대신 결제할 수는 없다", async () => {
+      await expect(callerFor(student).billing.startCheckout({ planKey: "ai_basic", studentId: 77 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(callerFor(teacher).billing.startCheckout({ planKey: "ai_basic", studentId: 10 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(billingDb.createPaymentOrder).not.toHaveBeenCalled();
+    });
+
+    it("학부모의 결제 내역은 자녀에게 구매해 준 주문(결제한 사람 기준)이다", async () => {
+      vi.mocked(billingDb.listOrdersByPayer).mockResolvedValue([{ id: 1 }] as any);
+      vi.mocked(billingDb.listOrdersForUser).mockResolvedValue([{ id: 2 }] as any);
+      expect(await callerFor(parent).billing.myOrders()).toEqual([{ id: 1 }]);
+      expect(billingDb.listOrdersByPayer).toHaveBeenCalledWith(11);
+      expect(await callerFor(student).billing.myOrders()).toEqual([{ id: 2 }]);
+    });
+
+    it("학부모는 연결된 자녀의 이용권 상태를 볼 수 있고, 연결되지 않은 학생은 볼 수 없다", async () => {
+      vi.mocked(db.getUserById).mockResolvedValue({ id: 10, name: "홍길동", role: "user", tag: "중고등", createdAt: new Date() } as any);
+      vi.mocked(billingDb.listActiveSubscriptions).mockResolvedValue([{ id: 3, planKey: "ai_basic", aiEvaluationsLimit: 10, currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 86400000), status: "active" }] as any);
+      vi.mocked(billingDb.listAwaitingStartSubscriptions).mockResolvedValue([] as any);
+      vi.mocked(billingDb.countAiUsage).mockResolvedValue(0 as any);
+      const result = await callerFor(parent).billing.studentBilling({ studentId: 10 });
+      expect(result.studentName).toBe("홍길동");
+      expect(result.subscriptions).toHaveLength(1);
+      expect(result.passRemaining).toBe(0);
+      await expect(callerFor(parent).billing.studentBilling({ studentId: 99 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
   });
 
   it("실제 제공자가 연동되지 않은 상태에서는 이용권을 만들지 않고 실패 처리한다", async () => {

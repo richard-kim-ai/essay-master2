@@ -2,6 +2,9 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+const auth = vi.hoisted(() => ({ user: null as null | { role: string; tag: string } }));
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: auth.user }) }));
+
 vi.mock("@/components/Navigation", () => ({
   default: () => <nav aria-label="주요 메뉴" />,
 }));
@@ -56,6 +59,20 @@ describe("Pricing policy page", () => {
     // 한 개의 h1만 있고, 교사 첨삭지도권 제목은 h2이다.
     expect((html.match(/<h1/g) ?? []).length).toBe(1);
     expect(html).toMatch(/<h2 id="teacher-pass-title"/);
+  });
+});
+
+describe("학부모 계정의 요금정책", () => {
+  it("학부모에게는 구매 버튼이 '자녀에게 구매해 주기'로 보이고, 학습자에게는 기존 문구가 보인다", () => {
+    auth.user = { role: "user", tag: "학부모" };
+    const parentHtml = renderToStaticMarkup(<Pricing />);
+    expect(parentHtml).toContain("자녀에게 구매해 주기");
+    expect(parentHtml).not.toContain("이용권 시작하기");
+    auth.user = { role: "user", tag: "고등/대입" };
+    const studentHtml = renderToStaticMarkup(<Pricing />);
+    expect(studentHtml).toContain("이용권 시작하기");
+    expect(studentHtml).not.toContain("자녀에게 구매해 주기");
+    auth.user = null;
   });
 });
 

@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import LoginRequired from "@/components/LoginRequired";
+import EssayParentComments from "@/components/EssayParentComments";
 import TeacherRatingWidget from "@/components/TeacherRatingWidget";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -316,6 +317,9 @@ export default function TeacherFeedback() {
                 </div>}
               </CardContent>
             </Card>
+
+            {/* 학부모가 이 글에 남긴 코멘트(교사 코멘트 바로 아래) */}
+            <EssayParentComments essayId={essayId} />
           </div>
 
           {/* 학생: 읽기 전용 첨삭 결과 / 교사·관리자: 첨삭 작성 폼 */}

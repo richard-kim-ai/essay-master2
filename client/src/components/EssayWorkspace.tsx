@@ -32,6 +32,7 @@ import { trpc } from "@/lib/trpc";
 import TeacherFeedbackRequestDialog from "@/components/TeacherFeedbackRequestDialog";
 import MyTeacherFeedbackRequests from "@/components/MyTeacherFeedbackRequests";
 import AiFeedbackPanel from "@/components/AiFeedbackPanel";
+import EssayParentComments from "@/components/EssayParentComments";
 import { toast } from "sonner";
 import { useEssayWorkspace } from "@/hooks/useEssayWorkspace";
 import {
@@ -875,6 +876,7 @@ export default function EssayWorkspace({
                       </p>
                     </section>
                   )}
+                  <EssayParentComments essayId={selected?.id} />
                   {(ai || teacher) && (
                     <Button
                       variant="outline"

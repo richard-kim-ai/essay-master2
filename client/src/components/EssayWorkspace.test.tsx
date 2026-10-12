@@ -9,6 +9,7 @@ const mock = vi.hoisted(() => ({
     loading: false,
   } as any,
   remote: [] as any[],
+  parentComments: [] as any[],
   sync: vi.fn(),
   teacher: vi.fn(),
   ai: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("@/lib/trpc", () => ({
         useQuery: () => ({ data: mock.remote, refetch: mock.refetch }),
       },
     },
+    parent: { commentsForEssay: { useQuery: () => ({ data: mock.parentComments }) } },
     aiAutoFeedback: {
       create: { useMutation: () => ({ mutateAsync: mock.ai }) },
       getTodayQuota: {

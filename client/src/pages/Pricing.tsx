@@ -1,7 +1,9 @@
 import React from "react";
 import { CheckCircle2, LockKeyhole, MessageCircle, Sparkles } from "lucide-react";
 import { Link } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { CONTACT_MAILTO } from "@/lib/contact";
+import { isParentAccount } from "@/lib/parentAccess";
 import { PLANS, TEACHER_FEEDBACK_ELIGIBILITY_NOTICE, TEACHER_FEEDBACK_PASSES, TEACHER_FEEDBACK_PURCHASE_OPEN, formatKrw } from "@shared/plans";
 
 const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2";
@@ -67,6 +69,9 @@ function SectionHeading({ eyebrow, id, title, children }: { eyebrow: string; id:
 }
 
 export default function Pricing() {
+  // 학부모 계정은 연결된 자녀에게 구매해 줄 수 있다(구매 화면에서 자녀를 고른다).
+  const { user } = useAuth();
+  const parent = isParentAccount(user);
   return (
     <div className="overflow-x-hidden bg-[#f7f9fc] text-slate-950">
       <div className="relative isolate">
@@ -114,7 +119,7 @@ export default function Pricing() {
                   <p className="mt-4 min-h-[3rem] text-sm leading-6 text-slate-600">{plan.description}</p>
                   <div className="mt-5 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 border-b border-slate-200/80 pb-5"><span className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{plan.price}</span><span className="text-xs font-bold text-slate-500">{plan.period}</span></div>
                   <ul className="mt-5 flex-1 space-y-3">{plan.features.map((feature) => <li key={feature} className="flex items-start gap-2 text-sm font-semibold leading-5 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" /><span>{feature}</span></li>)}</ul>
-                  <Link href={plan.href} className={`mt-5 h-10 px-4 text-sm ${PRIMARY_BUTTON}`}>이용권 시작하기</Link>
+                  <Link href={plan.href} className={`mt-5 h-10 px-4 text-sm ${PRIMARY_BUTTON}`}>{parent ? "자녀에게 구매해 주기" : "이용권 시작하기"}</Link>
                 </article>
               ))}
             </div>
@@ -137,7 +142,7 @@ export default function Pricing() {
                   <p className="mt-4 min-h-[3rem] text-sm leading-6 text-slate-600">일반 첨삭 {product.sessions}회를 구매일부터 {product.periodDays}일 안에 사용합니다.</p>
                   <div className="mt-5 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 border-b border-slate-200/80 pb-5"><span className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{product.price}</span><span className="text-xs font-bold text-slate-500">/{product.sessions}회</span></div>
                   <ul className="mt-5 flex-1 space-y-3">{product.features.map((feature) => <li key={feature} className="flex items-start gap-2 text-sm font-semibold leading-5 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" /><span>{feature}</span></li>)}</ul>
-                  <Link href="/checkout" className={`mt-5 h-10 px-4 text-sm ${PRIMARY_BUTTON}`}>첨삭지도권 구매하기</Link>
+                  <Link href="/checkout" className={`mt-5 h-10 px-4 text-sm ${PRIMARY_BUTTON}`}>{parent ? "자녀에게 구매해 주기" : "첨삭지도권 구매하기"}</Link>
                 </article>
               ))}
             </div>

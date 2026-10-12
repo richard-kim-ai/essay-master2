@@ -7,6 +7,8 @@ import LoginRequired from "@/components/LoginRequired";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import TeacherFeedbackPassPurchase from "@/components/TeacherFeedbackPassPurchase";
+import ParentPurchase from "@/components/ParentPurchase";
+import { isParentAccount } from "@/lib/parentAccess";
 import { trpc } from "@/lib/trpc";
 import { PLANS, formatKrw, getPlan, getPlanName, type PlanKey } from "@shared/plans";
 
@@ -54,6 +56,8 @@ export default function Checkout() {
   });
 
   if (!isAuthenticated) return <LoginRequired />;
+  // 학부모는 연결된 자녀에게 이용권·첨삭지도권을 구매해 준다(지급 대상은 자녀 계정).
+  if (isParentAccount(user)) return <ParentPurchase />;
   if (!learner) {
     return (
       <div className="mx-auto max-w-xl px-4 py-16 text-center">

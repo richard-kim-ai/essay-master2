@@ -20,6 +20,7 @@ vi.mock("@/lib/trpc", () => {
         addComment: { useMutation: () => ({ mutate: mocks.addComment, isPending: false }) },
         myComments: { useQuery: () => ({ data: mocks.myComments }) },
       },
+      billing: { studentBilling: { useQuery: () => ({ data: { studentName: "홍길동", subscriptions: [], awaitingStart: [], entitlement: { mode: "trial", used: 1, limit: 2, remaining: 1 }, passRemaining: 3 }, isLoading: false }) } },
     },
   };
 });
@@ -40,7 +41,7 @@ const detail = (over: Record<string, unknown> = {}) => ({
   classAssignments: [],
   analytics: { skills: [{ key: "structure", label: "구조력", value: 56, samples: 3, source: "ai" }, { key: "summary", label: "요약", value: null, samples: 0, source: "tool" }], weekly: [], totals: {} },
   weekly: { solvedThisWeek: 4, solvedLastWeek: 1, solvedDiff: 3, accuracyRate: 75, accuracyDiffPercent: null, completedModules: 1, activeDays: 2 },
-  comments: [{ id: "9", parentName: "홍서방", comment: "힘내라", createdAt: date, legacy: false }],
+  comments: [{ id: "9", parentName: "홍서방", comment: "힘내라", essayId: 1, essayTitle: "교육과 기술", createdAt: date, legacy: false }, { id: "legacy-0", parentName: "홍서방", comment: "예전 코멘트", essayId: null, essayTitle: null, createdAt: date, legacy: true }],
   ...over,
 });
 
@@ -60,6 +61,11 @@ afterEach(() => {
 });
 
 const render = (node: React.ReactNode) => act(() => root.render(node));
+// Radix 탭은 마우스 누름으로 전환된다.
+const openTab = (label: string) => {
+  const tab = Array.from(container.querySelectorAll('[role="tab"]')).find((el) => el.textContent === label) as HTMLElement;
+  act(() => { tab.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 })); });
+};
 
 describe("학부모 포털 — 자녀의 실제 학습 현황", () => {
   it("자녀의 학습 과정과 완료 단원·제출 글·AI 첨삭 수를 보여 준다", () => {
@@ -72,6 +78,7 @@ describe("학부모 포털 — 자녀의 실제 학습 현황", () => {
 
   it("제출한 글의 제목·본문·교사 점수와 총평을 보여 준다", () => {
     render(<ParentPortal />);
+    openTab("글·첨삭");
     const essays = container.querySelector('[data-testid="parent-essays"]')!.textContent!;
     for (const text of ["교육과 기술", "기술은 교육을 바꾼다.", "선생님 점수 77점", "논리가 좋습니다.", "첨삭 완료", "제출 완료"]) expect(essays).toContain(text);
   });
@@ -86,6 +93,7 @@ describe("학부모 포털 — 자녀의 실제 학습 현황", () => {
   it("기록이 없는 능력은 '측정 전', 기본 점검으로 대체된 AI 첨삭은 점수 대신 '기본 점검'으로 표시한다", () => {
     render(<ParentPortal />);
     expect(container.querySelector('[data-testid="parent-growth"]')!.textContent).toContain("측정 전");
+    openTab("글·첨삭");
     const ai = container.querySelector('[data-testid="parent-ai-feedbacks"]')!.textContent!;
     expect(ai).toContain("64점");
     expect(ai).toContain("기본 점검");
@@ -94,6 +102,7 @@ describe("학부모 포털 — 자녀의 실제 학습 현황", () => {
   it("제출한 글이 없으면 안내를 보이고, 코멘트가 없으면 빈 상태를 보인다", () => {
     mocks.detail = detail({ essays: [], comments: [] });
     render(<ParentPortal />);
+    openTab("글·첨삭");
     expect(container.querySelector('[data-testid="no-essays"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="no-comments"]')).not.toBeNull();
   });
@@ -102,6 +111,61 @@ describe("학부모 포털 — 자녀의 실제 학습 현황", () => {
     mocks.detail = detail({ student: { id: 28, name: "홍길동", courseType: null, courseLabel: null, createdAt: date, lastSignedIn: date } });
     render(<ParentPortal />);
     expect(container.querySelector('[data-testid="child-course"]')!.textContent).toContain("과정을 선택하지 않았습니다");
+  });
+});
+
+describe("학부모 포털 — 코멘트는 글과 연결해서만 보낸다", () => {
+  it("제출한 글마다 코멘트 입력이 있고, 그 글에 남긴 코멘트만 그 글 아래에 보인다", () => {
+    render(<ParentPortal />);
+    openTab("글·첨삭");
+    const first = container.querySelector('[data-testid="essay-comment-box-1"]')!;
+    const second = container.querySelector('[data-testid="essay-comment-box-2"]')!;
+    expect(first.textContent).toContain("힘내라");
+    expect(first.textContent).not.toContain("예전 코멘트");
+    expect(second.textContent).toContain("이 글에 남긴 코멘트 (0)");
+    expect(first.querySelector("textarea")).not.toBeNull();
+  });
+
+  it("글 없이 보내는 코멘트 입력은 없다 — 제출한 글이 없으면 입력 자체가 나오지 않는다", () => {
+    mocks.detail = detail({ essays: [] });
+    render(<ParentPortal />);
+    openTab("글·첨삭");
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(container.querySelector('[data-testid="no-essays"]')).not.toBeNull();
+  });
+
+  it("글에 코멘트를 보내면 자녀 id·글 id·내용을 함께 서버로 보낸다", () => {
+    render(<ParentPortal />);
+    openTab("글·첨삭");
+    const box = container.querySelector('[data-testid="essay-comment-box-2"]')!;
+    const textarea = box.querySelector("textarea")!;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(textarea, "  환경 글 잘 읽었어  ");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => { box.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(mocks.addComment).toHaveBeenCalledTimes(1);
+    expect(mocks.addComment.mock.calls[0][0]).toEqual({ studentId: 28, essayId: 2, comment: "환경 글 잘 읽었어" });
+  });
+
+  it("보낸 코멘트 목록은 어느 글에 대한 것인지 보여 주고, 글과 연결되지 않은 옛 코멘트는 그렇게 표시한다", () => {
+    render(<ParentPortal />);
+    openTab("글·첨삭");
+    const text = container.textContent!;
+    expect(text).toContain("「교육과 기술」");
+    expect(text).toContain("글과 연결되지 않은 이전 코멘트");
+  });
+});
+
+describe("학부모 포털 — 자녀 이용권", () => {
+  it("이용권·구매 탭에서 자녀의 이용권 상태를 보고 구매 화면(자녀 지정)으로 이동할 수 있다", () => {
+    render(<ParentPortal />);
+    openTab("이용권·구매");
+    const tab = container.querySelector('[data-testid="parent-billing-tab"]')!;
+    expect(tab.textContent).toContain("교사 첨삭지도권 남은 횟수");
+    expect(tab.querySelector('[data-testid="child-pass-remaining"]')!.textContent).toBe("3회");
+    expect(tab.querySelector('a[href="/checkout?student=28"]')).not.toBeNull();
   });
 });
 

@@ -116,10 +116,13 @@ export const parentComments = mysqlTable("parent_comments", {
   parentId: int("parentId").notNull(),
   // 작성 당시 학부모 이름(이름을 바꿔도 기록은 그대로).
   parentName: varchar("parentName", { length: 100 }),
+  /** 코멘트가 달린 학생의 글(essay_submission.id). 글과 연결된 코멘트만 새로 만들 수 있다(옛 기록은 비어 있다). */
+  essayId: int("essayId"),
   comment: text("comment").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   idxStudentCreated: index("idx_parent_comments_studentId_createdAt").on(table.studentId, table.createdAt),
+  idxEssayId: index("idx_parent_comments_essayId").on(table.essayId),
 }));
 
 export type ParentComment = typeof parentComments.$inferSelect;
@@ -1172,6 +1175,8 @@ export const paymentOrders = mysqlTable("payment_orders", {
   status: mysqlEnum("status", ["pending", "paid", "failed", "cancelled", "refunded"]).default("pending").notNull(),
   provider: varchar("provider", { length: 32 }).notNull(),
   providerOrderId: varchar("providerOrderId", { length: 80 }).notNull().unique(),
+  /** 학부모가 연결된 자녀에게 구매해 준 주문이면 결제한 학부모의 계정. userId는 이용권을 받는 학생이다. 본인이 산 주문은 비어 있다. */
+  payerUserId: int("payerUserId"),
   providerPaymentKey: varchar("providerPaymentKey", { length: 200 }),
   isTest: int("isTest").default(0).notNull(),
   failureReason: varchar("failureReason", { length: 255 }),

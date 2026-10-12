@@ -415,7 +415,15 @@ export default function Navigation() {
                         <Link href="/parent-portal">
                           <DropdownMenuItem className="cursor-pointer font-bold text-indigo-700 bg-indigo-50/60 mb-1">
                             <User className="w-4 h-4 mr-2 text-indigo-600" />
-                            <span>학부모 포털</span>
+                            <span>학부모 마이페이지 (자녀 학습 현황)</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
+                      {user?.tag === "학부모" && (
+                        <Link href="/checkout">
+                          <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                            <CreditCard className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>자녀에게 이용권 구매</span>
                           </DropdownMenuItem>
                         </Link>
                       )}
@@ -544,7 +552,15 @@ export default function Navigation() {
                           <Link href="/parent-portal">
                             <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50">
                               <User className="w-4 h-4" />
-                              <span>학부모 포털</span>
+                              <span>학부모 마이페이지 (자녀 학습 현황)</span>
+                            </button>
+                          </Link>
+                        )}
+                        {user?.tag === "학부모" && (
+                          <Link href="/checkout">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50">
+                              <CreditCard className="w-4 h-4" />
+                              <span>자녀에게 이용권 구매</span>
                             </button>
                           </Link>
                         )}
