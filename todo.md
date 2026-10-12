@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 관리자 화면에서 학부모가 학습자로 표시되는 문제 수정(회원관리 목록·대시보드 회원 목록·회원 상세, 레벨·담당 교사 지정 숨김, 학부모 필터) (shared/course.ts, MasterAdminConsole.tsx, AdminDashboard.tsx, AdminStudentDetail.tsx) — 시작 2026-10-13 05:40
 
 ## 완료
 
