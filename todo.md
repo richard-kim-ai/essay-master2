@@ -1,9 +1,10 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-- [Manus] 관리자 평가 모델 화면의 교사 첨삭 신청 API 오호출 수정 — 시작 2026-10-13 03:43
 
 ## 완료
+
+- [Manus] 관리자 평가 모델 화면의 교사 첨삭 신청 API 오호출 수정 — 시작 2026-10-13 03:43 — 완료 2026-10-13 03:49 (관리자 API `evaluationModels.*`는 이미 adminProcedure로 정상 확인. 오류 원인은 교사/관리자 공용 진입 경로에서 교사 전용 `teacherFeedbackRequest.queue`가 무조건 호출되던 점이었음. 대기열 컴포넌트에 명시적 enabled 계약을 추가하고 승인된 teacher 역할일 때만 조회, 관리자/승인 대기 교사는 API 미호출·미표시. 관련 UI 회귀 58건, 전체 Vitest 114파일 909테스트, TypeScript·프로덕션 빌드, 실제 /admin/evaluation-models 콘솔 무오류 확인)
 
 - [Manus] 관리자 AI 이론 콘텐츠 빈 응답 파싱·대체 호출 보완 — 시작 2026-10-12 01:50 — 완료 2026-10-12 (대형 strict JSON Schema 호출에서 본문이 비는 모델 응답을 재현하고, JSON 객체 응답·서버 Zod 검증·텍스트 블록 추출·3개 모델 순차 대체·레거시 유사 예시/출처 필드 정규화로 보완. 실제 모델로 중고등 이론 초안 1건과 QA 통과 확인, 전체 Vitest 95파일 765테스트·TypeScript·프로덕션 빌드 통과. DB 저장·마이그레이션 없음)
 
