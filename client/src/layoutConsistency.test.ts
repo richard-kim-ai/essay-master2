@@ -158,3 +158,13 @@ describe("학부모 계정의 화면 구성", () => {
     expect(hub).toContain('{user?.role === "user" && user?.tag !== "학부모" && <ParentComments />}');
   });
 });
+
+describe("관리자 약관 관리 화면", () => {
+  it("약관·개인정보처리방침·환불정책 편집 화면에는 법정대리인 동의 관리대장·소셜 로그인 설정 같은 다른 메뉴 링크를 넣지 않는다(각각 대시보드 카드에서 연다)", () => {
+    const terms = read("./pages/AdminTermsManager.tsx");
+    expect(terms).not.toContain("/admin/guardian-consents");
+    expect(terms).not.toContain("/admin/social-providers");
+    expect(terms).not.toContain("법정대리인 동의 관리대장");
+    expect(terms).not.toContain("소셜 로그인 설정");
+  });
+});

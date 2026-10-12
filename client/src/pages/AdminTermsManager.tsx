@@ -64,10 +64,6 @@ export default function AdminTermsManager() {
           <h1 className="text-2xl font-bold text-slate-900">이용약관·개인정보처리방침·가격환불정책 관리</h1>
           <p className="text-sm text-slate-500">사이트 푸터 링크에서 이용자가 확인하게 될 공식 약관과 정책을 직접 편집하고 저장합니다.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/admin/guardian-consents"><Button variant="outline" size="sm">법정대리인 동의 관리대장</Button></Link>
-          <Link href="/admin/social-providers"><Button variant="outline" size="sm">소셜 로그인 설정</Button></Link>
-        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as any)} className="space-y-4">
