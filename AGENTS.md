@@ -19,6 +19,21 @@
 
 이 4단계를 건너뛰고 바로 코드를 수정하지 마세요. 이번 대규모 충돌(로컬 7커밋 vs origin 55커밋, 13개 파일 충돌)은 정확히 이 단계를 생략해서 발생했습니다.
 
+### 원격 이름과 인증 (`origin`이 실패할 때)
+
+이 저장소의 원격은 **같은 GitHub 저장소(`richard-kim-ai/essay-master2`)를 가리키는 두 이름**입니다. 주소 방식만 다릅니다.
+
+| 원격 | 주소 방식 | 비고 |
+|---|---|---|
+| `origin` | SSH (`git@github.com:...`) | 사용자의 Mac처럼 SSH 키가 있는 환경에서만 동작합니다. Manus 샌드박스 등 키가 없거나 만료된 환경에서는 인증에 실패합니다. |
+| `user_github` | HTTPS (`https://github.com/...`) | 토큰으로 접근합니다. `origin`이 실패하면 이쪽을 씁니다. |
+
+- 위 1단계의 `origin`은 **그 환경에서 인증되는 원격으로 바꿔 읽으세요.** `git fetch origin`이 인증 오류로 실패하면 `git fetch user_github`, `git log --oneline HEAD..user_github/main`, `git merge user_github/main`을 씁니다. 두 원격은 같은 저장소라 받는 내용이 같습니다.
+- 로컬의 `origin/main`은 푸시하지 않는 쪽의 추적 브랜치라 **낡아 있을 수 있습니다.** 최신 여부는 인증되는 원격을 `fetch`한 뒤 그 원격의 `main`으로 판단하세요.
+- 로컬 Claude Code 세션은 `user_github`로 fetch·push합니다(`git push user_github main`).
+- **동기화는 항상 병합(또는 리베이스)으로 합니다.** "원격 최신 main을 기준으로 동기화"하더라도 `git reset --hard`, `git checkout -f`, 강제 푸시(`--force`)로 로컬·원격 커밋을 덮어쓰지 마세요. 원격이 앞서 있으면 먼저 병합하고, `tsc --noEmit -p .`와 `pnpm vitest run`을 다시 통과한 뒤에만 푸시합니다.
+- 인증 실패는 어느 원격이든 사용자에게 알리고, 토큰·키 값은 출력하거나 커밋하지 마세요.
+
 ## 2. 작업 시작 시 — Claim 남기기
 
 실제 코드를 수정하기 전에, `todo.md`의 `## 진행 중 (Claim)` 섹션에 아래 형식으로 한 줄을 추가하고 그 변경만 별도로 커밋합니다.
