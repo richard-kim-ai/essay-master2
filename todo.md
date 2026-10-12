@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 학부모 코멘트를 학생의 글(첨삭 결과 화면)에 연결하고 글 없이는 못 보내게 하기, 학부모가 연결된 자녀에게 이용권·첨삭지도권 구매해 주기(주문 payerUserId) (server/parentCommentDb.ts, billingRouter.ts, teacherFeedbackRequestRouter.ts, Checkout.tsx, TeacherFeedback.tsx, ParentPortal.tsx) — 시작 2026-10-13 05:10
 
 ## 완료
 
