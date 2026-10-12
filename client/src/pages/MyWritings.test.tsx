@@ -12,12 +12,25 @@ const state = vi.hoisted(() => ({
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: state.authenticated }) }));
 vi.mock("@/components/LoginRequired", () => ({ default: () => <div>로그인이 필요합니다</div> }));
 vi.mock("wouter", () => ({ Link: ({ href, children, ...props }: any) => <a href={href} {...props}>{children}</a> }));
-vi.mock("@/lib/trpc", () => ({
-  trpc: {
-    essaySubmission: { getByUser: { useQuery: () => ({ data: state.essays, isLoading: state.loading }) } },
-    aiAutoFeedback: { getByUser: { useQuery: () => ({ data: state.ai, isLoading: state.loading }) } },
-  },
-}));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/trpc", () => {
+  const mutation = () => ({ useMutation: () => ({ mutate: vi.fn(), isPending: false }) });
+  const invalidate = { invalidate: vi.fn() };
+  return {
+    trpc: {
+      useUtils: () => ({ essaySubmission: { getByUser: invalidate, trashList: invalidate, workspace: invalidate } }),
+      essaySubmission: {
+        getByUser: { useQuery: () => ({ data: state.essays, isLoading: state.loading }) },
+        trashList: { useQuery: () => ({ data: [], isLoading: false }) },
+        trash: mutation(),
+        restore: mutation(),
+        purge: mutation(),
+        emptyTrash: mutation(),
+      },
+      aiAutoFeedback: { getByUser: { useQuery: () => ({ data: state.ai, isLoading: state.loading }) } },
+    },
+  };
+});
 
 import MyWritings from "./MyWritings";
 
@@ -58,6 +71,7 @@ describe("내 글·첨삭 기록(/my-writings)", () => {
     expect(html).toContain("내 글·첨삭 기록");
     expect(html).toContain("내가 쓴 글 (0)");
     expect(html).toContain("AI 첨삭 내역 (0)");
+    expect(html).toContain("휴지통 (0)");
     expect(html).toContain("아직 저장된 글이 없습니다");
     expect(html).toContain('href="/essay-submission"');
     expect(html).toContain('href="/offline-essays"');
@@ -76,6 +90,8 @@ describe("내 글·첨삭 기록(/my-writings)", () => {
     expect(html).toContain('href="/teacher-feedback/2"');
     expect(html).toContain('href="/ai-feedback-compare/9"');
     expect(html).not.toContain('href="/teacher-feedback/1"');
+    // 글마다 휴지통으로 옮기는 삭제 버튼이 있다.
+    expect((html.match(/>\s*삭제<\/button>/g) ?? []).length).toBe(2);
     // 본문은 길게 잘라 미리보기만 보여 준다.
     expect(html).toContain("…");
   });
@@ -95,6 +111,10 @@ describe("접근 경로(입구)", () => {
   it("라우트·마이페이지·프로필 메뉴(PC·모바일)·AI 첨삭 화면에서 /my-writings로 들어갈 수 있다", async () => {
     expect(await read("../App.tsx")).toMatch(/<Route path="\/my-writings">\{\(\) => <Layout><MyWritings \/><\/Layout>\}<\/Route>/);
     expect(await read("./MyPageHub.tsx")).toContain('setLocation("/my-writings")');
+    // 허브의 '논술 쓰기·첨삭' 구역에서 글쓰기·AI 자동 첨삭·내 글·첨삭 기록으로 바로 갈 수 있다.
+    const hub = await read("./MyPageHub.tsx");
+    expect(hub).toContain('data-testid="hub-writing-section"');
+    for (const href of ["/essay-submission", "/ai-auto-feedback", "/my-writings"]) expect(hub).toContain(`href: "${href}"`);
     const navigation = await read("../components/Navigation.tsx");
     expect((navigation.match(/href="\/my-writings"/g) ?? []).length).toBe(2);
     expect(await read("./AIAutoFeedback.tsx")).toContain('href="/my-writings"');

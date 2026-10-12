@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TeacherFeedbackQueue from "@/components/TeacherFeedbackQueue";
+import StudentEssayReviewList from "@/components/StudentEssayReviewList";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Wallet, GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock, ArrowUpDown, AlertCircle, ShieldAlert, ShieldCheck } from "lucide-react";
@@ -23,6 +24,9 @@ export default function TeacherMyPage() {
   const { data: managedStudents = [], isLoading } = trpc.teacherOperations.managedStudents.useQuery(undefined, { enabled: teacherEnabled });
   const { data: permissionGrants = [] } = trpc.teacherOperations.myPermissionGrants.useQuery(undefined, { enabled: teacherEnabled });
   const { data: certificateRequests = [] } = trpc.teacherOperations.certificateRequests.useQuery(undefined, { enabled: teacherEnabled });
+  const dashboardQuery = trpc.teacherOperations.feedbackDashboard.useQuery(undefined, { enabled: teacherEnabled });
+  const feedbackSummary = dashboardQuery.data?.summary;
+  const recentFeedbacks = dashboardQuery.data?.recent ?? [];
   const utils = trpc.useUtils();
   const requestCertificateMutation = trpc.teacherOperations.requestCertificateApproval.useMutation({
     onSuccess: () => {
@@ -120,7 +124,7 @@ export default function TeacherMyPage() {
         <div className="grid gap-6 md:grid-cols-3">
           <Card className="border-indigo-100 bg-white shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-slate-600">지도 학생 수</CardTitle><Users className="h-5 w-5 text-indigo-600" /></CardHeader>
-            <CardContent><p className="text-3xl font-bold text-slate-900">{students.length}명</p><p className="text-xs text-slate-500 mt-1">관리자 권한이 부여된 담당 학습자</p></CardContent>
+            <CardContent><p className="text-3xl font-bold text-slate-900" data-testid="teacher-student-count">{students.length}명</p><p className="text-xs text-slate-500 mt-1">담당 교사로 연결 {students.filter((s: any) => s.relation !== "granted").length}명 · 관리자 권한 부여 {students.filter((s: any) => s.relation !== "assigned").length}명</p></CardContent>
           </Card>
           <Card className="border-indigo-100 bg-white shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-slate-600">학습 관리 권한</CardTitle><GraduationCap className="h-5 w-5 text-indigo-600" /></CardHeader>
@@ -132,9 +136,26 @@ export default function TeacherMyPage() {
           </Card>
         </div>
 
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" data-testid="teacher-feedback-summary">
+          {[
+            { label: "첨삭 대기", value: feedbackSummary?.waiting, unit: "건", tone: "text-amber-700", hint: "담당 학생이 제출, 첨삭 전" },
+            { label: "작업 중", value: feedbackSummary?.inProgress, unit: "건", tone: "text-indigo-700", hint: "첨삭 신청을 시작한 글" },
+            { label: "기한 경과", value: feedbackSummary?.overdue, unit: "건", tone: feedbackSummary?.overdue ? "text-rose-700" : "text-slate-900", hint: "완료 예정일 지남" },
+            { label: "최근 30일 완료", value: feedbackSummary?.completedLast30Days, unit: "건", tone: "text-emerald-700", hint: `누적 ${feedbackSummary?.completedTotal ?? 0}건` },
+            { label: "내 첨삭 평균 점수", value: feedbackSummary?.averageScore ?? undefined, unit: "점", tone: "text-slate-900", hint: feedbackSummary?.averageScore === null ? "점수가 있는 첨삭 없음" : "점수를 매긴 첨삭 기준" },
+          ].map((item) => (
+            <Card key={item.label} className="border-slate-200 bg-white shadow-sm">
+              <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-slate-500">{item.label}</CardTitle></CardHeader>
+              <CardContent><p className={`text-2xl font-extrabold ${item.tone}`}>{item.value === undefined ? "–" : `${item.value}${item.unit}`}</p><p className="mt-1 text-[11px] text-slate-400">{item.hint}</p></CardContent>
+            </Card>
+          ))}
+        </div>
+
         <Tabs defaultValue="students" className="space-y-6">
           <TabsList className="bg-white p-1 shadow-sm">
             <TabsTrigger value="requests" className="gap-2"><CheckCircle className="h-4 w-4" /> 첨삭 신청 대기열</TabsTrigger>
+            <TabsTrigger value="essays" className="gap-2"><FileEdit className="h-4 w-4" /> 학생 제출 글</TabsTrigger>
+            <TabsTrigger value="history" className="gap-2"><Award className="h-4 w-4" /> 내 첨삭 현황</TabsTrigger>
             <TabsTrigger value="students" className="gap-2"><Users className="h-4 w-4" /> 지도 학생 목록 및 정렬</TabsTrigger>
             <TabsTrigger value="classes" className="gap-2"><CheckCircle className="h-4 w-4" /> 담당 반 출결·과제</TabsTrigger>
             <TabsTrigger value="certificates" className="gap-2"><Award className="h-4 w-4" /> 수료 공동 승인</TabsTrigger>
@@ -145,13 +166,48 @@ export default function TeacherMyPage() {
             <TeacherFeedbackQueue />
           </TabsContent>
 
+          <TabsContent value="essays" className="space-y-6">
+            <StudentEssayReviewList scope="teacher" />
+          </TabsContent>
+
+          <TabsContent value="history" className="space-y-6">
+            <Card data-testid="teacher-feedback-history">
+              <CardHeader>
+                <CardTitle>내가 진행한 첨삭 ({feedbackSummary?.completedTotal ?? 0}건)</CardTitle>
+                <CardDescription>최근에 등록한 첨삭 {recentFeedbacks.length}건입니다. 글을 누르면 첨삭 내용을 확인하고 수정할 수 있습니다.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dashboardQuery.isLoading ? (
+                  <div className="py-10 text-center text-sm text-slate-500">불러오는 중입니다...</div>
+                ) : recentFeedbacks.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">아직 등록한 첨삭이 없습니다. '학생 제출 글' 탭에서 글을 골라 첨삭을 시작하세요.</div>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {recentFeedbacks.map((row) => (
+                      <li key={row.feedbackId} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-900">{row.essayTitle}</p>
+                          <p className="text-xs text-slate-500">{row.studentName || "이름 없음"} · {row.studentEmail || "이메일 없음"} · {new Date(row.createdAt).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{typeof row.overallScore === "number" ? `${row.overallScore}점` : "점수 없음"}</Badge>
+                          <Link href={`/teacher-feedback/${row.essayId}`}><Button size="sm" variant="outline">첨삭 보기·수정</Button></Link>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="students" className="space-y-6">
             <Card>
               <CardHeader>
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle>지도 학생 관리 목록</CardTitle>
-                    <CardDescription>관리자에게 부여받은 조직 또는 학생 단위 범위 안에서만 학생 진도와 수료증 요청을 관리할 수 있습니다.</CardDescription>
+                    <CardDescription>담당 교사로 연결된 학생과 관리자가 부여한 학생이 표시됩니다. 진도·수료증 관리는 부여받은 권한 범위 안에서만 할 수 있습니다.</CardDescription>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
@@ -182,6 +238,7 @@ export default function TeacherMyPage() {
                         <tr>
                           <th className="p-3">학생명</th>
                           <th className="p-3">이메일</th>
+                          <th className="p-3">구분</th>
                           <th className="p-3">가입 과정</th>
                           <th className="p-3">가입일</th>
                           <th className="p-3">최근 접속일</th>
@@ -193,6 +250,7 @@ export default function TeacherMyPage() {
                           <tr key={s.id} className="hover:bg-slate-50">
                             <td className="p-3 font-medium text-slate-900">{s.name || "익명 학생"}</td>
                             <td className="p-3 text-slate-600">{s.email || "이메일 없음"}</td>
+                            <td className="p-3 text-xs text-slate-600">{s.relation === "granted" ? "권한 부여" : s.relation === "both" ? "담당·권한" : "담당 학생"}</td>
                             <td className="p-3"><Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">{s.courseLabel}</Badge></td>
                             <td className="p-3 text-slate-500">{new Date(s.createdAt).toLocaleDateString()}</td>
                             <td className="p-3 text-slate-500"><span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-slate-400" />{new Date(s.lastSignedIn).toLocaleDateString()}</span></td>

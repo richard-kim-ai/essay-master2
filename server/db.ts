@@ -80,10 +80,12 @@ import {
   gt,
   gte,
   inArray,
+  isNull,
   lt,
   ne,
 } from "drizzle-orm";
 import { computeLessonProgress } from "./lessonProgress";
+import { selectManagedStudentIds } from "./teacherStudents";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
 import {
@@ -1405,7 +1407,7 @@ export async function getEssaySubmissionsByUser(userId: number) {
   return await db
     .select()
     .from(essaySubmission)
-    .where(eq(essaySubmission.userId, userId));
+    .where(and(eq(essaySubmission.userId, userId), isNull(essaySubmission.deletedAt)));
 }
 
 export async function getEssaySubmissionById(id: number) {
@@ -1583,15 +1585,18 @@ export async function getAIAutoFeedbackByUser(
   const db = await getDb();
   if (!db) return [];
 
-  return await db
-    .select()
+  const rows = await db
+    .select({ feedback: aiAutoFeedback, fallbackUsed: writingEvaluationRecords.fallbackUsed })
     .from(aiAutoFeedback)
+    .leftJoin(writingEvaluationRecords, eq(writingEvaluationRecords.feedbackId, aiAutoFeedback.id))
     .where(
       and(
         eq(aiAutoFeedback.userId, userId),
         ...(courseType ? [eq(aiAutoFeedback.courseType, courseType)] : [])
       )
     );
+  // fallbackUsed: AI 모델 호출에 실패해 기본 규칙 점검 결과로 대체된 첨삭이면 true.
+  return rows.map(({ feedback, fallbackUsed }) => ({ ...feedback, fallbackUsed: Boolean(fallbackUsed) }));
 }
 
 export async function createAIAutoFeedback(input: {
@@ -2247,6 +2252,7 @@ export async function getAllUsersStats() {
       role: u.role,
       teacherLevel: u.teacherLevel,
       teacherStatus: u.teacherStatus,
+      certificateApprovalRevoked: u.certificateApprovalRevoked,
       teacherId: u.teacherId,
       preferredTeacherId: u.preferredTeacherId,
       tag: u.tag,
@@ -2318,6 +2324,8 @@ export async function getStudentDetailStats(
       name: userRecord.name,
       email: userRecord.email,
       role: userRecord.role,
+      teacherLevel: userRecord.teacherLevel,
+      teacherStatus: userRecord.teacherStatus,
       tag: userRecord.tag,
       courseType: getCourseTypeFromUserTag(userRecord.tag),
       courseLabel: getCourseTag(getCourseTypeFromUserTag(userRecord.tag)),
@@ -4456,6 +4464,13 @@ export async function setStudentOwnTeacher(
   return nextTeacherId;
 }
 
+/** 관리자 계정의 수료증 최종 승인 권한을 회수(true)하거나 되돌린다(false). */
+export async function setCertificateApprovalRevoked(userId: number, revoked: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ certificateApprovalRevoked: revoked ? 1 : 0 }).where(eq(users.id, userId));
+}
+
 export async function createAdminAuditLog(input: {
   actorId: number;
   targetUserId?: number | null;
@@ -5869,25 +5884,10 @@ export async function getManagedStudentsForTeacher(teacherId: number) {
     db.select().from(users),
     getActiveTeacherPermissionGrants(teacherId),
   ]);
-  const directStudentIds = new Set(
-    grants
-      .filter(grant => grant.scopeType === "student")
-      .map(grant => grant.studentId)
-      .filter((id): id is number => id !== null)
-  );
-  const hasOrganizationScope = grants.some(
-    grant =>
-      grant.scopeType === "organization" &&
-      (grant.canManageProgress === 1 || grant.canRequestCertificate === 1)
-  );
+  // 담당 교사로 연결된 학생(assigned)은 권한 없이도 지도 학생이다. 권한(granted)은 진도·수료증 관리 버튼에만 쓴다.
+  const relations = selectManagedStudentIds(allUsers, grants, teacherId);
   return allUsers
-    .filter(
-      user =>
-        user.role === "user" &&
-        user.tag !== "학부모" &&
-        (directStudentIds.has(user.id) ||
-          (hasOrganizationScope && user.teacherId === teacherId))
-    )
+    .filter(user => relations.has(user.id))
     .map(user => ({
       id: user.id,
       name: user.name,
@@ -5897,6 +5897,7 @@ export async function getManagedStudentsForTeacher(teacherId: number) {
       createdAt: user.createdAt,
       lastSignedIn: user.lastSignedIn,
       teacherId: user.teacherId,
+      relation: relations.get(user.id)!,
     }));
 }
 
@@ -9323,12 +9324,8 @@ export async function getWorkbookStatsByUser(
     correctCount,
     accuracyRate,
     mistakesCount: mistakes.length,
-    categoryBreakdown: [
-      { category: "논리적 인과관계", accuracy: accuracyRate },
-      { category: "주제문 및 근거 제시", accuracy: accuracyRate },
-      { category: "비판적 독해 및 대안", accuracy: accuracyRate },
-      { category: "문장 구조 및 표현", accuracy: accuracyRate },
-    ],
+    // 유형별 통계는 기록하지 않으므로 같은 숫자를 유형 이름만 바꿔 보여 주지 않는다.
+    categoryBreakdown: [],
   };
 }
 
@@ -9361,26 +9358,6 @@ export async function removeLearningToolMistake(
       )
     );
   return { success: true };
-}
-
-export async function getWeeklyStudySummary(
-  userId: number,
-  courseType?: CourseType
-) {
-  const stats = await getWorkbookStatsByUser(userId, courseType);
-  const totalMinutes = stats.totalSolved * 15;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const studyTimeString = `${hours}시간 ${minutes}분`;
-
-  return {
-    studyTimeString,
-    totalSolved: stats.totalSolved,
-    accuracyRate: stats.accuracyRate,
-    completedModules: Math.min(Math.floor(stats.totalSolved / 3), 10),
-    timeDiffMinutes: 0, // 실제 시간 로그가 없으므로 증감을 추정하지 않는다.
-    accuracyDiffPercent: 0,
-  };
 }
 
 // User Push Notification Preferences helpers (stored in memory or DB table if needed)

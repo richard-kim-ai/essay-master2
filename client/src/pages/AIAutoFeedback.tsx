@@ -364,7 +364,7 @@ export default function AIAutoFeedback() {
               )
             ) : quota.mode === "trial" ? (
               <>
-                레슨 1 첫 서술형 제출 1회 · 사용{" "}
+                7일 무료 체험 AI 평가·첨삭 2회 포함 · 사용{" "}
                 <span className="font-bold">{quota.used}회</span> / 잔여{" "}
                 <span className="font-bold text-emerald-600">
                   {quota.remaining}회
@@ -449,7 +449,7 @@ export default function AIAutoFeedback() {
                 <CardTitle>논술 입력</CardTitle>
                 <CardDescription>
                   {quota?.isTrial
-                    ? "7일 체험에서는 레슨 1의 첫 서술형 답안을 1회 평가합니다."
+                    ? "7일 무료 체험에서는 AI 평가·첨삭을 2회 이용할 수 있고, 쓴 글과 결과는 내 계정에 저장됩니다."
                     : "작성한 논술을 입력하면 AI가 즉시 첨삭해드립니다"}
                 </CardDescription>
               </CardHeader>

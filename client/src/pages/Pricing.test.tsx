@@ -19,7 +19,7 @@ describe("Pricing policy page", () => {
     const html = renderToStaticMarkup(<Pricing />);
 
     expect(html).toContain("7일 무료 체험");
-    expect(html).toContain("AI 평가·첨삭 총 3회");
+    expect(html).toContain("가입 전 샘플 체험에서 방문당 1회, 가입 후 7일 무료 체험에서 2회가 각각 별도로 제공됩니다");
     for (const price of ["14,900원", "24,900원", "39,900원"]) expect(html).toContain(price);
     for (const name of ["학습형", "AI 기본형", "AI 집중형", "AI 추가권"]) expect(html).toContain(name);
     expect(html).toContain("가격·환불정책");
@@ -56,5 +56,24 @@ describe("Pricing policy page", () => {
     // 한 개의 h1만 있고, 교사 첨삭지도권 제목은 h2이다.
     expect((html.match(/<h1/g) ?? []).length).toBe(1);
     expect(html).toMatch(/<h2 id="teacher-pass-title"/);
+  });
+});
+
+describe("개인정보 동의 철회·데이터 삭제 안내 문구", () => {
+  it("동의 철회(마이페이지에서 직접)와 데이터 삭제(관리자 메일 신청)를 별도 항목으로 안내한다", () => {
+    const html = renderToStaticMarkup(<Pricing />);
+    expect(html).toContain("동의 철회");
+    expect(html).toContain("AI 품질 개선을 위한 학습 데이터 활용 동의는 마이페이지에서 언제든 직접 철회할 수 있으며");
+    expect(html).toContain("데이터 삭제");
+    expect(html).toContain("학습 데이터 삭제는 관리자에게 메일로 신청해 주세요.");
+    // 두 요청을 한 문장으로 합치던 예전 표현이 없다.
+    expect(html).not.toContain("삭제와 AI 품질 개선 활용 철회는");
+  });
+
+  it("도입·운영 문의 버튼은 메일 링크는 유지하되 화면에 이메일 주소를 글자로 보여 주지 않는다", () => {
+    const html = renderToStaticMarkup(<Pricing />);
+    expect(html).toContain('href="mailto:ceo@ufinsu.com"');
+    expect(html).toContain("도입·운영 문의</a>");
+    expect(html).not.toMatch(/>[^<]*ceo@ufinsu\.com[^<]*</);
   });
 });

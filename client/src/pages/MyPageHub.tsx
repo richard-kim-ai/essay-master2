@@ -8,7 +8,7 @@ import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import ParentLinkRequests from "@/components/ParentLinkRequests";
 import StudentLearningSettings from "@/components/StudentLearningSettings";
-import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine, FileText } from "lucide-react";
+import { User, BookOpen, Award, CheckCircle2, ArrowRight, Target, Sliders, Trophy, Clock, CheckCircle, ClipboardPenLine, FileText, PenLine, Sparkles } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { COURSE_OPTIONS, type CourseType } from "@shared/course";
@@ -22,7 +22,9 @@ export default function MyPageHub() {
   // 학부모 계정은 학생용 허브가 아니라 학부모 포털로 이동한다.
   useEffect(() => {
     if (user?.tag === "학부모") setLocation("/parent-portal");
-  }, [user?.tag, setLocation]);
+    // 첨삭교사는 학습자용 허브를 쓰지 않는다.
+    else if (user?.role === "teacher") setLocation("/teacher-mypage");
+  }, [user?.tag, user?.role, setLocation]);
   const isStaffPreview = mode === "staff-preview";
   const activeCourse = effectiveCourse;
 
@@ -157,22 +159,25 @@ export default function MyPageHub() {
         {user?.role === "user" && user?.tag !== "학부모" && <StudentLearningSettings />}
         {user?.role === "user" && user?.tag !== "학부모" && <ParentLinkRequests />}
 
-        {/* Weekly Study Summary Mini Cards */}
-        <div className="grid gap-3 sm:grid-cols-3">
+        {/* 이번 주 학습 요약: 최근 7일의 실제 기록(워크북 답안·학습 도구·레벨 완료)에서 계산한 값이다 */}
+        <div className="grid gap-3 sm:grid-cols-3" data-testid="hub-weekly-summary">
           <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
             <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
               <Clock className="w-6 h-6" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-slate-500 font-medium">이번 주 총 학습 시간</p>
-              <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs text-slate-500 font-medium">최근 7일 푼 문항</p>
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
                 <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
-                  {weeklySummary?.studyTimeString || "0분"}
+                  {weeklySummary?.solvedThisWeek ?? 0}문항
                 </p>
-                <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                  +{weeklySummary?.timeDiffMinutes ?? 0}분
-                </span>
+                {weeklySummary && (weeklySummary.solvedLastWeek > 0 || weeklySummary.solvedThisWeek > 0) && (
+                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded border ${weeklySummary.solvedDiff >= 0 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-slate-600 bg-slate-50 border-slate-200"}`}>
+                    지난 7일 대비 {weeklySummary.solvedDiff >= 0 ? "+" : ""}{weeklySummary.solvedDiff}
+                  </span>
+                )}
               </div>
+              <p className="mt-1 text-[11px] text-slate-400">학습 기록이 있는 날 {weeklySummary?.activeDays ?? 0}일</p>
             </div>
           </Card>
           <Card className="flex min-h-28 items-center gap-3 border-slate-200 bg-white p-4 shadow-sm">
@@ -180,14 +185,16 @@ export default function MyPageHub() {
               <CheckCircle className="w-6 h-6" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-slate-500 font-medium">워크북 기출 정답률</p>
-              <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-xs text-slate-500 font-medium">최근 7일 워크북 정답률</p>
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
                 <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
-                  {weeklySummary?.accuracyRate ?? 0}%
+                  {weeklySummary?.accuracyRate === null || weeklySummary?.accuracyRate === undefined ? "기록 없음" : `${weeklySummary.accuracyRate}%`}
                 </p>
-                <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                  +{weeklySummary?.accuracyDiffPercent ?? 0}%
-                </span>
+                {weeklySummary?.accuracyDiffPercent !== null && weeklySummary?.accuracyDiffPercent !== undefined && (
+                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded border ${weeklySummary.accuracyDiffPercent >= 0 ? "text-emerald-600 bg-emerald-50 border-emerald-200" : "text-slate-600 bg-slate-50 border-slate-200"}`}>
+                    지난 7일 대비 {weeklySummary.accuracyDiffPercent >= 0 ? "+" : ""}{weeklySummary.accuracyDiffPercent}%p
+                  </span>
+                )}
               </div>
             </div>
           </Card>
@@ -196,15 +203,10 @@ export default function MyPageHub() {
               <Trophy className="w-6 h-6" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-slate-500 font-medium">해낸 모듈 / 뱃지</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
-                  {weeklySummary?.completedModules || 0}개 완료 / {visibleBadges.length}개 뱃지
-                </p>
-                <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
-                  Active
-                </span>
-              </div>
+              <p className="text-xs text-slate-500 font-medium">최근 7일 완료 레벨 / 획득 뱃지</p>
+              <p className="mt-0.5 text-lg font-extrabold text-slate-900 sm:text-xl">
+                {weeklySummary?.completedModules ?? 0}개 완료 / {visibleBadges.length}개 뱃지
+              </p>
             </div>
           </Card>
         </div>
@@ -254,6 +256,32 @@ export default function MyPageHub() {
             </div>
           </CardContent>
         </Card>
+
+        {/* 논술 쓰기·첨삭: 글쓰기, AI 자동 첨삭, 지난 글·첨삭 기록으로 들어가는 입구 */}
+        {(user?.role === "user" || isStaffPreview) && (
+          <section aria-labelledby="hub-writing-title" data-testid="hub-writing-section" className="space-y-3">
+            <h2 id="hub-writing-title" className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <PenLine className="w-5 h-5 text-indigo-600" /> 논술 쓰기·첨삭
+            </h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                { href: "/essay-submission", icon: PenLine, tone: "text-indigo-600", button: "text-indigo-700 border-indigo-200 hover:bg-indigo-50", title: "글쓰기", text: "논술을 쓰고 저장한 뒤, 필요하면 담당 교사 첨삭을 신청합니다.", cta: "글쓰기 열기" },
+                { href: "/ai-auto-feedback", icon: Sparkles, tone: "text-indigo-600", button: "text-indigo-700 border-indigo-200 hover:bg-indigo-50", title: "AI 자동 첨삭", text: "작성한 논술을 입력하면 AI가 점수와 수정 답안을 바로 알려 줍니다.", cta: "AI 첨삭 받기" },
+                { href: "/my-writings", icon: FileText, tone: "text-emerald-600", button: "text-emerald-700 border-emerald-200 hover:bg-emerald-50", title: "내 글·첨삭 기록", text: "내가 쓴 글과 AI·교사 첨삭 결과를 다시 보고, 고친 부분을 비교합니다.", cta: "기록 보기" },
+              ].map(({ href, icon: Icon, tone, button, title, text, cta }) => (
+                <Card key={href} className="border-slate-200 shadow-sm hover:shadow-md transition-all">
+                  <CardContent className="space-y-3 p-4">
+                    <p className="text-base font-bold text-slate-900 flex items-center gap-2"><Icon className={`w-5 h-5 ${tone}`} /> {title}</p>
+                    <p className="text-xs leading-5 text-slate-600">{text}</p>
+                    <Button variant="outline" className={`w-full font-semibold ${button}`} onClick={() => setLocation(href)}>
+                      {cta} <ArrowRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* 3 Main Hub Cards */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -118,3 +118,21 @@ describe("계정별 오프라인 논술 보관", () => {
     ).toThrow("quota");
   });
 });
+
+describe("다른 기기에서 휴지통으로 옮긴 글", () => {
+  const serverRow = (id: number, userId = 10) => ({ id, userId, clientId: `c${id}`, title: `서버 글 ${id}`, content: "본문", status: "draft", syncRevision: 1, updatedAt: new Date("2026-10-10T00:00:00Z"), createdAt: new Date("2026-10-10T00:00:00Z") });
+
+  it("서버 목록에서 사라진 글은 이 기기에서 고치지 않았다면 보관함에서도 뺀다", () => {
+    const kept = { ...newLocalEssay(10, "유지", "본문"), id: 1, isDirty: false };
+    const gone = { ...newLocalEssay(10, "사라짐", "본문"), id: 2, isDirty: false };
+    const merged = mergeServerEssays([kept, gone], [serverRow(1)], 10);
+    expect(merged.map((row) => row.id)).toEqual([1]);
+  });
+
+  it("기기에서 고치는 중이거나 아직 서버에 올리지 않은 글은 서버 목록에 없어도 남긴다", () => {
+    const editing = { ...newLocalEssay(10, "수정 중", "본문"), id: 2, isDirty: true };
+    const localOnly = newLocalEssay(10, "기기 전용", "본문");
+    const merged = mergeServerEssays([editing, localOnly], [], 10);
+    expect(merged.map((row) => row.title).sort()).toEqual(["기기 전용", "수정 중"]);
+  });
+});

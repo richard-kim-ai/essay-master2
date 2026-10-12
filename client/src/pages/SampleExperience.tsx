@@ -91,7 +91,7 @@ export default function SampleExperience() {
         <section className="max-w-3xl">
           <p className="text-sm font-extrabold tracking-[0.14em] text-indigo-700">SAMPLE EXPERIENCE</p>
           <h1 className="mt-3 text-4xl font-black tracking-[-0.045em] sm:text-5xl">회원가입 전, 학습 방식을 먼저 둘러보세요.</h1>
-          <p className="mt-5 text-lg leading-8 text-slate-600">샘플 체험은 개인 학습 기록을 저장하지 않습니다. 과정 소개, 짧은 연습, 그리고 실제 AI 첨삭을 직접 체험해 보고 나에게 맞는지 확인할 수 있습니다.</p>
+          <p className="mt-5 text-lg leading-8 text-slate-600">샘플 체험은 가입 전에 로그인 없이 이용합니다. 과정 소개와 짧은 연습을 둘러보고, 실제 AI 평가·첨삭을 방문당 1회 체험해 나에게 맞는지 확인하세요. 입력한 글과 결과는 저장되지 않으며, 레슨·학습 도구와 학습 기록 저장은 가입 후 7일 무료 체험에서 이용할 수 있습니다.</p>
         </section>
 
         <section className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="샘플 과정 선택">
@@ -136,7 +136,7 @@ export default function SampleExperience() {
           <aside className="rounded-3xl bg-slate-950 p-6 text-white sm:p-8">
             <LockKeyhole className="h-7 w-7 text-cyan-300" />
             <h2 className="mt-4 text-2xl font-black">샘플 체험에서는</h2>
-            <ul className="mt-5 space-y-3 text-sm leading-6 text-slate-300"><li>과정별 학습 구조와 짧은 연습을 둘러볼 수 있습니다.</li><li>바로 아래에서 실제 AI 첨삭을 {SAMPLE_AI_SESSION_LIMIT}회까지 직접 체험할 수 있습니다.</li><li>답안·진도·AI 첨삭 결과는 개인 DB에 저장되지 않습니다.</li></ul>
+            <ul className="mt-5 space-y-3 text-sm leading-6 text-slate-300"><li>과정별 학습 구조와 짧은 연습을 둘러볼 수 있습니다.</li><li>바로 아래에서 실제 AI 평가·첨삭을 방문당 {SAMPLE_AI_SESSION_LIMIT}회 직접 체험할 수 있습니다.</li><li>답안·진도·AI 첨삭 결과는 개인 DB에 저장되지 않습니다.</li><li>가입하면 7일 무료 체험에서 AI 평가·첨삭 2회를 별도로 더 이용할 수 있습니다.</li></ul>
             <Link href={loginHref} className="mt-7 inline-flex h-12 w-full items-center justify-center rounded-xl bg-white px-5 font-bold text-slate-950 transition hover:bg-cyan-50">로그인하고 7일 무료 체험 시작<ChevronRight className="ml-1 h-4 w-4" /></Link>
           </aside>
         </section>
@@ -156,7 +156,7 @@ export default function SampleExperience() {
           {limitReached ? (
             <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-5">
               <p className="font-bold text-amber-900">이번 방문에서 체험 가능한 AI 첨삭을 모두 사용했습니다.</p>
-              <p className="mt-2 text-sm leading-6 text-amber-800">로그인하고 7일 무료 체험을 시작하면 내 글로 AI 논술 평가를 이어서 받아볼 수 있습니다.</p>
+              <p className="mt-2 text-sm leading-6 text-amber-800">로그인하고 7일 무료 체험을 시작하면 내 글로 AI 평가·첨삭을 2회 더 받아볼 수 있습니다.</p>
               <Link href={signupHref} className="mt-4 inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-5 font-bold text-white transition hover:bg-slate-800">7일 무료 체험 시작<ChevronRight className="ml-1 h-4 w-4" /></Link>
             </div>
           ) : (

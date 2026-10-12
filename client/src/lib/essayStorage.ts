@@ -102,7 +102,10 @@ export function mergeServerEssays(
     else if (!result[index].isDirty)
       result[index] = { ...remote, localId: result[index].localId };
   }
-  return result.sort(
+  // 서버 목록에 없는 서버 글(다른 기기에서 휴지통으로 옮기거나 삭제한 글)은, 이 기기에서 고치지 않았다면 기기 보관함에서도 뺀다.
+  const serverIds = new Set(server.filter(row => row.userId === userId).map(row => row.id));
+  const kept = result.filter(row => row.id === undefined || row.isDirty || serverIds.has(row.id));
+  return kept.sort(
     (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
   );
 }

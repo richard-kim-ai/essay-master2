@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { BookOpen, TrendingUp, Award, Target, CheckCircle2, Circle, ChevronRight, Sparkles, Loader2, Clock3, BrainCircuit } from "lucide-react";
 import { useEffect, useState } from "react";
 import { COURSE_OPTIONS, type CourseType } from "@shared/course";
+import { buildLearningAnalytics, buildRecommendations, type LevelProgress, type Recommendation } from "@shared/learningAnalytics";
 import { useLearningCourse } from "@/hooks/useLearningCourse";
 import {
   LineChart,
@@ -133,6 +134,9 @@ export default function Dashboard() {
     enabled: canPersist,
   });
   const { data: trialQuota } = trpc.aiAutoFeedback.getTodayQuota.useQuery(undefined, { enabled: canPersist });
+  // 능력·성장·추천은 실제 AI·교사 첨삭 점수와 학습 도구 결과에서 계산한다(기록이 없으면 비어 있는 그대로 보여 준다).
+  const { data: analyticsData } = trpc.progress.analytics.useQuery(undefined, { enabled: canPersist });
+  const analytics = analyticsData ?? buildLearningAnalytics({ ai: [], teacher: [], tools: [] });
   const [difficultyGuide, setDifficultyGuide] = useState<{
     headline: string;
     summary: string;
@@ -206,7 +210,8 @@ export default function Dashboard() {
   const colorByCourse: Record<CourseType, string> = { elementary: "indigo", middle_high: "blue", high_univ: "purple", general_adult: "amber" };
   const displayCards = activeCourseType ? [{ key: activeCourseType, title: `${courseLabel} 논술 과정 진도`, rows: currentRows, progress: currentProgress, color: colorByCourse[activeCourseType] }] : [];
 
-  const totalProgress = progressData?.length || 0;
+  // 진도율·완료 수는 현재 과정의 레벨 기준이다(진도 기록 개수가 아니다).
+  const totalProgress = currentProgress.total;
 
   const getCourseTitleLabel = (key: string) => {
     switch (key) {
@@ -217,37 +222,39 @@ export default function Dashboard() {
       default: return "종합 논술 과정";
     }
   };
-  const completedProgress = progressData?.filter((p) => p.completed === 1).length || 0;
-  const avgScore = progressData?.length
-    ? Math.round(
-        progressData.reduce((sum, p) => sum + (p.score || 0), 0) /
-          progressData.length
-      )
-    : 0;
+  const completedProgress = currentProgress.completedCount;
 
-  // 차트 데이터
-  const progressChartData = progressData?.map((p, idx) => ({
-    name: `Level ${idx + 1}`,
-    score: p.score || 0,
-  })) || [];
-  const compactProgressChartData = progressChartData.length > 16 ? progressChartData.slice(-16) : progressChartData;
+  // 현재 과정의 레벨별 실제 진행 상태와 점수(레벨 번호는 커리큘럼의 레벨이며 기록 순서가 아니다).
+  const levelRows: LevelProgress[] = (currentRows as any[]).map((module, index) => {
+    const record = progressForModule(module);
+    const status = progressStatus(record);
+    const score = Number(record?.score ?? 0);
+    return {
+      level: Number(module.level ?? index + 1),
+      title: String(module.title ?? `Level ${module.level ?? index + 1}`),
+      status,
+      score: score > 0 ? score : null,
+    };
+  });
+  const scoredLevels = levelRows.filter((row) => row.score !== null);
+  const avgScore = scoredLevels.length ? Math.round(scoredLevels.reduce((sum, row) => sum + (row.score as number), 0) / scoredLevels.length) : 0;
 
-  const growthData = [
-    { week: "1주", score: 45 },
-    { week: "2주", score: 52 },
-    { week: "3주", score: 58 },
-    { week: "4주", score: 65 },
-    { week: "5주", score: 72 },
-    { week: "6주", score: avgScore },
-  ];
+  // 차트 데이터: 학습을 시작한 레벨만, 실제 레벨 번호와 최고 점수로 그린다.
+  const compactProgressChartData = levelRows
+    .filter((row) => row.status !== "not_started")
+    .map((row) => ({ name: `Level ${row.level}`, score: row.score ?? 0, status: row.status }));
+  const progressChartData = compactProgressChartData;
 
-  const skillData = [
-    { skill: "경제성", value: 75 },
-    { skill: "명료성", value: 82 },
-    { skill: "정확성", value: 68 },
-    { skill: "논리력", value: 71 },
-    { skill: "표현력", value: 79 },
-  ];
+  const growthChartData = analytics.weekly.map((point) => ({ week: point.label, essay: point.essayScore, tool: point.toolScore }));
+  const hasGrowthData = analytics.weekly.some((point) => point.essayScore !== null || point.toolScore !== null);
+  const measuredSkills = analytics.skills.filter((skill) => skill.value !== null);
+  const skillChartData = analytics.skills.map((skill) => ({ skill: skill.label, value: skill.value ?? 0 }));
+  // 성취 리포트(PDF)에도 같은 실제 값만 넣는다.
+  const growthData = analytics.weekly
+    .filter((point) => point.essayScore !== null || point.toolScore !== null)
+    .map((point) => ({ week: point.label, score: (point.essayScore ?? point.toolScore) as number }));
+  const skillData = measuredSkills.map((skill) => ({ skill: skill.label, value: skill.value as number }));
+  const recommendations: Recommendation[] = buildRecommendations({ analytics, courseType: activeCourseType ?? queryCourse, levels: levelRows });
 
   const quizStats = quizData?.reduce(
     (acc, q) => {
@@ -408,8 +415,8 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-extrabold text-green-600 sm:text-3xl">{avgScore}</div>
-              <p className="text-xs text-slate-500 mt-2">점</p>
+              <div className="text-2xl font-extrabold text-green-600 sm:text-3xl">{scoredLevels.length ? avgScore : "–"}</div>
+              <p className="text-xs text-slate-500 mt-2">{scoredLevels.length ? `점 · 점수가 기록된 ${scoredLevels.length}개 레벨 기준` : "점수가 기록된 레벨이 없습니다"}</p>
             </CardContent>
           </Card>
 
@@ -531,19 +538,29 @@ export default function Dashboard() {
               <CardHeader>
                 <CardTitle>레벨별 점수</CardTitle>
                 <CardDescription>
-                  최근 {Math.min(16, progressChartData.length)}개 레벨의 점수를 확인하세요
+                  {compactProgressChartData.length > 0
+                    ? `${courseLabel} 과정에서 학습을 시작한 ${compactProgressChartData.length}개 레벨의 최고 점수입니다 (전체 ${levelRows.length}개 레벨)`
+                    : "아직 학습을 시작한 레벨이 없습니다"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={compactProgressChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="score" fill="#4f46e5" />
-                  </BarChart>
-                </ResponsiveContainer>
+                {compactProgressChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={compactProgressChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip formatter={(value: any, _name: any, item: any) => [item?.payload?.status === "complete" ? `${value}점 (완료)` : `${value}점 (진행 중)`, "최고 점수"]} />
+                      <Bar dataKey="score" name="최고 점수" fill="#4f46e5" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                    <p className="text-sm font-semibold text-slate-800">레벨 학습 기록이 아직 없습니다.</p>
+                    <p className="mt-1 text-xs text-slate-500">레슨과 워크북을 풀면 레벨별 점수가 이곳에 표시됩니다.</p>
+                    <Link href="/curriculum"><Button size="sm" className="mt-4 bg-indigo-600 text-white hover:bg-indigo-700">커리큘럼 보기</Button></Link>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -553,25 +570,28 @@ export default function Dashboard() {
               <CardHeader>
                 <CardTitle>성장 추이</CardTitle>
                 <CardDescription>
-                  주별 점수 변화를 확인하세요
+                  최근 8주 동안 주별 평균 점수입니다. AI·교사 첨삭 종합 점수와 학습 도구(문장 교정·단락 재구성·요약) 점수를 따로 보여 줍니다.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={growthData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="week" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="score"
-                      stroke="#4f46e5"
-                      name="점수"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                {hasGrowthData ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={growthChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="week" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip formatter={(value: any) => (value === null || value === undefined ? "기록 없음" : `${value}점`)} />
+                      <Legend />
+                      <Line type="monotone" dataKey="essay" stroke="#4f46e5" name="첨삭 점수" connectNulls dot />
+                      <Line type="monotone" dataKey="tool" stroke="#059669" name="학습 도구 점수" connectNulls dot />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                    <p className="text-sm font-semibold text-slate-800">최근 8주 동안 점수 기록이 없습니다.</p>
+                    <p className="mt-1 text-xs text-slate-500">AI 첨삭을 받거나 학습 도구를 풀면 주별 점수 변화가 그려집니다.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -628,76 +648,75 @@ export default function Dashboard() {
               <CardHeader>
                 <CardTitle>영역별 능력 분석</CardTitle>
                 <CardDescription>
-                  각 영역의 강점과 약점을 확인하세요
+                  실제 AI·교사 첨삭 점수와 학습 도구 결과의 최근 {20}회 평균입니다. 기록이 없는 영역은 측정 전으로 표시합니다.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <RadarChart data={skillData}>
-                    <PolarGrid />
-                    <PolarAngleAxis dataKey="skill" />
-                    <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                    <Radar
-                      name="능력"
-                      dataKey="value"
-                      stroke="#4f46e5"
-                      fill="#4f46e5"
-                      fillOpacity={0.6}
-                    />
-                    <Tooltip />
-                  </RadarChart>
-                </ResponsiveContainer>
+                {measuredSkills.length >= 3 && (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <RadarChart data={skillChartData}>
+                      <PolarGrid />
+                      <PolarAngleAxis dataKey="skill" />
+                      <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                      <Radar name="능력" dataKey="value" stroke="#4f46e5" fill="#4f46e5" fillOpacity={0.6} />
+                      <Tooltip />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                )}
+                {measuredSkills.length < 3 && (
+                  <p className="mb-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+                    {measuredSkills.length === 0 ? "아직 측정된 영역이 없습니다." : "측정된 영역이 3개 미만이라 그래프 대신 점수로 보여 드립니다."} AI 첨삭을 받거나 학습 도구를 풀면 점수가 쌓입니다.
+                  </p>
+                )}
+                <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3" data-testid="skill-list">
+                  {analytics.skills.map((skill) => (
+                    <li key={skill.key} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                      <span className="font-semibold text-slate-800">{skill.label}</span>
+                      {skill.value === null ? (
+                        <span className="text-xs text-slate-400">측정 전</span>
+                      ) : (
+                        <span className="font-extrabold text-indigo-700">{skill.value}점 <span className="text-xs font-medium text-slate-500">· 최근 {skill.samples}회</span></span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
 
         {/* Recommendations */}
-        <Card className="mt-8">
+        <Card className="mt-8" data-testid="dashboard-recommendations">
           <CardHeader>
             <CardTitle>추천 학습</CardTitle>
             <CardDescription>
-              당신의 학습 패턴에 기반한 맞춤형 추천입니다
+              내 진도와 점수, AI 첨삭 기록을 분석해 만든 추천입니다
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-start gap-4 p-4 bg-indigo-50 rounded-lg">
-                <Target className="w-5 h-5 text-indigo-600 mt-1 flex-shrink-0" />
-                <div>
-                  <p className="font-semibold text-slate-900">
-                    정확성 영역 강화 학습
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    정확성 점수가 다른 영역보다 낮습니다. 주술 호응과 조사 사용에
-                    집중하세요.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-4 p-4 bg-green-50 rounded-lg">
-                <TrendingUp className="w-5 h-5 text-green-600 mt-1 flex-shrink-0" />
-                <div>
-                  <p className="font-semibold text-slate-900">
-                    다음 레벨 도전하기
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    Level 2를 완료했습니다. Level 3에 도전해보세요!
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-4 p-4 bg-indigo-50 rounded-lg">
-                <Award className="w-5 h-5 text-indigo-600 mt-1 flex-shrink-0" />
-                <div>
-                  <p className="font-semibold text-slate-900">
-                    AI 첨삭 받기
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    작성한 논술에 대해 AI 자동 첨삭을 받아보세요.
-                  </p>
-                </div>
-              </div>
+              {recommendations.map((item) => {
+                const style = {
+                  focus: { box: "bg-indigo-50", icon: <Target className="w-5 h-5 text-indigo-600 mt-1 flex-shrink-0" /> },
+                  progress: { box: "bg-green-50", icon: <TrendingUp className="w-5 h-5 text-green-600 mt-1 flex-shrink-0" /> },
+                  action: { box: "bg-indigo-50", icon: <Award className="w-5 h-5 text-indigo-600 mt-1 flex-shrink-0" /> },
+                  done: { box: "bg-emerald-50", icon: <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-1 flex-shrink-0" /> },
+                }[item.tone];
+                return (
+                  <div key={item.id} className={`flex items-start gap-4 rounded-lg p-4 ${style.box}`}>
+                    {style.icon}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-900">{item.title}</p>
+                      <p className="text-sm text-slate-600">{item.text}</p>
+                    </div>
+                    {item.href && (
+                      <Link href={item.href} className="shrink-0">
+                        <Button size="sm" variant="outline" className="bg-white">{item.cta ?? "바로가기"}</Button>
+                      </Link>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>

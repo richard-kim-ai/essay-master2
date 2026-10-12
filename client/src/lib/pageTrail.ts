@@ -49,20 +49,21 @@ const ROUTES: PageRoute[] = [
   { pattern: "/teacher/settlement", label: "정산", parent: "/teacher-mypage" },
   { pattern: "/parent-portal", label: "학부모 포털" },
   { pattern: "/admin", label: "관리자" },
+  { pattern: "/admin/student-essays", label: "학생 제출 글", parent: "/admin" },
   { pattern: "/admin/certificates", label: "수료증 관리", parent: "/admin" },
   { pattern: "/admin/curriculum", label: "커리큘럼 관리", parent: "/admin" },
   { pattern: "/admin/question-bank", label: "문제은행", parent: "/admin" },
   { pattern: "/admin/evaluation-models", label: "평가 모델", parent: "/admin" },
   { pattern: "/admin/theory-content", label: "이론 콘텐츠", parent: "/admin" },
   { pattern: "/admin/lesson-connections", label: "레슨 연결", parent: "/admin" },
-  { pattern: "/admin/student/:id", label: "학생 상세", parent: "/admin" },
+  { pattern: "/admin/student/:id", label: "회원 상세", parent: "/master-admin" },
   { pattern: "/admin/social-providers", label: "소셜 로그인 설정", parent: "/admin" },
   { pattern: "/admin/terms", label: "약관·정책", parent: "/admin" },
   { pattern: "/admin/guardian-consents", label: "보호자 동의", parent: "/admin" },
   { pattern: "/admin/billing", label: "결제 관리", parent: "/admin" },
   { pattern: "/admin/ai-governance", label: "AI 운영", parent: "/admin" },
   { pattern: "/admin/academic-permissions", label: "학사 권한", parent: "/admin" },
-  { pattern: "/master-admin", label: "마스터 관리" },
+  { pattern: "/master-admin", label: "회원관리" },
 ];
 
 function matches(pattern: string, path: string): boolean {
@@ -89,9 +90,14 @@ export interface PageTrail {
 }
 
 // 홈('/')이나 표에 없는 경로는 null — 이동 바를 보여 주지 않는다.
-export function getPageTrail(rawPath: string): PageTrail | null {
+export function getPageTrail(rawPath: string, role?: string | null): PageTrail | null {
   const path = normalizePath(rawPath);
   if (path === "/") return null;
+  // 교사·관리자가 여는 /essay-submission은 학생용 글 제출이 아니라 '첨삭 관리 센터'이다.
+  if (path === "/essay-submission" && (role === "teacher" || role === "admin")) {
+    const parent = role === "admin" ? { label: "관리자", href: "/admin" } : { label: "교사 마이페이지", href: "/teacher-mypage" };
+    return { items: [parent, { label: "첨삭 관리 센터" }], fallbackHref: parent.href, fallbackLabel: parent.label };
+  }
   const route = ROUTES.find((candidate) => matches(candidate.pattern, path));
   if (!route) return null;
 
@@ -103,6 +109,10 @@ export function getPageTrail(rawPath: string): PageTrail | null {
   if (route.group) items.push({ label: route.group });
   items.push({ label: route.label });
 
+  // 교사 계정의 '마이페이지'는 교사 마이페이지이다.
+  if (role === "teacher") {
+    for (const item of items) if (item.href === "/mypage") Object.assign(item, { label: "교사 마이페이지", href: "/teacher-mypage" });
+  }
   const lastLinked = [...items].reverse().find((item) => item.href);
   return {
     items,

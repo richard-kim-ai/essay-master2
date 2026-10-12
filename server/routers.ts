@@ -9,7 +9,12 @@ import { REFUND_POLICY_KEY } from "./refundPolicy";
 import { MAX_ARCHIVE_BASE64_LENGTH, isWithinOwnerArchiveWindow, parseArchiveImage } from "./certificateArchive";
 import { toLearnerQuestions, toLearnerWorkbookQuestion } from "./learnerQuestionView";
 import { assertQuestionBankItemAccess, resolveQuestionBankCourse, studentQuestionCourse, requireLearnerCourse } from "./questionBankAccess";
-import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback } from "./essayWorkspace";
+import { getLearningAnalytics, getWeeklyStudySummary } from "./learningAnalyticsDb";
+import { reviseEssayWithLLM } from "./essayRevisionEngine";
+import { getTeacherFeedbackDashboard } from "./teacherDashboardDb";
+import { listCertificateAuthorities, setCertificateAuthority } from "./certificateAuthority";
+import { rateTeacherFeedback, getMyTeacherRating, listTeacherRatingOverview, getTeacherRatingDetail, getTeacherProfileStats } from "./teacherRatingDb";
+import { syncEssayDraft, getEssayWorkspace, requestEssayTeacherFeedback, listEssaysForReview, trashEssay, restoreEssay, purgeEssay, listTrashedEssays, emptyTrash } from "./essayWorkspace";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { evaluateConfiguredWriting } from "./configuredWritingEvaluation";
@@ -20,7 +25,7 @@ import { evaluateWritingWithLLM } from "./writingEvaluationEngine";
 import { getTrialAccess, TRIAL_AI_EVALUATION_LIMIT } from "./trialPolicy";
 
 // 샘플 체험(비로그인) AI 첨삭 실체험 남용 방지 한도
-// 정책: 무료 AI 제공량은 샘플 테스트 1회 + 계정 체험 2회 = 총 3회. 샘플 테스트는 1회다.
+// 정책: 샘플 체험 AI는 방문(세션)당 1회이고, 가입 후 계정 체험 2회와 별도로 계산한다.
 const SAMPLE_AI_SESSION_LIMIT = 1;
 const SAMPLE_AI_IP_DAILY_LIMIT = 10;
 const SAMPLE_AI_TEXT_MAX_LENGTH = 300;
@@ -237,6 +242,9 @@ async function completeFeedbackRequest(essay: { id: number; userId: number; titl
 async function assertEssayReadAccess(user: { id: number; role: string; teacherStatus?: string | null }, essayId: number) {
   const essay = await db.getEssaySubmissionById(essayId);
   if (!essay) throw new TRPCError({ code: "NOT_FOUND", message: "논술 제출물을 찾을 수 없습니다." });
+  // 휴지통에 옮긴 글은 학생 본인에게는 목록·상세에서 숨긴다(복원 전까지). 교사·관리자는 기록 확인을 위해 계속 볼 수 있다.
+  if (essay.deletedAt && essay.userId === user.id && user.role !== "admin" && user.role !== "teacher")
+    throw new TRPCError({ code: "NOT_FOUND", message: "휴지통에 있는 글입니다. 복원한 뒤 확인해 주세요." });
   if (user.role === "admin" || essay.userId === user.id) return essay;
   if (user.role === "teacher" && user.teacherStatus === "approved") {
     const student = await db.getUserById(essay.userId);
@@ -1011,7 +1019,7 @@ export const appRouter = router({
 
     getUserBadges: protectedProcedure.query(({ ctx }) => db.getUserBadgesByUser(ctx.user.id)),
 
-    getWeeklySummary: protectedProcedure.query(({ ctx }) => db.getWeeklyStudySummary(ctx.user.id, requireLearnerCourse(ctx.user))),
+    getWeeklySummary: protectedProcedure.query(({ ctx }) => getWeeklyStudySummary(ctx.user.id, requireLearnerCourse(ctx.user))),
 
     awardReviewKing: protectedProcedure.mutation(({ ctx }) => db.awardReviewKingBadge(ctx.user.id)),
 
@@ -1094,6 +1102,11 @@ export const appRouter = router({
       db.getProgressByUser(ctx.user.id, studentQuestionCourse(ctx.user))
     ),
 
+    // 학습 대시보드의 능력·성장 분석: AI·교사 첨삭 점수와 학습 도구 결과를 실제 기록에서 집계한다(고정 값 없음).
+    analytics: protectedProcedure.query(({ ctx }) =>
+      getLearningAnalytics(ctx.user.id, studentQuestionCourse(ctx.user))
+    ),
+
     getByUserAndCurriculum: protectedProcedure
       .input(z.number())
       .query(({ ctx, input }) =>
@@ -1153,6 +1166,8 @@ export const appRouter = router({
       const grants = await db.getTeacherPermissionGrants();
       return grants.filter((grant) => grant.teacherId === ctx.user.id && grant.isActive === 1);
     }),
+    // 교사 마이페이지 '첨삭 현황': 대기·작업 중·기한 경과·완료와 내 첨삭 최근 목록.
+    feedbackDashboard: protectedProcedure.query(({ ctx }) => getTeacherFeedbackDashboard(ctx.user)),
     managedStudents: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "teacher" || ctx.user.teacherStatus !== "approved") {
         throw new TRPCError({ code: "FORBIDDEN", message: "승인된 첨삭교사 권한이 필요합니다." });
@@ -1464,6 +1479,22 @@ export const appRouter = router({
       db.getEssaySubmissionsByUser(ctx.user.id)
     ),
 
+    // 교사(담당 학생)·관리자(전체)가 학생이 제출한 글을 목록으로 보고 첨삭할 글을 고른다.
+    reviewList: protectedProcedure
+      .input(z.object({
+        status: z.enum(["submitted", "reviewed", "all"]).default("submitted"),
+        studentId: z.number().int().positive().optional(),
+        search: z.string().trim().max(80).optional(),
+      }).default({ status: "submitted" }))
+      .query(({ ctx, input }) => listEssaysForReview(ctx.user, input)),
+
+    // 글 삭제: 휴지통으로 이동 → 복원 또는 영구 삭제. 교사 첨삭이 진행 중인 글은 옮길 수 없다.
+    trash: protectedProcedure.input(z.object({ essayId: z.number().int().positive() })).mutation(({ ctx, input }) => trashEssay(ctx.user.id, input.essayId)),
+    restore: protectedProcedure.input(z.object({ essayId: z.number().int().positive() })).mutation(({ ctx, input }) => restoreEssay(ctx.user.id, input.essayId)),
+    purge: protectedProcedure.input(z.object({ essayId: z.number().int().positive() })).mutation(({ ctx, input }) => purgeEssay(ctx.user.id, input.essayId)),
+    trashList: protectedProcedure.query(({ ctx }) => listTrashedEssays(ctx.user.id)),
+    emptyTrash: protectedProcedure.mutation(({ ctx }) => emptyTrash(ctx.user.id)),
+
     getById: protectedProcedure
       .input(z.number())
       .query(({ ctx, input }) => assertEssayReadAccess(ctx.user, input)),
@@ -1600,6 +1631,14 @@ export const appRouter = router({
         return db.getFeedbackCommentsByFeedback(input);
       }),
 
+    // 학생이 받은 교사 첨삭에 별점(1~5)과 후기를 남긴다(첨삭 1건당 1개, 고칠 수 있음). 관리자가 교사 평가에 쓴다.
+    rate: protectedProcedure
+      .input(z.object({ feedbackId: z.number().int().positive(), rating: z.number().int().min(1).max(5), review: z.string().max(1000).optional() }))
+      .mutation(({ ctx, input }) => rateTeacherFeedback(ctx.user, input)),
+    myRating: protectedProcedure
+      .input(z.number().int().positive())
+      .query(({ ctx, input }) => getMyTeacherRating(ctx.user, input)),
+
     addComment: protectedProcedure
       .input(
         z.object({
@@ -1623,6 +1662,13 @@ export const appRouter = router({
         await assertTeacherEssayAccess(ctx.user, feedback.essayId);
         return db.createFeedbackComment(input);
       }),
+  }),
+
+  // ========== 교사 평점·후기(관리자) ==========
+  teacherRating: router({
+    overview: adminProcedure.query(() => listTeacherRatingOverview()),
+    detail: adminProcedure.input(z.object({ teacherId: z.number().int().positive() })).query(({ input }) => getTeacherRatingDetail(input.teacherId)),
+    profile: adminProcedure.input(z.object({ teacherId: z.number().int().positive() })).query(({ input }) => getTeacherProfileStats(input.teacherId)),
   }),
 
   // ========== Master Prompt Writing Evaluation Routes ==========
@@ -1813,7 +1859,11 @@ export const appRouter = router({
           reservationId = 0;
           releaseInstitutionBudget = null;
         }
-        const feedback = { structureScore: semantic.dimension_scores.find((item) => item.competency === "macro_structure")?.score ?? semantic.total_score, logicScore: semantic.dimension_scores.find((item) => item.competency === "logical_inference")?.score ?? semantic.total_score, expressionScore: semantic.dimension_scores.find((item) => item.competency === "sentence_expression")?.score ?? semantic.total_score, overallScore: semantic.total_score, strengths: semantic.strengths, weaknesses: semantic.improvement_points, suggestions: semantic.feedback.revision_steps, overallComment: semantic.feedback.summary, revisedEssay: input.essayContent, sentenceCorrections: [], confidence: semantic.fallback_used ? 0.25 : 0.85, correction_status: semantic.fallback_used ? "fallback" as const : "completed" as const, fallback_used: semantic.fallback_used, provider_error: semantic.provider_error, latency_ms: 0, model_id: "builtin-llm-v1.1", token_usage: semantic.token_usage, estimated_cost_microusd: 0 };
+        // 평가 엔진은 점수·코멘트만 만들므로, 정상 평가된 글에 한해 수정 답안과 문장별 교정을 따로 만든다(실패하면 평가 결과만 제공).
+        const revision = semantic.fallback_used || semantic.decision === "held" || semantic.decision === "dismissed"
+          ? null
+          : await reviseEssayWithLLM({ essayTitle: input.essayTitle, essayContent: input.essayContent, courseType: input.courseType, weaknesses: semantic.improvement_points });
+        const feedback = { structureScore: semantic.dimension_scores.find((item) => item.competency === "macro_structure")?.score ?? semantic.total_score, logicScore: semantic.dimension_scores.find((item) => item.competency === "logical_inference")?.score ?? semantic.total_score, expressionScore: semantic.dimension_scores.find((item) => item.competency === "sentence_expression")?.score ?? semantic.total_score, overallScore: semantic.total_score, strengths: semantic.strengths, weaknesses: semantic.improvement_points, suggestions: semantic.feedback.revision_steps, overallComment: semantic.feedback.summary, revisedEssay: revision?.revisedEssay ?? input.essayContent, sentenceCorrections: revision?.corrections ?? [], confidence: semantic.fallback_used ? 0.25 : 0.85, correction_status: semantic.fallback_used ? "fallback" as const : "completed" as const, fallback_used: semantic.fallback_used, provider_error: semantic.provider_error, latency_ms: 0, model_id: "builtin-llm-v1.1", token_usage: semantic.token_usage + (revision?.tokenUsage ?? 0), estimated_cost_microusd: 0 };
         if (reservationId) await billingDb.recordAiUsageTokens(reservationId, feedback.token_usage);
         // 기관 계약 비용으로 쓴 평가는 개인 이용권·체험 사용량과 섞이지 않도록 따로 기록한다.
         else if (!semantic.fallback_used) await db.logAIUsage(ctx.user.id, entitlement.mode === "institution" ? "institution_essay_feedback" : AI_ACTION_PLAN, feedback.token_usage);
@@ -2295,6 +2345,8 @@ export const appRouter = router({
       .input(z.object({ requestId: z.number(), approved: z.boolean(), note: z.string().trim().max(1000).optional() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        // 관리자 화면에서 수료증 최종 승인 권한을 회수한 관리자는 승인·반려할 수 없다.
+        if (ctx.user.certificateApprovalRevoked) throw new TRPCError({ code: "FORBIDDEN", message: "수료증 최종 승인 권한이 없습니다. 총괄 관리자에게 권한 부여를 요청해 주세요." });
         return db.resolveCertificateApprovalRequestByAdmin({ requestId: input.requestId, adminId: ctx.user.id, approved: input.approved, note: input.note });
       }),
     getAnalytics: protectedProcedure.query(async ({ ctx }) => {
@@ -2568,6 +2620,14 @@ export const appRouter = router({
         }
         return await db.saveSiteSetting(input.settingKey, input.content, ctx.user.id);
       }),
+    // 회원 및 권한 통합 관리: 관리자·첨삭교사의 수료증 승인 권한 현황과 부여·회수.
+    getCertificateAuthorities: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+      return listCertificateAuthorities();
+    }),
+    setCertificateAuthority: protectedProcedure
+      .input(z.object({ userId: z.number().int().positive(), enabled: z.boolean() }))
+      .mutation(({ ctx, input }) => setCertificateAuthority(ctx.user, input)),
     getAllUsersMasterAdmin: protectedProcedure
       .query(async ({ ctx }) => {
         if (ctx.user.role !== "admin") {

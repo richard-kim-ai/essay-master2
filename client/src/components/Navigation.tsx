@@ -62,6 +62,8 @@ const NAV_ITEMS: NavItem[] = [
 export default function Navigation() {
   const { user, isAuthenticated, logout, refresh } = useAuth() as any;
   const [location] = useLocation();
+  // 첨삭교사 계정은 학습자용 메뉴(마이페이지 허브·학습 대시보드·내 글·오프라인 보관함·수료증)를 쓰지 않는다. 교사 마이페이지에서 일한다.
+  const isTeacherAccount = user?.role === "teacher";
   const [openMobileSubmenu, setOpenMobileSubmenu] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -405,36 +407,46 @@ export default function Navigation() {
                           </DropdownMenuItem>
                         </Link>
                       )}
-                      <Link href="/mypage">
-                        <DropdownMenuItem className="cursor-pointer font-bold text-indigo-700 bg-indigo-50/50 mb-1">
-                          <User className="w-4 h-4 mr-2 text-indigo-600" />
-                          <span>마이페이지 허브 (통합 홈)</span>
-                        </DropdownMenuItem>
-                      </Link>
-                      <Link href="/dashboard-detail">
-                        <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
-                          <BarChart3 className="w-4 h-4 mr-2 text-indigo-600" />
-                          <span>학습 대시보드</span>
-                        </DropdownMenuItem>
-                      </Link>
-                      <Link href="/my-writings">
-                        <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
-                          <Edit3 className="w-4 h-4 mr-2 text-indigo-600" />
-                          <span>내 글·첨삭 기록</span>
-                        </DropdownMenuItem>
-                      </Link>
-                      <Link href="/offline-essays">
-                        <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
-                          <FileText className="w-4 h-4 mr-2 text-indigo-600" />
-                          <span>오프라인 보관함</span>
-                        </DropdownMenuItem>
-                      </Link>
-                      <Link href="/certificate">
-                        <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
-                          <Award className="w-4 h-4 mr-2 text-indigo-600" />
-                          <span>수료증</span>
-                        </DropdownMenuItem>
-                      </Link>
+                      {!isTeacherAccount && (
+                        <Link href="/mypage">
+                          <DropdownMenuItem className="cursor-pointer font-bold text-indigo-700 bg-indigo-50/50 mb-1">
+                            <User className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>마이페이지 허브 (통합 홈)</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
+                      {!isTeacherAccount && (
+                        <Link href="/dashboard-detail">
+                          <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                            <BarChart3 className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>학습 대시보드</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
+                      {!isTeacherAccount && (
+                        <Link href="/my-writings">
+                          <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                            <Edit3 className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>내 글·첨삭 기록</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
+                      {!isTeacherAccount && (
+                        <Link href="/offline-essays">
+                          <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                            <FileText className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>오프라인 보관함</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
+                      {!isTeacherAccount && (
+                        <Link href="/certificate">
+                          <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
+                            <Award className="w-4 h-4 mr-2 text-indigo-600" />
+                            <span>수료증</span>
+                          </DropdownMenuItem>
+                        </Link>
+                      )}
                       {user?.role === "user" && user?.tag !== "학부모" && (
                         <Link href="/checkout">
                           <DropdownMenuItem className="cursor-pointer font-semibold text-slate-800">
@@ -515,7 +527,7 @@ export default function Navigation() {
 
                       {/* Mobile MyPage / Account Submenu Section */}
                       <div className="border-b border-slate-200 pb-3 mb-2">
-                        <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">마이페이지 & 개인 기록</p>
+                        {!isTeacherAccount && <p className="px-4 text-xs font-bold text-indigo-600 uppercase mb-2">마이페이지 & 개인 기록</p>}
                         {user?.tag === "학부모" && (
                           <Link href="/parent-portal">
                             <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50">
@@ -524,36 +536,46 @@ export default function Navigation() {
                             </button>
                           </Link>
                         )}
-                        <Link href="/mypage">
-                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
-                            <User className="w-4 h-4 text-indigo-600" />
-                            <span>마이페이지 허브</span>
-                          </button>
-                        </Link>
-                        <Link href="/dashboard-detail">
-                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
-                            <BarChart3 className="w-4 h-4 text-indigo-600" />
-                            <span>학습 대시보드</span>
-                          </button>
-                        </Link>
-                        <Link href="/my-writings">
-                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
-                            <Edit3 className="w-4 h-4 text-indigo-600" />
-                            <span>내 글·첨삭 기록</span>
-                          </button>
-                        </Link>
-                        <Link href="/offline-essays">
-                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
-                            <FileText className="w-4 h-4 text-indigo-600" />
-                            <span>오프라인 보관함</span>
-                          </button>
-                        </Link>
-                        <Link href="/certificate">
-                          <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
-                            <Award className="w-4 h-4 text-indigo-600" />
-                            <span>수료증</span>
-                          </button>
-                        </Link>
+                        {!isTeacherAccount && (
+                          <Link href="/mypage">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                              <User className="w-4 h-4 text-indigo-600" />
+                              <span>마이페이지 허브</span>
+                            </button>
+                          </Link>
+                        )}
+                        {!isTeacherAccount && (
+                          <Link href="/dashboard-detail">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                              <BarChart3 className="w-4 h-4 text-indigo-600" />
+                              <span>학습 대시보드</span>
+                            </button>
+                          </Link>
+                        )}
+                        {!isTeacherAccount && (
+                          <Link href="/my-writings">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                              <Edit3 className="w-4 h-4 text-indigo-600" />
+                              <span>내 글·첨삭 기록</span>
+                            </button>
+                          </Link>
+                        )}
+                        {!isTeacherAccount && (
+                          <Link href="/offline-essays">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                              <FileText className="w-4 h-4 text-indigo-600" />
+                              <span>오프라인 보관함</span>
+                            </button>
+                          </Link>
+                        )}
+                        {!isTeacherAccount && (
+                          <Link href="/certificate">
+                            <button onClick={handleMobileLinkClick} className="mb-1 flex w-full items-center gap-2 rounded-lg px-4 py-2 text-sm text-slate-800 hover:bg-slate-100 font-semibold">
+                              <Award className="w-4 h-4 text-indigo-600" />
+                              <span>수료증</span>
+                            </button>
+                          </Link>
+                        )}
                       </div>
 
                       {/* Mobile Navigation Items */}

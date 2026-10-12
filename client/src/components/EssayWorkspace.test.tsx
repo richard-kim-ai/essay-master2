@@ -37,6 +37,7 @@ vi.mock("@/lib/trpc", () => ({
     essaySubmission: {
       syncDraft: { useMutation: () => mock.mutation },
       requestTeacher: { useMutation: () => ({ mutateAsync: mock.teacher }) },
+      trash: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       workspace: {
         useQuery: () => ({ data: mock.remote, refetch: mock.refetch }),
       },

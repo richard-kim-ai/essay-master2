@@ -34,6 +34,19 @@ describe("이메일 로그인 → 세션 쿠키 → 로그인 상태", () => {
     expect(user.id).toBe(7);
   });
 
+  it("로컬 .env에 VITE_APP_ID가 비어 있어도 발급한 쿠키가 로그인 상태로 인정된다(기본 appId 사용)", async () => {
+    vi.resetModules();
+    vi.stubEnv("JWT_SECRET", "login-session-test-secret");
+    vi.stubEnv("VITE_APP_ID", "");
+    const { sdk } = await import("./_core/sdk");
+    const { ENV } = await import("./_core/env");
+    expect(ENV.appId).toBe("essay-master");
+    userRow.current = { id: 7, openId: "local_abc", name: "학생", role: "user", passwordHash: "salt:hash-1", lastSignedIn: new Date() };
+    const token = await sdk.createSessionToken("local_abc", { name: "학생", expiresInMs: 60_000 });
+    const user = await sdk.authenticateRequest(await cookieFor(token));
+    expect(user.id).toBe(7);
+  });
+
   it("비밀번호를 바꾼 뒤에는 이전 쿠키가 거절된다", async () => {
     const sdk = await loadSdk();
     userRow.current = { id: 7, openId: "local_abc", name: "학생", role: "user", passwordHash: "salt:hash-1", lastSignedIn: new Date() };

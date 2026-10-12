@@ -1,5 +1,6 @@
 export const ENV = {
-  appId: process.env.VITE_APP_ID ?? "",
+  // 로컬 .env에 VITE_APP_ID가 없으면 세션 토큰의 appId가 비어 검증에서 거절되어(로그인 직후 로그아웃 상태) 기본값을 쓴다.
+  appId: process.env.VITE_APP_ID || "essay-master",
   cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",

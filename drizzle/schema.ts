@@ -29,6 +29,8 @@ export const users = mysqlTable("users", {
   teacherId: int("teacherId"), // 학생이 배정된 담당 교사 ID
   preferredTeacherId: int("preferredTeacherId"), // 학생 가입 시 선택한 추천 교사 ID (관리자 배정 전 희망값)
   adminNotes: text("adminNotes"),
+  /** 관리자 계정의 수료증 최종 승인 권한을 회수했는지(1=회수). 기본값 0이라 기존 관리자는 모두 승인할 수 있다. */
+  certificateApprovalRevoked: int("certificateApprovalRevoked").default(0).notNull(),
   tag: varchar("tag", { length: 64 }).default("과정 미선택").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -516,6 +518,10 @@ export const essaySubmission = mysqlTable("essay_submission", {
   aiFeedbackId: int("aiFeedbackId"),
   status: mysqlEnum("status", ["draft", "submitted", "reviewed"]).default("draft").notNull(),
   submittedAt: timestamp("submittedAt"),
+  /** 휴지통으로 옮긴 시각. 비어 있지 않으면 글 목록에서 숨기고 휴지통에서만 복원·영구 삭제할 수 있다. */
+  deletedAt: timestamp("deletedAt"),
+  /** 영구 삭제한 시각. 교사 첨삭 기록이 걸린 글은 행을 남기고 제목·본문만 비운 뒤 이 값을 채운다. */
+  purgedAt: timestamp("purgedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -608,6 +614,26 @@ export type TeacherAiProfile = typeof teacherAiProfiles.$inferSelect;
 export type TeacherAiStyleExample = typeof teacherAiStyleExamples.$inferSelect;
 export type TeacherAiDraft = typeof teacherAiDrafts.$inferSelect;
 export type TeacherAiDraftRevision = typeof teacherAiDraftRevisions.$inferSelect;
+
+// 학생이 받은 교사 첨삭에 매기는 별점(1~5)과 후기. 첨삭 1건당 평가 1건이며 학생이 고칠 수 있다.
+// 관리자는 이 기록을 모아 교사별 평점·후기를 보고 교사를 평가·관리한다.
+export const teacherFeedbackRatings = mysqlTable("teacher_feedback_ratings", {
+  id: int("id").autoincrement().primaryKey(),
+  feedbackId: int("feedbackId").notNull(),
+  essayId: int("essayId").notNull(),
+  studentId: int("studentId").notNull(),
+  teacherId: int("teacherId").notNull(),
+  rating: int("rating").notNull(), // 1~5
+  review: text("review"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqFeedback: uniqueIndex("uq_tf_ratings_feedbackId").on(table.feedbackId),
+  idxTeacher: index("idx_tf_ratings_teacherId").on(table.teacherId),
+  idxStudent: index("idx_tf_ratings_studentId").on(table.studentId),
+}));
+
+export type TeacherFeedbackRating = typeof teacherFeedbackRatings.$inferSelect;
 
 // 첨삭 코멘트 테이블 (문장별 코멘트)
 export const feedbackComment = mysqlTable("feedback_comment", {

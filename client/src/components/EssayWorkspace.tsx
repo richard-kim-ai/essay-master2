@@ -26,10 +26,12 @@ import {
   Copy,
   Loader2,
   BookOpen,
+  Trash2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import TeacherFeedbackRequestDialog from "@/components/TeacherFeedbackRequestDialog";
 import MyTeacherFeedbackRequests from "@/components/MyTeacherFeedbackRequests";
+import AiFeedbackPanel from "@/components/AiFeedbackPanel";
 import { toast } from "sonner";
 import { useEssayWorkspace } from "@/hooks/useEssayWorkspace";
 import {
@@ -42,19 +44,6 @@ import {
 import { COURSE_OPTIONS } from "@shared/course";
 import { EvaluationLoadingState } from "@/components/EvaluationLoadingState";
 import { useLearningCourse } from "@/hooks/useLearningCourse";
-
-function feedbackList(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter(v => typeof v === "string");
-  if (typeof value === "string") {
-    try {
-      const rows = JSON.parse(value);
-      return Array.isArray(rows) ? rows.filter(v => typeof v === "string") : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
 
 export default function EssayWorkspace({
   offline = false,
@@ -101,6 +90,7 @@ export default function EssayWorkspace({
     localId: string;
   } | null>(null);
   const aiRequest = trpc.aiAutoFeedback.create.useMutation();
+  const trashEssay = trpc.essaySubmission.trash.useMutation();
   const selected = store.rows.find(
     row => row.localId === selectedId && row.userId === user?.id
   );
@@ -268,6 +258,35 @@ export default function EssayWorkspace({
           : "기기와 서버에 저장했습니다."
       );
   };
+  // 글 삭제: 서버에 저장된 글은 휴지통으로 옮기고(복원 가능), 이 기기에만 있는 글은 기기에서 지운다.
+  const removeEssay = async () => {
+    if (!user || !selected || disabled) return;
+    const serverId = selected.id;
+    const confirmed = window.confirm(
+      serverId !== undefined
+        ? "이 글을 휴지통으로 옮길까요? '내 글·첨삭 기록'의 휴지통에서 복원할 수 있습니다."
+        : "이 글은 이 기기에만 저장되어 있어 삭제하면 되돌릴 수 없습니다. 삭제할까요?"
+    );
+    if (!confirmed) return;
+    try {
+      if (serverId !== undefined) {
+        if (!store.online || !navigator.onLine) {
+          toast.info("서버에 저장된 글은 온라인 상태에서만 삭제할 수 있습니다.");
+          return;
+        }
+        await trashEssay.mutateAsync({ essayId: serverId });
+      }
+      store.commit(store.latestRows().filter(row => row.localId !== selected.localId));
+      setSelectedId(null);
+      setTitle("");
+      setContent("");
+      setTeacherResult("");
+      editorSource.current = { title: "", content: "" };
+      toast.success(serverId !== undefined ? "휴지통으로 옮겼습니다." : "삭제했습니다.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "글을 삭제하지 못했습니다.");
+    }
+  };
   const copyDraft = () => {
     if (!user || !selected) return;
     try {
@@ -385,7 +404,7 @@ export default function EssayWorkspace({
       if (requestScopeRef.current !== requestScope) return;
       toast.success(
         result.fallback_used
-          ? "기본 분석 결과가 제공되었습니다. AI 평가를 다시 요청할 수 있습니다."
+          ? "AI 모델 연결에 실패해 기본 점검 결과만 제공되었습니다(사용 횟수는 차감되지 않았습니다). 잠시 후 다시 요청해 주세요."
           : "AI 피드백을 받았습니다."
       );
     } catch (err) {
@@ -468,6 +487,14 @@ export default function EssayWorkspace({
           >
             <Plus className="h-4 w-4" />새 글 작성
           </Button>
+          {!offline && (
+            <Link href="/my-writings?tab=trash">
+              <Button variant="outline" className="bg-white gap-2">
+                <Trash2 className="h-4 w-4" />
+                휴지통
+              </Button>
+            </Link>
+          )}
         </div>
       </header>
       <nav
@@ -687,6 +714,15 @@ export default function EssayWorkspace({
                         수정본 만들기
                       </Button>
                     )}
+                    <Button
+                      variant="outline"
+                      onClick={() => void removeEssay()}
+                      disabled={disabled}
+                      className="gap-2 border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      삭제
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -735,8 +771,9 @@ export default function EssayWorkspace({
                   )}
                   {quota.data?.isTrial && (
                     <p className="text-xs text-slate-600">
-                      7일 체험의 무료 AI 평가는 레슨 1의 첫 서술형 풀이에서
-                      제공됩니다. 자유 글 첨삭은 이용권 범위에 따라 제공됩니다.
+                      7일 무료 체험에서는 AI 평가·첨삭을 2회 이용할 수 있습니다.
+                      횟수를 모두 쓰면 이용권을 선택해 이어서 이용할 수 있고,
+                      교사 첨삭지도는 체험에 포함되지 않습니다.
                     </p>
                   )}
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -817,21 +854,12 @@ export default function EssayWorkspace({
                     </p>
                   )}
                   {ai && (
-                    <section className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
-                      <h3 className="font-bold text-indigo-950">
-                        AI 피드백 · {ai.overallScore ?? 0}점
-                      </h3>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                        {ai.overallComment}
-                      </p>
-                      {feedbackList(ai.suggestions).length > 0 && (
-                        <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                          {feedbackList(ai.suggestions).map((s, i) => (
-                            <li key={i}>• {s}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </section>
+                    <AiFeedbackPanel
+                      ai={ai}
+                      essayContent={selected?.content}
+                      onRetry={() => void requestAi()}
+                      retryDisabled={disabled}
+                    />
                   )}
                   {teacher && (
                     <section className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">

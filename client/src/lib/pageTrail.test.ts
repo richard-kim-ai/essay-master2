@@ -42,3 +42,31 @@ describe("getPageTrail", () => {
     expect(getPageTrail("/checkout?plan=ai_basic")?.items).toEqual([{ label: "요금정책", href: "/pricing" }, { label: "이용권 결제" }]);
   });
 });
+
+describe("교사·관리자의 글 제출 화면 경로", () => {
+  it("교사가 여는 /essay-submission은 '교사 마이페이지 > 첨삭 관리 센터'이고 이전 기록이 없으면 교사 마이페이지로 보낸다", () => {
+    const trail = getPageTrail("/essay-submission", "teacher");
+    expect(trail?.items).toEqual([{ label: "교사 마이페이지", href: "/teacher-mypage" }, { label: "첨삭 관리 센터" }]);
+    expect(trail?.fallbackHref).toBe("/teacher-mypage");
+  });
+
+  it("관리자는 '관리자 > 첨삭 관리 센터', 학생·방문자는 기존 '마이페이지 > 글 제출'을 유지한다", () => {
+    expect(getPageTrail("/essay-submission", "admin")?.items).toEqual([{ label: "관리자", href: "/admin" }, { label: "첨삭 관리 센터" }]);
+    expect(getPageTrail("/essay-submission", "user")?.items).toEqual([{ label: "마이페이지", href: "/mypage" }, { label: "글 제출" }]);
+    expect(getPageTrail("/essay-submission")?.items.map((item) => item.label)).toEqual(["마이페이지", "글 제출"]);
+  });
+
+  it("역할을 넘겨도 다른 화면 경로는 달라지지 않는다", () => {
+    expect(getPageTrail("/pricing", "teacher")?.items).toEqual([{ label: "요금정책" }]);
+  });
+});
+
+describe("교사 계정의 마이페이지 경로", () => {
+  it("교사가 여는 첨삭 결과 화면의 상위 경로는 '마이페이지'가 아니라 '교사 마이페이지'이다", () => {
+    const trail = getPageTrail("/teacher-feedback/5", "teacher");
+    expect(trail?.items).toEqual([{ label: "교사 마이페이지", href: "/teacher-mypage" }, { label: "교사 첨삭" }]);
+    expect(trail?.fallbackHref).toBe("/teacher-mypage");
+    // 학생은 기존대로
+    expect(getPageTrail("/teacher-feedback/5", "user")?.items).toEqual([{ label: "마이페이지", href: "/mypage" }, { label: "교사 첨삭" }]);
+  });
+});

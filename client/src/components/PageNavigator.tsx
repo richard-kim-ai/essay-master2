@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { ArrowLeft, ChevronRight, Home } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { getPageTrail } from "@/lib/pageTrail";
 
 // 이 탭에서 앱 안 화면을 몇 번 열었는지. 1이면 이전 화면이 앱 밖(또는 없음)이라 history.back() 대신 상위 화면으로 보낸다.
@@ -9,7 +10,8 @@ let inAppPageViews = 0;
 // 메뉴 바로 아래에 붙는 페이지 이동 바: 이전 화면으로 돌아가기 + 홈부터 현재 화면까지의 경로.
 export default function PageNavigator() {
   const [path, setLocation] = useLocation();
-  const trail = getPageTrail(path);
+  const { user } = useAuth();
+  const trail = getPageTrail(path, user?.role);
 
   useEffect(() => {
     inAppPageViews += 1;
