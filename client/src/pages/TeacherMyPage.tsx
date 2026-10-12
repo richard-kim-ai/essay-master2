@@ -163,7 +163,7 @@ export default function TeacherMyPage() {
           </TabsList>
 
           <TabsContent value="requests" className="space-y-6">
-            <TeacherFeedbackQueue />
+            <TeacherFeedbackQueue enabled={teacherEnabled} />
           </TabsContent>
 
           <TabsContent value="essays" className="space-y-6">

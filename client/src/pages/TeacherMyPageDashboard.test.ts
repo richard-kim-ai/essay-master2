@@ -28,6 +28,13 @@ describe("교사 마이페이지: 지도 학생 수와 첨삭 현황", () => {
     expect(source).toContain("아직 등록한 첨삭이 없습니다.");
   });
 
+  it("교사 첨삭 신청 대기열은 승인된 교사 세션에서만 조회한다", () => {
+    expect(source).toContain("const teacherEnabled =");
+    expect(source).toContain("user?.role === \"teacher\"");
+    expect(source).toContain("teacherStatus === \"approved\"");
+    expect(source).toContain("<TeacherFeedbackQueue enabled={teacherEnabled} />");
+  });
+
   it("학생 표에 담당 학생/권한 부여 구분 열이 있다", () => {
     expect(source).toContain('<th className="p-3">구분</th>');
     expect(source).toContain('"담당 학생"');
