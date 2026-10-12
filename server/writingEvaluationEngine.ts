@@ -1,4 +1,4 @@
-import { invokeLLM } from "./_core/llm";
+import { invokeLLMText } from "./_core/llmText";
 import {
   evaluateWritingHeuristic,
   getHumanReviewReasons,
@@ -102,15 +102,13 @@ export async function evaluateWritingWithLLM(request: SemanticEvaluationRequest)
   const state = decideEvaluationState(request);
   if (state.decision) return nonScoredResult(state.decision, state.reason ?? "평가를 진행하지 않았습니다.");
   try {
-    const response = await invokeLLM({
+    const { text, totalTokens } = await invokeLLMText({
       messages: [{ role: "system", content: request.metadata.learner_history ? MASTER_PROMPT + PERSONALIZATION_NOTE : MASTER_PROMPT }, { role: "user", content: JSON.stringify({ metadata: request.metadata, task: request.task, submission: request.submission }) }],
       response_format: { type: "json_object" },
     });
-    const content = response.choices?.[0]?.message?.content;
-    if (typeof content !== "string") throw new Error("LLM_EMPTY_RESPONSE");
-    const parsed = parseSemanticResult(JSON.parse(content));
+    const parsed = parseSemanticResult(JSON.parse(text));
     if (!parsed) throw new Error("LLM_INVALID_EVALUATION_CONTRACT");
-    return { ...parsed, fallback_used: false, provider_error: null, token_usage: Math.max(0, Math.round(Number(response.usage?.total_tokens ?? 0))) };
+    return { ...parsed, fallback_used: false, provider_error: null, token_usage: totalTokens };
   } catch (error) {
     const fallbackRequest: WritingCorrectionRequest = { essayTitle: String(request.metadata.title ?? "논술 답안"), essayContent: request.submission.essay_text, courseType: "general_adult", level: 1 };
     const fallback = evaluateWritingHeuristic(fallbackRequest);

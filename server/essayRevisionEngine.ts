@@ -1,4 +1,4 @@
-import { invokeLLM } from "./_core/llm";
+import { invokeLLMText } from "./_core/llmText";
 
 // AI 첨삭의 '수정 답안'과 문장별 교정을 만든다. 평가 엔진(writingEvaluationEngine)은 점수·코멘트만 만들고
 // 고친 글은 만들지 않으므로, 평가가 정상 완료된 뒤에 이 단계가 원문을 바탕으로 수정본을 만든다.
@@ -87,7 +87,7 @@ export function parseRevision(content: string, essayContent: string): { revisedE
 export async function reviseEssayWithLLM(request: EssayRevisionRequest): Promise<EssayRevision | null> {
   try {
     const weaknesses = (request.weaknesses ?? []).filter(Boolean).slice(0, 5);
-    const response = await invokeLLM({
+    const { text, totalTokens } = await invokeLLMText({
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -102,11 +102,9 @@ export async function reviseEssayWithLLM(request: EssayRevisionRequest): Promise
       ],
       response_format: { type: "json_object" },
     });
-    const content = response.choices?.[0]?.message?.content;
-    if (typeof content !== "string") return null;
-    const parsed = parseRevision(content, request.essayContent);
+    const parsed = parseRevision(text, request.essayContent);
     if (!parsed) return null;
-    return { ...parsed, tokenUsage: Math.max(0, Math.round(Number(response.usage?.total_tokens ?? 0))) };
+    return { ...parsed, tokenUsage: totalTokens };
   } catch (error) {
     console.warn("[AI 첨삭] 수정 답안 생성 실패(평가 결과만 제공):", error instanceof Error ? error.message.slice(0, 200) : error);
     return null;
