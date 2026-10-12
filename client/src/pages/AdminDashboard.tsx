@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import AiUsageSummary from "@/components/AiUsageSummary";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function AdminDashboard() {
@@ -482,6 +483,8 @@ export default function AdminDashboard() {
                 <CurriculumStatsWidget />
               </CardContent>
             </Card>
+
+            <AiUsageSummary />
           </div>
         </div>
       </div>

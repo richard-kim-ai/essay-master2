@@ -33,7 +33,7 @@ beforeEach(() => {
 
 describe("getLearningAnalytics(실제 기록 집계)", () => {
   it("기록이 하나도 없으면 영역은 모두 측정 전(null), 성장은 8주 빈 값이다", async () => {
-    // AI 첨삭, 글 목록, (글이 없으니 교사 첨삭은 조회하지 않음), 학습 도구
+    // AI 첨삭, 글 목록, 학습 도구는 동시에 조회하고 (글이 없으니 교사 첨삭은 조회하지 않음)
     fake.queue = [[], [], []];
     const result = await getLearningAnalytics(7, "middle_high");
     expect(result.skills.every((skill) => skill.value === null)).toBe(true);
@@ -46,8 +46,8 @@ describe("getLearningAnalytics(실제 기록 집계)", () => {
     fake.queue = [
       [{ createdAt: recent(0), overallScore: 70, structureScore: 60, logicScore: 70, expressionScore: 80 }], // AI
       [{ id: 11 }], // 내 글
+      [{ createdAt: recent(0), toolType: "quiz", score: 100 }, { createdAt: recent(0), toolType: "summary", score: 40 }], // 학습 도구(AI·글·도구 순으로 동시 조회한 뒤 교사 첨삭)
       [{ createdAt: recent(0), overallScore: 90, structureScore: 80, logicScore: 90, expressionScore: 100 }], // 교사
-      [{ createdAt: recent(0), toolType: "quiz", score: 100 }, { createdAt: recent(0), toolType: "summary", score: 40 }], // 학습 도구
     ];
     const result = await getLearningAnalytics(7);
     const value = (key: string) => result.skills.find((skill) => skill.key === key)?.value;
@@ -77,7 +77,7 @@ describe("getWeeklyStudySummary(마이페이지 허브)", () => {
     const { getWeeklyStudySummary } = await import("./learningAnalyticsDb");
     fake.queue = [
       [{ createdAt: recent(1), isCorrect: 1 }, { createdAt: recent(2), isCorrect: 0 }, { createdAt: recent(9), isCorrect: 1 }], // 워크북 답안
-      [{ createdAt: recent(1) }], // 학습 도구
+      [{ createdAt: recent(1) }], // 학습 도구(AI·글·도구 순으로 동시 조회한 뒤 교사 첨삭)
       [{ completedAt: recent(2) }], // 레벨 완료
     ];
     const result = await getWeeklyStudySummary(7, "middle_high");

@@ -272,15 +272,18 @@ export type StudentFunding =
 /** 학생의 AI 평가 비용을 부담하는 기관 계약. 소속 회원에 지정된 계약이 먼저이고, 없으면 속한 반의 계약이다(둘 이상이면 모호함). */
 export async function resolveStudentFunding(studentId: number): Promise<StudentFunding> {
   const db = await requireDb();
-  const member = await getActiveMember(studentId);
+  // 직접 소속과 반 소속은 서로 의존하지 않으므로 동시에 조회한다(대부분의 학생은 둘 다 없어 DB 왕복이 절반이 된다).
+  const [member, rows] = await Promise.all([
+    getActiveMember(studentId),
+    db.select({ contractId: learningGroups.contractId })
+      .from(learningGroupMembers)
+      .innerJoin(learningGroups, eq(learningGroups.id, learningGroupMembers.groupId))
+      .where(and(eq(learningGroupMembers.studentId, studentId), eq(learningGroups.isActive, 1), isNotNull(learningGroups.contractId))),
+  ]);
   if (member?.contractId) {
     const contract = await getContract(member.contractId);
     if (contract) return { kind: "contract", contract, via: "member" };
   }
-  const rows = await db.select({ contractId: learningGroups.contractId })
-    .from(learningGroupMembers)
-    .innerJoin(learningGroups, eq(learningGroups.id, learningGroupMembers.groupId))
-    .where(and(eq(learningGroupMembers.studentId, studentId), eq(learningGroups.isActive, 1), isNotNull(learningGroups.contractId)));
   const contractIds = Array.from(new Set(rows.map((row) => row.contractId as number)));
   if (contractIds.length === 0) return { kind: "none" };
   if (contractIds.length > 1) return { kind: "ambiguous" };

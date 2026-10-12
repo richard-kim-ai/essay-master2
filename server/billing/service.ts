@@ -28,16 +28,17 @@ export async function getAiEntitlement(user: EntitlementUser): Promise<AiEntitle
   if (user.role !== "user" || user.tag === "학부모") {
     return evaluateAiEntitlement({ user, subscriptions: [], usedInTrial: 0 });
   }
-  // 기관 계약이 비용을 부담하는 학생은 개인 이용권·체험보다 계약이 우선한다.
-  const funding = await resolveStudentFunding(user.id);
-  if (funding.kind === "ambiguous") return ambiguousInstitutionEntitlement();
-  if (funding.kind === "contract") return evaluateInstitutionEntitlement(funding.contract);
-
-  const [subscriptions, awaiting, usedInTrial] = await Promise.all([
+  // 기관 계약 확인과 개인 이용권·체험 조회는 서로 의존하지 않으므로 동시에 조회한다(DB 왕복 한 번을 줄인다).
+  const [funding, subscriptions, awaiting, usedInTrial] = await Promise.all([
+    resolveStudentFunding(user.id),
     listActiveSubscriptions(user.id),
     listAwaitingStartSubscriptions(user.id),
     countAiUsage(user.id, [AI_ACTION_TRIAL]),
   ]);
+  // 기관 계약이 비용을 부담하는 학생은 개인 이용권·체험보다 계약이 우선한다.
+  if (funding.kind === "ambiguous") return ambiguousInstitutionEntitlement();
+  if (funding.kind === "contract") return evaluateInstitutionEntitlement(funding.contract);
+
   const withUsage = await Promise.all(
     subscriptions.map(async (subscription) => ({
       id: subscription.id,

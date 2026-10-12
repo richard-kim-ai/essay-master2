@@ -11,7 +11,7 @@ export async function getLearningAnalytics(userId: number, courseType?: CourseTy
   const db = await getDb();
   if (!db) return buildLearningAnalytics({ ai: [], teacher: [], tools: [] });
 
-  const aiRowsRaw = await db
+  const aiQuery = db
     .select({
       fallbackUsed: writingEvaluationRecords.fallbackUsed,
       createdAt: aiAutoFeedback.createdAt,
@@ -25,11 +25,20 @@ export async function getLearningAnalytics(userId: number, courseType?: CourseTy
     .where(courseType ? and(eq(aiAutoFeedback.userId, userId), eq(aiAutoFeedback.courseType, courseType)) : eq(aiAutoFeedback.userId, userId))
     .orderBy(desc(aiAutoFeedback.createdAt))
     .limit(PER_SOURCE_LIMIT);
+  const essayQuery = db.select({ id: essaySubmission.id }).from(essaySubmission).where(eq(essaySubmission.userId, userId)).limit(1000);
+  const toolQuery = db
+    .select({ createdAt: learningToolAttempts.createdAt, toolType: learningToolAttempts.toolType, score: learningToolAttempts.score })
+    .from(learningToolAttempts)
+    .where(courseType ? and(eq(learningToolAttempts.userId, userId), eq(learningToolAttempts.courseType, courseType)) : eq(learningToolAttempts.userId, userId))
+    .orderBy(desc(learningToolAttempts.createdAt))
+    .limit(PER_SOURCE_LIMIT);
+  // DB 왕복이 건당 수백 ms라서, 서로 의존하지 않는 세 조회는 동시에 실행한다.
+  const [aiRowsRaw, essayRows, toolRows] = await Promise.all([aiQuery, essayQuery, toolQuery]);
   // AI 모델 호출에 실패해 기본 규칙 점검으로 대체된 결과는 실력 분석에 섞지 않는다.
   const aiRows = aiRowsRaw.filter((row) => !row.fallbackUsed);
 
   // 교사 첨삭은 학생의 글(essay_submission)을 통해 찾는다.
-  const essayIds = (await db.select({ id: essaySubmission.id }).from(essaySubmission).where(eq(essaySubmission.userId, userId)).limit(1000)).map((row) => row.id);
+  const essayIds = essayRows.map((row) => row.id);
   const teacherRows = essayIds.length
     ? await db
         .select({
@@ -44,13 +53,6 @@ export async function getLearningAnalytics(userId: number, courseType?: CourseTy
         .orderBy(desc(teacherFeedback.createdAt))
         .limit(PER_SOURCE_LIMIT)
     : [];
-
-  const toolRows = await db
-    .select({ createdAt: learningToolAttempts.createdAt, toolType: learningToolAttempts.toolType, score: learningToolAttempts.score })
-    .from(learningToolAttempts)
-    .where(courseType ? and(eq(learningToolAttempts.userId, userId), eq(learningToolAttempts.courseType, courseType)) : eq(learningToolAttempts.userId, userId))
-    .orderBy(desc(learningToolAttempts.createdAt))
-    .limit(PER_SOURCE_LIMIT);
 
   return buildLearningAnalytics({ ai: aiRows, teacher: teacherRows, tools: toolRows });
 }
@@ -68,13 +70,13 @@ export async function getWeeklyStudySummary(
   const answerWhere = courseType
     ? and(eq(curriculumWorkbookAnswers.userId, userId), gte(curriculumWorkbookAnswers.createdAt, since), eq(curriculumWorkbookQuestions.courseType, courseType))
     : and(eq(curriculumWorkbookAnswers.userId, userId), gte(curriculumWorkbookAnswers.createdAt, since));
-  const answers = await db
+  const answersQuery = db
     .select({ createdAt: curriculumWorkbookAnswers.createdAt, isCorrect: curriculumWorkbookAnswers.isCorrect })
     .from(curriculumWorkbookAnswers)
     .innerJoin(curriculumWorkbookQuestions, eq(curriculumWorkbookQuestions.id, curriculumWorkbookAnswers.questionId))
     .where(answerWhere);
 
-  const tools = await db
+  const toolsQuery = db
     .select({ createdAt: learningToolAttempts.createdAt })
     .from(learningToolAttempts)
     .where(
@@ -83,7 +85,7 @@ export async function getWeeklyStudySummary(
         : and(eq(learningToolAttempts.userId, userId), gte(learningToolAttempts.createdAt, since))
     );
 
-  const completions = await db
+  const completionsQuery = db
     .select({ completedAt: progress.completedAt })
     .from(progress)
     .where(
@@ -92,6 +94,7 @@ export async function getWeeklyStudySummary(
         : and(eq(progress.userId, userId), gte(progress.completedAt, since))
     );
 
+  const [answers, tools, completions] = await Promise.all([answersQuery, toolsQuery, completionsQuery]);
   return buildWeeklySummary({ answers, tools, completions });
 }
 

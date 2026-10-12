@@ -1,5 +1,7 @@
 import { TRPCError } from "@trpc/server";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
+import { AI_COST_PREFIX, drizzleQueryCounter } from "./_core/perf";
 import { createHash } from "node:crypto";
 import { selectWorkbookRecommendations } from "./workbookRecommendations";
 import {
@@ -132,7 +134,7 @@ import {
   normalizeForFingerprint,
 } from "./runtimeEfficiency";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let _db: MySql2Database<Record<string, unknown>> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
 let memoryProgressId = 1;
 
@@ -318,7 +320,22 @@ function selectQuestionsByDifficulty<
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      // 풀을 직접 만들어 연결을 유지한다(기본 설정은 유휴 연결이 끊긴 뒤 요청마다 TLS 연결을 새로 맺어 ~1초가 더 걸렸다).
+      const poolSize = Number(process.env.DB_POOL_SIZE ?? 20);
+      const warmCount = Math.min(poolSize, Number(process.env.DB_POOL_WARM ?? 12));
+      const pool = mysql.createPool({
+        uri: process.env.DATABASE_URL,
+        connectionLimit: poolSize,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10_000,
+        idleTimeout: 10 * 60 * 1000,
+      });
+      _db = drizzle(pool, { logger: drizzleQueryCounter });
+      // 화면 하나가 API를 7~10개 동시에 부르므로, 새 연결(건당 ~1초)을 기다리지 않도록 그 수만큼 연결을 미리 열어 두고
+      // 4분마다 가볍게 확인해 유휴 연결이 끊기지 않게 한다.
+      const warm = () => void Promise.allSettled(Array.from({ length: warmCount }, () => pool.query("SELECT 1")));
+      warm();
+      setInterval(warm, 4 * 60 * 1000).unref();
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -1896,6 +1913,29 @@ export async function logAIUsage(
   });
 }
 
+// 이용권 차감·사용 횟수 집계에서 'AI 호출 비용' 기록(ai_cost:)을 뺀다.
+const notAiCostRow = () => sql`${aiUsageLogs.actionType} NOT LIKE ${`${AI_COST_PREFIX}%`}`;
+
+/** 기능(API)별 AI 호출 수·토큰·사용자 수. 최근 days일, 토큰 많은 순. */
+export async function getAiCostSummary(days = 30) {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      actionType: aiUsageLogs.actionType,
+      calls: count(),
+      tokens: sql<number>`COALESCE(SUM(${aiUsageLogs.tokensUsed}), 0)`,
+      users: sql<number>`COUNT(DISTINCT ${aiUsageLogs.userId})`,
+      lastAt: sql<Date>`MAX(${aiUsageLogs.createdAt})`,
+    })
+    .from(aiUsageLogs)
+    .where(and(sql`${aiUsageLogs.actionType} LIKE ${`${AI_COST_PREFIX}%`}`, gte(aiUsageLogs.createdAt, since)))
+    .groupBy(aiUsageLogs.actionType)
+    .orderBy(sql`SUM(${aiUsageLogs.tokensUsed}) DESC`);
+  return rows.map(row => ({ feature: row.actionType.slice(AI_COST_PREFIX.length), calls: Number(row.calls), tokens: Number(row.tokens), users: Number(row.users), lastAt: row.lastAt }));
+}
+
 export async function getTodayAIUsageCount(userId: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
@@ -1909,7 +1949,8 @@ export async function getTodayAIUsageCount(userId: number): Promise<number> {
     .where(
       and(
         eq(aiUsageLogs.userId, userId),
-        gte(aiUsageLogs.createdAt, todayStart)
+        gte(aiUsageLogs.createdAt, todayStart),
+        notAiCostRow()
       )
     );
 
@@ -2001,11 +2042,11 @@ export async function getAllAIUsageStats() {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const [[total], [today]] = await Promise.all([
-    db.select({ value: count() }).from(aiUsageLogs),
+    db.select({ value: count() }).from(aiUsageLogs).where(notAiCostRow()),
     db
       .select({ value: count() })
       .from(aiUsageLogs)
-      .where(gte(aiUsageLogs.createdAt, todayStart)),
+      .where(and(gte(aiUsageLogs.createdAt, todayStart), notAiCostRow())),
   ]);
 
   return {
@@ -2223,7 +2264,7 @@ export async function getWeeklyAIUsageLogs(userId: number) {
     .select()
     .from(aiUsageLogs)
     .where(
-      and(eq(aiUsageLogs.userId, userId), gte(aiUsageLogs.createdAt, weekAgo))
+      and(eq(aiUsageLogs.userId, userId), gte(aiUsageLogs.createdAt, weekAgo), notAiCostRow())
     );
 
   return logs;

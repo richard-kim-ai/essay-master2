@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { recordAiCall } from "./perf";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -417,7 +418,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  const result = (await response.json()) as InvokeResult;
+  recordAiCall(result?.usage?.total_tokens);
+  return result;
 }
 
 export type ModelInfo = {

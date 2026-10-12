@@ -2353,9 +2353,8 @@ export const appRouter = router({
       if (ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
       }
-      const usersStats = await db.getAllUsersStats();
-      const progressStats = await db.getAllProgressStats();
-      const aiStats = await db.getAllAIUsageStats();
+      // 서로 의존하지 않는 집계는 동시에 조회한다(DB 왕복 건당 수백 ms).
+      const [usersStats, progressStats, aiStats] = await Promise.all([db.getAllUsersStats(), db.getAllProgressStats(), db.getAllAIUsageStats()]);
 
       return {
         users: usersStats,
@@ -2621,6 +2620,13 @@ export const appRouter = router({
         return await db.saveSiteSetting(input.settingKey, input.content, ctx.user.id);
       }),
     // 회원 및 권한 통합 관리: 관리자·첨삭교사의 수료증 승인 권한 현황과 부여·회수.
+    // 기능(API)별 AI 호출 수·토큰 사용량(최근 N일).
+    aiUsageSummary: protectedProcedure
+      .input(z.object({ days: z.number().int().min(1).max(365).default(30) }).optional())
+      .query(async ({ ctx, input }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
+        return db.getAiCostSummary(input?.days ?? 30);
+      }),
     getCertificateAuthorities: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "관리자 권한이 필요합니다." });
       return listCertificateAuthorities();
