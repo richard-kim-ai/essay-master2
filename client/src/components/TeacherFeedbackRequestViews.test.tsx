@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   adminPasses: [] as any[],
   passes: { passes: [] as any[], totalRemaining: 0, canBuy: true, buyReasons: [] as string[] },
   loading: false,
+  queueEnabled: undefined as boolean | undefined,
 }));
 
 vi.mock("wouter", () => ({
@@ -25,7 +26,7 @@ vi.mock("@/lib/trpc", () => {
       billing: { plans: { useQuery: () => ({ data: { isTest: true } }) } },
       teacherFeedbackRequest: {
         mine: { useQuery: () => ({ data: state.mine, isLoading: state.loading }) },
-        queue: { useQuery: () => ({ data: state.queue, isLoading: state.loading }) },
+        queue: { useQuery: (_input: unknown, options?: { enabled?: boolean }) => { state.queueEnabled = options?.enabled; return { data: state.queue, isLoading: state.loading }; } },
         adminList: { useQuery: () => ({ data: state.admin, isLoading: state.loading }) },
         adminPasses: { useQuery: () => ({ data: state.adminPasses, isLoading: state.loading }) },
         passes: { useQuery: () => ({ data: state.passes, isLoading: state.loading }) },
@@ -86,6 +87,7 @@ beforeEach(() => {
   state.adminPasses = [];
   state.passes = { passes: [], totalRemaining: 0, canBuy: true, buyReasons: [] };
   state.loading = false;
+  state.queueEnabled = undefined;
 });
 
 describe("교사 첨삭지도권 구매·보유(학생)", () => {
@@ -165,12 +167,18 @@ describe("내 교사 첨삭 신청(학생)", () => {
 
 describe("교사 첨삭 신청 대기열(교사)", () => {
   it("대기 건이 없으면 안내 문구를 보여 준다", () => {
-    expect(renderToStaticMarkup(<TeacherFeedbackQueue />)).toContain("대기 중인 첨삭 신청이 없습니다");
+    expect(renderToStaticMarkup(<TeacherFeedbackQueue enabled />)).toContain("대기 중인 첨삭 신청이 없습니다");
+    expect(state.queueEnabled).toBe(true);
+  });
+
+  it("승인되지 않은 역할에서는 교사 전용 API를 호출하지 않는다", () => {
+    expect(renderToStaticMarkup(<TeacherFeedbackQueue enabled={false} />)).toBe("");
+    expect(state.queueEnabled).toBe(false);
   });
 
   it("글·학생·완료 예정일을 보여 주고, 교사 지급과 연결되는 금액은 보여 주지 않는다", () => {
     state.queue = [row()];
-    const html = renderToStaticMarkup(<TeacherFeedbackQueue />);
+    const html = renderToStaticMarkup(<TeacherFeedbackQueue enabled />);
     expect(html).toContain("첨삭 신청 대기열 (1건)");
     expect(html).toContain("교육과 기술");
     expect(html).toContain("김학생");
@@ -181,7 +189,7 @@ describe("교사 첨삭 신청 대기열(교사)", () => {
 
   it("지연 건과 보완 요청을 눈에 띄게 표시한다", () => {
     state.queue = [row({ overdue: true, status: "in_progress", reworkCount: 1, reworkNote: "근거 피드백 보완" })];
-    const html = renderToStaticMarkup(<TeacherFeedbackQueue />);
+    const html = renderToStaticMarkup(<TeacherFeedbackQueue enabled />);
     expect(html).toContain("기한 경과");
     expect(html).toContain("작업 중");
     expect(html).toContain("이어서 첨삭하기");

@@ -10,10 +10,10 @@ import { formatDueDate } from "@/components/TeacherFeedbackRequestDialog";
  * 교사용 '첨삭 신청 대기열': 학생이 첨삭지도권으로 신청한 첨삭 건을 완료 예정일이 가까운 순으로 보여 주고,
  * '첨삭하기'를 누르면 작업을 시작하고 첨삭 작성 화면으로 이동한다. 교사 지급은 계약급여로 따로 집행하므로 금액은 표시하지 않는다.
  */
-export default function TeacherFeedbackQueue() {
+export default function TeacherFeedbackQueue({ enabled = false }: { enabled?: boolean }) {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
-  const query = trpc.teacherFeedbackRequest.queue.useQuery();
+  const query = trpc.teacherFeedbackRequest.queue.useQuery(undefined, { enabled });
   const start = trpc.teacherFeedbackRequest.start.useMutation({
     onSuccess: async (result) => {
       await utils.teacherFeedbackRequest.queue.invalidate();
@@ -21,6 +21,8 @@ export default function TeacherFeedbackQueue() {
     },
     onError: (error) => toast.error(error.message || "작업을 시작하지 못했습니다."),
   });
+
+  if (!enabled) return null;
 
   const rows = query.data ?? [];
 
