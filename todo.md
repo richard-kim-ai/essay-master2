@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] 관리자 대시보드 'AI 토큰 사용량' 표에 정가 기준 추정 비용(원) 표시(shared/aiCost.ts 신규, AiUsageSummary.tsx) — 시작 2026-10-14 03:10
 
 ## 완료
 
