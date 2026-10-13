@@ -1,9 +1,10 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-- [Manus] AI 첨삭 모델 응답 스키마 정규화 및 JSON 계약 강화 — 시작 2026-10-13 22:17
 
 ## 완료
+
+- [Manus] AI 첨삭 모델 응답 스키마 정규화 및 JSON 계약 강화 — 시작 2026-10-13 22:17, 완료 2026-10-13 (Master Prompt에 영문 decision·배열형 dimension_scores·점수 범위를 명시하고, 한국어 판정 alias·객체형 12 competency·1~5 점수 스케일을 표준 계약으로 정규화. 정규화 회귀 11건·전체 Vitest·TypeScript·프로덕션 빌드 통과. 실제 gpt-5-mini 평가에서 dimension_count 12, fallback_used false, token_usage 3168 확인)
 
 - [Manus] AI 첨삭 모델별 출력 토큰 제한 확대 및 실호출 재검증 — 시작 2026-10-13 22:08, 완료 2026-10-13 (모델별 max_tokens 4500 적용, llmText 회귀 7건·첨삭 엔진 회귀 10건·TypeScript 통과. 실제 gpt-5-mini JSON은 완결됐으나 현재 모델이 dimension_scores 대신 evaluation/strengths/weaknesses 형태를 반환해 엔진 계약 불일치로 fallback; 토큰 문제는 해소됐고 다음 단계는 응답 스키마 정규화 또는 JSON Schema 강제 필요)
 
