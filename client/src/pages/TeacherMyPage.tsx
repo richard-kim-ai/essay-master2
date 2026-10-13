@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import LoginRequired from "@/components/LoginRequired";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import TeacherFeedbackQueue from "@/components/TeacherFeedbackQueue";
+import StudentEssayReviewList from "@/components/StudentEssayReviewList";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock, ArrowUpDown, AlertCircle, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Wallet, GraduationCap, Users, FileEdit, Award, Search, CheckCircle, Clock, ArrowUpDown, AlertCircle, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { TeacherProgressDialog } from "@/components/TeacherProgressDialog";
@@ -21,6 +24,9 @@ export default function TeacherMyPage() {
   const { data: managedStudents = [], isLoading } = trpc.teacherOperations.managedStudents.useQuery(undefined, { enabled: teacherEnabled });
   const { data: permissionGrants = [] } = trpc.teacherOperations.myPermissionGrants.useQuery(undefined, { enabled: teacherEnabled });
   const { data: certificateRequests = [] } = trpc.teacherOperations.certificateRequests.useQuery(undefined, { enabled: teacherEnabled });
+  const dashboardQuery = trpc.teacherOperations.feedbackDashboard.useQuery(undefined, { enabled: teacherEnabled });
+  const feedbackSummary = dashboardQuery.data?.summary;
+  const recentFeedbacks = dashboardQuery.data?.recent ?? [];
   const utils = trpc.useUtils();
   const requestCertificateMutation = trpc.teacherOperations.requestCertificateApproval.useMutation({
     onSuccess: () => {
@@ -37,7 +43,7 @@ export default function TeacherMyPage() {
     onError: (error) => toast.error(error.message || "검토 제출에 실패했습니다."),
   });
 
-  if (!isAuthenticated) return <div className="p-12 text-center text-slate-600">로그인이 필요합니다.</div>;
+  if (!isAuthenticated) return <LoginRequired />;
   if (user?.role !== "teacher" && user?.role !== "admin") {
     return (
       <div className="mx-auto max-w-xl py-16 text-center">
@@ -96,7 +102,7 @@ export default function TeacherMyPage() {
     });
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-8">
         <div className="flex flex-col gap-4 rounded-2xl p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between sm:p-8" style={{ backgroundImage: "linear-gradient(110deg, #172a88 0%, #2563eb 52%, #173a9a 100%)", color: "#ffffff" }}>
           <div>
@@ -109,6 +115,7 @@ export default function TeacherMyPage() {
             <p className="mt-1 text-sm" style={{ color: "#dbeafe" }}>{teacherLevelNames[user.teacherLevel || 1]}</p>
           </div>
           <div className="flex items-center gap-3">
+            <Link href="/teacher/settlement"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#e0e7ff", color: "#312e81" }}><Wallet className="h-4 w-4" /> 첨삭 정산</Button></Link>
             <Link href="/teacher/writing-examples"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#e0e7ff", color: "#312e81" }}><Award className="h-4 w-4" /> 우수 예시문 관리</Button></Link>
             <Link href="/essay-submission"><Button variant="secondary" className="gap-2 border-0 hover:bg-indigo-50" style={{ backgroundColor: "#ffffff", color: "#1e1b4b" }}><FileEdit className="h-4 w-4" /> 첨삭 관리 센터</Button></Link>
           </div>
@@ -117,10 +124,10 @@ export default function TeacherMyPage() {
         <div className="grid gap-6 md:grid-cols-3">
           <Card className="border-indigo-100 bg-white shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-slate-600">지도 학생 수</CardTitle><Users className="h-5 w-5 text-indigo-600" /></CardHeader>
-            <CardContent><p className="text-3xl font-bold text-slate-900">{students.length}명</p><p className="text-xs text-slate-500 mt-1">관리자 권한이 부여된 담당 학습자</p></CardContent>
+            <CardContent><p className="text-3xl font-bold text-slate-900" data-testid="teacher-student-count">{students.length}명</p><p className="text-xs text-slate-500 mt-1">담당 교사로 연결 {students.filter((s: any) => s.relation !== "granted").length}명 · 관리자 권한 부여 {students.filter((s: any) => s.relation !== "assigned").length}명</p></CardContent>
           </Card>
-          <Card className="border-blue-100 bg-white shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-slate-600">학습 관리 권한</CardTitle><GraduationCap className="h-5 w-5 text-blue-600" /></CardHeader>
+          <Card className="border-indigo-100 bg-white shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-slate-600">학습 관리 권한</CardTitle><GraduationCap className="h-5 w-5 text-indigo-600" /></CardHeader>
             <CardContent><p className="text-lg font-bold text-slate-900">{hasProgressPermission ? "진도 관리 가능" : "진도 권한 없음"}</p><p className="text-xs text-slate-500 mt-1">{hasCertificatePermission ? "수료증 요청·검토 가능" : "수료증 권한 없음"}</p></CardContent>
           </Card>
           <Card className="border-emerald-100 bg-white shadow-sm">
@@ -129,13 +136,70 @@ export default function TeacherMyPage() {
           </Card>
         </div>
 
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" data-testid="teacher-feedback-summary">
+          {[
+            { label: "첨삭 대기", value: feedbackSummary?.waiting, unit: "건", tone: "text-amber-700", hint: "담당 학생이 제출, 첨삭 전" },
+            { label: "작업 중", value: feedbackSummary?.inProgress, unit: "건", tone: "text-indigo-700", hint: "첨삭 신청을 시작한 글" },
+            { label: "기한 경과", value: feedbackSummary?.overdue, unit: "건", tone: feedbackSummary?.overdue ? "text-rose-700" : "text-slate-900", hint: "완료 예정일 지남" },
+            { label: "최근 30일 완료", value: feedbackSummary?.completedLast30Days, unit: "건", tone: "text-emerald-700", hint: `누적 ${feedbackSummary?.completedTotal ?? 0}건` },
+            { label: "내 첨삭 평균 점수", value: feedbackSummary?.averageScore ?? undefined, unit: "점", tone: "text-slate-900", hint: feedbackSummary?.averageScore === null ? "점수가 있는 첨삭 없음" : "점수를 매긴 첨삭 기준" },
+          ].map((item) => (
+            <Card key={item.label} className="border-slate-200 bg-white shadow-sm">
+              <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-slate-500">{item.label}</CardTitle></CardHeader>
+              <CardContent><p className={`text-2xl font-extrabold ${item.tone}`}>{item.value === undefined ? "–" : `${item.value}${item.unit}`}</p><p className="mt-1 text-[11px] text-slate-400">{item.hint}</p></CardContent>
+            </Card>
+          ))}
+        </div>
+
         <Tabs defaultValue="students" className="space-y-6">
           <TabsList className="bg-white p-1 shadow-sm">
+            <TabsTrigger value="requests" className="gap-2"><CheckCircle className="h-4 w-4" /> 첨삭 신청 대기열</TabsTrigger>
+            <TabsTrigger value="essays" className="gap-2"><FileEdit className="h-4 w-4" /> 학생 제출 글</TabsTrigger>
+            <TabsTrigger value="history" className="gap-2"><Award className="h-4 w-4" /> 내 첨삭 현황</TabsTrigger>
             <TabsTrigger value="students" className="gap-2"><Users className="h-4 w-4" /> 지도 학생 목록 및 정렬</TabsTrigger>
             <TabsTrigger value="classes" className="gap-2"><CheckCircle className="h-4 w-4" /> 담당 반 출결·과제</TabsTrigger>
             <TabsTrigger value="certificates" className="gap-2"><Award className="h-4 w-4" /> 수료 공동 승인</TabsTrigger>
             <TabsTrigger value="guidelines" className="gap-2"><ShieldCheck className="h-4 w-4" /> 교사 권한 가이드</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="requests" className="space-y-6">
+            <TeacherFeedbackQueue enabled={teacherEnabled} />
+          </TabsContent>
+
+          <TabsContent value="essays" className="space-y-6">
+            <StudentEssayReviewList scope="teacher" />
+          </TabsContent>
+
+          <TabsContent value="history" className="space-y-6">
+            <Card data-testid="teacher-feedback-history">
+              <CardHeader>
+                <CardTitle>내가 진행한 첨삭 ({feedbackSummary?.completedTotal ?? 0}건)</CardTitle>
+                <CardDescription>최근에 등록한 첨삭 {recentFeedbacks.length}건입니다. 글을 누르면 첨삭 내용을 확인하고 수정할 수 있습니다.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dashboardQuery.isLoading ? (
+                  <div className="py-10 text-center text-sm text-slate-500">불러오는 중입니다...</div>
+                ) : recentFeedbacks.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">아직 등록한 첨삭이 없습니다. '학생 제출 글' 탭에서 글을 골라 첨삭을 시작하세요.</div>
+                ) : (
+                  <ul className="divide-y divide-slate-100">
+                    {recentFeedbacks.map((row) => (
+                      <li key={row.feedbackId} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-900">{row.essayTitle}</p>
+                          <p className="text-xs text-slate-500">{row.studentName || "이름 없음"} · {row.studentEmail || "이메일 없음"} · {new Date(row.createdAt).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">{typeof row.overallScore === "number" ? `${row.overallScore}점` : "점수 없음"}</Badge>
+                          <Link href={`/teacher-feedback/${row.essayId}`}><Button size="sm" variant="outline">첨삭 보기·수정</Button></Link>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="students" className="space-y-6">
             <Card>
@@ -143,7 +207,7 @@ export default function TeacherMyPage() {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <CardTitle>지도 학생 관리 목록</CardTitle>
-                    <CardDescription>관리자에게 부여받은 조직 또는 학생 단위 범위 안에서만 학생 진도와 수료증 요청을 관리할 수 있습니다.</CardDescription>
+                    <CardDescription>담당 교사로 연결된 학생과 관리자가 부여한 학생이 표시됩니다. 진도·수료증 관리는 부여받은 권한 범위 안에서만 할 수 있습니다.</CardDescription>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700">
@@ -174,6 +238,7 @@ export default function TeacherMyPage() {
                         <tr>
                           <th className="p-3">학생명</th>
                           <th className="p-3">이메일</th>
+                          <th className="p-3">구분</th>
                           <th className="p-3">가입 과정</th>
                           <th className="p-3">가입일</th>
                           <th className="p-3">최근 접속일</th>
@@ -185,6 +250,7 @@ export default function TeacherMyPage() {
                           <tr key={s.id} className="hover:bg-slate-50">
                             <td className="p-3 font-medium text-slate-900">{s.name || "익명 학생"}</td>
                             <td className="p-3 text-slate-600">{s.email || "이메일 없음"}</td>
+                            <td className="p-3 text-xs text-slate-600">{s.relation === "granted" ? "권한 부여" : s.relation === "both" ? "담당·권한" : "담당 학생"}</td>
                             <td className="p-3"><Badge variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">{s.courseLabel}</Badge></td>
                             <td className="p-3 text-slate-500">{new Date(s.createdAt).toLocaleDateString()}</td>
                             <td className="p-3 text-slate-500"><span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-slate-400" />{new Date(s.lastSignedIn).toLocaleDateString()}</span></td>
@@ -207,7 +273,7 @@ export default function TeacherMyPage() {
             <Card>
               <CardHeader><CardTitle>수료증 공동 승인 현황</CardTitle><CardDescription>교사 검토를 제출하면 관리자 최종 승인 대기 상태로 전환되고, 관리자 승인 후에만 수료증이 발급됩니다.</CardDescription></CardHeader>
               <CardContent className="space-y-3">
-                {!hasCertificatePermission ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">관리자가 수료증 요청·검토 권한을 부여하면 이 영역에서 공동 승인 절차를 진행할 수 있습니다.</div> : certificateRequests.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">현재 담당 학생의 수료증 승인 요청이 없습니다.</div> : certificateRequests.map((request) => <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-slate-900">{request.studentName} · {request.courseLabel} {request.level ? `Level ${request.level}` : ""}</p><p className="mt-1 text-xs text-slate-600">진도 {request.evidenceCompletionRate}% · 평균 {request.evidenceAverageScore}점</p><p className="mt-1 text-xs font-medium text-violet-700">{request.status === "pending_teacher" ? "교사 검토 대기" : request.status === "pending_admin" ? "관리자 최종 승인 대기" : request.status === "approved" ? "발급 완료" : "반려됨"}</p></div>{request.status === "pending_teacher" && <Button size="sm" className="bg-violet-700 hover:bg-violet-800" disabled={reviewCertificateMutation.isPending} onClick={() => reviewCertificateMutation.mutate({ requestId: request.id, note: "담당 교사 검토 완료" })}>교사 검토 제출</Button>}</div>)}</CardContent>
+                {!hasCertificatePermission ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">관리자가 수료증 요청·검토 권한을 부여하면 이 영역에서 공동 승인 절차를 진행할 수 있습니다.</div> : certificateRequests.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">현재 담당 학생의 수료증 승인 요청이 없습니다.</div> : certificateRequests.map((request) => <div key={request.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-slate-900">{request.studentName} · {request.courseLabel} {request.level ? `Level ${request.level}` : ""}</p><p className="mt-1 text-xs text-slate-600">진도 {request.evidenceCompletionRate}% · 평균 {request.evidenceAverageScore}점</p><p className="mt-1 text-xs font-medium text-indigo-700">{request.status === "pending_teacher" ? "교사 검토 대기" : request.status === "pending_admin" ? "관리자 최종 승인 대기" : request.status === "approved" ? "발급 완료" : "반려됨"}</p></div>{request.status === "pending_teacher" && <Button size="sm" className="bg-indigo-700 hover:bg-indigo-800" disabled={reviewCertificateMutation.isPending} onClick={() => reviewCertificateMutation.mutate({ requestId: request.id, note: "담당 교사 검토 완료" })}>교사 검토 제출</Button>}</div>)}</CardContent>
             </Card>
           </TabsContent>
 
@@ -219,12 +285,12 @@ export default function TeacherMyPage() {
                   <h3 className="font-bold text-indigo-900">Level 1 · 주니어 첨삭교사</h3>
                   <p className="mt-1 text-sm text-slate-700">학생들이 제출한 논술 답안에 대해 문장별 단락 코멘트, 맞춤법 및 표현 교정 피드백을 작성할 수 있습니다.</p>
                 </div>
-                <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-                  <h3 className="font-bold text-blue-900">Level 2 · 시니어 첨삭교사</h3>
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+                  <h3 className="font-bold text-indigo-900">Level 2 · 시니어 첨삭교사</h3>
                   <p className="mt-1 text-sm text-slate-700">주니어 교사 권한을 포함하여 구조·논리·표현 영역별 종합 점수 부여 및 수료증 발급 검토 권한이 주어집니다.</p>
                 </div>
-                <div className="rounded-xl border border-purple-100 bg-purple-50/50 p-4">
-                  <h3 className="font-bold text-purple-900">Level 3 · 수석 교사</h3>
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+                  <h3 className="font-bold text-indigo-900">Level 3 · 수석 교사</h3>
                   <p className="mt-1 text-sm text-slate-700">모든 첨삭 권한과 함께 커리큘럼 난이도 조정, 반별 학생 일괄 배정 및 학습 분석 보고서 다운로드 권한을 가집니다.</p>
                 </div>
               </CardContent>

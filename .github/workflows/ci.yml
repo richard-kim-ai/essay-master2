@@ -1,0 +1,64 @@
+name: Essay Master CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate application
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm check
+
+      - name: Vitest regression tests
+        run: pnpm test
+
+      - name: Production build
+        run: pnpm run build
+
+      - name: Upload build summary
+        if: always()
+        run: |
+          {
+            echo "### Essay Master CI"
+            echo "- Commit: \\`${GITHUB_SHA}\\`"
+            echo "- TypeScript, Vitest, and production build steps completed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: essay-master-dist-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7

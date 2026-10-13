@@ -1,0 +1,106 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const routerState = vi.hoisted(() => ({ search: "", providers: [] as Array<{ provider: string; enabled: boolean }> }));
+
+vi.mock("wouter", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
+  useLocation: () => ["/signup", vi.fn()],
+  useSearch: () => routerState.search,
+}));
+
+vi.mock("@/components/PolicyConsentChecklist", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/PolicyConsentChecklist")>()),
+  PolicyConsentChecklist: () => <div data-testid="consents" />,
+}));
+
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    social: { providers: { useQuery: () => ({ data: routerState.providers }) } },
+    policy: { forSignup: { useQuery: () => ({ data: [], isLoading: false }) } },
+    auth: {
+      signup: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
+    },
+  },
+}));
+
+import Signup from "./Signup";
+
+import { validateGuardianInfo, EMPTY_GUARDIAN_INFO } from "@/components/GuardianInfoDialog";
+
+describe("Signup birth date and guardian input", () => {
+  beforeEach(() => {
+    routerState.search = "";
+    routerState.providers = [];
+  });
+
+  it("초등 과정을 명시 선택해서 들어오면 보호자 정보를 팝업으로 입력하도록 안내한다", () => {
+    routerState.search = "course=elementary";
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).toContain('aria-label="보호자 정보"');
+    expect(html).toContain("보호자 정보 입력");
+    expect(html).toContain("초등 과정은 보호자(법정대리인)의 동의가 필요합니다");
+    expect(html).not.toContain('name="birthDate"');
+    expect(html).not.toContain('aria-label="법정대리인 정보"');
+  });
+
+  it("첫 방문에는 임의의 가입 과정 없이 명시 선택을 안내한다", () => {
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).toContain("학습 과정을 선택해 주세요");
+    expect(html).not.toContain('aria-label="보호자 정보"');
+    expect(html).toContain('value="" disabled="" selected=""');
+  });
+
+  it("초등이 아닌 과정으로 들어오면 보호자 영역을 보여주지 않는다", () => {
+    routerState.search = "trial=1&course=middle_high";
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).not.toContain('aria-label="보호자 정보"');
+  });
+
+  it("가입 화면에는 교사 선택이 없고 가입 후 마이페이지에서 고르도록 안내한다", () => {
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).not.toContain("추천 교사 선택");
+    expect(html).toContain("담당 교사는 가입 후 마이페이지에서 선택할 수 있습니다");
+  });
+});
+
+describe("소셜 로그인 표시", () => {
+  beforeEach(() => {
+    routerState.search = "";
+    routerState.providers = [];
+  });
+
+  it("관리자 설정이 없으면 소셜 영역(구분선 포함)을 보여주지 않는다", () => {
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).not.toContain("또는");
+    expect(html).not.toContain("소셜 로그인");
+  });
+
+  it("켜진 제공자만 글자 없는 아이콘 버튼으로 보여준다", () => {
+    routerState.providers = [{ provider: "google", enabled: true }, { provider: "kakao", enabled: false }, { provider: "naver", enabled: true }];
+    const html = renderToStaticMarkup(<Signup />);
+    expect(html).toContain('aria-label="Google(으)로 계속하기"');
+    expect(html).toContain('aria-label="네이버(으)로 계속하기"');
+    expect(html).not.toContain("카카오");
+    expect(html).not.toMatch(/>\s*Google\s*</);
+  });
+});
+
+describe("보호자 정보 검증", () => {
+  const filled = { birthDate: "2016-05-01", guardian: { name: "김보호", relation: "모" as const, email: "parent@example.com" } };
+
+  it("빠진 항목은 안내 문구를 돌려주고, 모두 맞으면 null이다", () => {
+    expect(validateGuardianInfo(EMPTY_GUARDIAN_INFO, "kid@example.com")).toContain("생년월일");
+    expect(validateGuardianInfo({ ...filled, birthDate: "2016-13-45" }, "kid@example.com")).toContain("정확히");
+    expect(validateGuardianInfo({ ...filled, guardian: { ...filled.guardian, name: "김" } }, "kid@example.com")).toContain("성명");
+    expect(validateGuardianInfo({ ...filled, guardian: { ...filled.guardian, email: "" } }, "kid@example.com")).toContain("이메일");
+    expect(validateGuardianInfo(filled, "kid@example.com")).toBeNull();
+  });
+
+  it("보호자 이메일이 학생 이메일과 같으면 거절한다(대소문자 무시)", () => {
+    expect(validateGuardianInfo(filled, "PARENT@example.com")).toContain("달라야");
+  });
+});

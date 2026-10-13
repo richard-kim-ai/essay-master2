@@ -34,7 +34,7 @@ export function WeeklyReportPdfModal({ open, onClose, analyticsData }: Props) {
         <DialogHeader className="bg-white p-6 rounded-t-2xl border-b border-slate-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-blue-600 p-2.5 text-white">
+              <div className="rounded-xl bg-indigo-600 p-2.5 text-white">
                 <FileText className="h-6 w-6" />
               </div>
               <div>
@@ -53,12 +53,12 @@ export function WeeklyReportPdfModal({ open, onClose, analyticsData }: Props) {
         {/* Report Paper Content */}
         <div id="weekly-report-printable-area" className="bg-white p-8 rounded-b-2xl shadow-sm space-y-6 text-slate-800">
           {/* Executive Summary */}
-          <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 space-y-2">
-            <h3 className="text-sm font-bold text-blue-900 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-blue-600" /> 주간 운영 하이라이트
+          <div className="p-5 rounded-2xl bg-gradient-to-r from-indigo-50 to-indigo-50 border border-indigo-100 space-y-2">
+            <h3 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-indigo-600" /> 주간 운영 하이라이트
             </h3>
-            <p className="text-xs leading-relaxed text-blue-800">
-              이번 주 플랫폼 전체 학습자들의 논술 답안 제출 건수는 총 <strong className="text-blue-900">{totalSubmissions}건</strong>이며, 평균 첨삭 점수는 <strong className="text-blue-900">{avgScore}점</strong>을 기록하였습니다. AI 자동 첨삭 엔진과 교사 지도 시스템이 유기적으로 연동되어 학습 효율성이 안정적으로 유지되고 있습니다.
+            <p className="text-xs leading-relaxed text-indigo-800">
+              이번 주 플랫폼 전체 학습자들의 논술 답안 제출 건수는 총 <strong className="text-indigo-900">{totalSubmissions}건</strong>이며, 평균 첨삭 점수는 <strong className="text-indigo-900">{avgScore}점</strong>을 기록하였습니다. AI 자동 첨삭 엔진과 교사 지도 시스템이 유기적으로 연동되어 학습 효율성이 안정적으로 유지되고 있습니다.
             </p>
           </div>
 
@@ -78,7 +78,7 @@ export function WeeklyReportPdfModal({ open, onClose, analyticsData }: Props) {
             </div>
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 text-center">
               <p className="text-xs font-medium text-slate-500">AI 첨삭 활용량</p>
-              <h4 className="text-xl font-extrabold text-purple-600 mt-1">{totalAiRequests}회</h4>
+              <h4 className="text-xl font-extrabold text-indigo-600 mt-1">{totalAiRequests}회</h4>
             </div>
           </div>
 
@@ -112,7 +112,7 @@ export function WeeklyReportPdfModal({ open, onClose, analyticsData }: Props) {
 
         <DialogFooter className="pt-4">
           <Button variant="outline" onClick={onClose}>닫기</Button>
-          <Button onClick={handlePrintOrDownload} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+          <Button onClick={handlePrintOrDownload} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
             <Download className="h-4 w-4" /> PDF로 저장하기
           </Button>
         </DialogFooter>

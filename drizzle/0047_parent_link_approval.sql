@@ -1,0 +1,2 @@
+ALTER TABLE `parent_student_links` ADD `status` enum('pending','approved','rejected') DEFAULT 'approved' NOT NULL;--> statement-breakpoint
+ALTER TABLE `parent_student_links` ADD `respondedAt` timestamp;

@@ -1,3 +1,4 @@
+import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -5,24 +6,37 @@ import { trpc } from "@/lib/trpc";
 import { Link } from "wouter";
 import { BookOpen, Loader2, AlertCircle, CheckCircle, Award, Sparkles } from "lucide-react";
 import BadgeCelebrationModal from "@/components/BadgeCelebrationModal";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
+import PreviewGate from "@/components/PreviewGate";
+import { getPreviewQuizQuestions } from "@/lib/previewSamples";
 import QuestionFeedbackBox from "@/components/QuestionFeedbackBox";
-import { readAdminPreviewCourse } from "@/lib/adminPreviewCourse";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
+import { COURSE_OPTIONS } from "@shared/course";
 
 export default function QuizPage() {
-  const { isAuthenticated, user } = useAuth();
-  const [courseType, setCourseType] = useState<"elementary" | "middle_high" | "high_univ" | "general_adult">("elementary");
-  useEffect(() => {
-    if (user?.role === "admin") setCourseType(readAdminPreviewCourse());
-  }, [user?.role]);
-  const { data: qList, isLoading: qLoading } = trpc.questionBank.random.useQuery({ courseType, toolType: "quiz", limit: 10 });
+  const { isAuthenticated } = useAuth();
+  const { effectiveCourse, courseLabel, scopeKey, loading, canSelectCourse, canLearn, canPersist, needsSelection, mode, setCourseType } = useLearningCourse();
+  const preview = mode === "public-preview";
+  // effectiveCourse가 없을 때는 query가 비활성화된다. 이 값은 tRPC 입력 타입을 위한 fallback일 뿐이다.
+  const queryCourse = effectiveCourse ?? "elementary";
+  const { data: qListData, isLoading: qLoading } = trpc.questionBank.random.useQuery(
+    { courseType: queryCourse, toolType: "quiz", limit: 10 },
+    { enabled: Boolean(isAuthenticated && canLearn && !loading) },
+  );
+  const qList = preview && effectiveCourse ? getPreviewQuizQuestions(effectiveCourse) : qListData;
+  const questions = (qList || []).filter((question) => question.courseType === effectiveCourse && question.toolType === "quiz");
+  const scopeRef = useRef(scopeKey);
+  const questionIdRef = useRef<number | null>(null);
+  // 렌더 직후 이 ref를 갱신해, effect 실행 전 도착한 이전 과정의 응답도 폐기한다.
+  scopeRef.current = scopeKey;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [draftAnswer, setDraftAnswer] = useState("");
   const [optionsUnlocked, setOptionsUnlocked] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<string>("");
   const [submitted, setSubmitted] = useState(false);
+  const [verdict, setVerdict] = useState<{ isCorrect: boolean; correctAnswer: string; explanation: string } | null>(null);
   const [score, setScore] = useState(0);
   const [finished, setFinished] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -35,36 +49,46 @@ export default function QuizPage() {
   const submitMutation = trpc.quiz.submitAnswer.useMutation();
   const recordMistakeMutation = trpc.questionBank.recordMistake.useMutation();
   const awardBadgeMutation = trpc.badges.award.useMutation();
-  const detailedFeedbackMutation = trpc.quiz.getDetailedSentenceFeedback.useMutation({
-    onSuccess: (result) => {
-      setDetailedFeedback(result.feedback);
-      toast.success(result.cacheHit ? "이전에 받은 맞춤 피드백을 다시 불러왔습니다." : "AI 맞춤 피드백을 준비했습니다.");
-    },
-    onError: (error) => toast.error(error.message || "AI 맞춤 피드백을 준비하지 못했습니다."),
-  });
+  const detailedFeedbackMutation = trpc.quiz.getDetailedSentenceFeedback.useMutation();
   const utils = trpc.useUtils();
 
   useEffect(() => {
+    scopeRef.current = scopeKey;
+    questionIdRef.current = null;
     setCurrentIndex(0);
     setDraftAnswer("");
     setOptionsUnlocked(false);
     setSelectedAnswer("");
     setSubmitted(false);
+    setVerdict(null);
     setScore(0);
     setFinished(false);
     setDetailedFeedback(null);
-  }, [courseType]);
+    setShowCelebration(false);
+    setEarnedBadgeName("");
+    return () => { scopeRef.current = "disposed"; };
+  }, [scopeKey]);
 
-  if (!isAuthenticated) {
-    return <div className="text-center py-12 text-slate-600">로그인이 필요합니다.</div>;
+  useEffect(() => { questionIdRef.current = questions[currentIndex]?.id ?? null; }, [questions, currentIndex]);
+
+  if (loading) {
+    return <div role="status" className="text-center py-12 text-slate-600">학습 과정을 확인하고 있습니다...</div>;
+  }
+
+  if (needsSelection) {
+    return <div className="bg-slate-50 py-12 px-4 text-center"><p className="font-semibold text-slate-800">수강 과정 선택이 필요합니다.</p><p className="mt-2 text-sm text-slate-500">가입 과정이 확인되면 AI 문장 교정 학습을 시작할 수 있습니다.</p><Link href="/curriculum"><Button className="mt-4">커리큘럼으로 돌아가기</Button></Link></div>;
+  }
+
+  if (!canLearn || !effectiveCourse) {
+    return <div className="bg-slate-50 py-12 px-4 text-center"><p className="font-semibold text-slate-800">이 계정은 학습 과정이 배정되지 않았습니다.</p><p className="mt-2 text-sm text-slate-500">학습자 계정으로 로그인하거나 담당자에게 과정 배정을 요청해 주세요.</p><Link href="/curriculum"><Button className="mt-4">커리큘럼으로 돌아가기</Button></Link></div>;
   }
 
   if (qLoading) {
     return <div className="text-center py-12 text-slate-600">문제은행에서 맞춤 퀴즈를 불러오는 중입니다...</div>;
   }
 
-  const questions = qList || [];
   const currentQ = questions[currentIndex];
+  questionIdRef.current = currentQ?.id ?? null;
 
   let parsedData: any = {};
   try {
@@ -78,30 +102,44 @@ export default function QuizPage() {
       toast.error("작성한 문장과 비교할 선택지를 골라주세요.");
       return;
     }
+    if (submitMutation.isPending) return;
+    if (!currentQ || currentQ.courseType !== effectiveCourse || currentQ.toolType !== "quiz" || (preview ? currentQ.id >= 0 : canPersist && currentQ.id <= 0)) return;
+    const requestScope = scopeRef.current;
+    const question = currentQ;
+    // 학습자에게는 문항에 정답이 내려오지 않으므로 서버가 판정한다. 비로그인 미리보기와 교사·관리자(원본 문항)는 화면에서 판정한다.
+    let nextVerdict: { isCorrect: boolean; correctAnswer: string; explanation: string };
+    if (!canPersist) {
+      nextVerdict = { isCorrect: selectedAnswer === parsedData.answer, correctAnswer: parsedData.answer ?? "", explanation: parsedData.explanation ?? "" };
+    } else {
+      try {
+        const verified = await submitMutation.mutateAsync({ quizId: question.id, userAnswer: selectedAnswer });
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
+        nextVerdict = { isCorrect: Boolean(verified.isCorrect), correctAnswer: verified.correctAnswer, explanation: verified.explanation || verified.feedback };
+      } catch (error) {
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
+        toast.error(error instanceof Error ? error.message : "정답을 확인하지 못했습니다. 잠시 후 다시 시도해주세요.");
+        return;
+      }
+    }
+    if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
+    setVerdict(nextVerdict);
     setSubmitted(true);
-    const isCorrect = selectedAnswer === parsedData.answer ? 1 : 0;
+    const isCorrect = nextVerdict.isCorrect ? 1 : 0;
     if (isCorrect) setScore(s => s + 10);
 
-    try {
-      await submitMutation.mutateAsync({
-        quizId: currentQ?.id || 1,
-        userAnswer: selectedAnswer,
-      });
-    } catch (e) {
-      // ignore offline/fallback error
-    }
-
-    if (isCorrect === 0 && currentQ) {
+    if (isCorrect === 0 && canPersist) {
       try {
         await recordMistakeMutation.mutateAsync({
-          questionBankId: currentQ.id,
-          courseType,
+          questionBankId: question.id,
+          courseType: effectiveCourse,
           toolType: "quiz",
           userAnswer: selectedAnswer,
           score: 0,
-          aiFeedback: parsedData.explanation || "정답과 해설을 다시 확인해 보세요.",
+          aiFeedback: nextVerdict.explanation || "정답과 해설을 다시 확인해 보세요.",
         });
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
       } catch {
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
         toast.error("오답 노트를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.");
       }
     }
@@ -122,7 +160,21 @@ export default function QuizPage() {
       toast.error("먼저 고친 문장을 한 문장 이상 작성해주세요.");
       return;
     }
-    detailedFeedbackMutation.mutate({ quizId: currentQ.id, studentSentence: draftAnswer.trim() });
+    if (!canPersist) return;
+    if (currentQ.courseType !== effectiveCourse || currentQ.toolType !== "quiz" || currentQ.id <= 0) return;
+    const requestScope = scopeRef.current;
+    const question = currentQ;
+    detailedFeedbackMutation.mutate({ quizId: question.id, studentSentence: draftAnswer.trim() }, {
+      onSuccess: (result) => {
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
+        setDetailedFeedback(result.feedback);
+        toast.success(result.cacheHit ? "이전에 받은 맞춤 피드백을 다시 불러왔습니다." : "AI 맞춤 피드백을 준비했습니다.");
+      },
+      onError: (error) => {
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
+        toast.error(error.message || "AI 맞춤 피드백을 준비하지 못했습니다.");
+      },
+    });
   };
 
   const handleNext = async () => {
@@ -132,17 +184,24 @@ export default function QuizPage() {
       setOptionsUnlocked(false);
       setSelectedAnswer("");
       setSubmitted(false);
+      setVerdict(null);
       setDetailedFeedback(null);
     } else {
       setFinished(true);
-      const bName = `${courseType === "elementary" ? "초등" : courseType === "middle_high" ? "중고등" : courseType === "high_univ" ? "고등/대입" : "일반"} 문장 교정 마스터 뱃지`;
+      if (!canPersist) return;
+      if (!currentQ || currentQ.courseType !== effectiveCourse || currentQ.toolType !== "quiz" || currentQ.id <= 0) return;
+      const requestScope = scopeRef.current;
+      const question = currentQ;
+      const bName = `${courseLabel} 문장 교정 마스터 뱃지`;
       try {
-        await awardBadgeMutation.mutateAsync({ courseType, badgeType: "quiz", badgeName: bName });
+        await awardBadgeMutation.mutateAsync({ courseType: effectiveCourse, badgeType: "quiz", badgeName: bName });
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
         setEarnedBadgeName(bName);
         setShowCelebration(true);
         utils.badges.getByUser.invalidate();
         toast.success("퀴즈 10문항을 모두 정답으로 완료해 뱃지를 획득했습니다.");
       } catch {
+        if (scopeRef.current !== requestScope || questionIdRef.current !== question.id) return;
         toast.info("퀴즈 뱃지는 서로 다른 10문항을 모두 정답으로 완료하면 수여됩니다.");
       }
     }
@@ -150,7 +209,7 @@ export default function QuizPage() {
 
   if (questions.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-50 py-12 px-4 text-center">
+      <div className="bg-slate-50 py-12 px-4 text-center">
         <p className="text-slate-600">등록된 퀴즈 문항이 없습니다. 관리자 문제은행에서 문항을 추가해주세요.</p>
         <Link href="/curriculum"><Button className="mt-4">커리큘럼으로 돌아가기</Button></Link>
       </div>
@@ -159,7 +218,7 @@ export default function QuizPage() {
 
   if (finished) {
     return (
-      <div className="min-h-screen bg-slate-50 py-16 px-4">
+      <div className="bg-slate-50 py-16 px-4">
         <div className="max-w-md mx-auto text-center space-y-6 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
           <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
             🏆
@@ -167,7 +226,7 @@ export default function QuizPage() {
           <h2 className="text-2xl font-bold text-slate-900">퀴즈 학습 완료!</h2>
           <p className="text-slate-600">총 10문제 중 최종 획득 점수: <span className="font-bold text-indigo-600 text-lg">{score}점</span></p>
           <div className="p-4 bg-indigo-50 rounded-xl text-indigo-900 text-sm font-medium flex items-center justify-center gap-2">
-            <Award className="h-5 w-5 text-indigo-600" /> 과정별 뱃지가 마이페이지에 자동 적립되었습니다.
+            <Award className="h-5 w-5 text-indigo-600" /> {canPersist ? "뱃지 획득 여부는 서버에서 확인한 학습 기록을 기준으로 결정됩니다." : "미리보기 결과를 확인했습니다."}
           </div>
           <div className="flex gap-3 justify-center pt-4">
             <Link href="/dashboard"><Button className="bg-indigo-600 hover:bg-indigo-700 text-white">대시보드로 이동</Button></Link>
@@ -178,33 +237,35 @@ export default function QuizPage() {
           isOpen={showCelebration}
           onClose={() => setShowCelebration(false)}
           badgeName={earnedBadgeName}
-          courseName={courseType === "elementary" ? "초등 논술" : courseType === "middle_high" ? "중고등 논술" : courseType === "high_univ" ? "고등/대입" : "일반/직장인"}
+          courseName={`${courseLabel} 논술`}
         />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+    <PreviewGate active={preview} title="AI 문장 교정">
+    <div className="bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/curriculum">
             <Button variant="ghost" className="gap-2 text-slate-600 pl-0">
               ← 커리큘럼으로 돌아가기
             </Button>
           </Link>
-          <div className="flex gap-2">
-            {(["elementary", "middle_high", "high_univ", "general_adult"] as const).map(c => (
+          <div className="flex flex-wrap gap-2">
+            {canSelectCourse && COURSE_OPTIONS.map(({ value, label }) => (
               <Button
-                key={c}
+                key={value}
                 size="sm"
-                variant={courseType === c ? "default" : "outline"}
-                className={courseType === c ? "bg-indigo-600 text-white" : ""}
-                onClick={() => setCourseType(c)}
+                variant={effectiveCourse === value ? "default" : "outline"}
+                className={effectiveCourse === value ? "bg-indigo-600 text-white" : ""}
+                onClick={() => setCourseType(value)}
               >
-                {c === "elementary" ? "초등" : c === "middle_high" ? "중고등" : c === "high_univ" ? "고등/대입" : "일반"}
+                {label}
               </Button>
             ))}
+            {!canSelectCourse && <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">{courseLabel} 과정</span>}
           </div>
         </div>
 
@@ -231,7 +292,7 @@ export default function QuizPage() {
                 {optionsUnlocked && <span className="w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">작성 완료</span>}
               </div>
               <Textarea value={draftAnswer} disabled={submitted} onChange={(event) => { setDraftAnswer(event.target.value); setDetailedFeedback(null); if (optionsUnlocked) setOptionsUnlocked(false); }} placeholder="예: 불필요하게 반복된 표현을 줄이고, 핵심 주장이 선명하게 드러나도록 문장을 고쳐 보세요." className="mt-4 min-h-28 resize-y border-slate-300 bg-white text-slate-900 placeholder:text-slate-400" />
-              {!submitted && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end"><Button variant="outline" onClick={handleDetailedFeedback} disabled={draftAnswer.trim().length < 5 || detailedFeedbackMutation.isPending} className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"><Sparkles className="mr-2 h-4 w-4" />{detailedFeedbackMutation.isPending ? "피드백 분석 중" : "맞춤 피드백 보기"}</Button><Button variant="outline" onClick={handleDraftComplete} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">작성 완료 후 선택지 보기</Button></div>}
+              {!submitted && <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">{canPersist && <Button variant="outline" onClick={handleDetailedFeedback} disabled={draftAnswer.trim().length < 5 || detailedFeedbackMutation.isPending} className="border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"><Sparkles className="mr-2 h-4 w-4" />{detailedFeedbackMutation.isPending ? "피드백 분석 중" : "맞춤 피드백 보기"}</Button>}<Button variant="outline" onClick={handleDraftComplete} className="border-indigo-200 text-indigo-700 hover:bg-indigo-50">작성 완료 후 선택지 보기</Button></div>}
               {detailedFeedback && <section className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 font-bold text-amber-950"><Sparkles className="h-4 w-4 text-amber-700" />내 문장 맞춤 피드백</div><span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-amber-800">종합 {detailedFeedback.overallScore}점</span></div><div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><div className="rounded-lg bg-white p-2 text-slate-700">경제성 <strong className="block text-slate-900">{detailedFeedback.economyScore}</strong></div><div className="rounded-lg bg-white p-2 text-slate-700">명료성 <strong className="block text-slate-900">{detailedFeedback.clarityScore}</strong></div><div className="rounded-lg bg-white p-2 text-slate-700">정확성 <strong className="block text-slate-900">{detailedFeedback.accuracyScore}</strong></div></div><p className="mt-3 text-sm leading-6 text-slate-800">{detailedFeedback.feedback}</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><div><p className="text-xs font-bold text-emerald-800">잘한 점</p><ul className="mt-1 space-y-1 text-sm text-slate-700">{detailedFeedback.strengths.map((item) => <li key={item}>• {item}</li>)}</ul></div><div><p className="text-xs font-bold text-rose-800">다음에 고칠 점</p><ul className="mt-1 space-y-1 text-sm text-slate-700">{detailedFeedback.improvements.map((item) => <li key={item}>• {item}</li>)}</ul></div></div><div className="mt-3 rounded-lg border border-amber-200 bg-white p-3"><p className="text-xs font-bold text-amber-800">개선 문장 예시</p><p className="mt-1 text-sm leading-6 text-slate-900">{detailedFeedback.revisedSentence}</p></div></section>}
             </section>
 
@@ -244,13 +305,14 @@ export default function QuizPage() {
               ))}
             </section>}
 
-            {submitted && (
-              <div className={`p-4 rounded-xl border ${selectedAnswer === parsedData.answer ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-rose-50 border-rose-200 text-rose-900"}`}>
+            {submitted && verdict && (
+              <div className={`p-4 rounded-xl border ${verdict.isCorrect ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-rose-50 border-rose-200 text-rose-900"}`}>
                 <div className="flex items-center gap-2 font-bold mb-1">
-                  {selectedAnswer === parsedData.answer ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <AlertCircle className="h-5 w-5 text-rose-600" />}
-                  {selectedAnswer === parsedData.answer ? "정답입니다!" : "틀렸습니다."}
+                  {verdict.isCorrect ? <CheckCircle className="h-5 w-5 text-emerald-600" /> : <AlertCircle className="h-5 w-5 text-rose-600" />}
+                  {verdict.isCorrect ? "정답입니다!" : "틀렸습니다."}
                 </div>
-                <p className="text-sm leading-6 mt-1">{parsedData.explanation}</p>
+                {!verdict.isCorrect && verdict.correctAnswer && <p className="text-sm leading-6 mt-1"><span className="font-semibold">정답: </span>{verdict.correctAnswer}</p>}
+                <p className="text-sm leading-6 mt-1">{verdict.explanation}</p>
               </div>
             )}
 
@@ -268,10 +330,11 @@ export default function QuizPage() {
               )}
             </div>
 
-            {currentQ && <QuestionFeedbackBox questionId={currentQ.id} />}
+            {currentQ && canPersist && <QuestionFeedbackBox questionId={currentQ.id} />}
           </CardContent>
         </Card>
       </div>
     </div>
+    </PreviewGate>
   );
 }

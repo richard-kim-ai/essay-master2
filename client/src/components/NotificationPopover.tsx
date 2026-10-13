@@ -12,9 +12,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 function notificationIcon(category: string) {
-  if (category === "teacher_feedback") return <MessageSquare className="h-4 w-4 text-violet-600" />;
+  if (category === "teacher_feedback") return <MessageSquare className="h-4 w-4 text-indigo-600" />;
   if (category === "assignment_deadline" || category === "class_assignment") return <ClipboardCheck className="h-4 w-4 text-amber-600" />;
-  return <Megaphone className="h-4 w-4 text-blue-600" />;
+  return <Megaphone className="h-4 w-4 text-indigo-600" />;
 }
 
 function getNotificationDestination(category: string) {

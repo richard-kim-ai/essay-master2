@@ -15,7 +15,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ACCOUNT_KIND_LABELS, getAccountKind } from "@shared/course";
 import { Input } from "@/components/ui/input";
+import AiUsageSummary from "@/components/AiUsageSummary";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function AdminDashboard() {
@@ -42,6 +44,20 @@ export default function AdminDashboard() {
   const [weeklyReportModalOpen, setWeeklyReportModalOpen] = useState(false);
 
   const utils = trpc.useUtils();
+  const sendBatchEmailMutation = trpc.admin.sendBatchAnnouncement.useMutation({
+    onSuccess: (result) => {
+      const detail = [result.failed ? `실패 ${result.failed}명` : "", result.skipped ? `이메일 없음·제외 ${result.skipped}명` : ""].filter(Boolean).join(", ");
+      if (result.sent > 0) toast.success(`${result.sent}명에게 공지 이메일을 발송했습니다.${detail ? ` (${detail})` : ""}`);
+      else toast.error(`발송된 메일이 없습니다.${detail ? ` (${detail})` : ""} 메일 발송 설정을 확인해 주세요.`);
+      if (result.sent > 0) {
+        setBatchEmailModalOpen(false);
+        setBatchEmailSubject("");
+        setBatchEmailBody("");
+        setSelectedStudentIds([]);
+      }
+    },
+    onError: (err) => toast.error(err.message || "공지 이메일 발송 중 오류가 발생했습니다."),
+  });
   const updateBatchTagMutation = trpc.admin.updateBatchTag.useMutation({
     onSuccess: () => {
       toast.success("선택된 학생들의 태그가 일괄 변경되었습니다.");
@@ -81,7 +97,14 @@ export default function AdminDashboard() {
       toast.error("선택된 학생이 없습니다.");
       return;
     }
-    updateBatchTagMutation.mutate({ studentIds: selectedStudentIds, tag });
+    // 과정 변경은 학습자 계정만 대상이다(학부모·교사·관리자는 제외하고 알린다).
+    const learnerIds = (analytics?.users.users ?? []).filter((u) => selectedStudentIds.includes(u.id) && getAccountKind(u) === "student").map((u) => u.id);
+    if (learnerIds.length === 0) {
+      toast.error("과정은 학습자 계정만 바꿀 수 있습니다. 선택한 계정 중 학습자가 없습니다.");
+      return;
+    }
+    if (learnerIds.length < selectedStudentIds.length) toast.info(`학습자 ${learnerIds.length}명만 변경합니다. 학부모·교사·관리자 ${selectedStudentIds.length - learnerIds.length}명은 제외했습니다.`);
+    updateBatchTagMutation.mutate({ studentIds: learnerIds, tag });
   };
 
   const handleSendBatchEmail = () => {
@@ -93,11 +116,8 @@ export default function AdminDashboard() {
       toast.error("제목과 내용을 모두 입력해주세요.");
       return;
     }
-    toast.success(`선택된 ${selectedStudentIds.length}명의 학생에게 공지 이메일이 발송되었습니다.`);
-    setBatchEmailModalOpen(false);
-    setBatchEmailSubject("");
-    setBatchEmailBody("");
-    setSelectedStudentIds([]);
+    // 실제 발송은 서버가 한다. 발송 결과(성공·실패·제외)는 서버 응답대로 알린다.
+    sendBatchEmailMutation.mutate({ studentIds: selectedStudentIds, subject: batchEmailSubject.trim(), body: batchEmailBody.trim() });
   };
 
   const filteredUsers = useMemo(() => {
@@ -108,7 +128,7 @@ export default function AdminDashboard() {
         (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
         String(u.id).includes(searchQuery);
 
-      const matchRole = roleFilter === "all" || u.role === roleFilter;
+      const matchRole = roleFilter === "all" || getAccountKind(u) === roleFilter;
 
       return matchQuery && matchRole;
     });
@@ -157,12 +177,12 @@ export default function AdminDashboard() {
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-slate-50 p-12 text-center text-slate-600">권한을 확인하는 중입니다...</div>;
+    return <div className="bg-slate-50 p-12 text-center text-slate-600">권한을 확인하는 중입니다...</div>;
   }
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-slate-50 px-4 py-20">
+      <div className="bg-slate-50 px-4 py-20">
         <Card className="mx-auto max-w-md p-8 text-center shadow-md">
           <ShieldCheck className="mx-auto h-12 w-12 text-amber-500 mb-4" />
           <h1 className="text-2xl font-bold text-slate-900">관리자 전용 페이지</h1>
@@ -170,7 +190,7 @@ export default function AdminDashboard() {
             이 페이지는 시스템 관리자만 접근할 수 있습니다. 관리자 계정으로 로그인하거나 권한을 요청해주세요.
           </p>
           <div className="mt-6 flex flex-col gap-3">
-            <Button onClick={() => window.location.href = "/login"} className="w-full bg-blue-600 hover:bg-blue-700">
+            <Button onClick={() => window.location.href = "/login"} className="w-full bg-indigo-600 hover:bg-indigo-700">
               로그인 화면으로 이동
             </Button>
             <Link href="/">
@@ -183,16 +203,16 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/80 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
+    <div className="bg-slate-50/80 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
+            <div className="rounded-2xl bg-indigo-100 p-3 text-indigo-700">
               <ShieldCheck className="h-8 w-8" />
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">학습자 전체 분석 & 관리자 대시보드</h1>
-              <p className="text-sm text-slate-600 mt-1">전체 학생 현황, AI 사용량 통계 및 커리큘럼 난이도를 총괄 관리합니다.</p>
+              <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">회원 전체 현황 & 관리자 대시보드</h1>
+              <p className="text-sm text-slate-600 mt-1">전체 회원(학생·학부모·교사·관리자) 현황, AI 사용량 통계 및 커리큘럼 난이도를 총괄 관리합니다.</p>
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
@@ -204,7 +224,7 @@ export default function AdminDashboard() {
             <Button onClick={handleExportCSV} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 text-xs">
               <Download className="w-3.5 h-3.5" /> CSV 내보내기
             </Button>
-            <Button onClick={() => setWeeklyReportModalOpen(true)} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 text-xs">
+            <Button onClick={() => setWeeklyReportModalOpen(true)} size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 text-xs">
               <FileText className="w-3.5 h-3.5" /> 주간 리포트(PDF)
             </Button>
           </div>
@@ -212,32 +232,32 @@ export default function AdminDashboard() {
 
         {/* Analytics Overview Cards with Interactive Tooltip & Hover Animation */}
         <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-blue-300 hover:-translate-y-1 cursor-pointer group">
+          <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-indigo-300 hover:-translate-y-1 cursor-pointer group">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-blue-600 transition">전체 가입 회원</CardTitle>
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-indigo-600 transition">전체 가입 회원</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-extrabold text-slate-900 group-hover:scale-105 transition transform origin-left">
                 {analyticsLoading ? "..." : analytics?.users.totalUsers || 0}명
               </div>
               <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
-                <span>플랫폼 누적 가입 학습자</span>
+                <span>플랫폼 누적 가입 회원(학생·학부모·교사·관리자)</span>
                 <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">상세 보기</span>
               </p>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-blue-400 hover:-translate-y-1 cursor-pointer group">
+          <Card className="border-slate-200 shadow-sm transition-all duration-300 hover:shadow-md hover:border-indigo-400 hover:-translate-y-1 cursor-pointer group">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-blue-600 transition">오늘 활성 학습자</CardTitle>
+              <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-wider group-hover:text-indigo-600 transition">오늘 활성 회원</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-extrabold text-blue-600 group-hover:scale-105 transition transform origin-left">
+              <div className="text-3xl font-extrabold text-indigo-600 group-hover:scale-105 transition transform origin-left">
                 {analyticsLoading ? "..." : analytics?.users.activeToday || 0}명
               </div>
               <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
                 <span>오늘 접속 및 학습 기록</span>
-                <span className="text-[10px] bg-blue-50 px-1.5 py-0.5 rounded text-blue-600">실시간</span>
+                <span className="text-[10px] bg-indigo-50 px-1.5 py-0.5 rounded text-indigo-600">실시간</span>
               </p>
             </CardContent>
           </Card>
@@ -282,10 +302,10 @@ export default function AdminDashboard() {
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div>
                     <CardTitle className="text-xl font-bold flex items-center gap-2">
-                      <Users className="h-5 w-5 text-blue-600" />
-                      <span>전체 학습자 현황 및 상세 관리</span>
+                      <Users className="h-5 w-5 text-indigo-600" />
+                      <span>전체 회원 현황 및 상세 관리</span>
                     </CardTitle>
-                    <CardDescription>학생을 검색하고 클릭하여 상세 진도 및 메모를 관리하세요.</CardDescription>
+                    <CardDescription>회원을 검색하고 '상세 보기'에서 등급별(학생·학부모·교사·관리자) 정보와 메모를 관리하세요.</CardDescription>
                   </div>
                   <span className="text-xs bg-slate-100 text-slate-700 font-semibold px-2.5 py-1 rounded-full">
                     총 {filteredUsers.length}명 검색됨
@@ -310,7 +330,9 @@ export default function AdminDashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">모든 권한</SelectItem>
-                      <SelectItem value="user">학습자</SelectItem>
+                      <SelectItem value="student">학생</SelectItem>
+                      <SelectItem value="parent">학부모</SelectItem>
+                      <SelectItem value="teacher">교사</SelectItem>
                       <SelectItem value="admin">관리자</SelectItem>
                     </SelectContent>
                   </Select>
@@ -365,7 +387,7 @@ export default function AdminDashboard() {
                             type="checkbox"
                             checked={filteredUsers.length > 0 && selectedStudentIds.length === filteredUsers.length}
                             onChange={handleToggleSelectAll}
-                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           />
                         </th>
                         <th className="py-3 px-4">ID / 이름</th>
@@ -379,7 +401,7 @@ export default function AdminDashboard() {
                       {filteredUsers.length === 0 ? (
                         <tr>
                           <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
-                            검색 결과와 일치하는 학습자가 없습니다.
+                            검색 결과와 일치하는 회원이 없습니다.
                           </td>
                         </tr>
                       ) : (
@@ -390,14 +412,14 @@ export default function AdminDashboard() {
                                 type="checkbox"
                                 checked={selectedStudentIds.includes(u.id)}
                                 onChange={() => handleToggleSelectOne(u.id)}
-                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                               />
                             </td>
                             <td className="max-w-36 truncate py-3 px-4 font-semibold text-slate-900">{u.name || `사용자 #${u.id}`}</td>
                             <td className="max-w-52 truncate py-3 px-4 text-slate-600">{u.email || "소셜 로그인 계정"}</td>
                             <td className="py-3 px-4">
-                              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
-                                {u.role === 'admin' ? '관리자' : '학습자'}
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.role === 'admin' ? 'bg-slate-200 text-slate-700' : u.role === 'teacher' ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800'}`} data-role-badge={u.role}>
+                                {ACCOUNT_KIND_LABELS[getAccountKind(u)]}
                               </span>
                             </td>
                             <td className="py-3 px-4 text-slate-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
@@ -415,10 +437,10 @@ export default function AdminDashboard() {
                   </table>
                 </div>
                 <div className="space-y-2 md:hidden">
-                  {filteredUsers.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">검색 결과와 일치하는 학습자가 없습니다.</p> : filteredUsers.map((u) => (
+                  {filteredUsers.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">검색 결과와 일치하는 회원이 없습니다.</p> : filteredUsers.map((u) => (
                     <div key={u.id} className={`flex items-center gap-3 rounded-xl border p-3 ${selectedStudentIds.includes(u.id) ? "border-indigo-200 bg-indigo-50/70" : "border-slate-200 bg-white"}`}>
                       <input type="checkbox" checked={selectedStudentIds.includes(u.id)} onChange={() => handleToggleSelectOne(u.id)} className="shrink-0 rounded border-slate-300 text-indigo-600" />
-                      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="truncate text-sm font-bold text-slate-900">{u.name || `사용자 #${u.id}`}</p><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${u.role === "admin" ? "bg-violet-100 text-violet-800" : "bg-blue-100 text-blue-800"}`}>{u.role === "admin" ? "관리자" : "학습자"}</span></div><p className="mt-0.5 truncate text-xs text-slate-500">{u.email || "소셜 로그인 계정"}</p></div>
+                      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="truncate text-sm font-bold text-slate-900">{u.name || `사용자 #${u.id}`}</p><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${u.role === "admin" ? "bg-slate-200 text-slate-700" : u.role === "teacher" ? "bg-indigo-100 text-indigo-800" : "bg-emerald-100 text-emerald-800"}`}>{u.role === "admin" ? "관리자" : u.role === "teacher" ? "교사" : "학생"}</span></div><p className="mt-0.5 truncate text-xs text-slate-500">{u.email || "소셜 로그인 계정"}</p></div>
                       <Link href={`/admin/student/${u.id}`}><Button size="sm" variant="outline" className="h-8 px-2 text-xs"><Eye className="h-3.5 w-3.5" /></Button></Link>
                     </div>
                   ))}
@@ -470,6 +492,8 @@ export default function AdminDashboard() {
                 <CurriculumStatsWidget />
               </CardContent>
             </Card>
+
+            <AiUsageSummary />
           </div>
         </div>
       </div>
@@ -530,8 +554,8 @@ export default function AdminDashboard() {
             <Button variant="outline" onClick={() => setBatchEmailModalOpen(false)}>
               취소
             </Button>
-            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleSendBatchEmail}>
-              이메일 발송하기
+            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleSendBatchEmail} disabled={sendBatchEmailMutation.isPending}>
+              {sendBatchEmailMutation.isPending ? "발송 중..." : "이메일 발송하기"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -544,11 +568,20 @@ export default function AdminDashboard() {
             <Sliders className="w-5 h-5 text-indigo-600" /> 관리자 전용 운영 카테고리 및 도구
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            수료증, 커리큘럼, 이론 레슨, 문제은행, 첨삭 모델, 총괄 콘솔 및 약관 설정을 한눈에 관리할 수 있습니다.
+            수료증, 커리큘럼, 이론 레슨, 문제은행, 첨삭 모델, 회원관리 및 약관·정책을 한눈에 관리할 수 있습니다.
           </p>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <Link href="/admin/student-essays">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <FileText className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">학생 제출 글</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">목록·첨삭 지도</span>
+            </div>
+          </Link>
           <Link href="/admin/certificates">
             <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
               <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
@@ -561,7 +594,7 @@ export default function AdminDashboard() {
 
           <Link href="/admin/curriculum">
             <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
                 <BookOpen className="w-5 h-5" />
               </div>
               <span className="font-bold text-slate-800 text-xs">카테고리 관리</span>
@@ -571,7 +604,7 @@ export default function AdminDashboard() {
 
           <Link href="/admin/question-bank">
             <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
-              <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
                 <Database className="w-5 h-5" />
               </div>
               <span className="font-bold text-slate-800 text-xs">문제은행 관리</span>
@@ -595,7 +628,7 @@ export default function AdminDashboard() {
                 <Sliders className="w-5 h-5" />
               </div>
               <span className="font-bold text-slate-800 text-xs">첨삭 모델 운영</span>
-              <span className="text-[10px] text-slate-400 mt-0.5">검수 및 이의제기</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">모델 연결·우선순위·검수</span>
             </div>
           </Link>
 
@@ -604,8 +637,8 @@ export default function AdminDashboard() {
               <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
                 <Users className="w-5 h-5" />
               </div>
-              <span className="font-bold text-slate-800 text-xs">회원·반 관리</span>
-              <span className="text-[10px] text-slate-400 mt-0.5">계정·교사·반 편성</span>
+              <span className="font-bold text-slate-800 text-xs">회원관리</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">계정·권한·교사 평점</span>
             </div>
           </Link>
 
@@ -619,13 +652,24 @@ export default function AdminDashboard() {
             </div>
           </Link>
 
-          <Link href="/admin/evaluation-models">
+
+          <Link href="/admin/terms">
             <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
               <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
                 <Settings className="w-5 h-5" />
               </div>
-              <span className="font-bold text-slate-800 text-xs">평가 모델 관리</span>
-              <span className="text-[10px] text-slate-400 mt-0.5">모델 활성화 및 우선순위</span>
+              <span className="font-bold text-slate-800 text-xs">약관 및 정책</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">이용약관·개인정보·환불정책</span>
+            </div>
+          </Link>
+
+          <Link href="/admin/guardian-consents">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">법정대리인 동의</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">만 14세 미만 동의 관리대장</span>
             </div>
           </Link>
 
@@ -634,8 +678,18 @@ export default function AdminDashboard() {
               <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
                 <Settings className="w-5 h-5" />
               </div>
-              <span className="font-bold text-slate-800 text-xs">약관 및 설정</span>
-              <span className="text-[10px] text-slate-400 mt-0.5">소셜 키 및 정책</span>
+              <span className="font-bold text-slate-800 text-xs">소셜 로그인 설정</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">소셜 로그인 키</span>
+            </div>
+          </Link>
+
+          <Link href="/admin/billing">
+            <div className="p-4 bg-white rounded-xl border border-slate-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer flex flex-col items-center text-center group">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+                <Settings className="w-5 h-5" />
+              </div>
+              <span className="font-bold text-slate-800 text-xs">결제·정산 관리</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">회원 결제·교사 정산</span>
             </div>
           </Link>
         </div>

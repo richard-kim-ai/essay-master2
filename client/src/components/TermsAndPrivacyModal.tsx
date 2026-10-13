@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 
 interface Props {
-  type: "terms" | "privacy" | null;
+  type: "terms" | "privacy" | "refund" | null;
   onClose: () => void;
 }
 
 export function TermsAndPrivacyModal({ type, onClose }: Props) {
-  const settingKey = type === "terms" ? "terms_of_service" : "privacy_policy";
+  const settingKey = type === "terms" ? "terms_of_service" : type === "refund" ? "refund_policy" : "privacy_policy";
   const { data: content, isLoading } = trpc.admin.getSiteSettingAdmin.useQuery({ settingKey }, { enabled: !!type });
 
   const defaultTerms = `제1조(목적) 이 약관은 논술 마스터(Essay Master) 플랫폼(이하 "회사"라 함)이 제공하는 논술 교육 및 학습 관리 서비스(이하 "서비스"라 함)의 이용조건 및 절차, 회사와 회원 간의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.
@@ -23,13 +23,13 @@ export function TermsAndPrivacyModal({ type, onClose }: Props) {
 2. 개인정보의 수집 및 이용 목적: 회원 가입 의사 확인, AI 및 교사 맞춤형 논술 첨삭 서비스 제공, 수료증 발급
 3. 개인정보의 보유 및 이용 기간: 회원 탈퇴 시까지 또는 관계 법령에 따라 보존 필요 시까지`;
 
-  const textToDisplay = content || (type === "terms" ? defaultTerms : defaultPrivacy);
+  const textToDisplay = content || (type === "terms" ? defaultTerms : type === "refund" ? "가격·환불정책을 준비하고 있습니다. 자세한 내용은 고객지원으로 문의해 주세요." : defaultPrivacy);
 
   return (
     <Dialog open={type !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="sm:max-w-xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{type === "terms" ? "이용약관" : "개인정보처리방침"}</DialogTitle>
+          <DialogTitle>{type === "terms" ? "이용약관" : type === "refund" ? "가격·환불정책" : "개인정보처리방침"}</DialogTitle>
           <DialogDescription>논술 마스터 서비스 이용에 관한 중요 정책입니다.</DialogDescription>
         </DialogHeader>
         <div className="py-4 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-200">

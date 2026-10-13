@@ -1,30 +1,55 @@
-import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import SocialLoginButtons from "@/components/SocialLoginButtons";
+import React, { useState } from "react";
+import { Link, useLocation, useSearch } from "wouter";
+import { sanitizeNextPath } from "@/lib/loginRedirect";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Mail, Lock, ArrowRight, BookOpen } from "lucide-react";
+import { Mail, Lock, ArrowRight } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { TermsAndPrivacyModal } from "@/components/TermsAndPrivacyModal";
+import AuthLayout from "@/components/AuthLayout";
+
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [modalType, setModalType] = useState<"terms" | "privacy" | null>(null);
 
-  const socialProviders = trpc.social.providers.useQuery();
+  // 보호자(법정대리인) 동의가 끝나지 않아 로그인이 막힌 경우 동의 메일 재발송을 안내한다.
+  const [guardianPending, setGuardianPending] = useState(false);
+  const resendGuardian = trpc.guardian.resendConsent.useMutation({
+    onSuccess: () => toast.success("보호자 이메일로 동의 요청을 다시 보냈습니다. 5분 안에 다시 요청하면 발송되지 않을 수 있습니다."),
+    onError: (error) => toast.error(error.message || "재발송 요청에 실패했습니다."),
+  });
+
+  // 로그인이 필요한 화면에서 넘어온 경우 로그인 뒤 그 화면으로 돌아간다(같은 사이트 경로만 허용).
+  const search = useSearch();
+  const nextPath = sanitizeNextPath(new URLSearchParams(search).get("next"));
+  // 소셜 로그인은 next가 주소에 있을 때만 넘긴다(없으면 기존처럼 첫 화면으로 이동).
+  const socialNext = sanitizeNextPath(new URLSearchParams(search).get("next"), "");
+  // 소셜 로그인이 실패하거나 막혔을 때(서버가 /login?social=… 로 돌려보냄) 이유를 알려 준다.
+  const SOCIAL_MESSAGES: Record<string, string> = {
+    error: "소셜 로그인에 실패했습니다. 잠시 후 다시 시도하거나 이메일로 로그인해 주세요.",
+    unavailable: "지금은 이 소셜 로그인을 사용할 수 없습니다. 이메일로 로그인해 주세요.",
+    guardian: "보호자(법정대리인)의 동의가 아직 완료되지 않았습니다. 보호자에게 발송된 메일에서 동의를 완료한 뒤 로그인해 주세요.",
+  };
+  const socialMessage = SOCIAL_MESSAGES[new URLSearchParams(search).get("social") ?? ""];
+  const utils = trpc.useUtils();
   const loginMutation = trpc.auth.loginWithEmail.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("로그인되었습니다.");
-      setLocation("/dashboard");
+      // 로그인 전에 받아 둔 '로그아웃 상태' 조회 결과(staleTime 60초)가 남아 있으면 로그인이 안 된 것처럼 보이므로,
+      // 화면을 옮기기 전에 로그인 상태와 사용자별 조회를 새로 읽는다.
+      await utils.invalidate();
+      setLocation(nextPath);
     },
     onError: (error) => {
       if (error.message === "EMAIL_NOT_VERIFIED") {
         setLocation(`/verify-email?email=${encodeURIComponent(email)}`);
         return;
       }
+      setGuardianPending(error.message.includes("보호자(법정대리인)의 동의"));
       toast.error(error.message || "로그인에 실패했습니다.");
     },
   });
@@ -39,22 +64,28 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 px-4 py-10 sm:py-16">
-      <div className="mx-auto w-full max-w-md">
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-blue-800">
-              <BookOpen className="h-6 w-6 text-white" />
-            </span>
-            <span className="text-3xl font-bold text-slate-900">논술 마스터</span>
-          </Link>
-          <p className="mt-4 text-slate-600">AI 기반 맞춤형 논술 학습 플랫폼</p>
-        </div>
-
+    <AuthLayout tagline="AI 기반 맞춤형 논술 학습 플랫폼">
         <Card className="bg-white p-6 shadow-xl sm:p-8">
           <h1 className="text-2xl font-bold text-slate-900">로그인</h1>
           <p className="mt-2 text-sm text-slate-500">학습 기록을 이어서 확인해 보세요.</p>
+          {socialMessage && <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="alert">{socialMessage}</p>}
 
+          {guardianPending && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="alert">
+              <p className="font-semibold">보호자(법정대리인)의 동의를 기다리는 중입니다.</p>
+              <p className="mt-1 text-xs leading-relaxed">보호자 이메일로 발송된 동의 요청 메일에서 동의를 완료하면 로그인할 수 있습니다. 메일이 없거나 링크가 만료되었다면 다시 받을 수 있습니다.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2 bg-white"
+                disabled={!email || resendGuardian.isPending}
+                onClick={() => resendGuardian.mutate({ email })}
+              >
+                {resendGuardian.isPending ? "요청 중..." : "보호자 동의 메일 다시 받기"}
+              </Button>
+            </div>
+          )}
           <form onSubmit={handleLogin} className="mt-6 space-y-4">
             <label className="block text-sm font-medium text-slate-700">
               이메일
@@ -87,68 +118,20 @@ export default function Login() {
             </label>
 
             <div className="flex items-center justify-end text-sm">
-              <Link href="/forgot-password" className="text-slate-500 hover:underline">비밀번호 찾기</Link>
+              <Link href="/forgot-password" className="font-medium text-indigo-700 hover:underline">비밀번호 찾기</Link>
             </div>
 
-            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={loginMutation.isPending}>
+            <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={loginMutation.isPending}>
               {loginMutation.isPending ? "로그인 중..." : "이메일 로그인"} <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </form>
 
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
-            <div className="relative flex justify-center"><span className="bg-white px-3 text-sm text-slate-500">또는</span></div>
-          </div>
-
-          <div className="space-y-3">
-            <div className="rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 p-3.5 border border-indigo-100 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
-                  ✨ 원클릭 샘플 체험 모드
-                </span>
-                <span className="text-[10px] bg-indigo-200/60 text-indigo-800 px-2 py-0.5 rounded-full font-semibold">로그인 없이 전체 체험</span>
-              </div>
-              <p className="text-[11px] text-slate-600">아이디 입력 없이 학생 또는 교사 샘플 권한으로 커리큘럼, 대시보드, 퀴즈와 수료증을 체험해보세요.</p>
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <Button
-                  size="sm"
-                  type="button"
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] h-8 px-1"
-                  onClick={() => {
-                    setEmail("student@sample.com");
-                    setPassword("sample1234");
-                    loginMutation.mutate({ email: "student@sample.com", password: "sample1234" });
-                  }}
-                >
-                  🎓 학생 샘플
-                </Button>
-                <Button
-                  size="sm"
-                  type="button"
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] h-8 px-1"
-                  onClick={() => {
-                    setEmail("teacher@sample.com");
-                    setPassword("sample1234");
-                    loginMutation.mutate({ email: "teacher@sample.com", password: "sample1234" });
-                  }}
-                >
-                  👩‍🏫 교사 샘플
-                </Button>
-              </div>
-            </div>
-          </div>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {(["google", "kakao", "naver"] as const).map((provider) => {
-              const available = socialProviders.data?.find((item) => item.provider === provider)?.enabled;
-              const label = provider === "google" ? "Google" : provider === "kakao" ? "카카오" : "네이버";
-              return <Button key={provider} type="button" variant="outline" disabled={!available} onClick={() => { window.location.href = `/api/social/${provider}/start?origin=${encodeURIComponent(window.location.origin)}`; }}>{label}</Button>;
-            })}
-          </div>
-          <p className="mt-2 text-center text-xs text-slate-500">소셜 로그인은 관리자 설정이 완료된 제공자만 활성화됩니다.</p>
+          {/* 관리자 설정에서 켠 제공자만 아이콘으로 보여준다(없으면 구분선도 숨김) */}
+          <SocialLoginButtons next={socialNext} />
           <div className="mt-6 space-y-3">
             <p className="text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">아직 계정이 없으신가요?</p>
             <div className="grid grid-cols-2 gap-3">
-              <Link href="/signup" className="flex items-center justify-center rounded-xl bg-blue-50 border border-blue-200 py-2.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition shadow-sm">
+              <Link href="/signup" className="flex items-center justify-center rounded-xl bg-indigo-50 border border-indigo-200 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-sm">
                 🎓 학생 회원가입
               </Link>
               <Link href="/teacher-signup" className="flex items-center justify-center rounded-xl bg-indigo-50 border border-indigo-200 py-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition shadow-sm">
@@ -156,15 +139,7 @@ export default function Login() {
               </Link>
             </div>
           </div>
-
-          <div className="mt-6 border-t border-slate-100 pt-4 text-center text-xs text-slate-400 flex justify-center gap-4">
-            <button type="button" onClick={() => setModalType("terms")} className="hover:text-slate-600 hover:underline">이용약관</button>
-            <span>·</span>
-            <button type="button" onClick={() => setModalType("privacy")} className="hover:text-slate-600 hover:underline">개인정보처리방침</button>
-          </div>
         </Card>
-      </div>
-      <TermsAndPrivacyModal type={modalType} onClose={() => setModalType(null)} />
-    </div>
+    </AuthLayout>
   );
 }

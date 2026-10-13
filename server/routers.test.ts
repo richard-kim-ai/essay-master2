@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { appRouter } from "./routers";
+import * as db from "./db";
 import type { TrpcContext } from "./_core/context";
 
 function createMockContext(overrides?: Partial<TrpcContext>): TrpcContext {
@@ -11,6 +12,7 @@ function createMockContext(overrides?: Partial<TrpcContext>): TrpcContext {
       name: "Test User",
       loginMethod: "manus",
       role: "user",
+      tag: "중고등",
       createdAt: new Date(),
       updatedAt: new Date(),
       lastSignedIn: new Date(),
@@ -34,7 +36,8 @@ describe("appRouter", () => {
 
       const result = await caller.auth.me();
 
-      expect(result).toEqual(ctx.user);
+      // 비밀번호가 없는 계정이라 hasPassword는 false이다(프로필의 비밀번호 변경 표시용).
+      expect(result).toEqual({ ...ctx.user, hasPassword: false });
     });
 
     it("should clear cookie on logout", async () => {
@@ -51,6 +54,7 @@ describe("appRouter", () => {
   describe("curriculum", () => {
     it("should get curriculum by type", async () => {
       const ctx = createMockContext();
+      ctx.user = {...ctx.user!,tag:"초등"};
       const caller = appRouter.createCaller(ctx);
 
       const result = await caller.curriculum.getByType("elementary");
@@ -99,17 +103,12 @@ describe("appRouter", () => {
   });
 
   describe("progress", () => {
-    it("should upsert user progress", async () => {
+    it("다른 과정을 둘러볼 때는 진행을 기록하지 않는다", async () => {
       const ctx = createMockContext();
       const caller = appRouter.createCaller(ctx);
 
-      const result = await caller.progress.upsert({
-        curriculumId: 1,
-        score: 85,
-        completed: 50,
-      });
-
-      expect(result).toBeDefined();
+      // 점수·완료 여부는 서버가 계산하고, 명시된 가입 과정이 아닌 요청은 저장 전에 차단한다.
+      await expect(caller.progress.upsert({ courseType: "elementary", level: 1 })).rejects.toMatchObject({code:"FORBIDDEN"});
     });
 
     it("should get user progress", async () => {
@@ -158,6 +157,18 @@ describe("appRouter", () => {
       await expect(caller.teacherOperations.classAssignmentAiFeedback({ submissionId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.generateClassAssignmentAiFeedback({ submissionId: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(caller.teacherOperations.notifyUpcomingAssignmentStudents({ hoursAhead: 72 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
+  describe("question bank public stats", () => {
+    it("일반 사용자는 비민감 문제은행 공개 통계를 조회할 수 있다", async () => {
+      const caller = appRouter.createCaller(createMockContext());
+      await expect(caller.questionBank.publicStats()).resolves.toEqual(expect.any(Array));
+    });
+
+    it("비로그인 사용자의 공개 통계 조회도 권한 오류 없이 처리한다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null } as any));
+      await expect(caller.questionBank.publicStats()).resolves.toEqual(expect.any(Array));
     });
   });
 
@@ -211,6 +222,172 @@ describe("appRouter", () => {
     it("연결되지 않은 학생의 과제·채점 정보를 학부모 계정으로 조회할 수 없다", async () => {
       const caller = appRouter.createCaller(createMockContext());
       await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("승인되지 않은 교사는 학생 상세 정보를 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "pending" } as any,
+      }));
+      await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("승인된 교사라도 권한을 받지 않은 학생의 상세 정보는 조회할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(caller.parent.studentDetail({ studentId: 999999 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("학부모 계정이 아닌 사용자는 학생 계정을 연결할 수 없다", async () => {
+      const studentCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "초등" } as any,
+      }));
+      await expect(studentCaller.parent.linkStudent({ studentEmail: "child@example.com" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.linkStudent({ studentEmail: "child@example.com" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
+  describe("parent link approval", () => {
+    it("학생 계정이 아니면 학부모 연결 요청에 응답할 수 없다", async () => {
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.respondToRequest({ linkId: 1, accept: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      const parentCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "user", tag: "학부모" } as any,
+      }));
+      await expect(parentCaller.parent.respondToRequest({ linkId: 1, accept: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("학생이 아닌 계정에는 받은 연결 요청 목록이 비어 있다", async () => {
+      const teacherCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "teacher", teacherStatus: "approved" } as any,
+      }));
+      await expect(teacherCaller.parent.myParentLinks()).resolves.toEqual({ pending: [], approved: [] });
+    });
+
+    it("로그인하지 않으면 연결 요청 목록과 응답을 사용할 수 없다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null as any }));
+      await expect(caller.parent.myParentLinks()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(caller.parent.respondToRequest({ linkId: 1, accept: false })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
+  describe("guardian consent for under-14 signup", () => {
+    const baseSignup = {
+      name: "홍길동",
+      email: "child@example.com",
+      password: "password1234",
+      accountType: "student" as const,
+      courseType: "elementary" as const,
+      consents: [{ policyKey: "terms_of_service", policyVersion: "1", accepted: true }],
+    };
+    const publicCaller = () => appRouter.createCaller(createMockContext({ user: null as any }));
+    const underFourteen = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const adult = new Date(Date.now() - 30 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    it("학생 가입에는 생년월일이 필요하다", async () => {
+      await expect(publicCaller().auth.signup(baseSignup)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: "2020-13-45" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("만 14세 미만이면 보호자 정보가 필요하고 학생 이메일과 같은 이메일은 쓸 수 없다", async () => {
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: underFourteen })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining("법정대리인"),
+      });
+      await expect(
+        publicCaller().auth.signup({
+          ...baseSignup,
+          birthDate: underFourteen,
+          guardian: { name: "홍부모", relation: "부", email: "child@example.com" },
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("학생 이메일과 달라야") });
+    });
+
+    it("초등 과정은 생년월일이 만 14세 이상이어도 보호자 정보를 요구한다", async () => {
+      await expect(publicCaller().auth.signup({ ...baseSignup, birthDate: adult })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining("법정대리인"),
+      });
+    });
+
+    it("초등이 아닌 과정은 생년월일·보호자 정보 없이 검증을 통과한다(이후 단계에서 DB가 없어 실패해도 보호자 검증 오류는 아니다)", async () => {
+      const result = publicCaller().auth.signup({ ...baseSignup, courseType: "middle_high" });
+      await expect(result).rejects.not.toMatchObject({ message: expect.stringContaining("법정대리인") });
+      await expect(result).rejects.not.toMatchObject({ message: expect.stringContaining("생년월일") });
+    });
+
+    it("존재하지 않는 동의 링크는 invalid로 응답하고 확정할 수 없다", async () => {
+      const token = "z".repeat(48);
+      await expect(publicCaller().guardian.getConsent({ token })).resolves.toEqual({ state: "invalid" });
+      await expect(
+        publicCaller().guardian.confirm({ token, guardianName: "홍부모", agreeCollection: true, agreeGuardian: true }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("보호자 동의 메일 재발송 요청은 가입 여부와 상관없이 같은 응답을 한다", async () => {
+      await expect(publicCaller().guardian.resendConsent({ email: "nobody@example.com" })).resolves.toEqual({ success: true });
+    });
+
+    it("재발송·철회는 관리자만 처리할 수 있다", async () => {
+      const userCaller = appRouter.createCaller(createMockContext());
+      await expect(userCaller.guardian.adminResend({ id: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(userCaller.guardian.adminWithdraw({ id: 1 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(publicCaller().guardian.adminWithdraw({ id: 1 })).rejects.toBeTruthy();
+    });
+
+    it("관리자가 존재하지 않는 동의 기록을 처리하려 하면 거절한다", async () => {
+      const adminCaller = appRouter.createCaller(createMockContext({
+        user: { ...createMockContext().user!, role: "admin" } as any,
+      }));
+      await expect(adminCaller.guardian.adminResend({ id: 999999 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(adminCaller.guardian.adminWithdraw({ id: 999999 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("동의 관리대장은 관리자만 조회할 수 있다", async () => {
+      await expect(publicCaller().guardian.adminList()).rejects.toBeTruthy();
+      const userCaller = appRouter.createCaller(createMockContext());
+      await expect(userCaller.guardian.adminList()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+  });
+
+  describe("sample account login removal", () => {
+    const publicCaller = () => appRouter.createCaller(createMockContext({ user: null as any }));
+
+    it("누구나 아는 샘플 계정 정보로는 로그인할 수 없고 계정이 자동 생성되지 않는다", async () => {
+      await expect(publicCaller().auth.loginWithEmail({ email: "student@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(publicCaller().auth.loginWithEmail({ email: "teacher@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+      await expect(publicCaller().auth.loginWithEmail({ email: "admin@sample.com", password: "sample1234" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
+  describe("public curriculum overview", () => {
+    it("비로그인 방문자도 과정 구성을 조회할 수 있고 로그인 전용 조회는 계속 차단된다", async () => {
+      const caller = appRouter.createCaller(createMockContext({ user: null as any }));
+      await expect(caller.curriculum.getPublicOverview("high_univ")).resolves.toEqual(expect.any(Array));
+      await expect(caller.curriculum.getDynamicByType("high_univ")).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
+  describe("sample AI evaluation abuse protection", () => {
+    it("사용 기록을 남길 DB가 없으면 한도 없이 AI를 호출하지 않고 요청을 거절한다", async () => {
+      const getDb = vi.spyOn(db, "getDb").mockResolvedValue(null);
+      const caller = appRouter.createCaller(createMockContext({ user: null as any }));
+      try {
+        await expect(caller.sampleEvaluation.evaluate({
+          sessionToken: "abcdefghij1234567890",
+          task: "학교 급식에 지역 농산물 사용을 늘려야 한다는 주장에 대해 써보세요.",
+          essayText: "지역 농산물은 신선하고 지역 농가에도 도움이 되므로 급식에 더 많이 써야 합니다.",
+        })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+      } finally {
+        getDb.mockRestore();
+      }
     });
   });
 
@@ -318,9 +495,9 @@ describe("appRouter", () => {
       await expect(caller.teacherFeedback.create({ essayId: 1, overallScore: 85, overallComment: "근거를 더 구체적으로 작성해 보세요." })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
 
-    it("존재하지 않는 답안의 교사 첨삭 조회는 빈 결과를 반환한다", async () => {
+    it("존재하지 않는 글의 첨삭 조회는 찾을 수 없음으로 응답한다", async () => {
       const caller = appRouter.createCaller(createMockContext());
-      await expect(caller.teacherFeedback.getByEssay(0)).resolves.toBeUndefined();
+      await expect(caller.teacherFeedback.getByEssay(0)).rejects.toMatchObject({ code: "NOT_FOUND" });
     });
   });
 

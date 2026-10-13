@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { Bot, CheckCircle2, ChevronLeft, FileCheck2, Save, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { Bot, CheckCircle2, ChevronLeft, FileCheck2, Save, Sparkles, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -50,17 +50,16 @@ export default function AdminAIGovernance() {
     onError: (err) => toast.error(err.message || "상태 변경에 실패했습니다."),
   });
 
-  if (isLoading) return <div className="mx-auto max-w-6xl p-8 text-center text-slate-500">AI 보조 봇 운영 정보를 불러오는 중입니다…</div>;
-  if (error) return <div className="mx-auto max-w-6xl p-8 text-center text-rose-600">관리자 권한이 필요하거나 정보를 불러오지 못했습니다.</div>;
+  if (isLoading) return <div className="mx-auto max-w-7xl p-8 text-center text-slate-500">AI 보조 봇 운영 정보를 불러오는 중입니다…</div>;
+  if (error) return <div className="mx-auto max-w-7xl p-8 text-center text-rose-600">관리자 권한이 필요하거나 정보를 불러오지 못했습니다.</div>;
 
-  return <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
+  return <div className="mx-auto max-w-7xl space-y-6 px-4 py-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <Link href="/admin"><Button variant="ghost" size="sm" className="-ml-2 gap-1 text-slate-600"><ChevronLeft className="h-4 w-4" />관리자 대시보드</Button></Link>
         <h1 className="mt-2 text-2xl font-bold text-slate-900">교사별 AI 보조 봇 운영 설계</h1>
         <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-600">교사가 승인한 스타일 지침과 가명 처리된 사례만 AI 초안에 반영합니다. 모든 AI 초안은 교사 검토·수정·승인 후에만 학생에게 전달되어야 합니다.</p>
       </div>
-      <Link href="/admin/terms"><Button variant="outline" className="gap-2"><ShieldCheck className="h-4 w-4" />동의·정책 문안 관리</Button></Link>
     </div>
 
     <div className="grid gap-4 sm:grid-cols-3">

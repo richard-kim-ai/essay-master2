@@ -1,0 +1,2 @@
+ALTER TABLE `institution_contracts` ADD `usageMode` enum('quota','period') DEFAULT 'quota' NOT NULL;--> statement-breakpoint
+ALTER TABLE `institution_contracts` ADD `overageAction` enum('block','warn') DEFAULT 'block' NOT NULL;
