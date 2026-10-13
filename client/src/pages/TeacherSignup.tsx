@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Mail, Lock, User, ArrowRight, GraduationCap, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import AuthLayout from "@/components/AuthLayout";
 import { PolicyConsentChecklist, type PolicyConsentValue } from "@/components/PolicyConsentChecklist";
 
 export default function TeacherSignup() {
@@ -36,16 +37,7 @@ export default function TeacherSignup() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-blue-100 px-4 py-10 sm:py-16">
-      <div className="mx-auto w-full max-w-md">
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-blue-800"><GraduationCap className="h-6 w-6 text-white" /></span>
-            <span className="text-3xl font-bold text-slate-900">논술 마스터 교사포털</span>
-          </Link>
-          <p className="mt-4 text-slate-600">첨삭 지도 및 학생 관리 권한을 위한 교사회원 가입</p>
-        </div>
-
+    <AuthLayout brandName="논술 마스터 교사포털" BrandIcon={GraduationCap} tagline="첨삭 지도 및 학생 관리 권한을 위한 교사회원 가입">
         <Card className="bg-white p-6 shadow-xl sm:p-8">
           <h1 className="text-2xl font-bold text-slate-900">교사 회원가입</h1>
           <p className="mt-2 text-sm text-slate-500">담당 교사 권한 레벨을 선택하고 학생 지도를 시작하세요.</p>
@@ -66,7 +58,6 @@ export default function TeacherSignup() {
         </Card>
 
         <div className="mt-8 space-y-3 text-sm text-slate-700"><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />담당 학생 논술 실시간 모니터링</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />문장별 상세 첨삭 및 점수 부여</div><div className="flex items-center gap-3"><CheckCircle2 className="h-5 w-5 text-indigo-600" />레벨별 권한에 따른 맞춤 관리</div></div>
-      </div>
-    </div>
+    </AuthLayout>
   );
 }

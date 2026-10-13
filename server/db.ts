@@ -1,4 +1,9 @@
-import { drizzle } from "drizzle-orm/mysql2";
+import { TRPCError } from "@trpc/server";
+import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
+import { AI_COST_PREFIX, drizzleQueryCounter } from "./_core/perf";
+import { createHash } from "node:crypto";
+import { selectWorkbookRecommendations } from "./workbookRecommendations";
 import {
   InsertUser,
   users,
@@ -7,6 +12,7 @@ import {
   quizAnswer,
   sentenceFeedbackCache,
   certificate,
+  certificateArchives,
   certificateApprovalPolicies,
   certificateApprovalRequests,
   essaySubmission,
@@ -22,6 +28,7 @@ import {
   appSecretConfig,
   pushSubscription,
   aiUsageLogs,
+  sampleAiUsageLog,
   dynamicCurriculum,
   lessonTheoryContent,
   lessonTheoryDrafts,
@@ -29,6 +36,7 @@ import {
   workbookLessonConnections,
   siteSettings,
   parentStudentLinks,
+  guardianConsents,
   userBadges,
   learningToolAttempts,
   questionBank,
@@ -65,21 +73,73 @@ import {
   type InsertSocialProviderConfig,
   type InsertPushSubscription,
 } from "../drizzle/schema";
-import { eq, and, desc, gte, inArray, lt } from "drizzle-orm";
+import {
+  sql,
+  count,
+  eq,
+  and,
+  desc,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  ne,
+} from "drizzle-orm";
+import { computeLessonProgress } from "./lessonProgress";
+import { selectManagedStudentIds } from "./teacherStudents";
 import { ENV } from "./_core/env";
 import { invokeLLM, listLLMModels } from "./_core/llm";
-import { DEFAULT_POLICY_DOCUMENTS, defaultPolicyContent, type AccountConsentRole } from "./aiGovernance";
-import { getCourseTag, getCourseTypeFromUserTag, type CourseType } from "@shared/course";
-import { COURSE_REORDERING_QUESTIONS, toReorderingContent } from "./reorderingQuestionBank";
-import { generateQuestionBankItems, qaQuestionItem, type AdaptiveStats, type GenerationRequestInput } from "./questionGeneration";
-import { buildCourseQuizContent, buildCourseSummaryContent, isLegacyRepeatedLearningContent } from "./learningToolContent";
-import { THEORY_LESSON_DATA_VERSION, buildTheoryLessonSeedItems, generateTheoryLessonDrafts, qaTheoryLessonCandidate, theoryLessonRequestSchema, type TheoryLessonDraftCandidate, type TheoryLessonRequestInput } from "./theoryLessonContent";
-import { generateDetailedSentenceFeedback } from "./sentenceFeedbackEngine";
-import { createRequestFingerprint, normalizeForFingerprint } from "./runtimeEfficiency";
+import {
+  DEFAULT_POLICY_DOCUMENTS,
+  defaultPolicyContent,
+  type AccountConsentRole,
+} from "./aiGovernance";
+import {
+  getCourseTag,
+  parseCourseTypeFromUserTag,
+  isLearnerAccount,
+  getCourseTypeFromUserTag,
+  type CourseType,
+} from "@shared/course";
+import {
+  COURSE_REORDERING_QUESTIONS,
+  toReorderingContent,
+} from "./reorderingQuestionBank";
+import {
+  generateQuestionBankItems,
+  qaQuestionItem,
+  type AdaptiveStats,
+  type GenerationRequestInput,
+} from "./questionGeneration";
+import {
+  buildCourseQuizContent,
+  buildCourseSummaryContent,
+  isLegacyRepeatedLearningContent,
+} from "./learningToolContent";
+import {
+  THEORY_LESSON_DATA_VERSION,
+  buildTheoryLessonSeedItems,
+  generateTheoryLessonDrafts,
+  qaTheoryLessonCandidate,
+  theoryLessonRequestSchema,
+  type TheoryLessonDraftCandidate,
+  type TheoryLessonRequestInput,
+} from "./theoryLessonContent";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+import { DEFAULT_REFUND_POLICY, REFUND_POLICY_KEY } from "./refundPolicy";
+import { generateDetailedSentenceFeedback } from "./sentenceFeedbackEngine";
+import {
+  createRequestFingerprint,
+  normalizeForFingerprint,
+} from "./runtimeEfficiency";
+
+let _db: MySql2Database<Record<string, unknown>> | null = null;
 const memoryProgress: (typeof progress.$inferSelect)[] = [];
 let memoryProgressId = 1;
+
+const USER_SCHEMA_MIGRATION_HINT =
+  "users 테이블 스키마가 현재 코드와 맞지 않습니다. 설정된 DATABASE_URL에 대해 `pnpm db:migrate`를 실행하거나 로컬 DB라면 `pnpm local-db:up`을 다시 실행해주세요.";
 
 export type DifficultyOperationMode = "standard" | "advanced";
 export type DifficultyOperationPreset = {
@@ -90,16 +150,21 @@ export type DifficultyOperationPreset = {
 };
 
 const DIFFICULTY_OPERATION_SETTING_KEY = "difficulty_operation_preset";
-const DIFFICULTY_OPERATION_PRESETS: Record<DifficultyOperationMode, DifficultyOperationPreset> = {
+const DIFFICULTY_OPERATION_PRESETS: Record<
+  DifficultyOperationMode,
+  DifficultyOperationPreset
+> = {
   standard: {
     mode: "standard",
     weights: { easy: 40, medium: 40, hard: 20 },
-    aiFeedbackDirective: "표준 기준으로 핵심 주장·근거·구조를 우선 평가하고, 과정 수준에 맞는 보완 과제를 2~3개 제시합니다.",
+    aiFeedbackDirective:
+      "표준 기준으로 핵심 주장·근거·구조를 우선 평가하고, 과정 수준에 맞는 보완 과제를 2~3개 제시합니다.",
   },
   advanced: {
     mode: "advanced",
     weights: { easy: 15, medium: 35, hard: 50 },
-    aiFeedbackDirective: "심화 기준으로 논증의 타당성, 근거의 구체성, 반론 검토, 표현의 정교함을 엄격히 평가하고 즉시 개선할 고난도 과제를 제시합니다.",
+    aiFeedbackDirective:
+      "심화 기준으로 논증의 타당성, 근거의 구체성, 반론 검토, 표현의 정교함을 엄격히 평가하고 즉시 개선할 고난도 과제를 제시합니다.",
   },
 };
 
@@ -110,14 +175,24 @@ function shuffleItems<T>(items: T[]) {
 export async function getDifficultyOperationPreset(): Promise<DifficultyOperationPreset> {
   const db = await getDb();
   if (!db) return DIFFICULTY_OPERATION_PRESETS.standard;
-  const [row] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
+  const [row] = await db
+    .select()
+    .from(siteSettings)
+    .where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
   if (!row?.content) return DIFFICULTY_OPERATION_PRESET_FALLBACK();
   try {
-    const parsed = JSON.parse(row.content) as Partial<DifficultyOperationPreset>;
+    const parsed = JSON.parse(
+      row.content
+    ) as Partial<DifficultyOperationPreset>;
     if (parsed.mode === "standard" || parsed.mode === "advanced") {
-      return { ...DIFFICULTY_OPERATION_PRESETS[parsed.mode], updatedAt: row.updatedAt.toISOString() };
+      return {
+        ...DIFFICULTY_OPERATION_PRESETS[parsed.mode],
+        updatedAt: row.updatedAt.toISOString(),
+      };
     }
-  } catch { /* Use the standard preset when an old setting is malformed. */ }
+  } catch {
+    /* Use the standard preset when an old setting is malformed. */
+  }
   return DIFFICULTY_OPERATION_PRESET_FALLBACK();
 }
 
@@ -125,35 +200,105 @@ function DIFFICULTY_OPERATION_PRESET_FALLBACK(): DifficultyOperationPreset {
   return DIFFICULTY_OPERATION_PRESETS.standard;
 }
 
-export async function saveDifficultyOperationPreset(mode: DifficultyOperationMode, adminId: number) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function collectErrorMessages(
+  error: unknown,
+  messages: string[] = [],
+  depth = 0
+): string[] {
+  if (depth > 4 || !isRecord(error)) return messages;
+  const message = error.message;
+  if (typeof message === "string") messages.push(message);
+  collectErrorMessages(error.cause, messages, depth + 1);
+  return messages;
+}
+
+export function getUsersSchemaMismatchMessage(error: unknown): string | null {
+  const messages = collectErrorMessages(error);
+  const combined = messages.join("\n");
+  const missingColumn = combined.match(/Unknown column '([^']+)'/i)?.[1];
+  if (!missingColumn) return null;
+  const usersColumn = missingColumn.includes(".")
+    ? missingColumn.split(".").pop()
+    : missingColumn;
+  return `${USER_SCHEMA_MIGRATION_HINT} 누락된 컬럼: users.${usersColumn}.`;
+}
+
+async function withUsersSchemaHint<T>(operation: Promise<T>): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    const message = getUsersSchemaMismatchMessage(error);
+    if (!message) throw error;
+    const wrapped = new Error(message);
+    (wrapped as Error & { cause?: unknown }).cause = error;
+    throw wrapped;
+  }
+}
+
+export async function saveDifficultyOperationPreset(
+  mode: DifficultyOperationMode,
+  adminId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const content = JSON.stringify({ mode });
-  const [existing] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
+  const [existing] = await db
+    .select()
+    .from(siteSettings)
+    .where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
   if (existing) {
-    await db.update(siteSettings).set({ content, updatedBy: adminId, updatedAt: new Date() }).where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
+    await db
+      .update(siteSettings)
+      .set({ content, updatedBy: adminId, updatedAt: new Date() })
+      .where(eq(siteSettings.settingKey, DIFFICULTY_OPERATION_SETTING_KEY));
   } else {
-    await db.insert(siteSettings).values({ settingKey: DIFFICULTY_OPERATION_SETTING_KEY, content, updatedBy: adminId });
+    await db.insert(siteSettings).values({
+      settingKey: DIFFICULTY_OPERATION_SETTING_KEY,
+      content,
+      updatedBy: adminId,
+    });
   }
   return getDifficultyOperationPreset();
 }
 
-function selectQuestionsByDifficulty<T extends { difficulty: "easy" | "medium" | "hard" }>(items: T[], limit: number, preset: DifficultyOperationPreset) {
+function selectQuestionsByDifficulty<
+  T extends { difficulty: "easy" | "medium" | "hard" },
+>(items: T[], limit: number, preset: DifficultyOperationPreset) {
   const pools = {
-    easy: shuffleItems(items.filter((item) => item.difficulty === "easy")),
-    medium: shuffleItems(items.filter((item) => item.difficulty === "medium")),
-    hard: shuffleItems(items.filter((item) => item.difficulty === "hard")),
+    easy: shuffleItems(items.filter(item => item.difficulty === "easy")),
+    medium: shuffleItems(items.filter(item => item.difficulty === "medium")),
+    hard: shuffleItems(items.filter(item => item.difficulty === "hard")),
   };
   const requested = Math.min(limit, items.length);
   const difficulties = Object.keys(pools) as Array<keyof typeof pools>;
-  const quotas = Object.fromEntries(difficulties.map((difficulty) => [difficulty, Math.min(pools[difficulty].length, Math.floor((requested * preset.weights[difficulty]) / 100))])) as Record<keyof typeof pools, number>;
-  const preference = preset.mode === "advanced" ? ["hard", "medium", "easy"] as const : ["medium", "easy", "hard"] as const;
-  while (difficulties.reduce((total, difficulty) => total + quotas[difficulty], 0) < requested) {
+  const quotas = Object.fromEntries(
+    difficulties.map(difficulty => [
+      difficulty,
+      Math.min(
+        pools[difficulty].length,
+        Math.floor((requested * preset.weights[difficulty]) / 100)
+      ),
+    ])
+  ) as Record<keyof typeof pools, number>;
+  const preference =
+    preset.mode === "advanced"
+      ? (["hard", "medium", "easy"] as const)
+      : (["medium", "easy", "hard"] as const);
+  while (
+    difficulties.reduce((total, difficulty) => total + quotas[difficulty], 0) <
+    requested
+  ) {
     const candidate = difficulties
-      .filter((difficulty) => quotas[difficulty] < pools[difficulty].length)
+      .filter(difficulty => quotas[difficulty] < pools[difficulty].length)
       .sort((left, right) => {
-        const leftDeficit = (requested * preset.weights[left]) / 100 - quotas[left];
-        const rightDeficit = (requested * preset.weights[right]) / 100 - quotas[right];
+        const leftDeficit =
+          (requested * preset.weights[left]) / 100 - quotas[left];
+        const rightDeficit =
+          (requested * preset.weights[right]) / 100 - quotas[right];
         if (rightDeficit !== leftDeficit) return rightDeficit - leftDeficit;
         return preference.indexOf(left) - preference.indexOf(right);
       })[0];
@@ -161,17 +306,36 @@ function selectQuestionsByDifficulty<T extends { difficulty: "easy" | "medium" |
     quotas[candidate] += 1;
   }
   const selections: T[] = [];
-  difficulties.forEach((difficulty) => {
+  difficulties.forEach(difficulty => {
     selections.push(...pools[difficulty].splice(0, quotas[difficulty]));
   });
-  const remainder = shuffleItems([...pools.easy, ...pools.medium, ...pools.hard]);
+  const remainder = shuffleItems([
+    ...pools.easy,
+    ...pools.medium,
+    ...pools.hard,
+  ]);
   return shuffleItems([...selections, ...remainder]).slice(0, requested);
 }
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      // 풀을 직접 만들어 연결을 유지한다(기본 설정은 유휴 연결이 끊긴 뒤 요청마다 TLS 연결을 새로 맺어 ~1초가 더 걸렸다).
+      const poolSize = Number(process.env.DB_POOL_SIZE ?? 20);
+      const warmCount = Math.min(poolSize, Number(process.env.DB_POOL_WARM ?? 12));
+      const pool = mysql.createPool({
+        uri: process.env.DATABASE_URL,
+        connectionLimit: poolSize,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 10_000,
+        idleTimeout: 10 * 60 * 1000,
+      });
+      _db = drizzle(pool, { logger: drizzleQueryCounter });
+      // 화면 하나가 API를 7~10개 동시에 부르므로, 새 연결(건당 ~1초)을 기다리지 않도록 그 수만큼 연결을 미리 열어 두고
+      // 4분마다 가볍게 확인해 유휴 연결이 끊기지 않게 한다.
+      const warm = () => void Promise.allSettled(Array.from({ length: warmCount }, () => pool.query("SELECT 1")));
+      warm();
+      setInterval(warm, 4 * 60 * 1000).unref();
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -194,6 +358,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   try {
     const values: InsertUser = {
       openId: user.openId,
+      tag: user.tag ?? "과정 미선택",
     };
     const updateSet: Record<string, unknown> = {};
 
@@ -242,7 +407,9 @@ export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const result = await db.select().from(users).where(eq(users.openId, openId));
+  const result = await withUsersSchemaHint(
+    db.select().from(users).where(eq(users.openId, openId))
+  );
   return result[0];
 }
 
@@ -250,7 +417,9 @@ export async function getUserById(id: number) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const result = await db.select().from(users).where(eq(users.id, id));
+  const result = await withUsersSchemaHint(
+    db.select().from(users).where(eq(users.id, id))
+  );
   return result[0];
 }
 
@@ -258,7 +427,9 @@ export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const result = await db.select().from(users).where(eq(users.email, email));
+  const result = await withUsersSchemaHint(
+    db.select().from(users).where(eq(users.email, email))
+  );
   return result[0];
 }
 
@@ -293,10 +464,18 @@ export async function updateUserEmailVerified(userId: number) {
   const db = await getDb();
   if (!db) return;
 
-  await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({ emailVerifiedAt: new Date() })
+    .where(eq(users.id, userId));
 }
 
-export async function updateTeacherStatus(userId: number, teacherStatus: "pending" | "approved" | "rejected", teacherLevel?: number, actorId?: number) {
+export async function updateTeacherStatus(
+  userId: number,
+  teacherStatus: "pending" | "approved" | "rejected",
+  teacherLevel?: number,
+  actorId?: number
+) {
   const db = await getDb();
   if (!db) return;
   const [target] = await db.select().from(users).where(eq(users.id, userId));
@@ -306,7 +485,18 @@ export async function updateTeacherStatus(userId: number, teacherStatus: "pendin
     data.teacherLevel = teacherLevel;
   }
   await db.update(users).set(data).where(eq(users.id, userId));
-  if (actorId) await createAdminAuditLog({ actorId, targetUserId: userId, action: "role_changed", summary: `${target.name || `교사 #${userId}`} 승인 상태를 ${teacherStatus === "approved" ? "승인" : teacherStatus === "rejected" ? "반려" : "대기"}로 변경`, metadata: { previousTeacherStatus: target.teacherStatus, teacherStatus, teacherLevel } });
+  if (actorId)
+    await createAdminAuditLog({
+      actorId,
+      targetUserId: userId,
+      action: "role_changed",
+      summary: `${target.name || `교사 #${userId}`} 승인 상태를 ${teacherStatus === "approved" ? "승인" : teacherStatus === "rejected" ? "반려" : "대기"}로 변경`,
+      metadata: {
+        previousTeacherStatus: target.teacherStatus,
+        teacherStatus,
+        teacherLevel,
+      },
+    });
 }
 
 export async function updateUserPassword(userId: number, passwordHash: string) {
@@ -316,21 +506,28 @@ export async function updateUserPassword(userId: number, passwordHash: string) {
   await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
 }
 
-export async function updateUserSocialProfile(userId: number, profile: { name?: string; email?: string; loginMethod?: string }) {
+export async function updateUserSocialProfile(
+  userId: number,
+  profile: { name?: string; email?: string; loginMethod?: string }
+) {
   const db = await getDb();
   if (!db) return;
 
   const setObj: Record<string, any> = {};
   if (profile.name !== undefined) setObj.name = profile.name;
   if (profile.email !== undefined) setObj.email = profile.email;
-  if (profile.loginMethod !== undefined) setObj.loginMethod = profile.loginMethod;
+  if (profile.loginMethod !== undefined)
+    setObj.loginMethod = profile.loginMethod;
 
   if (Object.keys(setObj).length > 0) {
     await db.update(users).set(setObj).where(eq(users.id, userId));
   }
 }
 
-export async function updateUserProfile(userId: number, input: { name?: string; avatarUrl?: string }) {
+export async function updateUserProfile(
+  userId: number,
+  input: { name?: string; avatarUrl?: string }
+) {
   const db = await getDb();
   if (!db) return false;
   const setObj: Record<string, any> = { updatedAt: new Date() };
@@ -349,64 +546,100 @@ export async function listSocialProviderConfigs() {
 export async function getSocialProviderConfig(provider: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(socialProviderConfig).where(eq(socialProviderConfig.provider, provider as any));
+  const result = await db
+    .select()
+    .from(socialProviderConfig)
+    .where(eq(socialProviderConfig.provider, provider as any));
   return result[0];
 }
 
-export async function upsertSocialProviderConfig(input: InsertSocialProviderConfig) {
+export async function upsertSocialProviderConfig(
+  input: InsertSocialProviderConfig
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.insert(socialProviderConfig).values(input).onDuplicateKeyUpdate({
-    set: {
-      clientId: input.clientId,
-      clientSecretEncrypted: input.clientSecretEncrypted,
-      enabled: input.enabled,
-      updatedBy: input.updatedBy,
-    },
-  });
+  await db
+    .insert(socialProviderConfig)
+    .values(input)
+    .onDuplicateKeyUpdate({
+      set: {
+        clientId: input.clientId,
+        clientSecretEncrypted: input.clientSecretEncrypted,
+        enabled: input.enabled,
+        updatedBy: input.updatedBy,
+      },
+    });
 }
 
 export async function getAppSecretConfig(settingKey: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(appSecretConfig).where(eq(appSecretConfig.settingKey, settingKey));
+  const result = await db
+    .select()
+    .from(appSecretConfig)
+    .where(eq(appSecretConfig.settingKey, settingKey));
   return result[0];
 }
 
-export async function upsertAppSecretConfig(settingKey: string, encryptedValue: string | null, updatedBy: number) {
+export async function upsertAppSecretConfig(
+  settingKey: string,
+  encryptedValue: string | null,
+  updatedBy: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.insert(appSecretConfig).values({ settingKey, encryptedValue, updatedBy }).onDuplicateKeyUpdate({ set: { encryptedValue, updatedBy } });
+  await db
+    .insert(appSecretConfig)
+    .values({ settingKey, encryptedValue, updatedBy })
+    .onDuplicateKeyUpdate({ set: { encryptedValue, updatedBy } });
 }
 
 export async function upsertPushSubscription(input: InsertPushSubscription) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.insert(pushSubscription).values(input).onDuplicateKeyUpdate({
-    set: {
-      userId: input.userId,
-      p256dh: input.p256dh,
-      auth: input.auth,
-      userAgent: input.userAgent ?? null,
-    },
-  });
+  await db
+    .insert(pushSubscription)
+    .values(input)
+    .onDuplicateKeyUpdate({
+      set: {
+        userId: input.userId,
+        p256dh: input.p256dh,
+        auth: input.auth,
+        userAgent: input.userAgent ?? null,
+      },
+    });
 }
 
-export async function deletePushSubscription(endpointHash: string, userId: number) {
+export async function deletePushSubscription(
+  endpointHash: string,
+  userId: number
+) {
   const db = await getDb();
   if (!db) return;
-  await db.delete(pushSubscription).where(and(eq(pushSubscription.endpointHash, endpointHash), eq(pushSubscription.userId, userId)));
+  await db
+    .delete(pushSubscription)
+    .where(
+      and(
+        eq(pushSubscription.endpointHash, endpointHash),
+        eq(pushSubscription.userId, userId)
+      )
+    );
 }
 
 export async function getPushSubscriptionsForUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(pushSubscription).where(eq(pushSubscription.userId, userId));
+  return db
+    .select()
+    .from(pushSubscription)
+    .where(eq(pushSubscription.userId, userId));
 }
 
 // ========== Curriculum Functions ==========
 
-export async function getCurriculumByType(courseType: "elementary" | "middle_high" | "high_univ" | "general_adult") {
+export async function getCurriculumByType(
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"
+) {
   const db = await getDb();
   if (!db) return [];
 
@@ -428,21 +661,36 @@ export async function getCurriculumById(id: number) {
   return result[0];
 }
 
-export async function getDynamicCurriculumByType(courseType: "elementary" | "middle_high" | "high_univ" | "general_adult") {
+export async function getDynamicCurriculumByType(
+  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult"
+) {
   const db = await getDb();
   if (!db) return [];
   const rows = await db
     .select()
     .from(dynamicCurriculum)
-    .where(and(eq(dynamicCurriculum.courseType, courseType), eq(dynamicCurriculum.isActive, 1)))
+    .where(
+      and(
+        eq(dynamicCurriculum.courseType, courseType),
+        eq(dynamicCurriculum.isActive, 1)
+      )
+    )
     .orderBy(dynamicCurriculum.level);
-  return rows.map((row) => ({
+  return rows.map(row => ({
     ...row,
     topics: (() => {
-      try { return JSON.parse(row.topicsJson) as string[]; } catch { return []; }
+      try {
+        return JSON.parse(row.topicsJson) as string[];
+      } catch {
+        return [];
+      }
     })(),
     aiTags: (() => {
-      try { return row.aiTags ? (JSON.parse(row.aiTags) as string[]) : []; } catch { return []; }
+      try {
+        return row.aiTags ? (JSON.parse(row.aiTags) as string[]) : [];
+      } catch {
+        return [];
+      }
     })(),
   }));
 }
@@ -455,18 +703,32 @@ export async function getLessonTheoryContentList(input: {
 }) {
   await seedLessonTheoryContentIfNeeded();
   const db = await getDb();
-  if (!db) return buildTheoryLessonSeedItems().filter((item) =>
-    item.courseType === input.courseType
-    && (!input.lessonLevel || item.lessonLevel === input.lessonLevel)
-    && (!input.theoryCategory || item.theoryCategory === input.theoryCategory)
-    && item.isActive === 1,
-  );
-  const rows = await db.select().from(lessonTheoryContent)
-    .where(and(eq(lessonTheoryContent.courseType, input.courseType), eq(lessonTheoryContent.isActive, 1)))
-    .orderBy(lessonTheoryContent.lessonLevel, lessonTheoryContent.theoryCategory);
-  return rows.filter((item) =>
-    (!input.lessonLevel || item.lessonLevel === input.lessonLevel)
-    && (!input.theoryCategory || item.theoryCategory === input.theoryCategory),
+  if (!db)
+    return buildTheoryLessonSeedItems().filter(
+      item =>
+        item.courseType === input.courseType &&
+        (!input.lessonLevel || item.lessonLevel === input.lessonLevel) &&
+        (!input.theoryCategory ||
+          item.theoryCategory === input.theoryCategory) &&
+        item.isActive === 1
+    );
+  const rows = await db
+    .select()
+    .from(lessonTheoryContent)
+    .where(
+      and(
+        eq(lessonTheoryContent.courseType, input.courseType),
+        eq(lessonTheoryContent.isActive, 1)
+      )
+    )
+    .orderBy(
+      lessonTheoryContent.lessonLevel,
+      lessonTheoryContent.theoryCategory
+    );
+  return rows.filter(
+    item =>
+      (!input.lessonLevel || item.lessonLevel === input.lessonLevel) &&
+      (!input.theoryCategory || item.theoryCategory === input.theoryCategory)
   );
 }
 
@@ -475,38 +737,72 @@ export async function seedLessonTheoryContentIfNeeded() {
   const db = await getDb();
   if (!db) return;
   const existing = await db.select().from(lessonTheoryContent);
-  const existingByKey = new Map(existing.map((item) => [`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`, item]));
+  const existingByKey = new Map(
+    existing.map(item => [
+      `${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`,
+      item,
+    ])
+  );
   for (const item of buildTheoryLessonSeedItems()) {
-    const existingItem = existingByKey.get(`${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`);
+    const existingItem = existingByKey.get(
+      `${item.courseType}:${item.theoryCategory}:${item.lessonLevel}`
+    );
     if (!existingItem) {
       await db.insert(lessonTheoryContent).values({
-        contentScope: "THEORY_LESSON", courseType: item.courseType, lessonLevel: item.lessonLevel,
-        theoryCategory: item.theoryCategory, theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
-        title: item.title, contentData: item.contentData, sourceNote: item.sourceNote, isActive: item.isActive,
+        contentScope: "THEORY_LESSON",
+        courseType: item.courseType,
+        lessonLevel: item.lessonLevel,
+        theoryCategory: item.theoryCategory,
+        theorySubcategory: item.theorySubcategory,
+        exampleMode: item.exampleMode,
+        title: item.title,
+        contentData: item.contentData,
+        sourceNote: item.sourceNote,
+        isActive: item.isActive,
       });
       continue;
     }
     if (!shouldRefreshSeedTheoryContent(existingItem, item)) continue;
-    await db.update(lessonTheoryContent).set({
-      theorySubcategory: item.theorySubcategory, exampleMode: item.exampleMode,
-      title: item.title, contentData: item.contentData, sourceNote: item.sourceNote, isActive: item.isActive,
-      updatedAt: new Date(),
-    }).where(eq(lessonTheoryContent.id, existingItem.id));
+    await db
+      .update(lessonTheoryContent)
+      .set({
+        theorySubcategory: item.theorySubcategory,
+        exampleMode: item.exampleMode,
+        title: item.title,
+        contentData: item.contentData,
+        sourceNote: item.sourceNote,
+        isActive: item.isActive,
+        updatedAt: new Date(),
+      })
+      .where(eq(lessonTheoryContent.id, existingItem.id));
   }
 }
 
-function shouldRefreshSeedTheoryContent(existingItem: typeof lessonTheoryContent.$inferSelect, seedItem: ReturnType<typeof buildTheoryLessonSeedItems>[number]) {
+function shouldRefreshSeedTheoryContent(
+  existingItem: typeof lessonTheoryContent.$inferSelect,
+  seedItem: ReturnType<typeof buildTheoryLessonSeedItems>[number]
+) {
   if (existingItem.sourceNote !== seedItem.sourceNote) return false;
   try {
-    const content = JSON.parse(existingItem.contentData) as { data_version?: string; lesson_passage?: unknown };
+    const content = JSON.parse(existingItem.contentData) as {
+      data_version?: string;
+      lesson_passage?: unknown;
+    };
     if (content.data_version !== THEORY_LESSON_DATA_VERSION) return true;
-    return ["high_univ", "general_adult"].includes(existingItem.courseType) && !content.lesson_passage;
+    return (
+      ["high_univ", "general_adult"].includes(existingItem.courseType) &&
+      !content.lesson_passage
+    );
   } catch {
     return true;
   }
 }
 
-type TheoryCourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
+type TheoryCourseType =
+  | "elementary"
+  | "middle_high"
+  | "high_univ"
+  | "general_adult";
 type TheoryContentWriteInput = {
   courseType: TheoryCourseType;
   lessonLevel: number;
@@ -526,19 +822,29 @@ function assertTheoryContentQuality(input: TheoryContentWriteInput) {
     qaIssues: [],
   };
   const issues = qaTheoryLessonCandidate(candidate);
-  if (issues.length) throw new Error(`이론 콘텐츠 QA를 통과하지 못했습니다: ${issues.join(" · ")}`);
+  if (issues.length)
+    throw new Error(
+      `이론 콘텐츠 QA를 통과하지 못했습니다: ${issues.join(" · ")}`
+    );
   return candidate;
 }
 
-export async function getTheoryContentAdminList(input?: { courseType?: TheoryCourseType; status?: "all" | "active" | "inactive" }) {
+export async function getTheoryContentAdminList(input?: {
+  courseType?: TheoryCourseType;
+  status?: "all" | "active" | "inactive";
+}) {
   const db = await getDb();
   if (!db) return [];
   await seedLessonTheoryContentIfNeeded();
-  const rows = await db.select().from(lessonTheoryContent).orderBy(desc(lessonTheoryContent.updatedAt));
-  return rows.filter((item) =>
-    (!input?.courseType || item.courseType === input.courseType)
-    && (input?.status !== "active" || item.isActive === 1)
-    && (input?.status !== "inactive" || item.isActive === 0),
+  const rows = await db
+    .select()
+    .from(lessonTheoryContent)
+    .orderBy(desc(lessonTheoryContent.updatedAt));
+  return rows.filter(
+    item =>
+      (!input?.courseType || item.courseType === input.courseType) &&
+      (input?.status !== "active" || item.isActive === 1) &&
+      (input?.status !== "inactive" || item.isActive === 0)
   );
 }
 
@@ -547,120 +853,274 @@ export async function createTheoryContent(input: TheoryContentWriteInput) {
   if (!db) throw new Error("Database not connected");
   const valid = assertTheoryContentQuality(input);
   const [created] = await db.insert(lessonTheoryContent).values({
-    courseType: valid.courseType, lessonLevel: valid.lessonLevel, theoryCategory: valid.theoryCategory, theorySubcategory: valid.theorySubcategory,
-    exampleMode: valid.exampleMode, title: valid.title, contentData: valid.contentData, sourceNote: valid.sourceNote, isActive: input.isActive ?? 1,
+    courseType: valid.courseType,
+    lessonLevel: valid.lessonLevel,
+    theoryCategory: valid.theoryCategory,
+    theorySubcategory: valid.theorySubcategory,
+    exampleMode: valid.exampleMode,
+    title: valid.title,
+    contentData: valid.contentData,
+    sourceNote: valid.sourceNote,
+    isActive: input.isActive ?? 1,
   });
   return created;
 }
 
-export async function updateTheoryContent(id: number, input: TheoryContentWriteInput) {
+export async function updateTheoryContent(
+  id: number,
+  input: TheoryContentWriteInput
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
   const valid = assertTheoryContentQuality(input);
-  await db.update(lessonTheoryContent).set({
-    courseType: valid.courseType, lessonLevel: valid.lessonLevel, theoryCategory: valid.theoryCategory, theorySubcategory: valid.theorySubcategory,
-    exampleMode: valid.exampleMode, title: valid.title, contentData: valid.contentData, sourceNote: valid.sourceNote, isActive: input.isActive ?? 1,
-  }).where(eq(lessonTheoryContent.id, id));
+  await db
+    .update(lessonTheoryContent)
+    .set({
+      courseType: valid.courseType,
+      lessonLevel: valid.lessonLevel,
+      theoryCategory: valid.theoryCategory,
+      theorySubcategory: valid.theorySubcategory,
+      exampleMode: valid.exampleMode,
+      title: valid.title,
+      contentData: valid.contentData,
+      sourceNote: valid.sourceNote,
+      isActive: input.isActive ?? 1,
+    })
+    .where(eq(lessonTheoryContent.id, id));
   return { id, ...valid };
 }
 
 export async function setTheoryContentActive(id: number, isActive: boolean) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  await db.update(lessonTheoryContent).set({ isActive: isActive ? 1 : 0 }).where(eq(lessonTheoryContent.id, id));
+  await db
+    .update(lessonTheoryContent)
+    .set({ isActive: isActive ? 1 : 0 })
+    .where(eq(lessonTheoryContent.id, id));
   return { id, isActive: isActive ? 1 : 0 };
 }
 
-export async function getTheoryDrafts(input?: { status?: "preview" | "approved" | "rejected" }) {
+export async function getTheoryDrafts(input?: {
+  status?: "preview" | "approved" | "rejected";
+}) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(lessonTheoryDrafts).orderBy(desc(lessonTheoryDrafts.updatedAt));
-  return input?.status ? rows.filter((item) => item.status === input.status) : rows;
+  const rows = await db
+    .select()
+    .from(lessonTheoryDrafts)
+    .orderBy(desc(lessonTheoryDrafts.updatedAt));
+  return input?.status
+    ? rows.filter(item => item.status === input.status)
+    : rows;
 }
 
-export async function generateTheoryContentPreviews(userId: number, input: TheoryLessonRequestInput) {
+export async function generateTheoryContentPreviews(
+  userId: number,
+  input: TheoryLessonRequestInput
+) {
   const request = theoryLessonRequestSchema.parse(input);
   const generated = await generateTheoryLessonDrafts(request);
   const db = await getDb();
-  if (!db) return generated.items.map((item, index) => ({ ...item, id: -(index + 1), status: "preview" as const, modelId: generated.modelId, createdBy: userId }));
+  if (!db)
+    return generated.items.map((item, index) => ({
+      ...item,
+      id: -(index + 1),
+      status: "preview" as const,
+      modelId: generated.modelId,
+      createdBy: userId,
+    }));
   const saved = [];
   for (const item of generated.items) {
     const [result] = await db.insert(lessonTheoryDrafts).values({
-      courseType: item.courseType, lessonLevel: item.lessonLevel, theoryCategory: item.theoryCategory, theorySubcategory: item.theorySubcategory,
-      exampleMode: item.exampleMode, title: item.title, contentData: item.contentData, sourceNote: item.sourceNote,
-      generationRequestJson: JSON.stringify(request), modelId: generated.modelId, qaIssuesJson: JSON.stringify(item.qaIssues), status: "preview", createdBy: userId,
+      courseType: item.courseType,
+      lessonLevel: item.lessonLevel,
+      theoryCategory: item.theoryCategory,
+      theorySubcategory: item.theorySubcategory,
+      exampleMode: item.exampleMode,
+      title: item.title,
+      contentData: item.contentData,
+      sourceNote: item.sourceNote,
+      generationRequestJson: JSON.stringify(request),
+      modelId: generated.modelId,
+      qaIssuesJson: JSON.stringify(item.qaIssues),
+      status: "preview",
+      createdBy: userId,
     });
-    saved.push({ id: result.insertId, ...item, status: "preview" as const, modelId: generated.modelId, createdBy: userId });
+    saved.push({
+      id: result.insertId,
+      ...item,
+      status: "preview" as const,
+      modelId: generated.modelId,
+      createdBy: userId,
+    });
   }
   return saved;
 }
 
-export async function updateTheoryDraft(id: number, input: TheoryContentWriteInput) {
+export async function updateTheoryDraft(
+  id: number,
+  input: TheoryContentWriteInput
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  const candidate: TheoryLessonDraftCandidate = { ...input, sourceNote: input.sourceNote || "AI 생성 이론 콘텐츠 · 관리자 수정", qaIssues: [] };
+  const candidate: TheoryLessonDraftCandidate = {
+    ...input,
+    sourceNote: input.sourceNote || "AI 생성 이론 콘텐츠 · 관리자 수정",
+    qaIssues: [],
+  };
   const qaIssues = qaTheoryLessonCandidate(candidate);
-  await db.update(lessonTheoryDrafts).set({ ...input, sourceNote: candidate.sourceNote, qaIssuesJson: JSON.stringify(qaIssues), status: "preview" }).where(eq(lessonTheoryDrafts.id, id));
+  await db
+    .update(lessonTheoryDrafts)
+    .set({
+      ...input,
+      sourceNote: candidate.sourceNote,
+      qaIssuesJson: JSON.stringify(qaIssues),
+      status: "preview",
+    })
+    .where(eq(lessonTheoryDrafts.id, id));
   return { id, ...candidate, qaIssues, status: "preview" as const };
 }
 
 export async function approveTheoryDraft(id: number, adminId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  const [draft] = await db.select().from(lessonTheoryDrafts).where(eq(lessonTheoryDrafts.id, id));
-  if (!draft || draft.status !== "preview") throw new Error("승인 대기 중인 이론 콘텐츠 초안을 찾을 수 없습니다.");
+  const [draft] = await db
+    .select()
+    .from(lessonTheoryDrafts)
+    .where(eq(lessonTheoryDrafts.id, id));
+  if (!draft || draft.status !== "preview")
+    throw new Error("승인 대기 중인 이론 콘텐츠 초안을 찾을 수 없습니다.");
   const candidate = assertTheoryContentQuality({
-    courseType: draft.courseType, lessonLevel: draft.lessonLevel, theoryCategory: draft.theoryCategory, theorySubcategory: draft.theorySubcategory,
-    exampleMode: draft.exampleMode, title: draft.title, contentData: draft.contentData, sourceNote: draft.sourceNote, isActive: 1,
+    courseType: draft.courseType,
+    lessonLevel: draft.lessonLevel,
+    theoryCategory: draft.theoryCategory,
+    theorySubcategory: draft.theorySubcategory,
+    exampleMode: draft.exampleMode,
+    title: draft.title,
+    contentData: draft.contentData,
+    sourceNote: draft.sourceNote,
+    isActive: 1,
   });
-  const [inserted] = await db.insert(lessonTheoryContent).values({ ...candidate, isActive: 1 });
-  await db.update(lessonTheoryDrafts).set({ status: "approved", approvedBy: adminId, approvedAt: new Date(), qaIssuesJson: JSON.stringify([]) }).where(eq(lessonTheoryDrafts.id, id));
+  const [inserted] = await db
+    .insert(lessonTheoryContent)
+    .values({ ...candidate, isActive: 1 });
+  await db
+    .update(lessonTheoryDrafts)
+    .set({
+      status: "approved",
+      approvedBy: adminId,
+      approvedAt: new Date(),
+      qaIssuesJson: JSON.stringify([]),
+    })
+    .where(eq(lessonTheoryDrafts.id, id));
   return { draftId: id, theoryContentId: inserted.insertId };
 }
 
 export async function rejectTheoryDraft(id: number, adminId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  await db.update(lessonTheoryDrafts).set({ status: "rejected", approvedBy: adminId, approvedAt: new Date() }).where(eq(lessonTheoryDrafts.id, id));
+  await db
+    .update(lessonTheoryDrafts)
+    .set({ status: "rejected", approvedBy: adminId, approvedAt: new Date() })
+    .where(eq(lessonTheoryDrafts.id, id));
   return { id, status: "rejected" as const };
 }
 
-export async function getTheoryProgressByUser(userId: number, theoryContentIds?: number[]) {
+export async function getTheoryProgressByUser(
+  userId: number,
+  theoryContentIds?: number[]
+) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(lessonTheoryProgress).where(eq(lessonTheoryProgress.userId, userId));
-  return theoryContentIds?.length ? rows.filter((item) => theoryContentIds.includes(item.theoryContentId)) : rows;
+  const rows = await db
+    .select()
+    .from(lessonTheoryProgress)
+    .where(eq(lessonTheoryProgress.userId, userId));
+  return theoryContentIds?.length
+    ? rows.filter(item => theoryContentIds.includes(item.theoryContentId))
+    : rows;
 }
 
-export async function completeTheoryCheck(userId: number, theoryContentId: number) {
+export async function completeTheoryCheck(
+  userId: number,
+  theoryContentId: number,
+  expectedCourse?: CourseType
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  const [content] = await db.select().from(lessonTheoryContent).where(and(eq(lessonTheoryContent.id, theoryContentId), eq(lessonTheoryContent.isActive, 1)));
+  const [content] = await db
+    .select()
+    .from(lessonTheoryContent)
+    .where(
+      and(
+        eq(lessonTheoryContent.id, theoryContentId),
+        eq(lessonTheoryContent.isActive, 1)
+      )
+    );
   if (!content) throw new Error("활성화된 이론 콘텐츠를 찾을 수 없습니다.");
-  const [existing] = await db.select().from(lessonTheoryProgress).where(and(eq(lessonTheoryProgress.userId, userId), eq(lessonTheoryProgress.theoryContentId, theoryContentId)));
+  if (expectedCourse && content.courseType !== expectedCourse)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "가입한 과정의 이론 학습만 완료할 수 있습니다.",
+    });
+  const [existing] = await db
+    .select()
+    .from(lessonTheoryProgress)
+    .where(
+      and(
+        eq(lessonTheoryProgress.userId, userId),
+        eq(lessonTheoryProgress.theoryContentId, theoryContentId)
+      )
+    );
   if (existing) {
-    await db.update(lessonTheoryProgress).set({ completedAt: new Date() }).where(eq(lessonTheoryProgress.id, existing.id));
+    await db
+      .update(lessonTheoryProgress)
+      .set({ completedAt: new Date() })
+      .where(eq(lessonTheoryProgress.id, existing.id));
     return { ...existing, completedAt: new Date(), alreadyCompleted: true };
   }
-  const [created] = await db.insert(lessonTheoryProgress).values({ userId, theoryContentId });
-  return { id: created.insertId, userId, theoryContentId, alreadyCompleted: false };
+  const [created] = await db
+    .insert(lessonTheoryProgress)
+    .values({ userId, theoryContentId });
+  return {
+    id: created.insertId,
+    userId,
+    theoryContentId,
+    alreadyCompleted: false,
+  };
 }
 
 // ========== Progress Functions ==========
 
-export async function getProgressByUser(userId: number) {
+export async function getProgressByUser(
+  userId: number,
+  courseType?: CourseType
+) {
   const db = await getDb();
-  if (!db) return memoryProgress.filter((item) => item.userId === userId);
+  if (!db)
+    return memoryProgress.filter(
+      item =>
+        item.userId === userId &&
+        (!courseType || item.courseType === courseType)
+    );
 
   return await db
     .select()
     .from(progress)
-    .where(eq(progress.userId, userId));
+    .where(
+      and(
+        eq(progress.userId, userId),
+        ...(courseType ? [eq(progress.courseType, courseType)] : [])
+      )
+    );
 }
 
 export async function upsertProgress(input: {
   userId: number;
   curriculumId: number;
+  courseType?: CourseType;
+  curriculumSource?: "static" | "dynamic";
+  level?: number;
   completed?: number;
   score?: number;
   completedAt?: Date | null;
@@ -669,16 +1129,28 @@ export async function upsertProgress(input: {
   if (!db) {
     const now = new Date();
     const existingIndex = memoryProgress.findIndex(
-      (item) =>
-        item.userId === input.userId && item.curriculumId === input.curriculumId
+      item =>
+        item.userId === input.userId &&
+        item.curriculumId === input.curriculumId &&
+        item.courseType === (input.courseType ?? null) &&
+        item.curriculumSource === (input.curriculumSource ?? null)
     );
 
     if (existingIndex >= 0) {
       memoryProgress[existingIndex] = {
         ...memoryProgress[existingIndex],
-        completed: input.completed ?? 0,
-        score: input.score ?? 0,
-        completedAt: input.completedAt ?? null,
+        completed: Math.max(
+          memoryProgress[existingIndex].completed ?? 0,
+          input.completed ?? 0
+        ),
+        score: Math.max(
+          memoryProgress[existingIndex].score ?? 0,
+          input.score ?? 0
+        ),
+        completedAt:
+          memoryProgress[existingIndex].completedAt ??
+          input.completedAt ??
+          null,
         updatedAt: now,
       };
       return memoryProgress[existingIndex];
@@ -688,6 +1160,9 @@ export async function upsertProgress(input: {
       id: memoryProgressId++,
       userId: input.userId,
       curriculumId: input.curriculumId,
+      courseType: input.courseType ?? null,
+      curriculumSource: input.curriculumSource ?? null,
+      level: input.level ?? null,
       completed: input.completed ?? 0,
       score: input.score ?? 0,
       completedAt: input.completedAt ?? null,
@@ -703,18 +1178,111 @@ export async function upsertProgress(input: {
     .values({
       userId: input.userId,
       curriculumId: input.curriculumId,
+      courseType: input.courseType ?? null,
+      curriculumSource: input.curriculumSource ?? null,
+      level: input.level ?? null,
       completed: input.completed ?? 0,
       score: input.score ?? 0,
       completedAt: input.completedAt ?? null,
     })
     .onDuplicateKeyUpdate({
       set: {
-        completed: input.completed ?? 0,
-        score: input.score ?? 0,
-        completedAt: input.completedAt ?? null,
+        completed: sql`GREATEST(COALESCE(${progress.completed}, 0), ${input.completed ?? 0})`,
+        score: sql`GREATEST(COALESCE(${progress.score}, 0), ${input.score ?? 0})`,
+        completedAt: sql`COALESCE(${progress.completedAt}, ${input.completedAt ?? null})`,
       },
     });
   return result;
+}
+
+/**
+ * 학생의 레슨(모듈) 진행 기록을 서버가 계산해 저장한다. 클라이언트가 보낸 점수·완료 여부는 받지 않는다.
+ * - 모듈은 수료 판정과 같은 기준(동적 커리큘럼 우선, 없으면 정적 커리큘럼)에서 학생의 과정·레벨로 찾는다.
+ * - 점수·완료는 해당 과정·레벨 워크북 문항에 대해 서버가 채점해 저장한 답안으로 계산한다.
+ * - 이미 완료된 기록은 되돌리지 않고, 점수는 더 높은 값만 반영한다.
+ */
+export async function recordLessonProgress(
+  student: { id: number; tag?: string | null },
+  level: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const courseType = parseCourseTypeFromUserTag(student.tag);
+  if (!courseType)
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "먼저 학습 과정을 선택해 주세요.",
+    });
+  const [dynamicModules, staticModules] = await Promise.all([
+    getDynamicCurriculumByType(courseType),
+    getCurriculumByType(courseType),
+  ]);
+  const modules = dynamicModules.length > 0 ? dynamicModules : staticModules;
+  const module = modules.find(item => Number(item.level) === level);
+  if (!module) throw new Error("가입·학습 중인 과정에 없는 레벨입니다.");
+  const curriculumId = module.id;
+  const curriculumSource =
+    dynamicModules.length > 0 ? ("dynamic" as const) : ("static" as const);
+
+  const questions = await db
+    .select({ id: curriculumWorkbookQuestions.id })
+    .from(curriculumWorkbookQuestions)
+    .where(
+      and(
+        eq(curriculumWorkbookQuestions.courseType, courseType),
+        eq(curriculumWorkbookQuestions.level, Number(module.level))
+      )
+    );
+  const questionIds = questions.map(question => question.id);
+  const answers =
+    questionIds.length > 0
+      ? await db
+          .select({
+            questionId: curriculumWorkbookAnswers.questionId,
+            score: curriculumWorkbookAnswers.score,
+          })
+          .from(curriculumWorkbookAnswers)
+          .where(
+            and(
+              eq(curriculumWorkbookAnswers.userId, student.id),
+              inArray(curriculumWorkbookAnswers.questionId, questionIds)
+            )
+          )
+      : [];
+  const computed = computeLessonProgress({ questionIds, answers });
+
+  const [existing] = await db
+    .select()
+    .from(progress)
+    .where(
+      and(
+        eq(progress.userId, student.id),
+        eq(progress.curriculumId, curriculumId),
+        eq(progress.courseType, courseType),
+        eq(progress.curriculumSource, curriculumSource)
+      )
+    );
+  const wasCompleted = Number(existing?.completed ?? 0) >= 1;
+  const completed = wasCompleted || computed.completed;
+  const score = Math.max(Number(existing?.score ?? 0), computed.score);
+  await upsertProgress({
+    userId: student.id,
+    curriculumId,
+    courseType,
+    curriculumSource,
+    level: Number(module.level),
+    completed: completed ? 1 : 0,
+    score,
+    completedAt: completed ? (existing?.completedAt ?? new Date()) : null,
+  });
+  return {
+    curriculumId,
+    level: Number(module.level),
+    score,
+    completed,
+    answeredCount: computed.answeredCount,
+    totalCount: computed.totalCount,
+  };
 }
 
 // ========== Quiz Functions ==========
@@ -744,10 +1312,26 @@ export async function saveQuizAnswer(input: {
   });
 }
 
-export async function getQuizAnswersByUser(userId: number) {
+export async function getQuizAnswersByUser(
+  userId: number,
+  courseType?: CourseType
+) {
   const db = await getDb();
   if (!db) return [];
 
+  if (courseType) {
+    const rows = await db
+      .select({ answer: quizAnswer })
+      .from(quizAnswer)
+      .innerJoin(questionBank, eq(quizAnswer.quizId, questionBank.id))
+      .where(
+        and(
+          eq(quizAnswer.userId, userId),
+          eq(questionBank.courseType, courseType)
+        )
+      );
+    return rows.map(row => row.answer);
+  }
   return await db
     .select()
     .from(quizAnswer)
@@ -763,7 +1347,9 @@ export async function getCertificatesByUser(userId: number) {
   return await db
     .select()
     .from(certificate)
-    .where(and(eq(certificate.userId, userId), eq(certificate.status, "active")));
+    .where(
+      and(eq(certificate.userId, userId), eq(certificate.status, "active"))
+    );
 }
 
 export async function getCertificateByShareToken(shareToken: string) {
@@ -773,7 +1359,12 @@ export async function getCertificateByShareToken(shareToken: string) {
   const result = await db
     .select()
     .from(certificate)
-    .where(and(eq(certificate.shareToken, shareToken), eq(certificate.status, "active")));
+    .where(
+      and(
+        eq(certificate.shareToken, shareToken),
+        eq(certificate.status, "active")
+      )
+    );
 
   return result[0];
 }
@@ -789,15 +1380,30 @@ export async function issueCertificate(input: {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await assertCertificateIssuanceEligibility(input);
-  const existing = await db.select().from(certificate).where(and(
-    eq(certificate.userId, input.userId),
-    eq(certificate.courseType, input.courseType),
-    input.level === undefined ? eq(certificate.certificateType, input.certificateType) : eq(certificate.level, input.level),
-    eq(certificate.status, "active"),
-  ));
-  if (existing.length > 0) throw new Error("동일 과정·레벨의 활성 수료증이 이미 존재합니다.");
+  const existing = await db
+    .select()
+    .from(certificate)
+    .where(
+      and(
+        eq(certificate.userId, input.userId),
+        eq(certificate.courseType, input.courseType),
+        input.level === undefined
+          ? eq(certificate.certificateType, input.certificateType)
+          : eq(certificate.level, input.level),
+        eq(certificate.status, "active")
+      )
+    );
+  if (existing.length > 0)
+    throw new Error("동일 과정·레벨의 활성 수료증이 이미 존재합니다.");
 
-  const courseNameKo = input.courseType === "elementary" ? "초등 논술 과정" : input.courseType === "middle_high" ? "중고등 논술 과정" : input.courseType === "high_univ" ? "고등/대입 논술 과정" : "일반/직장인 논술 과정";
+  const courseNameKo =
+    input.courseType === "elementary"
+      ? "초등 논술 과정"
+      : input.courseType === "middle_high"
+        ? "중고등 논술 과정"
+        : input.courseType === "high_univ"
+          ? "고등/대입 논술 과정"
+          : "일반/직장인 논술 과정";
   const title = `${courseNameKo} Level ${input.level || 1} 수료증`;
   const certNumber = `CERT-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -818,7 +1424,7 @@ export async function getEssaySubmissionsByUser(userId: number) {
   return await db
     .select()
     .from(essaySubmission)
-    .where(eq(essaySubmission.userId, userId));
+    .where(and(eq(essaySubmission.userId, userId), isNull(essaySubmission.deletedAt)));
 }
 
 export async function getEssaySubmissionById(id: number) {
@@ -849,8 +1455,9 @@ export async function createEssaySubmission(input: {
     title: input.title,
     content: input.content,
     status: input.status ?? "draft",
+    submittedAt: input.status === "submitted" ? new Date() : null,
   });
-  return result;
+  return { ...result, id: Number(result.insertId) };
 }
 
 export async function updateEssaySubmission(
@@ -867,8 +1474,31 @@ export async function updateEssaySubmission(
 
   await db
     .update(essaySubmission)
-    .set(input)
+    .set({ ...input, syncRevision: sql`${essaySubmission.syncRevision} + 1` })
     .where(eq(essaySubmission.id, id));
+}
+
+export async function linkEssayAiFeedback(
+  userId: number,
+  id: number,
+  feedbackId: number,
+  title: string,
+  content: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  // 평가 도중 다른 기기에서 수정된 경우 새 원문에 이전 결과를 붙이지 않는다.
+  await db
+    .update(essaySubmission)
+    .set({ aiFeedbackId: feedbackId })
+    .where(
+      and(
+        eq(essaySubmission.id, id),
+        eq(essaySubmission.userId, userId),
+        eq(essaySubmission.title, title),
+        eq(essaySubmission.content, content)
+      )
+    );
 }
 
 // ========== Teacher Feedback Functions ==========
@@ -885,6 +1515,16 @@ export async function getTeacherFeedbackByEssay(essayId: number) {
   return result[0];
 }
 
+export async function getTeacherFeedbackById(feedbackId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db
+    .select()
+    .from(teacherFeedback)
+    .where(eq(teacherFeedback.id, feedbackId));
+  return row;
+}
+
 export async function createTeacherFeedback(input: {
   essayId: number;
   teacherId: number;
@@ -898,7 +1538,15 @@ export async function createTeacherFeedback(input: {
   if (!db) throw new Error("Database is not available");
 
   const [result] = await db.insert(teacherFeedback).values(input);
-  return result;
+  // 삽입 결과(헤더)가 아니라 만들어진 첨삭 행을 돌려준다(호출한 쪽이 id로 이어서 수정·코멘트할 수 있도록).
+  const insertId = Number((result as { insertId?: number }).insertId ?? 0);
+  const [created] = insertId
+    ? await db
+        .select()
+        .from(teacherFeedback)
+        .where(eq(teacherFeedback.id, insertId))
+    : [];
+  return created ?? result;
 }
 
 export async function updateTeacherFeedback(
@@ -947,14 +1595,25 @@ export async function createFeedbackComment(input: {
 
 // ========== AI Auto Feedback Functions ==========
 
-export async function getAIAutoFeedbackByUser(userId: number) {
+export async function getAIAutoFeedbackByUser(
+  userId: number,
+  courseType?: CourseType
+) {
   const db = await getDb();
   if (!db) return [];
 
-  return await db
-    .select()
+  const rows = await db
+    .select({ feedback: aiAutoFeedback, fallbackUsed: writingEvaluationRecords.fallbackUsed })
     .from(aiAutoFeedback)
-    .where(eq(aiAutoFeedback.userId, userId));
+    .leftJoin(writingEvaluationRecords, eq(writingEvaluationRecords.feedbackId, aiAutoFeedback.id))
+    .where(
+      and(
+        eq(aiAutoFeedback.userId, userId),
+        ...(courseType ? [eq(aiAutoFeedback.courseType, courseType)] : [])
+      )
+    );
+  // fallbackUsed: AI 모델 호출에 실패해 기본 규칙 점검 결과로 대체된 첨삭이면 true.
+  return rows.map(({ feedback, fallbackUsed }) => ({ ...feedback, fallbackUsed: Boolean(fallbackUsed) }));
 }
 
 export async function createAIAutoFeedback(input: {
@@ -985,14 +1644,22 @@ export async function createAIAutoFeedback(input: {
 export async function getActiveEvaluationModelConfig() {
   const db = await getDb();
   if (!db) return undefined;
-  const [config] = await db.select().from(evaluationModelConfigs).where(eq(evaluationModelConfigs.isActive, 1)).orderBy(desc(evaluationModelConfigs.updatedAt)).limit(1);
+  const [config] = await db
+    .select()
+    .from(evaluationModelConfigs)
+    .where(eq(evaluationModelConfigs.isActive, 1))
+    .orderBy(desc(evaluationModelConfigs.updatedAt))
+    .limit(1);
   return config;
 }
 
 export async function listEvaluationModelConfigs() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(evaluationModelConfigs).orderBy(desc(evaluationModelConfigs.updatedAt));
+  return db
+    .select()
+    .from(evaluationModelConfigs)
+    .orderBy(desc(evaluationModelConfigs.updatedAt));
 }
 
 export async function saveEvaluationModelConfig(input: {
@@ -1006,7 +1673,8 @@ export async function saveEvaluationModelConfig(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  if (input.isActive === 1) await db.update(evaluationModelConfigs).set({ isActive: 0 });
+  if (input.isActive === 1)
+    await db.update(evaluationModelConfigs).set({ isActive: 0 });
   const [result] = await db.insert(evaluationModelConfigs).values(input);
   return result;
 }
@@ -1036,7 +1704,11 @@ export async function createWritingEvaluationRecord(input: {
 export async function getWritingEvaluationRecord(recordId: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const [record] = await db.select().from(writingEvaluationRecords).where(eq(writingEvaluationRecords.id, recordId)).limit(1);
+  const [record] = await db
+    .select()
+    .from(writingEvaluationRecords)
+    .where(eq(writingEvaluationRecords.id, recordId))
+    .limit(1);
   return record;
 }
 
@@ -1057,9 +1729,32 @@ export async function getEvaluationModelOperationStats() {
   const db = await getDb();
   if (!db) return [];
   const operations = await db.select().from(evaluationModelOperations);
-  const grouped = new Map<string, { modelId: string; requestCount: number; completedCount: number; fallbackCount: number; failedCount: number; totalLatency: number; totalTokens: number; estimatedCostMicrousd: number; latestError: string | null }>();
+  const grouped = new Map<
+    string,
+    {
+      modelId: string;
+      requestCount: number;
+      completedCount: number;
+      fallbackCount: number;
+      failedCount: number;
+      totalLatency: number;
+      totalTokens: number;
+      estimatedCostMicrousd: number;
+      latestError: string | null;
+    }
+  >();
   for (const operation of operations) {
-    const item = grouped.get(operation.modelId) || { modelId: operation.modelId, requestCount: 0, completedCount: 0, fallbackCount: 0, failedCount: 0, totalLatency: 0, totalTokens: 0, estimatedCostMicrousd: 0, latestError: null };
+    const item = grouped.get(operation.modelId) || {
+      modelId: operation.modelId,
+      requestCount: 0,
+      completedCount: 0,
+      fallbackCount: 0,
+      failedCount: 0,
+      totalLatency: 0,
+      totalTokens: 0,
+      estimatedCostMicrousd: 0,
+      latestError: null,
+    };
     item.requestCount += 1;
     item.totalLatency += operation.latencyMs || 0;
     item.totalTokens += operation.tokenUsage || 0;
@@ -1070,10 +1765,19 @@ export async function getEvaluationModelOperationStats() {
     if (operation.errorSummary) item.latestError = operation.errorSummary;
     grouped.set(operation.modelId, item);
   }
-  return Array.from(grouped.values()).map((item) => ({ ...item, averageLatencyMs: item.requestCount ? Math.round(item.totalLatency / item.requestCount) : 0 }));
+  return Array.from(grouped.values()).map(item => ({
+    ...item,
+    averageLatencyMs: item.requestCount
+      ? Math.round(item.totalLatency / item.requestCount)
+      : 0,
+  }));
 }
 
-export async function createEvaluationReviewQueueItem(input: { evaluationRecordId: number; userId: number; reasonsJson: string }) {
+export async function createEvaluationReviewQueueItem(input: {
+  evaluationRecordId: number;
+  userId: number;
+  reasonsJson: string;
+}) {
   const db = await getDb();
   if (!db) return;
   await db.insert(evaluationReviewQueue).values(input);
@@ -1082,22 +1786,55 @@ export async function createEvaluationReviewQueueItem(input: { evaluationRecordI
 export async function listEvaluationReviewQueue() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(evaluationReviewQueue).orderBy(desc(evaluationReviewQueue.createdAt));
+  return db
+    .select()
+    .from(evaluationReviewQueue)
+    .orderBy(desc(evaluationReviewQueue.createdAt));
 }
 
-export async function updateEvaluationReviewQueueItem(input: { id: number; status: "open" | "reviewing" | "resolved"; assignedAdminId?: number | null; resolutionNote?: string | null }) {
+export async function updateEvaluationReviewQueueItem(input: {
+  id: number;
+  status: "open" | "reviewing" | "resolved";
+  assignedAdminId?: number | null;
+  resolutionNote?: string | null;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [existing] = await db.select().from(evaluationReviewQueue).where(eq(evaluationReviewQueue.id, input.id));
+  const [existing] = await db
+    .select()
+    .from(evaluationReviewQueue)
+    .where(eq(evaluationReviewQueue.id, input.id));
   const { id, ...values } = input;
-  await db.update(evaluationReviewQueue).set({ ...values, resolvedAt: input.status === "resolved" ? new Date() : null }).where(eq(evaluationReviewQueue.id, id));
-  if (existing && existing.status !== "resolved" && input.status === "resolved") {
-    const detail = input.resolutionNote?.trim() || "담당자가 첨삭 결과를 검토했습니다. 학습 화면에서 결과를 다시 확인해 주세요.";
-    await db.insert(appNotifications).values({ userId: existing.userId, title: "AI 첨삭 인간 검수 완료", message: detail, category: "evaluation_review" });
+  await db
+    .update(evaluationReviewQueue)
+    .set({
+      ...values,
+      resolvedAt: input.status === "resolved" ? new Date() : null,
+    })
+    .where(eq(evaluationReviewQueue.id, id));
+  if (
+    existing &&
+    existing.status !== "resolved" &&
+    input.status === "resolved"
+  ) {
+    const detail =
+      input.resolutionNote?.trim() ||
+      "담당자가 첨삭 결과를 검토했습니다. 학습 화면에서 결과를 다시 확인해 주세요.";
+    await db.insert(appNotifications).values({
+      userId: existing.userId,
+      title: "AI 첨삭 인간 검수 완료",
+      message: detail,
+      category: "evaluation_review",
+    });
   }
 }
 
-export async function createEvaluationAppeal(input: { evaluationRecordId: number; userId: number; reason: string; requestedAction: string }) {
+export async function createEvaluationAppeal(input: {
+  evaluationRecordId: number;
+  userId: number;
+  reason: string;
+  requestedAction: string;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [result] = await db.insert(evaluationAppeals).values(input);
@@ -1107,26 +1844,66 @@ export async function createEvaluationAppeal(input: { evaluationRecordId: number
 export async function listEvaluationAppeals(userId?: number) {
   const db = await getDb();
   if (!db) return [];
-  return userId ? db.select().from(evaluationAppeals).where(eq(evaluationAppeals.userId, userId)).orderBy(desc(evaluationAppeals.createdAt)) : db.select().from(evaluationAppeals).orderBy(desc(evaluationAppeals.createdAt));
+  return userId
+    ? db
+        .select()
+        .from(evaluationAppeals)
+        .where(eq(evaluationAppeals.userId, userId))
+        .orderBy(desc(evaluationAppeals.createdAt))
+    : db
+        .select()
+        .from(evaluationAppeals)
+        .orderBy(desc(evaluationAppeals.createdAt));
 }
 
-export async function updateEvaluationAppeal(input: { id: number; status: "submitted" | "under_review" | "accepted" | "rejected" | "resolved"; adminId: number; adminNote?: string | null }) {
+export async function updateEvaluationAppeal(input: {
+  id: number;
+  status: "submitted" | "under_review" | "accepted" | "rejected" | "resolved";
+  adminId: number;
+  adminNote?: string | null;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [existing] = await db.select().from(evaluationAppeals).where(eq(evaluationAppeals.id, input.id));
+  const [existing] = await db
+    .select()
+    .from(evaluationAppeals)
+    .where(eq(evaluationAppeals.id, input.id));
   const { id, ...values } = input;
-  await db.update(evaluationAppeals).set(values).where(eq(evaluationAppeals.id, id));
+  await db
+    .update(evaluationAppeals)
+    .set(values)
+    .where(eq(evaluationAppeals.id, id));
   const finalStatuses = ["accepted", "rejected", "resolved"] as const;
-  if (existing && existing.status !== input.status && finalStatuses.includes(input.status as (typeof finalStatuses)[number])) {
-    const statusLabel = input.status === "accepted" ? "수용" : input.status === "rejected" ? "기각" : "처리 완료";
-    const detail = input.adminNote?.trim() || "관리자 검토가 완료되었습니다. 첨삭 결과와 안내 내용을 확인해 주세요.";
-    await db.insert(appNotifications).values({ userId: existing.userId, title: `AI 첨삭 이의제기 ${statusLabel}`, message: detail, category: "evaluation_review" });
+  if (
+    existing &&
+    existing.status !== input.status &&
+    finalStatuses.includes(input.status as (typeof finalStatuses)[number])
+  ) {
+    const statusLabel =
+      input.status === "accepted"
+        ? "수용"
+        : input.status === "rejected"
+          ? "기각"
+          : "처리 완료";
+    const detail =
+      input.adminNote?.trim() ||
+      "관리자 검토가 완료되었습니다. 첨삭 결과와 안내 내용을 확인해 주세요.";
+    await db.insert(appNotifications).values({
+      userId: existing.userId,
+      title: `AI 첨삭 이의제기 ${statusLabel}`,
+      message: detail,
+      category: "evaluation_review",
+    });
   }
 }
 
 // ========== AI Usage & Quota Functions ==========
 
-export async function logAIUsage(userId: number, actionType: string, tokensUsed: number = 0) {
+export async function logAIUsage(
+  userId: number,
+  actionType: string,
+  tokensUsed: number = 0
+) {
   const db = await getDb();
   if (!db) return;
   await db.insert(aiUsageLogs).values({
@@ -1134,6 +1911,29 @@ export async function logAIUsage(userId: number, actionType: string, tokensUsed:
     actionType,
     tokensUsed,
   });
+}
+
+// 이용권 차감·사용 횟수 집계에서 'AI 호출 비용' 기록(ai_cost:)을 뺀다.
+const notAiCostRow = () => sql`${aiUsageLogs.actionType} NOT LIKE ${`${AI_COST_PREFIX}%`}`;
+
+/** 기능(API)별 AI 호출 수·토큰·사용자 수. 최근 days일, 토큰 많은 순. */
+export async function getAiCostSummary(days = 30) {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({
+      actionType: aiUsageLogs.actionType,
+      calls: count(),
+      tokens: sql<number>`COALESCE(SUM(${aiUsageLogs.tokensUsed}), 0)`,
+      users: sql<number>`COUNT(DISTINCT ${aiUsageLogs.userId})`,
+      lastAt: sql<Date>`MAX(${aiUsageLogs.createdAt})`,
+    })
+    .from(aiUsageLogs)
+    .where(and(sql`${aiUsageLogs.actionType} LIKE ${`${AI_COST_PREFIX}%`}`, gte(aiUsageLogs.createdAt, since)))
+    .groupBy(aiUsageLogs.actionType)
+    .orderBy(sql`SUM(${aiUsageLogs.tokensUsed}) DESC`);
+  return rows.map(row => ({ feature: row.actionType.slice(AI_COST_PREFIX.length), calls: Number(row.calls), tokens: Number(row.tokens), users: Number(row.users), lastAt: row.lastAt }));
 }
 
 export async function getTodayAIUsageCount(userId: number): Promise<number> {
@@ -1146,34 +1946,133 @@ export async function getTodayAIUsageCount(userId: number): Promise<number> {
   const logs = await db
     .select()
     .from(aiUsageLogs)
-    .where(and(eq(aiUsageLogs.userId, userId), gte(aiUsageLogs.createdAt, todayStart)));
+    .where(
+      and(
+        eq(aiUsageLogs.userId, userId),
+        gte(aiUsageLogs.createdAt, todayStart),
+        notAiCostRow()
+      )
+    );
 
   return logs.length;
+}
+
+// ========== 샘플 체험 AI 첨삭 남용 방지 (비로그인, 세션/IP 카운터) ==========
+// 개인 학습 기록(aiUsageLogs)과는 분리된 익명 카운터입니다. userId가 없고,
+// 세션 토큰(브라우저 sessionStorage 발급)과 해시된 IP만으로 한도를 확인합니다.
+
+export function hashSampleClientIp(ip: string): string {
+  return createHash("sha256")
+    .update(`${ENV.cookieSecret || "development-only-secret"}:${ip}`)
+    .digest("hex");
+}
+
+export async function getSampleAiUsageCountBySession(
+  sessionToken: string
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select()
+    .from(sampleAiUsageLog)
+    .where(eq(sampleAiUsageLog.sessionToken, sessionToken));
+  return rows.length;
+}
+
+export async function getSampleAiUsageCountByIpSince(
+  ipHash: string,
+  since: Date
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select()
+    .from(sampleAiUsageLog)
+    .where(
+      and(
+        eq(sampleAiUsageLog.ipHash, ipHash),
+        gte(sampleAiUsageLog.createdAt, since)
+      )
+    );
+  return rows.length;
+}
+
+// 세션·IP를 바꿔 가며 보내는 요청까지 막기 위한 서비스 전체 일일 호출 수 집계.
+export async function getSampleAiUsageCountSince(since: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ id: sampleAiUsageLog.id })
+    .from(sampleAiUsageLog)
+    .where(gte(sampleAiUsageLog.createdAt, since));
+  return rows.length;
+}
+
+export async function logSampleAiUsage(
+  sessionToken: string,
+  ipHash: string
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(sampleAiUsageLog).values({ sessionToken, ipHash });
+}
+
+export async function getAIUsageCountByAction(
+  userId: number,
+  actionType: string
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db
+    .select({ value: count() })
+    .from(aiUsageLogs)
+    .where(
+      and(
+        eq(aiUsageLogs.userId, userId),
+        eq(aiUsageLogs.actionType, actionType)
+      )
+    );
+  return Number(row?.value ?? 0);
 }
 
 export async function getAllAIUsageStats() {
   const db = await getDb();
   if (!db) return { totalCalls: 0, todayCalls: 0 };
 
-  const allLogs = await db.select().from(aiUsageLogs);
-  const totalCalls = allLogs.length;
-
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const todayCalls = allLogs.filter(l => new Date(l.createdAt) >= todayStart).length;
+  const [[total], [today]] = await Promise.all([
+    db.select({ value: count() }).from(aiUsageLogs).where(notAiCostRow()),
+    db
+      .select({ value: count() })
+      .from(aiUsageLogs)
+      .where(and(gte(aiUsageLogs.createdAt, todayStart), notAiCostRow())),
+  ]);
 
-  return { totalCalls, todayCalls };
+  return {
+    totalCalls: Number(total?.value ?? 0),
+    todayCalls: Number(today?.value ?? 0),
+  };
 }
 
-export async function updateUserSocialIdentity(userId: number, openId: string, name?: string | null, email?: string | null, loginMethod?: string) {
+export async function updateUserSocialIdentity(
+  userId: number,
+  openId: string,
+  name?: string | null,
+  email?: string | null,
+  loginMethod?: string
+) {
   const db = await getDb();
   if (!db) return undefined;
-  await db.update(users).set({
-    name: name !== undefined ? name : undefined,
-    email: email !== undefined ? email : undefined,
-    loginMethod: loginMethod !== undefined ? loginMethod : undefined,
-    lastSignedIn: new Date(),
-  }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({
+      name: name !== undefined ? name : undefined,
+      email: email !== undefined ? email : undefined,
+      loginMethod: loginMethod !== undefined ? loginMethod : undefined,
+      lastSignedIn: new Date(),
+    })
+    .where(eq(users.id, userId));
   return getUserById(userId);
 }
 
@@ -1196,85 +2095,162 @@ export async function createEmailUser(input: {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const role = input.role ?? "user";
-  const teacherStatus = role === "teacher" ? (input.teacherStatus ?? "pending") : "approved";
-  await db.insert(users).values({
-    openId: input.openId,
-    name: input.name ?? null,
-    email: input.email ?? null,
-    passwordHash: input.passwordHash ?? null,
-    loginMethod: input.loginMethod ?? "email",
-    emailVerifiedAt: input.emailVerifiedAt ?? null,
-    verificationTokenHash: input.verificationTokenHash ?? null,
-    verificationTokenExpiresAt: input.verificationTokenExpiresAt ?? null,
-    role,
-    teacherLevel: input.teacherLevel ?? 1,
-    teacherStatus,
-    teacherId: input.teacherId ?? null,
-    preferredTeacherId: input.preferredTeacherId ?? null,
-    tag: input.tag ?? "일반",
-    lastSignedIn: new Date(),
-  });
+  const teacherStatus =
+    role === "teacher" ? (input.teacherStatus ?? "pending") : "approved";
+  await withUsersSchemaHint(
+    db.insert(users).values({
+      openId: input.openId,
+      name: input.name ?? null,
+      email: input.email ?? null,
+      passwordHash: input.passwordHash ?? null,
+      loginMethod: input.loginMethod ?? "email",
+      emailVerifiedAt: input.emailVerifiedAt ?? null,
+      verificationTokenHash: input.verificationTokenHash ?? null,
+      verificationTokenExpiresAt: input.verificationTokenExpiresAt ?? null,
+      role,
+      teacherLevel: input.teacherLevel ?? 1,
+      teacherStatus,
+      teacherId: input.teacherId ?? null,
+      preferredTeacherId: input.preferredTeacherId ?? null,
+      tag: input.tag ?? "과정 미선택",
+      lastSignedIn: new Date(),
+    })
+  );
   return getUserByOpenId(input.openId);
 }
 
 export async function updateUserLastSignedIn(userId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({ lastSignedIn: new Date() })
+    .where(eq(users.id, userId));
 }
 
-export async function getProgressByUserAndCurriculum(userId: number, curriculumId: number) {
+export async function getProgressByUserAndCurriculum(
+  userId: number,
+  curriculumId: number,
+  courseType?: CourseType
+) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(progress).where(and(eq(progress.userId, userId), eq(progress.curriculumId, curriculumId)));
+  const result = await db
+    .select()
+    .from(progress)
+    .where(
+      and(
+        eq(progress.userId, userId),
+        eq(progress.curriculumId, curriculumId),
+        ...(courseType ? [eq(progress.courseType, courseType)] : [])
+      )
+    );
   return result[0];
 }
 
-export async function setUserPasswordResetToken(userId: number, tokenHash: string) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
-}
-
+// 비밀번호 재설정 토큰은 이메일 인증 토큰과 별도 컬럼에 만료시각과 함께 저장한다(서로의 링크로 쓸 수 없다).
 export async function getUserByPasswordResetTokenHash(tokenHash: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.verificationTokenHash, tokenHash));
+  const result = await withUsersSchemaHint(
+    db.select().from(users).where(eq(users.passwordResetTokenHash, tokenHash))
+  );
   return result[0];
+}
+
+/**
+ * 재설정 토큰으로 비밀번호를 바꾼다. 토큰 일치·만료 확인과 폐기를 한 번의 갱신으로 처리해, 같은 토큰으로 동시에 두 번 바꿀 수 없다.
+ * 바뀐 계정이 정확히 하나일 때만 true.
+ */
+export async function consumePasswordResetToken(
+  tokenHash: string,
+  passwordHash: string
+) {
+  const db = await getDb();
+  if (!db) return false;
+  const [result] = await db
+    .update(users)
+    .set({
+      passwordHash,
+      passwordResetTokenHash: null,
+      passwordResetTokenExpiresAt: null,
+    })
+    .where(
+      and(
+        eq(users.passwordResetTokenHash, tokenHash),
+        gt(users.passwordResetTokenExpiresAt, new Date())
+      )
+    );
+  return Number((result as { affectedRows?: number }).affectedRows ?? 0) === 1;
 }
 
 export async function resetUserPassword(userId: number, passwordHash: string) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ passwordHash, verificationTokenHash: null }).where(eq(users.id, userId));
+  // 재설정 토큰은 한 번만 쓸 수 있다.
+  await db
+    .update(users)
+    .set({
+      passwordHash,
+      passwordResetTokenHash: null,
+      passwordResetTokenExpiresAt: null,
+    })
+    .where(eq(users.id, userId));
 }
 
-export async function updateVerificationToken(userId: number, tokenHash: string, _expiresAt?: Date) {
+export async function updateVerificationToken(
+  userId: number,
+  tokenHash: string,
+  expiresAt: Date
+) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({
+      verificationTokenHash: tokenHash,
+      verificationTokenExpiresAt: expiresAt,
+    })
+    .where(eq(users.id, userId));
 }
 
-export async function updatePasswordResetToken(userId: number, tokenHash: string, _expiresAt?: Date) {
+export async function updatePasswordResetToken(
+  userId: number,
+  tokenHash: string,
+  expiresAt: Date
+) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ verificationTokenHash: tokenHash }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({
+      passwordResetTokenHash: tokenHash,
+      passwordResetTokenExpiresAt: expiresAt,
+    })
+    .where(eq(users.id, userId));
 }
 
 export async function getUserByVerificationTokenHash(tokenHash: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.verificationTokenHash, tokenHash));
+  const result = await withUsersSchemaHint(
+    db.select().from(users).where(eq(users.verificationTokenHash, tokenHash))
+  );
   return result[0];
 }
 
 export async function markEmailVerified(userId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(users).set({ emailVerifiedAt: new Date(), verificationTokenHash: null }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({
+      emailVerifiedAt: new Date(),
+      verificationTokenHash: null,
+      verificationTokenExpiresAt: null,
+    })
+    .where(eq(users.id, userId));
 }
-
-
 
 export async function getWeeklyAIUsageLogs(userId: number) {
   const db = await getDb();
@@ -1287,7 +2263,9 @@ export async function getWeeklyAIUsageLogs(userId: number) {
   const logs = await db
     .select()
     .from(aiUsageLogs)
-    .where(and(eq(aiUsageLogs.userId, userId), gte(aiUsageLogs.createdAt, weekAgo)));
+    .where(
+      and(eq(aiUsageLogs.userId, userId), gte(aiUsageLogs.createdAt, weekAgo), notAiCostRow())
+    );
 
   return logs;
 }
@@ -1301,7 +2279,9 @@ export async function getAllUsersStats() {
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const activeToday = allUsers.filter(u => u.lastSignedIn && new Date(u.lastSignedIn) >= todayStart).length;
+  const activeToday = allUsers.filter(
+    u => u.lastSignedIn && new Date(u.lastSignedIn) >= todayStart
+  ).length;
 
   return {
     totalUsers,
@@ -1313,6 +2293,7 @@ export async function getAllUsersStats() {
       role: u.role,
       teacherLevel: u.teacherLevel,
       teacherStatus: u.teacherStatus,
+      certificateApprovalRevoked: u.certificateApprovalRevoked,
       teacherId: u.teacherId,
       preferredTeacherId: u.preferredTeacherId,
       tag: u.tag,
@@ -1330,21 +2311,47 @@ export async function getAllProgressStats() {
 
   const allProgress = await db.select().from(progress);
   const totalSubmissions = allProgress.length;
-  const avgScore = totalSubmissions > 0
-    ? Math.round(allProgress.reduce((sum, p) => sum + (p.score || 0), 0) / totalSubmissions)
-    : 0;
+  const avgScore =
+    totalSubmissions > 0
+      ? Math.round(
+          allProgress.reduce((sum, p) => sum + (p.score || 0), 0) /
+            totalSubmissions
+        )
+      : 0;
 
   return { totalSubmissions, avgScore };
 }
 
-export async function getStudentDetailStats(userId: number) {
+// 학부모 코멘트는 운영자 메모(adminNotes)에 "[학부모 코멘트(이름)] ..." 형식으로 한 줄씩 쌓인다.
+// 관리자가 아닌 조회자에게는 학부모 코멘트 줄만 보여주고 운영자 내부 메모는 숨긴다.
+export function keepParentCommentsOnly(
+  notes: string | null | undefined
+): string | null {
+  if (!notes) return null;
+  const lines = notes
+    .split("\n")
+    .filter(line => line.startsWith("[학부모 코멘트"));
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+export async function getStudentDetailStats(
+  userId: number,
+  options: { includeAdminNotes?: boolean } = {}
+) {
+  const { includeAdminNotes = true } = options;
   const db = await getDb();
   if (!db) return null;
 
   const userRecord = await getUserById(userId);
   if (!userRecord) return null;
 
-  const [submissions, userProgress, userCerts, aiFeedbacks, classAssignmentDetails] = await Promise.all([
+  const [
+    submissions,
+    userProgress,
+    userCerts,
+    aiFeedbacks,
+    classAssignmentDetails,
+  ] = await Promise.all([
     getEssaySubmissionsByUser(userId),
     getProgressByUser(userId),
     getCertificatesByUser(userId),
@@ -1358,12 +2365,16 @@ export async function getStudentDetailStats(userId: number) {
       name: userRecord.name,
       email: userRecord.email,
       role: userRecord.role,
+      teacherLevel: userRecord.teacherLevel,
+      teacherStatus: userRecord.teacherStatus,
       tag: userRecord.tag,
       courseType: getCourseTypeFromUserTag(userRecord.tag),
       courseLabel: getCourseTag(getCourseTypeFromUserTag(userRecord.tag)),
       createdAt: userRecord.createdAt,
       lastSignedIn: userRecord.lastSignedIn,
-      adminNotes: userRecord.adminNotes,
+      adminNotes: includeAdminNotes
+        ? userRecord.adminNotes
+        : keepParentCommentsOnly(userRecord.adminNotes),
     },
     submissions,
     progress: userProgress,
@@ -1373,11 +2384,66 @@ export async function getStudentDetailStats(userId: number) {
   };
 }
 
-export async function updateStudentAdminNotes(userId: number, adminNotes: string) {
+export async function updateStudentAdminNotes(
+  userId: number,
+  adminNotes: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await db.update(users).set({ adminNotes }).where(eq(users.id, userId));
   return getUserById(userId);
+}
+export async function selectUserCourse(
+  userId: number,
+  courseType: CourseType,
+  guardianConsent?: Parameters<typeof createGuardianConsent>[0]
+) {
+  const database = await getDb();
+  if (!database)
+    throw new TRPCError({
+      code: "SERVICE_UNAVAILABLE",
+      message: "학습 과정을 저장할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+    });
+  return database.transaction(async tx => {
+    const [current] = await tx
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .for("update");
+    if (!current || !isLearnerAccount(current))
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "학습자 계정만 학습 과정을 선택할 수 있습니다.",
+      });
+    if (parseCourseTypeFromUserTag(current.tag))
+      throw new TRPCError({
+        code: "CONFLICT",
+        message:
+          "이미 선택한 과정이 있습니다. 과정 변경은 관리자에게 문의해 주세요.",
+      });
+    if (guardianConsent) {
+      const [existing] = await tx
+        .select()
+        .from(guardianConsents)
+        .where(eq(guardianConsents.userId, userId))
+        .orderBy(desc(guardianConsents.createdAt))
+        .limit(1);
+      if (
+        existing &&
+        (existing.status === "approved" || existing.status === "pending")
+      )
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "보호자 동의 상태가 변경되었습니다. 다시 확인해 주세요.",
+        });
+      await tx.insert(guardianConsents).values(guardianConsent);
+    }
+    await tx
+      .update(users)
+      .set({ tag: getCourseTag(courseType) })
+      .where(eq(users.id, userId));
+    return { ...current, tag: getCourseTag(courseType) };
+  });
 }
 export async function updateUsersTag(userIds: number[], tag: string) {
   const db = await getDb();
@@ -1394,7 +2460,70 @@ export async function updateUsersTag(userIds: number[], tag: string) {
 export async function adminGetAllCertificates() {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(certificate).orderBy(desc(certificate.createdAt));
+  const rows = await db
+    .select()
+    .from(certificate)
+    .orderBy(desc(certificate.createdAt));
+  // 보관 이미지 본문은 싣지 않고, 목록에는 보관 여부와 크기만 표시한다.
+  const archives = await db
+    .select({
+      certificateId: certificateArchives.certificateId,
+      bytes: certificateArchives.bytes,
+    })
+    .from(certificateArchives);
+  const archiveBytes = new Map(
+    archives.map(archive => [archive.certificateId, archive.bytes])
+  );
+  return rows.map(row => ({
+    ...row,
+    hasArchive: archiveBytes.has(row.id),
+    archiveBytes: archiveBytes.get(row.id) ?? null,
+  }));
+}
+
+/** 수료증 보관 이미지(압축본)를 한 번만 저장한다. 이미 있으면 거절한다. */
+export async function saveCertificateArchive(input: {
+  certificateId: number;
+  mimeType: string;
+  bytes: number;
+  imageBase64: string;
+  createdBy: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [existing] = await db
+    .select({ id: certificateArchives.id })
+    .from(certificateArchives)
+    .where(eq(certificateArchives.certificateId, input.certificateId));
+  if (existing) throw new Error("이미 보관된 수료증 이미지가 있습니다.");
+  await db.insert(certificateArchives).values({
+    certificateId: input.certificateId,
+    mimeType: input.mimeType,
+    bytes: input.bytes,
+    imageData: input.imageBase64,
+    createdBy: input.createdBy,
+  });
+  return true;
+}
+
+export async function getCertificateArchive(certificateId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db
+    .select()
+    .from(certificateArchives)
+    .where(eq(certificateArchives.certificateId, certificateId));
+  return row;
+}
+
+export async function getCertificateById(certificateId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db
+    .select()
+    .from(certificate)
+    .where(eq(certificate.id, certificateId));
+  return row;
 }
 
 export async function adminIssueCertificate(input: {
@@ -1417,9 +2546,11 @@ export async function adminIssueCertificate(input: {
       and(
         eq(certificate.userId, input.userId),
         eq(certificate.courseType, input.courseType),
-        input.level === undefined ? eq(certificate.certificateType, input.certificateType) : eq(certificate.level, input.level),
-        eq(certificate.status, "active"),
-      ),
+        input.level === undefined
+          ? eq(certificate.certificateType, input.certificateType)
+          : eq(certificate.level, input.level),
+        eq(certificate.status, "active")
+      )
     );
   if (existing.length > 0) {
     throw new Error("동일 학생·과정·레벨의 활성 수료증이 이미 존재합니다.");
@@ -1440,13 +2571,20 @@ export async function adminIssueCertificate(input: {
   return res;
 }
 
-const CERTIFICATE_COURSE_TYPES: CourseType[] = ["elementary", "middle_high", "high_univ", "general_adult"];
+const CERTIFICATE_COURSE_TYPES: CourseType[] = [
+  "elementary",
+  "middle_high",
+  "high_univ",
+  "general_adult",
+];
 
 async function ensureCertificateApprovalPolicies() {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const existingPolicies = await db.select().from(certificateApprovalPolicies);
-  const existingCourseTypes = new Set(existingPolicies.map((policy) => policy.courseType));
+  const existingCourseTypes = new Set(
+    existingPolicies.map(policy => policy.courseType)
+  );
   for (const courseType of CERTIFICATE_COURSE_TYPES) {
     if (!existingCourseTypes.has(courseType)) {
       await db.insert(certificateApprovalPolicies).values({
@@ -1479,7 +2617,10 @@ export async function saveCertificateApprovalPolicy(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [existing] = await db.select().from(certificateApprovalPolicies).where(eq(certificateApprovalPolicies.courseType, input.courseType));
+  const [existing] = await db
+    .select()
+    .from(certificateApprovalPolicies)
+    .where(eq(certificateApprovalPolicies.courseType, input.courseType));
   const values = {
     // 공동 승인 절차는 모든 과정에서 교사 검토와 관리자 최종 승인을 함께 요구합니다.
     teacherReviewRequired: 1,
@@ -1491,44 +2632,110 @@ export async function saveCertificateApprovalPolicy(input: {
     updatedAt: new Date(),
   };
   if (existing) {
-    await db.update(certificateApprovalPolicies).set(values).where(eq(certificateApprovalPolicies.id, existing.id));
+    await db
+      .update(certificateApprovalPolicies)
+      .set(values)
+      .where(eq(certificateApprovalPolicies.id, existing.id));
   } else {
-    await db.insert(certificateApprovalPolicies).values({ courseType: input.courseType, ...values });
+    await db
+      .insert(certificateApprovalPolicies)
+      .values({ courseType: input.courseType, ...values });
   }
   return getCertificateApprovalPolicies();
 }
 
-export async function getStudentCertificateEligibility(studentId: number, fallbackStudent?: { id: number; tag?: string | null } & Record<string, unknown>) {
-  const student = await getUserById(studentId) ?? fallbackStudent;
+export async function getStudentCertificateEligibility(
+  studentId: number,
+  fallbackStudent?: { id: number; tag?: string | null } & Record<
+    string,
+    unknown
+  >
+) {
+  const student = (await getUserById(studentId)) ?? fallbackStudent;
   if (!student) throw new Error("학생을 찾을 수 없습니다.");
   const courseType = getCourseTypeFromUserTag(student.tag);
-  const [studentProgress, dynamicModules, staticModules, policies] = await Promise.all([
-    getProgressByUser(studentId),
-    getDynamicCurriculumByType(courseType),
-    getCurriculumByType(courseType),
-    getCertificateApprovalPolicies(),
-  ]);
+  const [studentProgress, dynamicModules, staticModules, policies] =
+    await Promise.all([
+      getProgressByUser(studentId),
+      getDynamicCurriculumByType(courseType),
+      getCurriculumByType(courseType),
+      getCertificateApprovalPolicies(),
+    ]);
+  const curriculumSource =
+    dynamicModules.length > 0 ? ("dynamic" as const) : ("static" as const);
   const modules = dynamicModules.length > 0 ? dynamicModules : staticModules;
-  const orderedModules = [...modules].sort((left: any, right: any) => Number(left.level ?? 0) - Number(right.level ?? 0));
+  const orderedModules = [...modules].sort(
+    (left: any, right: any) =>
+      Number(left.level ?? 0) - Number(right.level ?? 0)
+  );
   const moduleIds = new Set(orderedModules.map((module: any) => module.id));
-  const courseProgress = studentProgress.filter((item) => moduleIds.has(item.curriculumId));
-  const completedIds = new Set(courseProgress.filter((item) => item.completed === 1 || Number(item.completed) >= 100).map((item) => item.curriculumId));
-  const completedCount = orderedModules.filter((module: any) => completedIds.has(module.id)).length;
-  const completionRate = orderedModules.length > 0 ? Math.round((completedCount / orderedModules.length) * 100) : 0;
-  const averageScore = courseProgress.length > 0
-    ? Math.round(courseProgress.reduce((sum, item) => sum + (item.score || 0), 0) / courseProgress.length)
-    : 0;
-  const policy = policies.find((item) => item.courseType === courseType) ?? null;
+  // 같은 숫자 curriculumId가 다른 과정·교재 출처에서 재사용될 수 있으므로, 미분류 과거 기록은 수료로 추정하지 않는다.
+  const courseProgress = studentProgress.filter(
+    item =>
+      item.courseType === courseType &&
+      item.curriculumSource === curriculumSource &&
+      moduleIds.has(item.curriculumId)
+  );
+  const completedIds = new Set(
+    courseProgress
+      .filter(item => item.completed === 1 || Number(item.completed) >= 100)
+      .map(item => item.curriculumId)
+  );
+  const completedCount = orderedModules.filter((module: any) =>
+    completedIds.has(module.id)
+  ).length;
+  const completionRate =
+    orderedModules.length > 0
+      ? Math.round((completedCount / orderedModules.length) * 100)
+      : 0;
+  const averageScore =
+    courseProgress.length > 0
+      ? Math.round(
+          courseProgress.reduce((sum, item) => sum + (item.score || 0), 0) /
+            courseProgress.length
+        )
+      : 0;
+  const policy = policies.find(item => item.courseType === courseType) ?? null;
   const levelEligibility = orderedModules.map((module: any) => {
-    const requiredModules = orderedModules.filter((candidate: any) => Number(candidate.level ?? 0) <= Number(module.level ?? 0));
-    const requiredCompleted = requiredModules.filter((candidate: any) => completedIds.has(candidate.id)).length;
-    const levelCompletionRate = requiredModules.length > 0 ? Math.round((requiredCompleted / requiredModules.length) * 100) : 0;
+    const requiredModules = orderedModules.filter(
+      (candidate: any) =>
+        Number(candidate.level ?? 0) <= Number(module.level ?? 0)
+    );
+    const requiredCompleted = requiredModules.filter((candidate: any) =>
+      completedIds.has(candidate.id)
+    ).length;
+    const levelCompletionRate =
+      requiredModules.length > 0
+        ? Math.round((requiredCompleted / requiredModules.length) * 100)
+        : 0;
     return {
-      level: Number(module.level ?? 1), completionRate: levelCompletionRate, completedCount: requiredCompleted, totalCount: requiredModules.length,
-      isEligible: Boolean(policy?.isActive) && levelCompletionRate >= (policy?.minimumCompletionRate ?? 100) && averageScore >= (policy?.minimumAverageScore ?? 0),
+      level: Number(module.level ?? 1),
+      completionRate: levelCompletionRate,
+      completedCount: requiredCompleted,
+      totalCount: requiredModules.length,
+      isEligible:
+        Boolean(policy?.isActive) &&
+        levelCompletionRate >= (policy?.minimumCompletionRate ?? 100) &&
+        averageScore >= (policy?.minimumAverageScore ?? 0),
     };
   });
-  return { student, courseType, courseLabel: getCourseTag(courseType), completionRate, averageScore, completedCount, totalCount: orderedModules.length, policy: policy ? { minimumCompletionRate: policy.minimumCompletionRate, minimumAverageScore: policy.minimumAverageScore, isActive: policy.isActive } : null, levelEligibility };
+  return {
+    student,
+    courseType,
+    courseLabel: getCourseTag(courseType),
+    completionRate,
+    averageScore,
+    completedCount,
+    totalCount: orderedModules.length,
+    policy: policy
+      ? {
+          minimumCompletionRate: policy.minimumCompletionRate,
+          minimumAverageScore: policy.minimumAverageScore,
+          isActive: policy.isActive,
+        }
+      : null,
+    levelEligibility,
+  };
 }
 
 export async function assertCertificateIssuanceEligibility(input: {
@@ -1538,15 +2745,31 @@ export async function assertCertificateIssuanceEligibility(input: {
   certificateType: "level_certificate" | "graduation_certificate";
 }) {
   const eligibility = await getStudentCertificateEligibility(input.userId);
-  if (eligibility.student.role !== "user") throw new Error("학습자 계정에만 수료증을 발급할 수 있습니다.");
-  if (eligibility.courseType !== input.courseType) throw new Error("가입·학습 중인 과정과 다른 과정의 수료증은 발급할 수 없습니다.");
-  if (!eligibility.policy?.isActive) throw new Error("해당 과정의 수료증 발급 정책이 비활성화되어 있습니다.");
+  if (eligibility.student.role !== "user")
+    throw new Error("학습자 계정에만 수료증을 발급할 수 있습니다.");
+  if (eligibility.courseType !== input.courseType)
+    throw new Error(
+      "가입·학습 중인 과정과 다른 과정의 수료증은 발급할 수 없습니다."
+    );
+  if (!eligibility.policy?.isActive)
+    throw new Error("해당 과정의 수료증 발급 정책이 비활성화되어 있습니다.");
   if (input.certificateType === "graduation_certificate") {
-    if (eligibility.completionRate < eligibility.policy.minimumCompletionRate || eligibility.averageScore < eligibility.policy.minimumAverageScore) throw new Error(`수료 기준을 충족하지 않았습니다. 현재 완료율 ${eligibility.completionRate}%입니다.`);
+    if (
+      eligibility.completionRate < eligibility.policy.minimumCompletionRate ||
+      eligibility.averageScore < eligibility.policy.minimumAverageScore
+    )
+      throw new Error(
+        `수료 기준을 충족하지 않았습니다. 현재 완료율 ${eligibility.completionRate}%입니다.`
+      );
     return eligibility;
   }
-  const levelStatus = eligibility.levelEligibility.find((item) => item.level === (input.level ?? 1));
-  if (!levelStatus?.isEligible) throw new Error(`Level ${input.level ?? 1} 수료 기준을 충족하지 않았습니다. 현재 완료율 ${levelStatus?.completionRate ?? 0}%입니다.`);
+  const levelStatus = eligibility.levelEligibility.find(
+    item => item.level === (input.level ?? 1)
+  );
+  if (!levelStatus?.isEligible)
+    throw new Error(
+      `Level ${input.level ?? 1} 수료 기준을 충족하지 않았습니다. 현재 완료율 ${levelStatus?.completionRate ?? 0}%입니다.`
+    );
   return eligibility;
 }
 
@@ -1563,13 +2786,34 @@ export async function createCertificateApprovalRequest(input: {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await ensureCertificateApprovalPolicies();
-  const [policy] = await db.select().from(certificateApprovalPolicies).where(eq(certificateApprovalPolicies.courseType, input.courseType));
-  if (!policy?.isActive) throw new Error("해당 과정의 수료증 공동 승인 정책이 비활성화되어 있습니다.");
-  if (input.evidenceCompletionRate < policy.minimumCompletionRate || input.evidenceAverageScore < policy.minimumAverageScore) {
+  const [policy] = await db
+    .select()
+    .from(certificateApprovalPolicies)
+    .where(eq(certificateApprovalPolicies.courseType, input.courseType));
+  if (!policy?.isActive)
+    throw new Error(
+      "해당 과정의 수료증 공동 승인 정책이 비활성화되어 있습니다."
+    );
+  if (
+    input.evidenceCompletionRate < policy.minimumCompletionRate ||
+    input.evidenceAverageScore < policy.minimumAverageScore
+  ) {
     throw new Error("설정된 수료증 발급 조건을 아직 충족하지 않았습니다.");
   }
-  const requests = await db.select().from(certificateApprovalRequests).where(eq(certificateApprovalRequests.studentId, input.studentId));
-  if (requests.some((request) => request.courseType === input.courseType && request.level === (input.level ?? null) && ["pending_teacher", "pending_admin", "approved"].includes(request.status))) {
+  const requests = await db
+    .select()
+    .from(certificateApprovalRequests)
+    .where(eq(certificateApprovalRequests.studentId, input.studentId));
+  if (
+    requests.some(
+      request =>
+        request.courseType === input.courseType &&
+        request.level === (input.level ?? null) &&
+        ["pending_teacher", "pending_admin", "approved"].includes(
+          request.status
+        )
+    )
+  ) {
     throw new Error("동일 학생·과정·단계의 공동 승인 요청이 이미 존재합니다.");
   }
   const [result] = await db.insert(certificateApprovalRequests).values({
@@ -1584,50 +2828,87 @@ export async function getCertificateApprovalRequests() {
   const db = await getDb();
   if (!db) return [];
   const [requests, allUsers] = await Promise.all([
-    db.select().from(certificateApprovalRequests).orderBy(desc(certificateApprovalRequests.updatedAt)),
+    db
+      .select()
+      .from(certificateApprovalRequests)
+      .orderBy(desc(certificateApprovalRequests.updatedAt)),
     db.select().from(users),
   ]);
-  const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  return requests.map((request) => ({
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  return requests.map(request => ({
     ...request,
-    studentName: usersById.get(request.studentId)?.name || `학생 #${request.studentId}`,
+    studentName:
+      usersById.get(request.studentId)?.name || `학생 #${request.studentId}`,
     studentEmail: usersById.get(request.studentId)?.email || null,
-    requestedByName: usersById.get(request.requestedBy)?.name || `교사 #${request.requestedBy}`,
+    requestedByName:
+      usersById.get(request.requestedBy)?.name ||
+      `교사 #${request.requestedBy}`,
     courseLabel: getCourseTag(request.courseType),
   }));
 }
 
-export async function reviewCertificateApprovalRequestByTeacher(requestId: number, teacherId: number, note?: string) {
+export async function reviewCertificateApprovalRequestByTeacher(
+  requestId: number,
+  teacherId: number,
+  note?: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [request] = await db.select().from(certificateApprovalRequests).where(eq(certificateApprovalRequests.id, requestId));
+  const [request] = await db
+    .select()
+    .from(certificateApprovalRequests)
+    .where(eq(certificateApprovalRequests.id, requestId));
   if (!request) throw new Error("수료증 승인 요청을 찾을 수 없습니다.");
-  if (request.status !== "pending_teacher") throw new Error("교사 검토 대기 중인 요청만 승인할 수 있습니다.");
-  if (!(await canTeacherManageStudent(teacherId, request.studentId, "certificate"))) throw new Error("해당 학생의 수료증 검토 권한이 없습니다.");
-  await db.update(certificateApprovalRequests).set({
-    status: "pending_admin",
-    teacherApprovedBy: teacherId,
-    teacherApprovedAt: new Date(),
-    teacherNote: note?.trim() || null,
-    updatedAt: new Date(),
-  }).where(eq(certificateApprovalRequests.id, requestId));
+  if (request.status !== "pending_teacher")
+    throw new Error("교사 검토 대기 중인 요청만 승인할 수 있습니다.");
+  if (
+    !(await canTeacherManageStudent(
+      teacherId,
+      request.studentId,
+      "certificate"
+    ))
+  )
+    throw new Error("해당 학생의 수료증 검토 권한이 없습니다.");
+  await db
+    .update(certificateApprovalRequests)
+    .set({
+      status: "pending_admin",
+      teacherApprovedBy: teacherId,
+      teacherApprovedAt: new Date(),
+      teacherNote: note?.trim() || null,
+      updatedAt: new Date(),
+    })
+    .where(eq(certificateApprovalRequests.id, requestId));
   return true;
 }
 
-export async function resolveCertificateApprovalRequestByAdmin(input: { requestId: number; adminId: number; approved: boolean; note?: string; shareToken?: string }) {
+export async function resolveCertificateApprovalRequestByAdmin(input: {
+  requestId: number;
+  adminId: number;
+  approved: boolean;
+  note?: string;
+  shareToken?: string;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [request] = await db.select().from(certificateApprovalRequests).where(eq(certificateApprovalRequests.id, input.requestId));
+  const [request] = await db
+    .select()
+    .from(certificateApprovalRequests)
+    .where(eq(certificateApprovalRequests.id, input.requestId));
   if (!request) throw new Error("수료증 승인 요청을 찾을 수 없습니다.");
-  if (request.status !== "pending_admin") throw new Error("관리자 최종 승인 대기 중인 요청만 처리할 수 있습니다.");
+  if (request.status !== "pending_admin")
+    throw new Error("관리자 최종 승인 대기 중인 요청만 처리할 수 있습니다.");
   if (!input.approved) {
-    await db.update(certificateApprovalRequests).set({
-      status: "rejected",
-      adminApprovedBy: input.adminId,
-      adminApprovedAt: new Date(),
-      adminNote: input.note?.trim() || "관리자 반려",
-      updatedAt: new Date(),
-    }).where(eq(certificateApprovalRequests.id, request.id));
+    await db
+      .update(certificateApprovalRequests)
+      .set({
+        status: "rejected",
+        adminApprovedBy: input.adminId,
+        adminApprovedAt: new Date(),
+        adminNote: input.note?.trim() || "관리자 반려",
+        updatedAt: new Date(),
+      })
+      .where(eq(certificateApprovalRequests.id, request.id));
     return { approved: false };
   }
   const certificateResult = await adminIssueCertificate({
@@ -1635,43 +2916,67 @@ export async function resolveCertificateApprovalRequestByAdmin(input: { requestI
     courseType: request.courseType,
     level: request.level ?? undefined,
     certificateType: request.certificateType,
-    shareToken: input.shareToken || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`,
+    shareToken:
+      input.shareToken ||
+      `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`,
     issuedBy: input.adminId,
     issueReason: input.note?.trim() || "교사 검토 및 관리자 공동 승인",
   });
-  await db.update(certificateApprovalRequests).set({
-    status: "approved",
-    adminApprovedBy: input.adminId,
-    adminApprovedAt: new Date(),
-    adminNote: input.note?.trim() || null,
-    certificateId: Number((certificateResult as { insertId?: number }).insertId) || null,
-    updatedAt: new Date(),
-  }).where(eq(certificateApprovalRequests.id, request.id));
+  await db
+    .update(certificateApprovalRequests)
+    .set({
+      status: "approved",
+      adminApprovedBy: input.adminId,
+      adminApprovedAt: new Date(),
+      adminNote: input.note?.trim() || null,
+      certificateId:
+        Number((certificateResult as { insertId?: number }).insertId) || null,
+      updatedAt: new Date(),
+    })
+    .where(eq(certificateApprovalRequests.id, request.id));
   return { approved: true };
 }
 
-export async function adminRevokeCertificate(certificateId: number, revokedBy: number, reason: string) {
+export async function adminRevokeCertificate(
+  certificateId: number,
+  revokedBy: number,
+  reason: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [target] = await db.select().from(certificate).where(eq(certificate.id, certificateId));
+  const [target] = await db
+    .select()
+    .from(certificate)
+    .where(eq(certificate.id, certificateId));
   if (!target) throw new Error("수료증을 찾을 수 없습니다.");
-  if (target.status === "revoked") throw new Error("이미 발행취소된 수료증입니다.");
-  await db.update(certificate).set({
-    status: "revoked",
-    revokedAt: new Date(),
-    revokedBy,
-    revocationReason: reason.trim(),
-    updatedAt: new Date(),
-  }).where(eq(certificate.id, certificateId));
+  if (target.status === "revoked")
+    throw new Error("이미 발행취소된 수료증입니다.");
+  await db
+    .update(certificate)
+    .set({
+      status: "revoked",
+      revokedAt: new Date(),
+      revokedBy,
+      revocationReason: reason.trim(),
+      updatedAt: new Date(),
+    })
+    .where(eq(certificate.id, certificateId));
   return true;
 }
 
 export async function adminDeleteCertificate(certificateId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [target] = await db.select().from(certificate).where(eq(certificate.id, certificateId));
+  const [target] = await db
+    .select()
+    .from(certificate)
+    .where(eq(certificate.id, certificateId));
   if (!target) throw new Error("수료증을 찾을 수 없습니다.");
-  if (target.status !== "revoked") throw new Error("삭제 전에 먼저 발행취소해야 합니다.");
+  if (target.status !== "revoked")
+    throw new Error("삭제 전에 먼저 발행취소해야 합니다.");
+  await db
+    .delete(certificateArchives)
+    .where(eq(certificateArchives.certificateId, certificateId));
   await db.delete(certificate).where(eq(certificate.id, certificateId));
   return true;
 }
@@ -1679,14 +2984,25 @@ export async function adminDeleteCertificate(certificateId: number) {
 export async function adminGetCurriculumCategories() {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(dynamicCurriculum).orderBy(dynamicCurriculum.courseType, dynamicCurriculum.level);
-  return rows.map((row) => ({
+  const rows = await db
+    .select()
+    .from(dynamicCurriculum)
+    .orderBy(dynamicCurriculum.courseType, dynamicCurriculum.level);
+  return rows.map(row => ({
     ...row,
     topics: (() => {
-      try { return JSON.parse(row.topicsJson) as string[]; } catch { return []; }
+      try {
+        return JSON.parse(row.topicsJson) as string[];
+      } catch {
+        return [];
+      }
     })(),
     aiTags: (() => {
-      try { return row.aiTags ? (JSON.parse(row.aiTags) as string[]) : []; } catch { return []; }
+      try {
+        return row.aiTags ? (JSON.parse(row.aiTags) as string[]) : [];
+      } catch {
+        return [];
+      }
     })(),
   }));
 }
@@ -1707,7 +3023,9 @@ export async function adminCreateCurriculumCategory(input: {
     level: input.level,
     title: input.title.trim(),
     description: input.description.trim(),
-    topicsJson: JSON.stringify(input.topics.map((topic) => topic.trim()).filter(Boolean)),
+    topicsJson: JSON.stringify(
+      input.topics.map(topic => topic.trim()).filter(Boolean)
+    ),
     aiSummary: input.aiSummary,
     isActive: input.isActive ?? 1,
     createdAt: new Date(),
@@ -1728,37 +3046,54 @@ export async function adminUpdateCurriculumCategory(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.update(dynamicCurriculum).set({
-    courseType: input.courseType,
-    level: input.level,
-    title: input.title.trim(),
-    description: input.description.trim(),
-    topicsJson: JSON.stringify(input.topics.map((topic) => topic.trim()).filter(Boolean)),
-    aiSummary: input.aiSummary,
-    isActive: input.isActive ?? 1,
-    updatedAt: new Date(),
-  }).where(eq(dynamicCurriculum.id, input.id));
+  await db
+    .update(dynamicCurriculum)
+    .set({
+      courseType: input.courseType,
+      level: input.level,
+      title: input.title.trim(),
+      description: input.description.trim(),
+      topicsJson: JSON.stringify(
+        input.topics.map(topic => topic.trim()).filter(Boolean)
+      ),
+      aiSummary: input.aiSummary,
+      isActive: input.isActive ?? 1,
+      updatedAt: new Date(),
+    })
+    .where(eq(dynamicCurriculum.id, input.id));
   return true;
 }
 
-export async function adminToggleCurriculumActive(id: number, isActive: number) {
+export async function adminToggleCurriculumActive(
+  id: number,
+  isActive: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.update(dynamicCurriculum).set({
-    isActive: isActive ? 1 : 0,
-    updatedAt: new Date(),
-  }).where(eq(dynamicCurriculum.id, id));
+  await db
+    .update(dynamicCurriculum)
+    .set({
+      isActive: isActive ? 1 : 0,
+      updatedAt: new Date(),
+    })
+    .where(eq(dynamicCurriculum.id, id));
   return true;
 }
 
-export async function adminBatchToggleCurriculumActive(ids: number[], isActive: number) {
+export async function adminBatchToggleCurriculumActive(
+  ids: number[],
+  isActive: number
+) {
   const db = await getDb();
   if (!db || ids.length === 0) return false;
   for (const id of ids) {
-    await db.update(dynamicCurriculum).set({
-      isActive: isActive ? 1 : 0,
-      updatedAt: new Date(),
-    }).where(eq(dynamicCurriculum.id, id));
+    await db
+      .update(dynamicCurriculum)
+      .set({
+        isActive: isActive ? 1 : 0,
+        updatedAt: new Date(),
+      })
+      .where(eq(dynamicCurriculum.id, id));
   }
   return true;
 }
@@ -1766,7 +3101,10 @@ export async function adminBatchToggleCurriculumActive(ids: number[], isActive: 
 export async function adminDuplicateCurriculumCategory(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [target] = await db.select().from(dynamicCurriculum).where(eq(dynamicCurriculum.id, id));
+  const [target] = await db
+    .select()
+    .from(dynamicCurriculum)
+    .where(eq(dynamicCurriculum.id, id));
   if (!target) throw new Error("복제할 커리큘럼을 찾을 수 없습니다.");
   const [created] = await db.insert(dynamicCurriculum).values({
     courseType: target.courseType,
@@ -1788,7 +3126,10 @@ export async function adminDuplicateCurriculumCategory(id: number) {
 export async function adminDeleteCurriculumCategory(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [target] = await db.select().from(dynamicCurriculum).where(eq(dynamicCurriculum.id, id));
+  const [target] = await db
+    .select()
+    .from(dynamicCurriculum)
+    .where(eq(dynamicCurriculum.id, id));
   if (!target) throw new Error("커리큘럼 카테고리를 찾을 수 없습니다.");
   await db.delete(dynamicCurriculum).where(eq(dynamicCurriculum.id, id));
   return true;
@@ -1796,21 +3137,39 @@ export async function adminDeleteCurriculumCategory(id: number) {
 
 export async function getSiteSetting(settingKey: string) {
   const db = await getDb();
-  if (!db) return defaultPolicyContent(settingKey);
-  const [row] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, settingKey));
-  return row?.content ?? defaultPolicyContent(settingKey);
+  // 가격·환불정책은 동의 문서 목록과 분리해 두고, 관리자가 저장하기 전에는 게시용 기본 문구를 보여 준다.
+  const fallback =
+    settingKey === REFUND_POLICY_KEY
+      ? DEFAULT_REFUND_POLICY
+      : defaultPolicyContent(settingKey);
+  if (!db) return fallback;
+  const [row] = await db
+    .select()
+    .from(siteSettings)
+    .where(eq(siteSettings.settingKey, settingKey));
+  return row?.content ?? fallback;
 }
 
-export async function saveSiteSetting(settingKey: string, content: string, adminId: number) {
+export async function saveSiteSetting(
+  settingKey: string,
+  content: string,
+  adminId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [existing] = await db.select().from(siteSettings).where(eq(siteSettings.settingKey, settingKey));
+  const [existing] = await db
+    .select()
+    .from(siteSettings)
+    .where(eq(siteSettings.settingKey, settingKey));
   if (existing) {
-    await db.update(siteSettings).set({
-      content,
-      updatedBy: adminId,
-      updatedAt: new Date(),
-    }).where(eq(siteSettings.settingKey, settingKey));
+    await db
+      .update(siteSettings)
+      .set({
+        content,
+        updatedBy: adminId,
+        updatedAt: new Date(),
+      })
+      .where(eq(siteSettings.settingKey, settingKey));
   } else {
     await db.insert(siteSettings).values({
       settingKey,
@@ -1821,11 +3180,21 @@ export async function saveSiteSetting(settingKey: string, content: string, admin
     });
   }
 
-  const policyTemplate = DEFAULT_POLICY_DOCUMENTS.find((document) => document.policyKey === settingKey);
+  const policyTemplate = DEFAULT_POLICY_DOCUMENTS.find(
+    document => document.policyKey === settingKey
+  );
   if (policyTemplate && content.trim()) {
     const now = new Date();
     const version = `${now.toISOString().slice(0, 10)}-r${now.getTime().toString().slice(-6)}`;
-    await db.update(policyDocuments).set({ isActive: 0, retiredAt: now, updatedAt: now }).where(and(eq(policyDocuments.policyKey, settingKey), eq(policyDocuments.isActive, 1)));
+    await db
+      .update(policyDocuments)
+      .set({ isActive: 0, retiredAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(policyDocuments.policyKey, settingKey),
+          eq(policyDocuments.isActive, 1)
+        )
+      );
     await db.insert(policyDocuments).values({
       policyKey: policyTemplate.policyKey,
       title: policyTemplate.title,
@@ -1847,7 +3216,15 @@ export async function ensureDefaultPolicyDocuments() {
   const db = await getDb();
   if (!db) return [];
   for (const document of DEFAULT_POLICY_DOCUMENTS) {
-    const [existing] = await db.select().from(policyDocuments).where(and(eq(policyDocuments.policyKey, document.policyKey), eq(policyDocuments.version, document.version)));
+    const [existing] = await db
+      .select()
+      .from(policyDocuments)
+      .where(
+        and(
+          eq(policyDocuments.policyKey, document.policyKey),
+          eq(policyDocuments.version, document.version)
+        )
+      );
     if (!existing) {
       await db.insert(policyDocuments).values({
         policyKey: document.policyKey,
@@ -1861,60 +3238,248 @@ export async function ensureDefaultPolicyDocuments() {
       });
     }
   }
-  return db.select().from(policyDocuments).where(eq(policyDocuments.isActive, 1));
+  return db
+    .select()
+    .from(policyDocuments)
+    .where(eq(policyDocuments.isActive, 1));
 }
 
 export async function getActivePolicyDocuments(role?: AccountConsentRole) {
   const documents = await ensureDefaultPolicyDocuments();
-  return role ? documents.filter((document) => document.requiredForRoles.split(",").includes(role)) : documents;
+  return role
+    ? documents.filter(document =>
+        document.requiredForRoles.split(",").includes(role)
+      )
+    : documents;
 }
 
 export type SignupConsentInput = {
   policyKey: string;
   policyVersion: string;
-  consentType: "required_service" | "optional_ai_learning" | "teacher_ai_style" | "guardian_authorization";
+  consentType:
+    | "required_service"
+    | "optional_ai_learning"
+    | "teacher_ai_style"
+    | "guardian_authorization";
   accepted: boolean;
 };
 
-export async function recordUserPolicyConsents(userId: number, consents: SignupConsentInput[]) {
+export async function recordUserPolicyConsents(
+  userId: number,
+  consents: SignupConsentInput[]
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const accepted = consents.filter((consent) => consent.accepted);
+  const accepted = consents.filter(consent => consent.accepted);
   if (accepted.length === 0) return;
-  await db.insert(userPolicyConsents).values(accepted.map((consent) => ({
-    userId,
-    policyKey: consent.policyKey,
-    policyVersion: consent.policyVersion,
-    consentType: consent.consentType,
-    status: "accepted" as const,
-    acceptedAt: new Date(),
-    evidence: "signup_confirmation",
-  })));
+  await db.insert(userPolicyConsents).values(
+    accepted.map(consent => ({
+      userId,
+      policyKey: consent.policyKey,
+      policyVersion: consent.policyVersion,
+      consentType: consent.consentType,
+      status: "accepted" as const,
+      acceptedAt: new Date(),
+      evidence: "signup_confirmation",
+    }))
+  );
 }
 
 export async function getUserPolicyConsents(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(userPolicyConsents).where(eq(userPolicyConsents.userId, userId)).orderBy(desc(userPolicyConsents.acceptedAt));
+  return db
+    .select()
+    .from(userPolicyConsents)
+    .where(eq(userPolicyConsents.userId, userId))
+    .orderBy(desc(userPolicyConsents.acceptedAt));
+}
+
+// ===== AI 개인 맞춤 첨삭 동의(마이페이지에서 켜고 끈다) =====
+export const AI_LEARNING_POLICY_KEY = "ai_learning_consent";
+
+async function latestAiLearningConsent(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [latest] = await db
+    .select()
+    .from(userPolicyConsents)
+    .where(
+      and(
+        eq(userPolicyConsents.userId, userId),
+        eq(userPolicyConsents.policyKey, AI_LEARNING_POLICY_KEY)
+      )
+    )
+    .orderBy(desc(userPolicyConsents.id))
+    .limit(1);
+  return latest ?? null;
+}
+
+/** 가장 최근 동의 기록이 '동의' 상태일 때만 개인 맞춤 첨삭을 켠다. 철회하면 바로 꺼진다. */
+export async function hasAiLearningConsent(userId: number) {
+  return (await latestAiLearningConsent(userId))?.status === "accepted";
+}
+
+export async function getAiPersonalizationStatus(userId: number) {
+  const [latest, documents] = await Promise.all([
+    latestAiLearningConsent(userId),
+    ensureDefaultPolicyDocuments(),
+  ]);
+  const document =
+    documents.find(item => item.policyKey === AI_LEARNING_POLICY_KEY) ?? null;
+  const consented = latest?.status === "accepted";
+  return {
+    consented,
+    acceptedAt: consented ? latest!.acceptedAt : null,
+    document: document
+      ? {
+          title: document.title,
+          version: document.version,
+          content: document.content,
+        }
+      : null,
+  };
+}
+
+export async function setAiLearningConsent(userId: number, accepted: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  if (accepted) {
+    if (await hasAiLearningConsent(userId)) return { consented: true };
+    const documents = await ensureDefaultPolicyDocuments();
+    const document = documents.find(
+      item => item.policyKey === AI_LEARNING_POLICY_KEY
+    );
+    if (!document)
+      throw new Error("AI 학습 데이터 활용 동의 문서를 찾을 수 없습니다.");
+    await db.insert(userPolicyConsents).values({
+      userId,
+      policyKey: AI_LEARNING_POLICY_KEY,
+      policyVersion: document.version,
+      consentType: "optional_ai_learning",
+      status: "accepted",
+      acceptedAt: new Date(),
+      evidence: "mypage_toggle",
+    });
+    return { consented: true };
+  }
+  const now = new Date();
+  await db
+    .update(userPolicyConsents)
+    .set({ status: "withdrawn", withdrawnAt: now })
+    .where(
+      and(
+        eq(userPolicyConsents.userId, userId),
+        eq(userPolicyConsents.policyKey, AI_LEARNING_POLICY_KEY),
+        eq(userPolicyConsents.status, "accepted")
+      )
+    );
+  return { consented: false };
+}
+
+function parseTextList(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 동의한 학습자의 최근 AI 첨삭 기록을 요약해 다음 첨삭의 참고 정보로 쓴다. 답안 원문은 담지 않는다. */
+export async function buildLearnerHistoryContext(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(aiAutoFeedback)
+    .where(eq(aiAutoFeedback.userId, userId))
+    .orderBy(desc(aiAutoFeedback.createdAt), desc(aiAutoFeedback.id))
+    .limit(5);
+  if (rows.length === 0) return null;
+  const average = (values: Array<number | null>) => {
+    const numbers = values.filter(
+      (value): value is number => typeof value === "number"
+    );
+    return numbers.length
+      ? Math.round(
+          numbers.reduce((sum, value) => sum + value, 0) / numbers.length
+        )
+      : null;
+  };
+  const averageScores = {
+    structure: average(rows.map(row => row.structureScore)),
+    logic: average(rows.map(row => row.logicScore)),
+    expression: average(rows.map(row => row.expressionScore)),
+    overall: average(rows.map(row => row.overallScore)),
+  };
+  const dimensions = (["structure", "logic", "expression"] as const).filter(
+    key => averageScores[key] !== null
+  );
+  const weakestDimension = dimensions.length
+    ? dimensions.reduce((lowest, key) =>
+        averageScores[key]! < averageScores[lowest]! ? key : lowest
+      )
+    : null;
+  const recurringWeakPoints = Array.from(
+    new Set(
+      rows
+        .slice(0, 3)
+        .flatMap(row => parseTextList(row.weaknesses))
+        .map(text => text.trim().slice(0, 80))
+        .filter(Boolean)
+    )
+  ).slice(0, 4);
+  return {
+    recent_essay_count: rows.length,
+    average_scores: averageScores,
+    weakest_dimension: weakestDimension,
+    recurring_weak_points: recurringWeakPoints,
+  };
 }
 
 export async function getPolicyConsentAudit(limit = 100) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(userPolicyConsents).orderBy(desc(userPolicyConsents.updatedAt)).limit(limit);
+  return db
+    .select()
+    .from(userPolicyConsents)
+    .orderBy(desc(userPolicyConsents.updatedAt))
+    .limit(limit);
 }
 
 export async function getDataProcessingRequests(limit = 100) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(dataProcessingRequests).orderBy(desc(dataProcessingRequests.updatedAt)).limit(limit);
+  return db
+    .select()
+    .from(dataProcessingRequests)
+    .orderBy(desc(dataProcessingRequests.updatedAt))
+    .limit(limit);
 }
 
-export async function createDataProcessingRequest(userId: number, requestType: "access" | "correction" | "withdraw_ai_learning" | "delete_learning_data", requestNote?: string) {
+export async function createDataProcessingRequest(
+  userId: number,
+  requestType:
+    | "access"
+    | "correction"
+    | "withdraw_ai_learning"
+    | "delete_learning_data",
+  requestNote?: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.insert(dataProcessingRequests).values({ userId, requestType, requestNote: requestNote ?? null });
-  const [request] = await db.select().from(dataProcessingRequests).where(eq(dataProcessingRequests.userId, userId)).orderBy(desc(dataProcessingRequests.id));
+  await db
+    .insert(dataProcessingRequests)
+    .values({ userId, requestType, requestNote: requestNote ?? null });
+  const [request] = await db
+    .select()
+    .from(dataProcessingRequests)
+    .where(eq(dataProcessingRequests.userId, userId))
+    .orderBy(desc(dataProcessingRequests.id));
   return request;
 }
 
@@ -1929,13 +3494,19 @@ export function pseudonymizeLearningText(text: string) {
 export async function getTeacherAiProfiles() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(teacherAiProfiles).orderBy(desc(teacherAiProfiles.updatedAt));
+  return db
+    .select()
+    .from(teacherAiProfiles)
+    .orderBy(desc(teacherAiProfiles.updatedAt));
 }
 
 export async function getTeacherAiProfile(teacherId: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const [profile] = await db.select().from(teacherAiProfiles).where(eq(teacherAiProfiles.teacherId, teacherId));
+  const [profile] = await db
+    .select()
+    .from(teacherAiProfiles)
+    .where(eq(teacherAiProfiles.teacherId, teacherId));
   return profile;
 }
 
@@ -1951,20 +3522,39 @@ export async function upsertTeacherAiProfile(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [existing] = await db.select().from(teacherAiProfiles).where(eq(teacherAiProfiles.teacherId, input.teacherId));
+  const [existing] = await db
+    .select()
+    .from(teacherAiProfiles)
+    .where(eq(teacherAiProfiles.teacherId, input.teacherId));
   const values = {
     displayName: input.displayName,
     tone: input.tone,
     feedbackFocus: input.feedbackFocus,
     styleInstruction: input.styleInstruction ?? null,
     forbiddenPhrases: JSON.stringify(input.forbiddenPhrases ?? []),
-    rubricWeights: JSON.stringify(input.rubricWeights ?? { logic: 30, evidence: 30, expression: 20, structure: 20 }),
+    rubricWeights: JSON.stringify(
+      input.rubricWeights ?? {
+        logic: 30,
+        evidence: 30,
+        expression: 20,
+        structure: 20,
+      }
+    ),
     isEnabled: input.isEnabled ? 1 : 0,
   };
   if (existing) {
-    await db.update(teacherAiProfiles).set({ ...values, currentVersion: existing.currentVersion + 1, updatedAt: new Date() }).where(eq(teacherAiProfiles.id, existing.id));
+    await db
+      .update(teacherAiProfiles)
+      .set({
+        ...values,
+        currentVersion: existing.currentVersion + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(teacherAiProfiles.id, existing.id));
   } else {
-    await db.insert(teacherAiProfiles).values({ teacherId: input.teacherId, ...values, currentVersion: 1 });
+    await db
+      .insert(teacherAiProfiles)
+      .values({ teacherId: input.teacherId, ...values, currentVersion: 1 });
   }
   return getTeacherAiProfile(input.teacherId);
 }
@@ -1973,8 +3563,15 @@ export async function listTeacherAiStyleExamples(teacherId?: number) {
   const db = await getDb();
   if (!db) return [];
   return teacherId
-    ? db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.teacherId, teacherId)).orderBy(desc(teacherAiStyleExamples.updatedAt))
-    : db.select().from(teacherAiStyleExamples).orderBy(desc(teacherAiStyleExamples.updatedAt));
+    ? db
+        .select()
+        .from(teacherAiStyleExamples)
+        .where(eq(teacherAiStyleExamples.teacherId, teacherId))
+        .orderBy(desc(teacherAiStyleExamples.updatedAt))
+    : db
+        .select()
+        .from(teacherAiStyleExamples)
+        .orderBy(desc(teacherAiStyleExamples.updatedAt));
 }
 
 export async function createTeacherAiStyleExample(input: {
@@ -1996,15 +3593,47 @@ export async function createTeacherAiStyleExample(input: {
     tags: input.tags ?? null,
     approvalStatus: "draft",
   });
-  const [example] = await db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.teacherId, input.teacherId)).orderBy(desc(teacherAiStyleExamples.id));
+  const [example] = await db
+    .select()
+    .from(teacherAiStyleExamples)
+    .where(eq(teacherAiStyleExamples.teacherId, input.teacherId))
+    .orderBy(desc(teacherAiStyleExamples.id));
   return example;
 }
 
-export async function updateTeacherAiStyleExampleStatus(exampleId: number, status: "draft" | "teacher_approved" | "admin_approved" | "rejected" | "withdrawn") {
+export async function getTeacherAiStyleExampleById(exampleId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [example] = await db
+    .select()
+    .from(teacherAiStyleExamples)
+    .where(eq(teacherAiStyleExamples.id, exampleId));
+  return example;
+}
+
+export async function updateTeacherAiStyleExampleStatus(
+  exampleId: number,
+  status:
+    | "draft"
+    | "teacher_approved"
+    | "admin_approved"
+    | "rejected"
+    | "withdrawn"
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.update(teacherAiStyleExamples).set({ approvalStatus: status, approvedAt: status.includes("approved") ? new Date() : null, updatedAt: new Date() }).where(eq(teacherAiStyleExamples.id, exampleId));
-  const [example] = await db.select().from(teacherAiStyleExamples).where(eq(teacherAiStyleExamples.id, exampleId));
+  await db
+    .update(teacherAiStyleExamples)
+    .set({
+      approvalStatus: status,
+      approvedAt: status.includes("approved") ? new Date() : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(teacherAiStyleExamples.id, exampleId));
+  const [example] = await db
+    .select()
+    .from(teacherAiStyleExamples)
+    .where(eq(teacherAiStyleExamples.id, exampleId));
   return example;
 }
 
@@ -2022,23 +3651,40 @@ type TeacherAiDraftEvaluation = {
 export async function getTeacherAiDraftById(draftId: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const [draft] = await db.select().from(teacherAiDrafts).where(eq(teacherAiDrafts.id, draftId));
+  const [draft] = await db
+    .select()
+    .from(teacherAiDrafts)
+    .where(eq(teacherAiDrafts.id, draftId));
   return draft;
 }
 
 export async function getTeacherAiDraftsByEssay(essayId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(teacherAiDrafts).where(eq(teacherAiDrafts.essayId, essayId)).orderBy(desc(teacherAiDrafts.updatedAt));
+  return db
+    .select()
+    .from(teacherAiDrafts)
+    .where(eq(teacherAiDrafts.essayId, essayId))
+    .orderBy(desc(teacherAiDrafts.updatedAt));
 }
 
-function parseTeacherAiEvaluation(content: string): { draftComment: string; evaluation: TeacherAiDraftEvaluation } {
-  const parsed = JSON.parse(extractFirstJsonObject(content)) as { draftComment: string; evaluation: TeacherAiDraftEvaluation };
-  if (!parsed.draftComment || !parsed.evaluation) throw new Error("AI 첨삭 초안 형식이 올바르지 않습니다.");
+function parseTeacherAiEvaluation(content: string): {
+  draftComment: string;
+  evaluation: TeacherAiDraftEvaluation;
+} {
+  const parsed = JSON.parse(extractFirstJsonObject(content)) as {
+    draftComment: string;
+    evaluation: TeacherAiDraftEvaluation;
+  };
+  if (!parsed.draftComment || !parsed.evaluation)
+    throw new Error("AI 첨삭 초안 형식이 올바르지 않습니다.");
   return parsed;
 }
 
-export async function generateTeacherAiDraft(essayId: number, teacherId: number) {
+export async function generateTeacherAiDraft(
+  essayId: number,
+  teacherId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [essay, profile, availableModels, examples] = await Promise.all([
@@ -2048,20 +3694,43 @@ export async function generateTeacherAiDraft(essayId: number, teacherId: number)
     listTeacherAiStyleExamples(teacherId),
   ]);
   if (!essay) throw new Error("논술 제출물을 찾을 수 없습니다.");
-  if (!profile?.isEnabled) throw new Error("교사별 AI 보조 봇이 활성화되어 있지 않습니다.");
+  if (!profile?.isEnabled)
+    throw new Error("교사별 AI 보조 봇이 활성화되어 있지 않습니다.");
 
-  const approvedExamples = examples.filter((example) => example.approvalStatus === "admin_approved").slice(0, 3);
-  const model = availableModels.data.find((candidate) => candidate.id === "gpt-5")?.id ?? availableModels.data.find((candidate) => candidate.id === "gpt-5-mini")?.id;
+  const approvedExamples = examples
+    .filter(example => example.approvalStatus === "admin_approved")
+    .slice(0, 3);
+  const model =
+    availableModels.data.find(candidate => candidate.id === "gpt-5")?.id ??
+    availableModels.data.find(candidate => candidate.id === "gpt-5-mini")?.id;
   if (!model) throw new Error("사용 가능한 AI 모델을 찾지 못했습니다.");
-  const forbiddenPhrases = (() => { try { return JSON.parse(profile.forbiddenPhrases || "[]") as string[]; } catch { return []; } })();
-  const styleReferences = approvedExamples.map((example, index) => `사례 ${index + 1}\n[가명 처리된 답안]\n${example.pseudonymizedPrompt}\n[교사 최종 첨삭]\n${example.approvedFeedback}`).join("\n\n");
+  const forbiddenPhrases = (() => {
+    try {
+      return JSON.parse(profile.forbiddenPhrases || "[]") as string[];
+    } catch {
+      return [];
+    }
+  })();
+  const styleReferences = approvedExamples
+    .map(
+      (example, index) =>
+        `사례 ${index + 1}\n[가명 처리된 답안]\n${example.pseudonymizedPrompt}\n[교사 최종 첨삭]\n${example.approvedFeedback}`
+    )
+    .join("\n\n");
 
   const response = await invokeLLM({
     model,
     reasoning: model === "gpt-5" ? { effort: "low" } : undefined,
     messages: [
-      { role: "system", content: "당신은 교사가 검토할 논술 첨삭 초안을 만드는 보조 AI입니다. 학생에게 직접 말하는 확정 첨삭처럼 표현하지 마세요. 답안에 실제로 존재하는 문장만 인용하고, 확인할 수 없는 사실·성적·입시 결과를 만들지 마세요. 학생 식별 정보의 추정·반복을 금지합니다." },
-      { role: "user", content: `[교사 AI 보조 봇 프로필]\n이름: ${profile.displayName}\n어조: ${profile.tone}\n우선 평가 영역: ${profile.feedbackFocus}\n스타일 지침: ${profile.styleInstruction || "없음"}\n금지 표현: ${forbiddenPhrases.join(", ") || "없음"}\n\n[가명 처리·관리자 승인 사례]\n${styleReferences || "등록된 사례 없음"}\n\n[학생 제출물]\n제목: ${essay.title}\n답안:\n${essay.content}\n\n[작성 규칙]\n1. 논리·구조·표현 점수는 0~100 정수로, 실제 답안 인용이 없으면 높게 주지 않습니다.\n2. answerQuotes는 답안에 문자 그대로 포함된 2~60자 인용만 0~3개 반환합니다.\n3. strengths와 improvements는 각각 1~3개이며 구체적인 행동 지침이어야 합니다.\n4. draftComment는 교사가 수정할 수 있는 한국어 첨삭 초안입니다.\n5. safetyFlags에는 개인정보 가능성·근거 부족·주제 이탈 등 검토 필요한 항목만 넣습니다.` },
+      {
+        role: "system",
+        content:
+          "당신은 교사가 검토할 논술 첨삭 초안을 만드는 보조 AI입니다. 학생에게 직접 말하는 확정 첨삭처럼 표현하지 마세요. 답안에 실제로 존재하는 문장만 인용하고, 확인할 수 없는 사실·성적·입시 결과를 만들지 마세요. 학생 식별 정보의 추정·반복을 금지합니다.",
+      },
+      {
+        role: "user",
+        content: `[교사 AI 보조 봇 프로필]\n이름: ${profile.displayName}\n어조: ${profile.tone}\n우선 평가 영역: ${profile.feedbackFocus}\n스타일 지침: ${profile.styleInstruction || "없음"}\n금지 표현: ${forbiddenPhrases.join(", ") || "없음"}\n\n[가명 처리·관리자 승인 사례]\n${styleReferences || "등록된 사례 없음"}\n\n[학생 제출물]\n제목: ${essay.title}\n답안:\n${essay.content}\n\n[작성 규칙]\n1. 논리·구조·표현 점수는 0~100 정수로, 실제 답안 인용이 없으면 높게 주지 않습니다.\n2. answerQuotes는 답안에 문자 그대로 포함된 2~60자 인용만 0~3개 반환합니다.\n3. strengths와 improvements는 각각 1~3개이며 구체적인 행동 지침이어야 합니다.\n4. draftComment는 교사가 수정할 수 있는 한국어 첨삭 초안입니다.\n5. safetyFlags에는 개인정보 가능성·근거 부족·주제 이탈 등 검토 필요한 항목만 넣습니다.`,
+      },
     ],
     responseFormat: {
       type: "json_schema",
@@ -2079,12 +3748,41 @@ export async function generateTeacherAiDraft(essayId: number, teacherId: number)
                 logicScore: { type: "integer", minimum: 0, maximum: 100 },
                 structureScore: { type: "integer", minimum: 0, maximum: 100 },
                 expressionScore: { type: "integer", minimum: 0, maximum: 100 },
-                strengths: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
-                improvements: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
-                answerQuotes: { type: "array", minItems: 0, maxItems: 3, items: { type: "string" } },
-                safetyFlags: { type: "array", minItems: 0, maxItems: 4, items: { type: "string" } },
+                strengths: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 3,
+                  items: { type: "string" },
+                },
+                improvements: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 3,
+                  items: { type: "string" },
+                },
+                answerQuotes: {
+                  type: "array",
+                  minItems: 0,
+                  maxItems: 3,
+                  items: { type: "string" },
+                },
+                safetyFlags: {
+                  type: "array",
+                  minItems: 0,
+                  maxItems: 4,
+                  items: { type: "string" },
+                },
               },
-              required: ["overallScore", "logicScore", "structureScore", "expressionScore", "strengths", "improvements", "answerQuotes", "safetyFlags"],
+              required: [
+                "overallScore",
+                "logicScore",
+                "structureScore",
+                "expressionScore",
+                "strengths",
+                "improvements",
+                "answerQuotes",
+                "safetyFlags",
+              ],
               additionalProperties: false,
             },
           },
@@ -2095,10 +3793,14 @@ export async function generateTeacherAiDraft(essayId: number, teacherId: number)
     },
   });
   const content = response.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) throw new Error("AI 첨삭 초안 응답이 비어 있습니다.");
+  if (typeof content !== "string" || !content.trim())
+    throw new Error("AI 첨삭 초안 응답이 비어 있습니다.");
   const { draftComment, evaluation } = parseTeacherAiEvaluation(content);
-  const invalidQuote = evaluation.answerQuotes.some((quote) => quote && !essay.content.includes(quote));
-  if (invalidQuote) throw new Error("AI 첨삭 초안의 근거 인용을 검증하지 못했습니다.");
+  const invalidQuote = evaluation.answerQuotes.some(
+    quote => quote && !essay.content.includes(quote)
+  );
+  if (invalidQuote)
+    throw new Error("AI 첨삭 초안의 근거 인용을 검증하지 못했습니다.");
   await db.insert(teacherAiDrafts).values({
     essayId,
     teacherId,
@@ -2109,14 +3811,32 @@ export async function generateTeacherAiDraft(essayId: number, teacherId: number)
     status: "generated",
     generatedAt: new Date(),
   });
-  const [draft] = await db.select().from(teacherAiDrafts).where(and(eq(teacherAiDrafts.essayId, essayId), eq(teacherAiDrafts.teacherId, teacherId))).orderBy(desc(teacherAiDrafts.id));
+  const [draft] = await db
+    .select()
+    .from(teacherAiDrafts)
+    .where(
+      and(
+        eq(teacherAiDrafts.essayId, essayId),
+        eq(teacherAiDrafts.teacherId, teacherId)
+      )
+    )
+    .orderBy(desc(teacherAiDrafts.id));
   return draft;
 }
 
-export async function saveTeacherAiDraftRevision(input: { draftId: number; editorId: number; revisedComment: string; changeSummary?: string; learningApproval?: "pending" | "approved" | "rejected" | "withdrawn" }) {
+export async function saveTeacherAiDraftRevision(input: {
+  draftId: number;
+  editorId: number;
+  revisedComment: string;
+  changeSummary?: string;
+  learningApproval?: "pending" | "approved" | "rejected" | "withdrawn";
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const revisions = await db.select().from(teacherAiDraftRevisions).where(eq(teacherAiDraftRevisions.draftId, input.draftId));
+  const revisions = await db
+    .select()
+    .from(teacherAiDraftRevisions)
+    .where(eq(teacherAiDraftRevisions.draftId, input.draftId));
   await db.insert(teacherAiDraftRevisions).values({
     draftId: input.draftId,
     revisionNumber: revisions.length + 1,
@@ -2125,23 +3845,42 @@ export async function saveTeacherAiDraftRevision(input: { draftId: number; edito
     changeSummary: input.changeSummary ?? null,
     learningApproval: input.learningApproval ?? "pending",
   });
-  await db.update(teacherAiDrafts).set({ status: "edited", updatedAt: new Date() }).where(eq(teacherAiDrafts.id, input.draftId));
-  const [revision] = await db.select().from(teacherAiDraftRevisions).where(eq(teacherAiDraftRevisions.draftId, input.draftId)).orderBy(desc(teacherAiDraftRevisions.id));
+  await db
+    .update(teacherAiDrafts)
+    .set({ status: "edited", updatedAt: new Date() })
+    .where(eq(teacherAiDrafts.id, input.draftId));
+  const [revision] = await db
+    .select()
+    .from(teacherAiDraftRevisions)
+    .where(eq(teacherAiDraftRevisions.draftId, input.draftId))
+    .orderBy(desc(teacherAiDraftRevisions.id));
   return revision;
 }
 
 export async function getTeacherAiDraftRevisions(draftId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(teacherAiDraftRevisions).where(eq(teacherAiDraftRevisions.draftId, draftId)).orderBy(desc(teacherAiDraftRevisions.revisionNumber));
+  return db
+    .select()
+    .from(teacherAiDraftRevisions)
+    .where(eq(teacherAiDraftRevisions.draftId, draftId))
+    .orderBy(desc(teacherAiDraftRevisions.revisionNumber));
 }
 
-export async function approveTeacherAiDraft(input: { draftId: number; teacherId: number; revisionId?: number; finalComment: string }) {
+export async function approveTeacherAiDraft(input: {
+  draftId: number;
+  teacherId: number;
+  revisionId?: number;
+  finalComment: string;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const draft = await getTeacherAiDraftById(input.draftId);
-  if (!draft || draft.teacherId !== input.teacherId) throw new Error("승인할 AI 첨삭 초안을 찾을 수 없습니다.");
-  const evaluation = draft.evaluationJson ? JSON.parse(draft.evaluationJson) as TeacherAiDraftEvaluation : null;
+  if (!draft || draft.teacherId !== input.teacherId)
+    throw new Error("승인할 AI 첨삭 초안을 찾을 수 없습니다.");
+  const evaluation = draft.evaluationJson
+    ? (JSON.parse(draft.evaluationJson) as TeacherAiDraftEvaluation)
+    : null;
   const existingFeedback = await getTeacherFeedbackByEssay(draft.essayId);
   const feedbackValues = {
     overallComment: input.finalComment,
@@ -2150,9 +3889,18 @@ export async function approveTeacherAiDraft(input: { draftId: number; teacherId:
     structureScore: evaluation?.structureScore,
     expressionScore: evaluation?.expressionScore,
   };
-  if (existingFeedback) await updateTeacherFeedback(existingFeedback.id, feedbackValues);
-  else await createTeacherFeedback({ essayId: draft.essayId, teacherId: input.teacherId, ...feedbackValues });
-  await db.update(teacherAiDrafts).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() }).where(eq(teacherAiDrafts.id, input.draftId));
+  if (existingFeedback)
+    await updateTeacherFeedback(existingFeedback.id, feedbackValues);
+  else
+    await createTeacherFeedback({
+      essayId: draft.essayId,
+      teacherId: input.teacherId,
+      ...feedbackValues,
+    });
+  await db
+    .update(teacherAiDrafts)
+    .set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
+    .where(eq(teacherAiDrafts.id, input.draftId));
   await updateEssaySubmission(draft.essayId, { status: "reviewed" });
   return getTeacherFeedbackByEssay(draft.essayId);
 }
@@ -2161,56 +3909,103 @@ export async function getAdminOperationsDashboardStats() {
   const db = await getDb();
   if (!db) return null;
 
-  const allUsers = await db.select().from(users);
-  const allSubs = await db.select().from(essaySubmission);
-  const allCerts = await db.select().from(certificate);
-  const allAiLogs = await db.select().from(aiUsageLogs);
-
-  const students = allUsers.filter(u => u.role !== 'admin');
-  const teachers = allUsers.filter(u => u.role === 'admin');
+  // 행을 모두 읽지 않고 DB에서 개수만 센다. (기존 동작 유지: teacherCount는 role='admin' 수)
+  const [[students], [teachers], [submissions], [certificates], [aiLogs]] =
+    await Promise.all([
+      db.select({ value: count() }).from(users).where(ne(users.role, "admin")),
+      db.select({ value: count() }).from(users).where(eq(users.role, "admin")),
+      db.select({ value: count() }).from(essaySubmission),
+      db.select({ value: count() }).from(certificate),
+      db.select({ value: count() }).from(aiUsageLogs),
+    ]);
 
   return {
-    studentCount: students.length,
-    teacherCount: teachers.length,
-    submissionCount: allSubs.length,
-    certificateCount: allCerts.length,
-    aiUsageCount: allAiLogs.length,
+    studentCount: Number(students?.value ?? 0),
+    teacherCount: Number(teachers?.value ?? 0),
+    submissionCount: Number(submissions?.value ?? 0),
+    certificateCount: Number(certificates?.value ?? 0),
+    aiUsageCount: Number(aiLogs?.value ?? 0),
   };
 }
 
-async function createAiCourseSummary(title: string, description: string, topics: string[]) {
+async function createAiCourseSummary(
+  title: string,
+  description: string,
+  topics: string[]
+) {
   const fallback = `${title} 과정은 ${description} 핵심 주제를 단계적으로 연습하며, ${topics.slice(0, 2).join("과 ")} 능력을 실제 글쓰기에 적용하도록 설계되었습니다.`;
   try {
     const response = await invokeLLM({
       messages: [
-        { role: "system", content: "당신은 한국어 논술 교육 콘텐츠 편집자입니다. 강의 카드에 표시할 2문장 이내의 자연스러운 요약만 작성하세요. 과장된 표현이나 확인되지 않은 성과 수치는 사용하지 마세요." },
-        { role: "user", content: `강의명: ${title}\n설명: ${description}\n학습 주제: ${topics.join(", ")}\n학습자가 얻는 핵심 역량과 학습 흐름을 2문장 이내로 요약하세요.` },
+        {
+          role: "system",
+          content:
+            "당신은 한국어 논술 교육 콘텐츠 편집자입니다. 강의 카드에 표시할 2문장 이내의 자연스러운 요약만 작성하세요. 과장된 표현이나 확인되지 않은 성과 수치는 사용하지 마세요.",
+        },
+        {
+          role: "user",
+          content: `강의명: ${title}\n설명: ${description}\n학습 주제: ${topics.join(", ")}\n학습자가 얻는 핵심 역량과 학습 흐름을 2문장 이내로 요약하세요.`,
+        },
       ],
     });
-    const content = typeof response === "string" ? response : (response as any)?.choices?.[0]?.message?.content || (response as any)?.message?.content || "";
-    const summary = String(content).trim().replace(/^[-*]\s*/, "");
+    const content =
+      typeof response === "string"
+        ? response
+        : (response as any)?.choices?.[0]?.message?.content ||
+          (response as any)?.message?.content ||
+          "";
+    const summary = String(content)
+      .trim()
+      .replace(/^[-*]\s*/, "");
     return summary.length >= 20 ? summary.slice(0, 500) : fallback;
   } catch (error) {
-    console.warn("[Curriculum] AI summary generation failed; using curated fallback", error);
+    console.warn(
+      "[Curriculum] AI summary generation failed; using curated fallback",
+      error
+    );
     return fallback;
   }
 }
 
-async function createAiTagsFromSummary(title: string, aiSummary: string, topics: string[]) {
+async function createAiTagsFromSummary(
+  title: string,
+  aiSummary: string,
+  topics: string[]
+) {
   const defaultTags = [title.split(" ")[0] || "논술", "핵심역량", "실전대비"];
   try {
     const response = await invokeLLM({
       messages: [
-        { role: "system", content: "당신은 교육 태그 생성기입니다. 강의 요약과 주제를 분석하여 핵심 특징을 나타내는 3~4개의 짧은 한글 태그(각 2~6자)를 쉼표로 구분하여 출력하세요. 예: 수시분석, 논리독해, 실전파이널" },
-        { role: "user", content: `강의명: ${title}\n요약: ${aiSummary}\n주제: ${topics.join(", ")}` },
+        {
+          role: "system",
+          content:
+            "당신은 교육 태그 생성기입니다. 강의 요약과 주제를 분석하여 핵심 특징을 나타내는 3~4개의 짧은 한글 태그(각 2~6자)를 쉼표로 구분하여 출력하세요. 예: 수시분석, 논리독해, 실전파이널",
+        },
+        {
+          role: "user",
+          content: `강의명: ${title}\n요약: ${aiSummary}\n주제: ${topics.join(", ")}`,
+        },
       ],
     });
-    const content = typeof response === "string" ? response : (response as any)?.choices?.[0]?.message?.content || (response as any)?.message?.content || "";
-    const cleaned = String(content).trim().replace(/[\[\]"]/g, "");
-    const tags = cleaned.split(/[,，\n]/).map(t => t.trim().replace(/^#/, "")).filter(Boolean);
+    const content =
+      typeof response === "string"
+        ? response
+        : (response as any)?.choices?.[0]?.message?.content ||
+          (response as any)?.message?.content ||
+          "";
+    const cleaned = String(content)
+      .trim()
+      .replace(/[\[\]"]/g, "");
+    const tags = cleaned
+      .split(/[,，\n]/)
+      .map(t => t.trim().replace(/^#/, ""))
+      .filter(Boolean);
     return tags.length >= 2 ? tags.slice(0, 4) : defaultTags;
   } catch (error) {
-    console.warn("[Curriculum] AI tags generation failed; using defaults", error);
+    console.warn(
+      "[Curriculum] AI tags generation failed; using defaults",
+      error
+    );
     return defaultTags;
   }
 }
@@ -2225,41 +4020,126 @@ export async function seedHighUnivAndGeneralAdultCategories() {
       courseType: "high_univ" as const,
       thumbnailUrl: null,
       samples: [
-        { level: 1, title: "인문·사회 제시문 심층 분석", description: "대입 수시 논술의 핵심인 다면적 제시문 비교 및 독해 능력을 기릅니다.", topics: ["제시문 공통점과 차이점 추출", "비판적 독해와 논지 재구성", "출제자의 숨은 의도 파악"] },
-        { level: 2, title: "수리·과학적 사고와 논증", description: "논리적 인과관계와 확률·통계 데이터를 활용한 설득력 있는 논술 글쓰기입니다.", topics: ["도표와 통계 자료 해석", "논리적 오류 검증", "과학적 가설 검증형 논증"] },
-        { level: 3, title: "대학별 모의논술 실전 파이널", description: "주요 대학 기출문제 분석을 통해 실전 감각을 극대화하고 최종 완성도를 높입니다.", topics: ["연세대·고려대 기출 유형 분석", "시간 관리와 개요 작성 법", "실전 모의논술 첨삭 피드백"] },
+        {
+          level: 1,
+          title: "인문·사회 제시문 심층 분석",
+          description:
+            "대입 수시 논술의 핵심인 다면적 제시문 비교 및 독해 능력을 기릅니다.",
+          topics: [
+            "제시문 공통점과 차이점 추출",
+            "비판적 독해와 논지 재구성",
+            "출제자의 숨은 의도 파악",
+          ],
+        },
+        {
+          level: 2,
+          title: "수리·과학적 사고와 논증",
+          description:
+            "논리적 인과관계와 확률·통계 데이터를 활용한 설득력 있는 논술 글쓰기입니다.",
+          topics: [
+            "도표와 통계 자료 해석",
+            "논리적 오류 검증",
+            "과학적 가설 검증형 논증",
+          ],
+        },
+        {
+          level: 3,
+          title: "대학별 모의논술 실전 파이널",
+          description:
+            "주요 대학 기출문제 분석을 통해 실전 감각을 극대화하고 최종 완성도를 높입니다.",
+          topics: [
+            "연세대·고려대 기출 유형 분석",
+            "시간 관리와 개요 작성 법",
+            "실전 모의논술 첨삭 피드백",
+          ],
+        },
       ],
     },
     {
       courseType: "general_adult" as const,
       thumbnailUrl: null,
       samples: [
-        { level: 1, title: "비즈니스 기획서와 보고서 작성법", description: "직장인 필수 역량인 간결하고 명확한 비즈니스 문서 기획 및 논리 전개법입니다.", topics: ["결론 우선 두괄식 구조화", "핵심 데이터 시각화 개요", "상사 설득을 위한 기획서 작성"] },
-        { level: 2, title: "논리적 설득 스피치와 논설문", description: "공식적인 석상과 이메일, 제안서에서 상대를 논리적으로 설득하는 글쓰기입니다.", topics: ["타당한 근거와 논거 배치", "반박에 대응하는 방어 논리", "설득력 있는 어휘 선택"] },
-        { level: 3, title: "실무 에세이 및 칼럼 기고문", description: "전문 분야의 통찰을 담은 에세이와 사회적 이슈를 다루는 칼럼 기고문 작성입니다.", topics: ["문제 정의와 시사점 도출", "독자 타겟팅 맞춤형 문체", "완성도 높은 칼럼 에세이 편집"] },
+        {
+          level: 1,
+          title: "비즈니스 기획서와 보고서 작성법",
+          description:
+            "직장인 필수 역량인 간결하고 명확한 비즈니스 문서 기획 및 논리 전개법입니다.",
+          topics: [
+            "결론 우선 두괄식 구조화",
+            "핵심 데이터 시각화 개요",
+            "상사 설득을 위한 기획서 작성",
+          ],
+        },
+        {
+          level: 2,
+          title: "논리적 설득 스피치와 논설문",
+          description:
+            "공식적인 석상과 이메일, 제안서에서 상대를 논리적으로 설득하는 글쓰기입니다.",
+          topics: [
+            "타당한 근거와 논거 배치",
+            "반박에 대응하는 방어 논리",
+            "설득력 있는 어휘 선택",
+          ],
+        },
+        {
+          level: 3,
+          title: "실무 에세이 및 칼럼 기고문",
+          description:
+            "전문 분야의 통찰을 담은 에세이와 사회적 이슈를 다루는 칼럼 기고문 작성입니다.",
+          topics: [
+            "문제 정의와 시사점 도출",
+            "독자 타겟팅 맞춤형 문체",
+            "완성도 높은 칼럼 에세이 편집",
+          ],
+        },
       ],
     },
   ];
 
   for (const group of sampleGroups) {
     for (const sample of group.samples) {
-      const found = existing.find((item) => item.courseType === group.courseType && item.title === sample.title);
-      const aiSummary = found?.aiSummary || await createAiCourseSummary(sample.title, sample.description, sample.topics);
+      const found = existing.find(
+        item =>
+          item.courseType === group.courseType && item.title === sample.title
+      );
+      const aiSummary =
+        found?.aiSummary ||
+        (await createAiCourseSummary(
+          sample.title,
+          sample.description,
+          sample.topics
+        ));
       let aiTags: string[] = [];
       try {
-        aiTags = found?.aiTags ? JSON.parse(found.aiTags) : await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
+        aiTags = found?.aiTags
+          ? JSON.parse(found.aiTags)
+          : await createAiTagsFromSummary(
+              sample.title,
+              aiSummary,
+              sample.topics
+            );
       } catch {
-        aiTags = await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
+        aiTags = await createAiTagsFromSummary(
+          sample.title,
+          aiSummary,
+          sample.topics
+        );
       }
       const uploadedPdfUrls: Record<string, string> = {
-    "high_univ-1": "/manus-storage/sample-high_univ-level1_1354f588.pdf",
-    "high_univ-2": "/manus-storage/sample-high_univ-level2_7a0b9bcb.pdf",
-    "high_univ-3": "/manus-storage/sample-high_univ-level3_790def1f.pdf",
-    "general_adult-1": "/manus-storage/sample-general_adult-level1_53bcd928.pdf",
-    "general_adult-2": "/manus-storage/sample-general_adult-level2_8ec417c6.pdf",
-    "general_adult-3": "/manus-storage/sample-general_adult-level3_c1c91ff8.pdf",
-  };
-      const samplePdfUrl = uploadedPdfUrls[`${group.courseType}-${sample.level}`] || found?.samplePdfUrl || null;
+        "high_univ-1": "/manus-storage/sample-high_univ-level1_1354f588.pdf",
+        "high_univ-2": "/manus-storage/sample-high_univ-level2_7a0b9bcb.pdf",
+        "high_univ-3": "/manus-storage/sample-high_univ-level3_790def1f.pdf",
+        "general_adult-1":
+          "/manus-storage/sample-general_adult-level1_53bcd928.pdf",
+        "general_adult-2":
+          "/manus-storage/sample-general_adult-level2_8ec417c6.pdf",
+        "general_adult-3":
+          "/manus-storage/sample-general_adult-level3_c1c91ff8.pdf",
+      };
+      const samplePdfUrl =
+        uploadedPdfUrls[`${group.courseType}-${sample.level}`] ||
+        found?.samplePdfUrl ||
+        null;
       const values = {
         courseType: group.courseType,
         level: sample.level,
@@ -2273,9 +4153,14 @@ export async function seedHighUnivAndGeneralAdultCategories() {
         updatedAt: new Date(),
       };
       if (found) {
-        await db.update(dynamicCurriculum).set(values).where(eq(dynamicCurriculum.id, found.id));
+        await db
+          .update(dynamicCurriculum)
+          .set(values)
+          .where(eq(dynamicCurriculum.id, found.id));
       } else {
-        await db.insert(dynamicCurriculum).values({ ...values, createdAt: new Date() });
+        await db
+          .insert(dynamicCurriculum)
+          .values({ ...values, createdAt: new Date() });
       }
     }
   }
@@ -2286,63 +4171,116 @@ export async function adminReorderCurriculumCategories(orderedIds: number[]) {
   if (!db) throw new Error("Database is not available");
   await seedHighUnivAndGeneralAdultCategories();
   for (let i = 0; i < orderedIds.length; i++) {
-    await db.update(dynamicCurriculum).set({ level: i + 1, updatedAt: new Date() }).where(eq(dynamicCurriculum.id, orderedIds[i]));
+    await db
+      .update(dynamicCurriculum)
+      .set({ level: i + 1, updatedAt: new Date() })
+      .where(eq(dynamicCurriculum.id, orderedIds[i]));
   }
   return true;
 }
 
-export async function updateUserRole(userId: number, newRole: "user" | "teacher" | "admin") {
+export async function updateUserRole(
+  userId: number,
+  newRole: "user" | "teacher" | "admin"
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await db.update(users).set({ role: newRole }).where(eq(users.id, userId));
   return true;
 }
 
-export async function getApprovedTeachersForRecommendation(courseType?: CourseType) {
+export async function getApprovedTeachersForRecommendation(
+  courseType?: CourseType
+) {
   const db = await getDb();
   if (!db) return [];
-  const teachers = await db.select().from(users).where(and(eq(users.role, "teacher"), eq(users.teacherStatus, "approved")));
+  const teachers = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.role, "teacher"), eq(users.teacherStatus, "approved")));
   return teachers
-    .filter((teacher) => teacher.email !== DEFAULT_AI_TUTOR_EMAIL)
-    .map((teacher) => ({
+    .filter(teacher => teacher.email !== DEFAULT_AI_TUTOR_EMAIL)
+    .map(teacher => ({
       id: teacher.id,
       name: teacher.name || "이름 미설정 교사",
       email: teacher.email,
       teacherLevel: teacher.teacherLevel ?? 1,
-      courseMatch: courseType ? getCourseTypeFromUserTag(teacher.tag) === courseType : false,
+      courseMatch: courseType
+        ? getCourseTypeFromUserTag(teacher.tag) === courseType
+        : false,
     }))
-    .sort((a, b) => Number(b.courseMatch) - Number(a.courseMatch) || b.teacherLevel - a.teacherLevel);
+    .sort(
+      (a, b) =>
+        Number(b.courseMatch) - Number(a.courseMatch) ||
+        b.teacherLevel - a.teacherLevel
+    );
 }
 
-export async function changeLearnerTeacherRole(userId: number, newRole: "user" | "teacher", actorId?: number) {
+export async function changeLearnerTeacherRole(
+  userId: number,
+  newRole: "user" | "teacher",
+  actorId?: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [target] = await db.select().from(users).where(eq(users.id, userId));
   if (!target) throw new Error("사용자를 찾을 수 없습니다.");
-  if (target.role === "admin") throw new Error("관리자 계정은 역할 전환 대상이 아닙니다.");
-  await db.update(users).set({
-    role: newRole,
-    teacherStatus: "approved",
-    teacherLevel: target.teacherLevel ?? 1,
-    ...(newRole === "user" ? { teacherId: null } : {}),
-    updatedAt: new Date(),
-  }).where(eq(users.id, userId));
-  if (actorId) await createAdminAuditLog({ actorId, targetUserId: userId, action: "role_changed", summary: `${target.name || `사용자 #${userId}`} 계정을 ${newRole === "teacher" ? "첨삭 교사" : "학습자"}로 변경`, metadata: { previousRole: target.role, newRole } });
+  if (target.role === "admin")
+    throw new Error("관리자 계정은 역할 전환 대상이 아닙니다.");
+  await db
+    .update(users)
+    .set({
+      role: newRole,
+      teacherStatus: "approved",
+      teacherLevel: target.teacherLevel ?? 1,
+      ...(newRole === "user" ? { teacherId: null } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+  if (actorId)
+    await createAdminAuditLog({
+      actorId,
+      targetUserId: userId,
+      action: "role_changed",
+      summary: `${target.name || `사용자 #${userId}`} 계정을 ${newRole === "teacher" ? "첨삭 교사" : "학습자"}로 변경`,
+      metadata: { previousRole: target.role, newRole },
+    });
   return true;
 }
 
-export async function adjustManagedUserLevel(userId: number, targetLevel: number, actorId?: number) {
+export async function adjustManagedUserLevel(
+  userId: number,
+  targetLevel: number,
+  actorId?: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [target] = await db.select().from(users).where(eq(users.id, userId));
   if (!target) throw new Error("사용자를 찾을 수 없습니다.");
-  if (target.role === "admin") throw new Error("관리자 계정의 학습·교사 레벨은 조정할 수 없습니다.");
-  await db.update(users).set({ teacherLevel: targetLevel, updatedAt: new Date() }).where(eq(users.id, userId));
-  if (actorId) await createAdminAuditLog({ actorId, targetUserId: userId, action: "level_changed", summary: `${target.name || `사용자 #${userId}`} 레벨을 Lv.${targetLevel}로 조정`, metadata: { previousLevel: target.teacherLevel ?? 1, targetLevel } });
+  if (target.role === "admin")
+    throw new Error("관리자 계정의 학습·교사 레벨은 조정할 수 없습니다.");
+  await db
+    .update(users)
+    .set({ teacherLevel: targetLevel, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+  if (actorId)
+    await createAdminAuditLog({
+      actorId,
+      targetUserId: userId,
+      action: "level_changed",
+      summary: `${target.name || `사용자 #${userId}`} 레벨을 Lv.${targetLevel}로 조정`,
+      metadata: { previousLevel: target.teacherLevel ?? 1, targetLevel },
+    });
   return { success: true, newLevel: targetLevel };
 }
 
-export async function createManagedAdminAccount(input: { openId: string; name: string; email: string; passwordHash: string; actorId?: number }) {
+export async function createManagedAdminAccount(input: {
+  openId: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  actorId?: number;
+}) {
   const existing = await getUserByEmail(input.email);
   if (existing) throw new Error("이미 사용 중인 이메일입니다.");
   const created = await createEmailUser({
@@ -2357,7 +4295,14 @@ export async function createManagedAdminAccount(input: { openId: string; name: s
     teacherStatus: "approved",
     tag: "관리자",
   });
-  if (created && input.actorId) await createAdminAuditLog({ actorId: input.actorId, targetUserId: created.id, action: "admin_account_created", summary: `관리자 계정 ${created.name || created.email || `#${created.id}`} 생성`, metadata: { email: created.email } });
+  if (created && input.actorId)
+    await createAdminAuditLog({
+      actorId: input.actorId,
+      targetUserId: created.id,
+      action: "admin_account_created",
+      summary: `관리자 계정 ${created.name || created.email || `#${created.id}`} 생성`,
+      metadata: { email: created.email },
+    });
   return created;
 }
 
@@ -2369,166 +4314,510 @@ export async function getLearningGroupsWithMembers() {
     db.select().from(learningGroupMembers),
     db.select().from(users),
   ]);
-  const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  return groups.map((group) => {
-    const groupMembers = members.filter((member) => member.groupId === group.id);
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  return groups.map(group => {
+    const groupMembers = members.filter(member => member.groupId === group.id);
     const teacher = group.teacherId ? usersById.get(group.teacherId) : null;
     return {
       ...group,
       teacherName: teacher?.name || null,
       teacherEmail: teacher?.email || null,
-      members: groupMembers.map((member) => {
+      members: groupMembers.map(member => {
         const student = usersById.get(member.studentId);
-        return { ...member, studentName: student?.name || `학생 #${member.studentId}`, studentEmail: student?.email || null, courseLabel: student ? getCourseTag(getCourseTypeFromUserTag(student.tag)) : null };
+        return {
+          ...member,
+          studentName: student?.name || `학생 #${member.studentId}`,
+          studentEmail: student?.email || null,
+          courseLabel: student
+            ? getCourseTag(getCourseTypeFromUserTag(student.tag))
+            : null,
+        };
       }),
     };
   });
 }
 
-export async function saveLearningGroup(input: { groupId?: number; name: string; groupType: "class" | "group"; courseType?: CourseType | null; description?: string | null; teacherId?: number | null; isActive: number; createdBy: number }) {
+export async function saveLearningGroup(input: {
+  groupId?: number;
+  name: string;
+  groupType: "class" | "group";
+  courseType?: CourseType | null;
+  description?: string | null;
+  teacherId?: number | null;
+  isActive: number;
+  createdBy: number;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   if (input.teacherId) {
-    const [teacher] = await db.select().from(users).where(eq(users.id, input.teacherId));
-    if (!teacher || teacher.role !== "teacher" || teacher.teacherStatus !== "approved") throw new Error("승인된 첨삭교사만 반·그룹 담당자로 지정할 수 있습니다.");
+    const [teacher] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, input.teacherId));
+    if (
+      !teacher ||
+      teacher.role !== "teacher" ||
+      teacher.teacherStatus !== "approved"
+    )
+      throw new Error("승인된 첨삭교사만 반·그룹 담당자로 지정할 수 있습니다.");
   }
-  const values = { name: input.name, groupType: input.groupType, courseType: input.courseType ?? null, description: input.description ?? null, teacherId: input.teacherId ?? null, isActive: input.isActive, createdBy: input.createdBy, updatedAt: new Date() };
+  const values = {
+    name: input.name,
+    groupType: input.groupType,
+    courseType: input.courseType ?? null,
+    description: input.description ?? null,
+    teacherId: input.teacherId ?? null,
+    isActive: input.isActive,
+    createdBy: input.createdBy,
+    updatedAt: new Date(),
+  };
   if (input.groupId) {
-    await db.update(learningGroups).set(values).where(eq(learningGroups.id, input.groupId));
-    const [updated] = await db.select().from(learningGroups).where(eq(learningGroups.id, input.groupId));
+    await db
+      .update(learningGroups)
+      .set(values)
+      .where(eq(learningGroups.id, input.groupId));
+    const [updated] = await db
+      .select()
+      .from(learningGroups)
+      .where(eq(learningGroups.id, input.groupId));
     return updated;
   }
   const [inserted] = await db.insert(learningGroups).values(values);
-  const [created] = await db.select().from(learningGroups).where(eq(learningGroups.id, Number(inserted.insertId)));
+  const [created] = await db
+    .select()
+    .from(learningGroups)
+    .where(eq(learningGroups.id, Number(inserted.insertId)));
   return created;
 }
 
-export async function addLearningGroupMember(groupId: number, studentId: number, addedBy: number) {
+export async function addLearningGroupMember(
+  groupId: number,
+  studentId: number,
+  addedBy: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const [[group], [student], existing] = await Promise.all([
     db.select().from(learningGroups).where(eq(learningGroups.id, groupId)),
     db.select().from(users).where(eq(users.id, studentId)),
-    db.select().from(learningGroupMembers).where(and(eq(learningGroupMembers.groupId, groupId), eq(learningGroupMembers.studentId, studentId))),
+    db
+      .select()
+      .from(learningGroupMembers)
+      .where(
+        and(
+          eq(learningGroupMembers.groupId, groupId),
+          eq(learningGroupMembers.studentId, studentId)
+        )
+      ),
   ]);
   if (!group) throw new Error("반·그룹을 찾을 수 없습니다.");
-  if (!student || student.role !== "user") throw new Error("학습자만 반·그룹에 편성할 수 있습니다.");
+  if (!student || student.role !== "user")
+    throw new Error("학습자만 반·그룹에 편성할 수 있습니다.");
   if (existing.length > 0) return existing[0];
-  const [inserted] = await db.insert(learningGroupMembers).values({ groupId, studentId, addedBy });
-  if (group.teacherId) await db.update(users).set({ teacherId: group.teacherId, updatedAt: new Date() }).where(eq(users.id, studentId));
-  const [member] = await db.select().from(learningGroupMembers).where(eq(learningGroupMembers.id, Number(inserted.insertId)));
+  const [inserted] = await db
+    .insert(learningGroupMembers)
+    .values({ groupId, studentId, addedBy });
+  if (group.teacherId)
+    await db
+      .update(users)
+      .set({ teacherId: group.teacherId, updatedAt: new Date() })
+      .where(eq(users.id, studentId));
+  const [member] = await db
+    .select()
+    .from(learningGroupMembers)
+    .where(eq(learningGroupMembers.id, Number(inserted.insertId)));
   return member;
 }
 
-export async function removeLearningGroupMember(groupId: number, studentId: number) {
+export async function removeLearningGroupMember(
+  groupId: number,
+  studentId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.delete(learningGroupMembers).where(and(eq(learningGroupMembers.groupId, groupId), eq(learningGroupMembers.studentId, studentId)));
+  await db
+    .delete(learningGroupMembers)
+    .where(
+      and(
+        eq(learningGroupMembers.groupId, groupId),
+        eq(learningGroupMembers.studentId, studentId)
+      )
+    );
   return true;
 }
 
-export async function assignStudentTeacher(studentId: number, teacherId: number | null, actorId?: number) {
+export async function assignStudentTeacher(
+  studentId: number,
+  teacherId: number | null,
+  actorId?: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [student] = await db.select().from(users).where(eq(users.id, studentId));
-  if (!student || student.role !== "user") throw new Error("학습자를 찾을 수 없습니다.");
+  const [student] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, studentId));
+  // 학부모 계정(role=user, tag=학부모)은 학습자가 아니므로 담당 교사를 지정하지 않는다.
+  if (!student || !isLearnerAccount(student))
+    throw new Error("학습자를 찾을 수 없습니다.");
   if (teacherId) {
-    const [teacher] = await db.select().from(users).where(eq(users.id, teacherId));
-    if (!teacher || teacher.role !== "teacher" || teacher.teacherStatus !== "approved") throw new Error("승인된 첨삭교사만 담당자로 지정할 수 있습니다.");
+    const [teacher] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, teacherId));
+    if (
+      !teacher ||
+      teacher.role !== "teacher" ||
+      teacher.teacherStatus !== "approved"
+    )
+      throw new Error("승인된 첨삭교사만 담당자로 지정할 수 있습니다.");
   }
-  await db.update(users).set({ teacherId, updatedAt: new Date() }).where(eq(users.id, studentId));
-  if (actorId) await createAdminAuditLog({ actorId, targetUserId: studentId, action: "teacher_assigned", summary: `${student.name || `학생 #${studentId}`} 담당 교사 ${teacherId ? "지정" : "해제"}`, metadata: { previousTeacherId: student.teacherId, teacherId } });
+  await db
+    .update(users)
+    .set({ teacherId, updatedAt: new Date() })
+    .where(eq(users.id, studentId));
+  if (actorId)
+    await createAdminAuditLog({
+      actorId,
+      targetUserId: studentId,
+      action: "teacher_assigned",
+      summary: `${student.name || `학생 #${studentId}`} 담당 교사 ${teacherId ? "지정" : "해제"}`,
+      metadata: { previousTeacherId: student.teacherId, teacherId },
+    });
   return true;
 }
 
-export async function createAdminAuditLog(input: { actorId: number; targetUserId?: number | null; action: "admin_account_created" | "role_changed" | "level_changed" | "teacher_assigned"; summary: string; metadata?: Record<string, unknown> }) {
+/** 학생이 가입 후 마이페이지에서 직접 담당 교사를 고른다(null이면 AI 첨삭 전용 봇이 기본 담당). */
+export async function setStudentOwnTeacher(
+  studentId: number,
+  teacherId: number | null
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.insert(adminAuditLogs).values({ actorId: input.actorId, targetUserId: input.targetUserId ?? null, action: input.action, summary: input.summary, metadataJson: input.metadata ? JSON.stringify(input.metadata) : null });
+  const nextTeacherId = teacherId ?? (await getDefaultAiTutor())?.id ?? null;
+  await db
+    .update(users)
+    .set({
+      teacherId: nextTeacherId,
+      preferredTeacherId: nextTeacherId,
+      updatedAt: new Date(),
+    })
+    // 학부모 계정에는 담당 교사를 지정하지 않는다.
+    .where(and(eq(users.id, studentId), eq(users.role, "user"), ne(users.tag, "학부모")));
+  return nextTeacherId;
+}
+
+/** 관리자 계정의 수료증 최종 승인 권한을 회수(true)하거나 되돌린다(false). */
+export async function setCertificateApprovalRevoked(userId: number, revoked: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(users).set({ certificateApprovalRevoked: revoked ? 1 : 0 }).where(eq(users.id, userId));
+}
+
+export async function createAdminAuditLog(input: {
+  actorId: number;
+  targetUserId?: number | null;
+  action:
+    | "admin_account_created"
+    | "role_changed"
+    | "level_changed"
+    | "teacher_assigned";
+  summary: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(adminAuditLogs).values({
+    actorId: input.actorId,
+    targetUserId: input.targetUserId ?? null,
+    action: input.action,
+    summary: input.summary,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  });
 }
 
 export async function getAdminAuditLogs(limit = 100) {
   const db = await getDb();
   if (!db) return [];
-  const [logs, allUsers] = await Promise.all([db.select().from(adminAuditLogs).orderBy(desc(adminAuditLogs.createdAt)).limit(limit), db.select().from(users)]);
-  const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  return logs.map((log) => ({ ...log, actorName: usersById.get(log.actorId)?.name || `관리자 #${log.actorId}`, targetName: log.targetUserId ? usersById.get(log.targetUserId)?.name || `사용자 #${log.targetUserId}` : null }));
+  const [logs, allUsers] = await Promise.all([
+    db
+      .select()
+      .from(adminAuditLogs)
+      .orderBy(desc(adminAuditLogs.createdAt))
+      .limit(limit),
+    db.select().from(users),
+  ]);
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  return logs.map(log => ({
+    ...log,
+    actorName: usersById.get(log.actorId)?.name || `관리자 #${log.actorId}`,
+    targetName: log.targetUserId
+      ? usersById.get(log.targetUserId)?.name || `사용자 #${log.targetUserId}`
+      : null,
+  }));
 }
 
-export async function getTeacherClassDashboard(teacherId: number, attendanceDate: string) {
+export async function getTeacherClassDashboard(
+  teacherId: number,
+  attendanceDate: string
+) {
   const db = await getDb();
-  if (!db) return { groups: [], summary: { students: 0, present: 0, late: 0, absent: 0, unrecorded: 0, averageProgress: 0 } };
-  const [groups, members, allUsers, allProgress, allCurriculum, attendance, announcements, assignments] = await Promise.all([
-    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
+  if (!db)
+    return {
+      groups: [],
+      summary: {
+        students: 0,
+        present: 0,
+        late: 0,
+        absent: 0,
+        unrecorded: 0,
+        averageProgress: 0,
+      },
+    };
+  const [
+    groups,
+    members,
+    allUsers,
+    allProgress,
+    allCurriculum,
+    attendance,
+    announcements,
+    assignments,
+  ] = await Promise.all([
+    db
+      .select()
+      .from(learningGroups)
+      .where(
+        and(
+          eq(learningGroups.teacherId, teacherId),
+          eq(learningGroups.isActive, 1)
+        )
+      ),
     db.select().from(learningGroupMembers),
     db.select().from(users),
     db.select().from(progress),
     db.select().from(curriculum),
-    db.select().from(classAttendance).where(eq(classAttendance.attendanceDate, attendanceDate)),
-    db.select().from(classAnnouncements).orderBy(desc(classAnnouncements.createdAt)),
-    db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)).orderBy(desc(classAssignments.createdAt)),
+    db
+      .select()
+      .from(classAttendance)
+      .where(eq(classAttendance.attendanceDate, attendanceDate)),
+    db
+      .select()
+      .from(classAnnouncements)
+      .orderBy(desc(classAnnouncements.createdAt)),
+    db
+      .select()
+      .from(classAssignments)
+      .where(eq(classAssignments.isActive, 1))
+      .orderBy(desc(classAssignments.createdAt)),
   ]);
-  const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  const dashboardGroups = groups.map((group) => {
-    const groupMembers = members.filter((member) => member.groupId === group.id);
-    const groupAttendance = attendance.filter((record) => record.groupId === group.id);
-    const students = groupMembers.map((member) => {
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  const dashboardGroups = groups.map(group => {
+    const groupMembers = members.filter(member => member.groupId === group.id);
+    const groupAttendance = attendance.filter(
+      record => record.groupId === group.id
+    );
+    const students = groupMembers.map(member => {
       const student = usersById.get(member.studentId);
-      const courseType = student ? getCourseTypeFromUserTag(student.tag) : "general_adult";
-      const totalCourseSteps = allCurriculum.filter((item) => item.courseType === courseType).length;
-      const studentProgress = allProgress.filter((item) => item.userId === member.studentId);
-      const completedSteps = studentProgress.filter((item) => item.completed === 1).length;
-      const averageScore = studentProgress.length ? Math.round(studentProgress.reduce((sum, item) => sum + (item.score || 0), 0) / studentProgress.length) : 0;
-      const attendanceRecord = groupAttendance.find((record) => record.studentId === member.studentId);
-      return { id: member.studentId, name: student?.name || `학생 #${member.studentId}`, email: student?.email || null, courseLabel: getCourseTag(courseType), attendanceStatus: attendanceRecord?.status ?? null, progressRate: totalCourseSteps ? Math.round((completedSteps / totalCourseSteps) * 100) : 0, averageScore, lastSignedIn: student?.lastSignedIn ?? null };
+      const courseType = student
+        ? getCourseTypeFromUserTag(student.tag)
+        : "general_adult";
+      const totalCourseSteps = allCurriculum.filter(
+        item => item.courseType === courseType
+      ).length;
+      const studentProgress = allProgress.filter(
+        item => item.userId === member.studentId
+      );
+      const completedSteps = studentProgress.filter(
+        item => item.completed === 1
+      ).length;
+      const averageScore = studentProgress.length
+        ? Math.round(
+            studentProgress.reduce((sum, item) => sum + (item.score || 0), 0) /
+              studentProgress.length
+          )
+        : 0;
+      const attendanceRecord = groupAttendance.find(
+        record => record.studentId === member.studentId
+      );
+      return {
+        id: member.studentId,
+        name: student?.name || `학생 #${member.studentId}`,
+        email: student?.email || null,
+        courseLabel: getCourseTag(courseType),
+        attendanceStatus: attendanceRecord?.status ?? null,
+        progressRate: totalCourseSteps
+          ? Math.round((completedSteps / totalCourseSteps) * 100)
+          : 0,
+        averageScore,
+        lastSignedIn: student?.lastSignedIn ?? null,
+      };
     });
-    return { ...group, students, announcements: announcements.filter((item) => item.groupId === group.id).slice(0, 5), assignments: assignments.filter((item) => item.groupId === group.id).slice(0, 5) };
+    return {
+      ...group,
+      students,
+      announcements: announcements
+        .filter(item => item.groupId === group.id)
+        .slice(0, 5),
+      assignments: assignments
+        .filter(item => item.groupId === group.id)
+        .slice(0, 5),
+    };
   });
-  const students = dashboardGroups.flatMap((group) => group.students);
-  const statusCount = (status: "present" | "late" | "absent") => students.filter((student) => student.attendanceStatus === status).length;
-  return { groups: dashboardGroups, summary: { students: students.length, present: statusCount("present"), late: statusCount("late"), absent: statusCount("absent"), unrecorded: students.filter((student) => !student.attendanceStatus).length, averageProgress: students.length ? Math.round(students.reduce((sum, student) => sum + student.progressRate, 0) / students.length) : 0 } };
+  const students = dashboardGroups.flatMap(group => group.students);
+  const statusCount = (status: "present" | "late" | "absent") =>
+    students.filter(student => student.attendanceStatus === status).length;
+  return {
+    groups: dashboardGroups,
+    summary: {
+      students: students.length,
+      present: statusCount("present"),
+      late: statusCount("late"),
+      absent: statusCount("absent"),
+      unrecorded: students.filter(student => !student.attendanceStatus).length,
+      averageProgress: students.length
+        ? Math.round(
+            students.reduce((sum, student) => sum + student.progressRate, 0) /
+              students.length
+          )
+        : 0,
+    },
+  };
 }
 
 async function assertTeacherGroupOwnership(teacherId: number, groupId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [group] = await db.select().from(learningGroups).where(and(eq(learningGroups.id, groupId), eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1)));
+  const [group] = await db
+    .select()
+    .from(learningGroups)
+    .where(
+      and(
+        eq(learningGroups.id, groupId),
+        eq(learningGroups.teacherId, teacherId),
+        eq(learningGroups.isActive, 1)
+      )
+    );
   if (!group) throw new Error("담당 반·그룹에 대한 권한이 없습니다.");
   return group;
 }
 
-export async function recordClassAttendance(teacherId: number, input: { groupId: number; studentId: number; attendanceDate: string; status: "present" | "late" | "absent" | "excused"; note?: string }) {
+export async function recordClassAttendance(
+  teacherId: number,
+  input: {
+    groupId: number;
+    studentId: number;
+    attendanceDate: string;
+    status: "present" | "late" | "absent" | "excused";
+    note?: string;
+  }
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await assertTeacherGroupOwnership(teacherId, input.groupId);
-  const [membership] = await db.select().from(learningGroupMembers).where(and(eq(learningGroupMembers.groupId, input.groupId), eq(learningGroupMembers.studentId, input.studentId)));
+  const [membership] = await db
+    .select()
+    .from(learningGroupMembers)
+    .where(
+      and(
+        eq(learningGroupMembers.groupId, input.groupId),
+        eq(learningGroupMembers.studentId, input.studentId)
+      )
+    );
   if (!membership) throw new Error("해당 반·그룹에 편성된 학습자가 아닙니다.");
-  const [existing] = await db.select().from(classAttendance).where(and(eq(classAttendance.groupId, input.groupId), eq(classAttendance.studentId, input.studentId), eq(classAttendance.attendanceDate, input.attendanceDate)));
-  const values = { status: input.status, note: input.note ?? null, recordedBy: teacherId, updatedAt: new Date() };
-  if (existing) await db.update(classAttendance).set(values).where(eq(classAttendance.id, existing.id));
-  else await db.insert(classAttendance).values({ groupId: input.groupId, studentId: input.studentId, attendanceDate: input.attendanceDate, ...values });
+  const [existing] = await db
+    .select()
+    .from(classAttendance)
+    .where(
+      and(
+        eq(classAttendance.groupId, input.groupId),
+        eq(classAttendance.studentId, input.studentId),
+        eq(classAttendance.attendanceDate, input.attendanceDate)
+      )
+    );
+  const values = {
+    status: input.status,
+    note: input.note ?? null,
+    recordedBy: teacherId,
+    updatedAt: new Date(),
+  };
+  if (existing)
+    await db
+      .update(classAttendance)
+      .set(values)
+      .where(eq(classAttendance.id, existing.id));
+  else
+    await db.insert(classAttendance).values({
+      groupId: input.groupId,
+      studentId: input.studentId,
+      attendanceDate: input.attendanceDate,
+      ...values,
+    });
   return true;
 }
 
-export async function publishClassAnnouncement(teacherId: number, input: { groupId: number; title: string; content: string }) {
+export async function publishClassAnnouncement(
+  teacherId: number,
+  input: { groupId: number; title: string; content: string }
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await assertTeacherGroupOwnership(teacherId, input.groupId);
-  const members = await db.select().from(learningGroupMembers).where(eq(learningGroupMembers.groupId, input.groupId));
-  await db.insert(classAnnouncements).values({ ...input, createdBy: teacherId });
-  if (members.length) await db.insert(appNotifications).values(members.map((member) => ({ userId: member.studentId, title: `[반 공지] ${input.title}`, message: input.content, category: "class_announcement" })));
+  const members = await db
+    .select()
+    .from(learningGroupMembers)
+    .where(eq(learningGroupMembers.groupId, input.groupId));
+  await db
+    .insert(classAnnouncements)
+    .values({ ...input, createdBy: teacherId });
+  if (members.length)
+    await db.insert(appNotifications).values(
+      members.map(member => ({
+        userId: member.studentId,
+        title: `[반 공지] ${input.title}`,
+        message: input.content,
+        category: "class_announcement",
+      }))
+    );
   return true;
 }
 
-export async function createClassAssignment(teacherId: number, input: { groupId: number; title: string; instructions: string; dueAt?: Date | null }) {
+export async function createClassAssignment(
+  teacherId: number,
+  input: {
+    groupId: number;
+    title: string;
+    instructions: string;
+    dueAt?: Date | null;
+  }
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await assertTeacherGroupOwnership(teacherId, input.groupId);
-  const members = await db.select().from(learningGroupMembers).where(eq(learningGroupMembers.groupId, input.groupId));
-  const [inserted] = await db.insert(classAssignments).values({ ...input, dueAt: input.dueAt ?? null, createdBy: teacherId, isActive: 1 });
+  const members = await db
+    .select()
+    .from(learningGroupMembers)
+    .where(eq(learningGroupMembers.groupId, input.groupId));
+  const [inserted] = await db.insert(classAssignments).values({
+    ...input,
+    dueAt: input.dueAt ?? null,
+    createdBy: teacherId,
+    isActive: 1,
+  });
   const assignmentId = Number(inserted.insertId);
-  const dueLabel = input.dueAt ? ` 마감: ${input.dueAt.toLocaleDateString("ko-KR")}` : "";
-  if (members.length) await db.insert(appNotifications).values(members.map((member) => ({ userId: member.studentId, assignmentId, title: `[반 과제] ${input.title}`, message: `${input.instructions}${dueLabel}`, category: "class_assignment" })));
+  const dueLabel = input.dueAt
+    ? ` 마감: ${input.dueAt.toLocaleDateString("ko-KR")}`
+    : "";
+  if (members.length)
+    await db.insert(appNotifications).values(
+      members.map(member => ({
+        userId: member.studentId,
+        assignmentId,
+        title: `[반 과제] ${input.title}`,
+        message: `${input.instructions}${dueLabel}`,
+        category: "class_assignment",
+      }))
+    );
   return { assignmentId };
 }
 
@@ -2536,46 +4825,104 @@ export async function getStudentClassAssignments(studentId: number) {
   const db = await getDb();
   if (!db) return [];
   const [memberships, groups, assignments, submissions] = await Promise.all([
-    db.select().from(learningGroupMembers).where(eq(learningGroupMembers.studentId, studentId)),
+    db
+      .select()
+      .from(learningGroupMembers)
+      .where(eq(learningGroupMembers.studentId, studentId)),
     db.select().from(learningGroups).where(eq(learningGroups.isActive, 1)),
     db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)),
-    db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.studentId, studentId)),
+    db
+      .select()
+      .from(classAssignmentSubmissions)
+      .where(eq(classAssignmentSubmissions.studentId, studentId)),
   ]);
-  const groupIds = new Set(memberships.map((membership) => membership.groupId));
-  const groupsById = new Map(groups.map((group) => [group.id, group]));
+  const groupIds = new Set(memberships.map(membership => membership.groupId));
+  const groupsById = new Map(groups.map(group => [group.id, group]));
   const now = new Date();
   return assignments
-    .filter((assignment) => groupIds.has(assignment.groupId))
-    .map((assignment) => {
-      const submission = submissions.find((item) => item.assignmentId === assignment.id) ?? null;
+    .filter(assignment => groupIds.has(assignment.groupId))
+    .map(assignment => {
+      const submission =
+        submissions.find(item => item.assignmentId === assignment.id) ?? null;
       return {
         ...assignment,
         groupName: groupsById.get(assignment.groupId)?.name || "배정 반",
         submission,
         submissionStatus: submission?.status ?? "pending",
-        isOverdue: Boolean(assignment.dueAt && assignment.dueAt < now && !submission),
+        isOverdue: Boolean(
+          assignment.dueAt && assignment.dueAt < now && !submission
+        ),
       };
     })
-    .sort((left, right) => (left.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER) - (right.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER));
+    .sort(
+      (left, right) =>
+        (left.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER) -
+        (right.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER)
+    );
 }
 
-export async function submitStudentClassAssignment(studentId: number, assignmentId: number, content: string) {
+export async function submitStudentClassAssignment(
+  studentId: number,
+  assignmentId: number,
+  content: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [assignment] = await db.select().from(classAssignments).where(and(eq(classAssignments.id, assignmentId), eq(classAssignments.isActive, 1)));
+  const [assignment] = await db
+    .select()
+    .from(classAssignments)
+    .where(
+      and(
+        eq(classAssignments.id, assignmentId),
+        eq(classAssignments.isActive, 1)
+      )
+    );
   if (!assignment) throw new Error("제출할 과제를 찾을 수 없습니다.");
-  const [membership] = await db.select().from(learningGroupMembers).where(and(eq(learningGroupMembers.groupId, assignment.groupId), eq(learningGroupMembers.studentId, studentId)));
+  const [membership] = await db
+    .select()
+    .from(learningGroupMembers)
+    .where(
+      and(
+        eq(learningGroupMembers.groupId, assignment.groupId),
+        eq(learningGroupMembers.studentId, studentId)
+      )
+    );
   if (!membership) throw new Error("배정받지 않은 과제는 제출할 수 없습니다.");
-  const [existing] = await db.select().from(classAssignmentSubmissions).where(and(eq(classAssignmentSubmissions.assignmentId, assignmentId), eq(classAssignmentSubmissions.studentId, studentId)));
-  if (existing?.status === "reviewed") throw new Error("교사 채점이 완료된 과제는 수정할 수 없습니다.");
-  const values = { content: content.trim(), status: "submitted" as const, submittedAt: new Date(), updatedAt: new Date() };
+  const [existing] = await db
+    .select()
+    .from(classAssignmentSubmissions)
+    .where(
+      and(
+        eq(classAssignmentSubmissions.assignmentId, assignmentId),
+        eq(classAssignmentSubmissions.studentId, studentId)
+      )
+    );
+  if (existing?.status === "reviewed")
+    throw new Error("교사 채점이 완료된 과제는 수정할 수 없습니다.");
+  const values = {
+    content: content.trim(),
+    status: "submitted" as const,
+    submittedAt: new Date(),
+    updatedAt: new Date(),
+  };
   if (existing) {
-    await db.update(classAssignmentSubmissions).set(values).where(eq(classAssignmentSubmissions.id, existing.id));
-    const [updated] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, existing.id));
+    await db
+      .update(classAssignmentSubmissions)
+      .set(values)
+      .where(eq(classAssignmentSubmissions.id, existing.id));
+    const [updated] = await db
+      .select()
+      .from(classAssignmentSubmissions)
+      .where(eq(classAssignmentSubmissions.id, existing.id));
     return updated;
   }
-  const [inserted] = await db.insert(classAssignmentSubmissions).values({ assignmentId, studentId, ...values });
-  const [created] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, Number(inserted.insertId)));
+  const [inserted] = await db
+    .insert(classAssignmentSubmissions)
+    .values({ assignmentId, studentId, ...values });
+  const [created] = await db
+    .select()
+    .from(classAssignmentSubmissions)
+    .where(eq(classAssignmentSubmissions.id, Number(inserted.insertId)));
   return created;
 }
 
@@ -2584,49 +4931,88 @@ export async function getStudentClassAssignmentDetails(studentId: number) {
   if (!db) return [];
   const [assignments, aiFeedbacks] = await Promise.all([
     getStudentClassAssignments(studentId),
-    db.select().from(classAssignmentAiFeedbacks).orderBy(desc(classAssignmentAiFeedbacks.generatedAt)),
+    db
+      .select()
+      .from(classAssignmentAiFeedbacks)
+      .orderBy(desc(classAssignmentAiFeedbacks.generatedAt)),
   ]);
-  const feedbackBySubmissionId = new Map<number, typeof classAssignmentAiFeedbacks.$inferSelect>();
-  aiFeedbacks.forEach((feedback) => {
-    if (feedback.status === "reviewed" && !feedbackBySubmissionId.has(feedback.submissionId)) feedbackBySubmissionId.set(feedback.submissionId, feedback);
+  const feedbackBySubmissionId = new Map<
+    number,
+    typeof classAssignmentAiFeedbacks.$inferSelect
+  >();
+  aiFeedbacks.forEach(feedback => {
+    if (
+      feedback.status === "reviewed" &&
+      !feedbackBySubmissionId.has(feedback.submissionId)
+    )
+      feedbackBySubmissionId.set(feedback.submissionId, feedback);
   });
-  return assignments.map((assignment) => ({
+  return assignments.map(assignment => ({
     ...assignment,
-    aiFeedback: assignment.submission ? feedbackBySubmissionId.get(assignment.submission.id) ?? null : null,
+    aiFeedback: assignment.submission
+      ? (feedbackBySubmissionId.get(assignment.submission.id) ?? null)
+      : null,
   }));
 }
 
 export async function getClassAssignmentAiFeedbacks(submissionId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(classAssignmentAiFeedbacks).where(eq(classAssignmentAiFeedbacks.submissionId, submissionId)).orderBy(desc(classAssignmentAiFeedbacks.generatedAt));
+  return db
+    .select()
+    .from(classAssignmentAiFeedbacks)
+    .where(eq(classAssignmentAiFeedbacks.submissionId, submissionId))
+    .orderBy(desc(classAssignmentAiFeedbacks.generatedAt));
 }
 
-export async function generateClassAssignmentAiFeedback(teacherId: number, submissionId: number) {
+export async function generateClassAssignmentAiFeedback(
+  teacherId: number,
+  submissionId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
-  if (!submission) throw new Error("AI 첨삭을 생성할 제출물을 찾을 수 없습니다.");
+  const [submission] = await db
+    .select()
+    .from(classAssignmentSubmissions)
+    .where(eq(classAssignmentSubmissions.id, submissionId));
+  if (!submission)
+    throw new Error("AI 첨삭을 생성할 제출물을 찾을 수 없습니다.");
   const [assignment, student] = await Promise.all([
-    db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId)).then((rows) => rows[0]),
-    db.select().from(users).where(eq(users.id, submission.studentId)).then((rows) => rows[0]),
+    db
+      .select()
+      .from(classAssignments)
+      .where(eq(classAssignments.id, submission.assignmentId))
+      .then(rows => rows[0]),
+    db
+      .select()
+      .from(users)
+      .where(eq(users.id, submission.studentId))
+      .then(rows => rows[0]),
   ]);
-  if (!assignment || !student) throw new Error("과제 또는 학생 정보를 찾을 수 없습니다.");
+  if (!assignment || !student)
+    throw new Error("과제 또는 학생 정보를 찾을 수 없습니다.");
   await assertTeacherGroupOwnership(teacherId, assignment.groupId);
 
   const courseType = getCourseTypeFromUserTag(student.tag);
-  const evaluation = await evaluateSubjectiveWorkbookAnswer({
-    courseType,
-    level: 1,
-    title: assignment.title,
-    prompt: assignment.instructions,
-    correctAnswer: "과제 안내에 제시된 논제에 맞춰 주장과 근거를 갖춘 답안을 작성합니다.",
-    explanation: assignment.instructions,
-  }, submission.content);
+  const evaluation = await evaluateSubjectiveWorkbookAnswer(
+    {
+      courseType,
+      level: 1,
+      title: assignment.title,
+      prompt: assignment.instructions,
+      correctAnswer:
+        "과제 안내에 제시된 논제에 맞춰 주장과 근거를 갖춘 답안을 작성합니다.",
+      explanation: assignment.instructions,
+    },
+    submission.content
+  );
   const { data: models } = await listLLMModels();
-  const modelId = evaluation.status === "insufficient"
-    ? "rule-based-insufficient-check"
-    : (['gpt-5', 'claude-sonnet-4-6', 'gemini-3.1-pro-preview'].find((id) => models.some((model) => model.id === id)) ?? "structured-rubric");
+  const modelId =
+    evaluation.status === "insufficient"
+      ? "rule-based-insufficient-check"
+      : (["gpt-5", "claude-sonnet-4-6", "gemini-3.1-pro-preview"].find(id =>
+          models.some(model => model.id === id)
+        ) ?? "structured-rubric");
   const draftComment = `[AI 1차 첨삭 초안 · 교사 검토 전]\n${formatSubjectiveEvaluationFeedback(evaluation)}`;
   await db.insert(classAssignmentAiFeedbacks).values({
     submissionId,
@@ -2638,7 +5024,11 @@ export async function generateClassAssignmentAiFeedback(teacherId: number, submi
     status: "generated",
     generatedAt: new Date(),
   });
-  const [created] = await db.select().from(classAssignmentAiFeedbacks).where(eq(classAssignmentAiFeedbacks.submissionId, submissionId)).orderBy(desc(classAssignmentAiFeedbacks.id));
+  const [created] = await db
+    .select()
+    .from(classAssignmentAiFeedbacks)
+    .where(eq(classAssignmentAiFeedbacks.submissionId, submissionId))
+    .orderBy(desc(classAssignmentAiFeedbacks.id));
   return created;
 }
 
@@ -2646,20 +5036,45 @@ export async function getTeacherClassAssignmentSubmissions(teacherId: number) {
   const db = await getDb();
   if (!db) return [];
   const [groups, assignments, submissions, allUsers] = await Promise.all([
-    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
+    db
+      .select()
+      .from(learningGroups)
+      .where(
+        and(
+          eq(learningGroups.teacherId, teacherId),
+          eq(learningGroups.isActive, 1)
+        )
+      ),
     db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)),
-    db.select().from(classAssignmentSubmissions).orderBy(desc(classAssignmentSubmissions.submittedAt)),
+    db
+      .select()
+      .from(classAssignmentSubmissions)
+      .orderBy(desc(classAssignmentSubmissions.submittedAt)),
     db.select().from(users),
   ]);
-  const groupsById = new Map(groups.map((group) => [group.id, group]));
-  const assignmentsById = new Map(assignments.map((assignment) => [assignment.id, assignment]));
-  const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  return submissions.flatMap((submission) => {
+  const groupsById = new Map(groups.map(group => [group.id, group]));
+  const assignmentsById = new Map(
+    assignments.map(assignment => [assignment.id, assignment])
+  );
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  return submissions.flatMap(submission => {
     const assignment = assignmentsById.get(submission.assignmentId);
     const group = assignment ? groupsById.get(assignment.groupId) : null;
     if (!assignment || !group) return [];
     const student = usersById.get(submission.studentId);
-    return [{ ...submission, assignmentTitle: assignment.title, assignmentInstructions: assignment.instructions, dueAt: assignment.dueAt, groupId: group.id, groupName: group.name, courseType: group.courseType || "middle_high", studentName: student?.name || `학생 #${submission.studentId}`, studentEmail: student?.email || null }];
+    return [
+      {
+        ...submission,
+        assignmentTitle: assignment.title,
+        assignmentInstructions: assignment.instructions,
+        dueAt: assignment.dueAt,
+        groupId: group.id,
+        groupName: group.name,
+        courseType: group.courseType || "middle_high",
+        studentName: student?.name || `학생 #${submission.studentId}`,
+        studentEmail: student?.email || null,
+      },
+    ];
   });
 }
 
@@ -2681,44 +5096,92 @@ export async function saveAiLessonGuideHistory(input: {
     lessonTitle: input.lessonTitle.trim(),
     guideJson: JSON.stringify(input.guide),
   });
-  const [created] = await db.select().from(aiLessonGuideHistories).where(eq(aiLessonGuideHistories.id, Number(inserted[0].insertId)));
+  const [created] = await db
+    .select()
+    .from(aiLessonGuideHistories)
+    .where(eq(aiLessonGuideHistories.id, Number(inserted[0].insertId)));
   return created;
 }
 
 export async function getAiLessonGuideHistoriesByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(aiLessonGuideHistories).where(eq(aiLessonGuideHistories.userId, userId)).orderBy(desc(aiLessonGuideHistories.createdAt));
+  return db
+    .select()
+    .from(aiLessonGuideHistories)
+    .where(eq(aiLessonGuideHistories.userId, userId))
+    .orderBy(desc(aiLessonGuideHistories.createdAt));
 }
 
-function containsDirectIdentifier(content: string, student: { name: string | null; email: string | null }) {
+function containsDirectIdentifier(
+  content: string,
+  student: { name: string | null; email: string | null }
+) {
   const normalized = content.toLowerCase();
-  if (student.name && student.name.trim().length >= 2 && normalized.includes(student.name.trim().toLowerCase())) return true;
-  if (student.email && normalized.includes(student.email.toLowerCase())) return true;
-  return /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/.test(content) || /01[0-9][\s-]?\d{3,4}[\s-]?\d{4}/.test(content);
+  if (
+    student.name &&
+    student.name.trim().length >= 2 &&
+    normalized.includes(student.name.trim().toLowerCase())
+  )
+    return true;
+  if (student.email && normalized.includes(student.email.toLowerCase()))
+    return true;
+  return (
+    /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/.test(content) ||
+    /01[0-9][\s-]?\d{3,4}[\s-]?\d{4}/.test(content)
+  );
 }
 
-export async function createApprovedWritingExample(teacherId: number, input: {
-  sourceSubmissionId: number;
-  courseType: CourseType;
-  title: string;
-  topic: string;
-  skillTags?: string;
-  anonymizedContent: string;
-  teacherNote?: string;
-}) {
+export async function createApprovedWritingExample(
+  teacherId: number,
+  input: {
+    sourceSubmissionId: number;
+    courseType: CourseType;
+    title: string;
+    topic: string;
+    skillTags?: string;
+    anonymizedContent: string;
+    teacherNote?: string;
+  }
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, input.sourceSubmissionId));
-  if (!submission || submission.status !== "reviewed") throw new Error("채점이 완료된 담당 반 학생의 제출물만 예시문 후보로 승인할 수 있습니다.");
+  const [submission] = await db
+    .select()
+    .from(classAssignmentSubmissions)
+    .where(eq(classAssignmentSubmissions.id, input.sourceSubmissionId));
+  if (!submission || submission.status !== "reviewed")
+    throw new Error(
+      "채점이 완료된 담당 반 학생의 제출물만 예시문 후보로 승인할 수 있습니다."
+    );
   const [assignment, student] = await Promise.all([
-    db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId)).then((rows) => rows[0]),
-    db.select().from(users).where(eq(users.id, submission.studentId)).then((rows) => rows[0]),
+    db
+      .select()
+      .from(classAssignments)
+      .where(eq(classAssignments.id, submission.assignmentId))
+      .then(rows => rows[0]),
+    db
+      .select()
+      .from(users)
+      .where(eq(users.id, submission.studentId))
+      .then(rows => rows[0]),
   ]);
-  if (!assignment || !student) throw new Error("예시문 후보의 원본 정보를 찾을 수 없습니다.");
-  await assertTeacherGroupOwnership(teacherId, assignment.groupId);
+  if (!assignment || !student)
+    throw new Error("예시문 후보의 원본 정보를 찾을 수 없습니다.");
+  const group = await assertTeacherGroupOwnership(
+    teacherId,
+    assignment.groupId
+  );
+  if (!group.courseType || group.courseType !== input.courseType)
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "원본 과제 반의 과정과 일치하는 예시문만 게시할 수 있습니다.",
+    });
   const content = input.anonymizedContent.trim();
-  if (containsDirectIdentifier(content, student)) throw new Error("학생 이름·이메일·연락처를 제거한 익명화 본문만 게시할 수 있습니다.");
+  if (containsDirectIdentifier(content, student))
+    throw new Error(
+      "학생 이름·이메일·연락처를 제거한 익명화 본문만 게시할 수 있습니다."
+    );
   const inserted = await db.insert(approvedWritingExamples).values({
     sourceSubmissionId: submission.id,
     teacherId,
@@ -2731,239 +5194,642 @@ export async function createApprovedWritingExample(teacherId: number, input: {
     status: "published",
     publishedAt: new Date(),
   });
-  const [created] = await db.select().from(approvedWritingExamples).where(eq(approvedWritingExamples.id, Number(inserted[0].insertId)));
+  const [created] = await db
+    .select()
+    .from(approvedWritingExamples)
+    .where(eq(approvedWritingExamples.id, Number(inserted[0].insertId)));
   return created;
 }
 
 export async function getTeacherApprovedWritingExamples(teacherId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(approvedWritingExamples).where(eq(approvedWritingExamples.teacherId, teacherId)).orderBy(desc(approvedWritingExamples.updatedAt));
+  return db
+    .select()
+    .from(approvedWritingExamples)
+    .where(eq(approvedWritingExamples.teacherId, teacherId))
+    .orderBy(desc(approvedWritingExamples.updatedAt));
 }
 
-export async function withdrawApprovedWritingExample(teacherId: number, exampleId: number) {
+export async function withdrawApprovedWritingExample(
+  teacherId: number,
+  exampleId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [example] = await db.select().from(approvedWritingExamples).where(and(eq(approvedWritingExamples.id, exampleId), eq(approvedWritingExamples.teacherId, teacherId)));
+  const [example] = await db
+    .select()
+    .from(approvedWritingExamples)
+    .where(
+      and(
+        eq(approvedWritingExamples.id, exampleId),
+        eq(approvedWritingExamples.teacherId, teacherId)
+      )
+    );
   if (!example) throw new Error("철회할 예시문을 찾을 수 없습니다.");
-  await db.update(approvedWritingExamples).set({ status: "withdrawn", withdrawnAt: new Date(), updatedAt: new Date() }).where(eq(approvedWritingExamples.id, exampleId));
+  await db
+    .update(approvedWritingExamples)
+    .set({
+      status: "withdrawn",
+      withdrawnAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(approvedWritingExamples.id, exampleId));
   return true;
 }
 
-export async function getPublishedWritingExamples(input: { courseType: CourseType; search?: string; skillTag?: string }) {
+export async function getPublishedWritingExamples(input: {
+  courseType: CourseType;
+  search?: string;
+  skillTag?: string;
+}) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(approvedWritingExamples).where(and(eq(approvedWritingExamples.courseType, input.courseType), eq(approvedWritingExamples.status, "published"))).orderBy(desc(approvedWritingExamples.publishedAt));
+  const rows = await db
+    .select()
+    .from(approvedWritingExamples)
+    .where(
+      and(
+        eq(approvedWritingExamples.courseType, input.courseType),
+        eq(approvedWritingExamples.status, "published")
+      )
+    )
+    .orderBy(desc(approvedWritingExamples.publishedAt));
   const search = input.search?.trim().toLowerCase();
   const skillTag = input.skillTag?.trim().toLowerCase();
-  return rows.filter((row) => {
-    const searchable = `${row.title} ${row.topic} ${row.skillTags || ""} ${row.teacherNote || ""}`.toLowerCase();
-    return (!search || searchable.includes(search)) && (!skillTag || (row.skillTags || "").toLowerCase().includes(skillTag));
+  return rows.filter(row => {
+    const searchable =
+      `${row.title} ${row.topic} ${row.skillTags || ""} ${row.teacherNote || ""}`.toLowerCase();
+    return (
+      (!search || searchable.includes(search)) &&
+      (!skillTag || (row.skillTags || "").toLowerCase().includes(skillTag))
+    );
   });
 }
 
-export async function reviewStudentClassAssignment(teacherId: number, submissionId: number, input: { score: number; teacherComment: string }) {
+export async function reviewStudentClassAssignment(
+  teacherId: number,
+  submissionId: number,
+  input: { score: number; teacherComment: string }
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [submission] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
+  const [submission] = await db
+    .select()
+    .from(classAssignmentSubmissions)
+    .where(eq(classAssignmentSubmissions.id, submissionId));
   if (!submission) throw new Error("채점할 과제 제출물을 찾을 수 없습니다.");
-  const [assignment] = await db.select().from(classAssignments).where(eq(classAssignments.id, submission.assignmentId));
+  const [assignment] = await db
+    .select()
+    .from(classAssignments)
+    .where(eq(classAssignments.id, submission.assignmentId));
   if (!assignment) throw new Error("연결된 과제를 찾을 수 없습니다.");
   await assertTeacherGroupOwnership(teacherId, assignment.groupId);
-  await db.update(classAssignmentSubmissions).set({ status: "reviewed", score: input.score, teacherComment: input.teacherComment.trim(), reviewedAt: new Date(), updatedAt: new Date() }).where(eq(classAssignmentSubmissions.id, submissionId));
-  await db.update(classAssignmentAiFeedbacks).set({ status: "reviewed", reviewedAt: new Date(), updatedAt: new Date() }).where(and(eq(classAssignmentAiFeedbacks.submissionId, submissionId), eq(classAssignmentAiFeedbacks.status, "generated")));
-  await db.insert(appNotifications).values({ userId: submission.studentId, assignmentId: assignment.id, title: `[과제 채점 완료] ${assignment.title}`, message: `교사가 과제를 채점했습니다. 점수 ${input.score}점과 피드백을 확인하세요.`, category: "teacher_feedback" });
-  const [updated] = await db.select().from(classAssignmentSubmissions).where(eq(classAssignmentSubmissions.id, submissionId));
+  await db
+    .update(classAssignmentSubmissions)
+    .set({
+      status: "reviewed",
+      score: input.score, // 채점 시각은 처음 채점한 시각을 유지한다(다시 저장해도 활동이 다른 달로 옮겨가거나 새 활동이 되지 않는다).
+      teacherComment: input.teacherComment.trim(),
+      reviewedAt:
+        submission.status === "reviewed" && submission.reviewedAt
+          ? submission.reviewedAt
+          : new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(classAssignmentSubmissions.id, submissionId));
+  await db
+    .update(classAssignmentAiFeedbacks)
+    .set({ status: "reviewed", reviewedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(classAssignmentAiFeedbacks.submissionId, submissionId),
+        eq(classAssignmentAiFeedbacks.status, "generated")
+      )
+    );
+  await db.insert(appNotifications).values({
+    userId: submission.studentId,
+    assignmentId: assignment.id,
+    title: `[과제 채점 완료] ${assignment.title}`,
+    message: `교사가 과제를 채점했습니다. 점수 ${input.score}점과 피드백을 확인하세요.`,
+    category: "teacher_feedback",
+  });
+  const [updated] = await db
+    .select()
+    .from(classAssignmentSubmissions)
+    .where(eq(classAssignmentSubmissions.id, submissionId));
   return updated;
+}
+
+/** 과제 제출물과 그 과제(반 정보 포함). 채점·AI 첨삭이 어느 반의 활동인지 알아야 정산·예산을 정할 수 있다. */
+export async function getClassAssignmentSubmissionContext(
+  submissionId: number
+) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [submission] = await db
+    .select()
+    .from(classAssignmentSubmissions)
+    .where(eq(classAssignmentSubmissions.id, submissionId));
+  if (!submission) return undefined;
+  const [assignment] = await db
+    .select()
+    .from(classAssignments)
+    .where(eq(classAssignments.id, submission.assignmentId));
+  return assignment ? { submission, assignment } : undefined;
+}
+
+export async function getWorkbookTeacherFeedbackByAnswerId(answerId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db
+    .select()
+    .from(workbookTeacherFeedback)
+    .where(eq(workbookTeacherFeedback.answerId, answerId));
+  return row;
+}
+
+export async function getClassAttendanceRecord(
+  groupId: number,
+  studentId: number,
+  attendanceDate: string
+) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db
+    .select()
+    .from(classAttendance)
+    .where(
+      and(
+        eq(classAttendance.groupId, groupId),
+        eq(classAttendance.studentId, studentId),
+        eq(classAttendance.attendanceDate, attendanceDate)
+      )
+    );
+  return row;
 }
 
 export async function listTeacherFeedbackTemplates(teacherId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(teacherFeedbackTemplates).where(eq(teacherFeedbackTemplates.teacherId, teacherId)).orderBy(desc(teacherFeedbackTemplates.updatedAt));
+  return db
+    .select()
+    .from(teacherFeedbackTemplates)
+    .where(eq(teacherFeedbackTemplates.teacherId, teacherId))
+    .orderBy(desc(teacherFeedbackTemplates.updatedAt));
 }
 
-export async function saveTeacherFeedbackTemplate(teacherId: number, input: { templateId?: number; title: string; content: string }) {
+export async function saveTeacherFeedbackTemplate(
+  teacherId: number,
+  input: { templateId?: number; title: string; content: string }
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const values = { title: input.title.trim(), content: input.content.trim(), updatedAt: new Date() };
+  const values = {
+    title: input.title.trim(),
+    content: input.content.trim(),
+    updatedAt: new Date(),
+  };
   if (input.templateId) {
-    const [existing] = await db.select().from(teacherFeedbackTemplates).where(and(eq(teacherFeedbackTemplates.id, input.templateId), eq(teacherFeedbackTemplates.teacherId, teacherId)));
+    const [existing] = await db
+      .select()
+      .from(teacherFeedbackTemplates)
+      .where(
+        and(
+          eq(teacherFeedbackTemplates.id, input.templateId),
+          eq(teacherFeedbackTemplates.teacherId, teacherId)
+        )
+      );
     if (!existing) throw new Error("수정할 피드백 상용구를 찾을 수 없습니다.");
-    await db.update(teacherFeedbackTemplates).set(values).where(eq(teacherFeedbackTemplates.id, input.templateId));
+    await db
+      .update(teacherFeedbackTemplates)
+      .set(values)
+      .where(eq(teacherFeedbackTemplates.id, input.templateId));
   } else {
     await db.insert(teacherFeedbackTemplates).values({ teacherId, ...values });
   }
   return listTeacherFeedbackTemplates(teacherId);
 }
 
-export async function deleteTeacherFeedbackTemplate(teacherId: number, templateId: number) {
+export async function deleteTeacherFeedbackTemplate(
+  teacherId: number,
+  templateId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.delete(teacherFeedbackTemplates).where(and(eq(teacherFeedbackTemplates.id, templateId), eq(teacherFeedbackTemplates.teacherId, teacherId)));
+  await db
+    .delete(teacherFeedbackTemplates)
+    .where(
+      and(
+        eq(teacherFeedbackTemplates.id, templateId),
+        eq(teacherFeedbackTemplates.teacherId, teacherId)
+      )
+    );
   return true;
 }
 
 function getMonthRange(month: string) {
-  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("월 형식은 YYYY-MM이어야 합니다.");
+  if (!/^\d{4}-\d{2}$/.test(month))
+    throw new Error("월 형식은 YYYY-MM이어야 합니다.");
   const [year, monthNumber] = month.split("-").map(Number);
-  return { start: new Date(year, monthNumber - 1, 1), end: new Date(year, monthNumber, 1) };
+  return {
+    start: new Date(year, monthNumber - 1, 1),
+    end: new Date(year, monthNumber, 1),
+  };
 }
 
-export async function getTeacherMonthlyAssignmentStats(teacherId: number, month: string) {
+export async function getTeacherMonthlyAssignmentStats(
+  teacherId: number,
+  month: string
+) {
   const db = await getDb();
-  if (!db) return { month, summary: { assignments: 0, expected: 0, submitted: 0, reviewed: 0, pending: 0 }, rows: [] as any[] };
+  if (!db)
+    return {
+      month,
+      summary: {
+        assignments: 0,
+        expected: 0,
+        submitted: 0,
+        reviewed: 0,
+        pending: 0,
+      },
+      rows: [] as any[],
+    };
   const { start, end } = getMonthRange(month);
-  const [groups, members, allUsers, assignments, submissions] = await Promise.all([
-    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
-    db.select().from(learningGroupMembers),
-    db.select().from(users),
-    db.select().from(classAssignments).where(and(eq(classAssignments.isActive, 1), gte(classAssignments.dueAt, start), lt(classAssignments.dueAt, end))),
-    db.select().from(classAssignmentSubmissions),
-  ]);
-  const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  const rows = groups.flatMap((group) => {
-    const groupAssignments = assignments.filter((assignment) => assignment.groupId === group.id);
-    return members.filter((member) => member.groupId === group.id).map((member) => {
-      const assignmentIds = new Set(groupAssignments.map((assignment) => assignment.id));
-      const studentSubmissions = submissions.filter((submission) => submission.studentId === member.studentId && assignmentIds.has(submission.assignmentId));
-      const submitted = studentSubmissions.length;
-      const reviewed = studentSubmissions.filter((submission) => submission.status === "reviewed").length;
-      const expected = groupAssignments.length;
-      const student = usersById.get(member.studentId);
-      return { groupId: group.id, groupName: group.name, studentId: member.studentId, studentName: student?.name || `학생 #${member.studentId}`, studentEmail: student?.email || null, expected, submitted, reviewed, pending: Math.max(submitted - reviewed, 0), unsubmitted: Math.max(expected - submitted, 0) };
-    });
+  const [groups, members, allUsers, assignments, submissions] =
+    await Promise.all([
+      db
+        .select()
+        .from(learningGroups)
+        .where(
+          and(
+            eq(learningGroups.teacherId, teacherId),
+            eq(learningGroups.isActive, 1)
+          )
+        ),
+      db.select().from(learningGroupMembers),
+      db.select().from(users),
+      db
+        .select()
+        .from(classAssignments)
+        .where(
+          and(
+            eq(classAssignments.isActive, 1),
+            gte(classAssignments.dueAt, start),
+            lt(classAssignments.dueAt, end)
+          )
+        ),
+      db.select().from(classAssignmentSubmissions),
+    ]);
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  const rows = groups.flatMap(group => {
+    const groupAssignments = assignments.filter(
+      assignment => assignment.groupId === group.id
+    );
+    return members
+      .filter(member => member.groupId === group.id)
+      .map(member => {
+        const assignmentIds = new Set(
+          groupAssignments.map(assignment => assignment.id)
+        );
+        const studentSubmissions = submissions.filter(
+          submission =>
+            submission.studentId === member.studentId &&
+            assignmentIds.has(submission.assignmentId)
+        );
+        const submitted = studentSubmissions.length;
+        const reviewed = studentSubmissions.filter(
+          submission => submission.status === "reviewed"
+        ).length;
+        const expected = groupAssignments.length;
+        const student = usersById.get(member.studentId);
+        return {
+          groupId: group.id,
+          groupName: group.name,
+          studentId: member.studentId,
+          studentName: student?.name || `학생 #${member.studentId}`,
+          studentEmail: student?.email || null,
+          expected,
+          submitted,
+          reviewed,
+          pending: Math.max(submitted - reviewed, 0),
+          unsubmitted: Math.max(expected - submitted, 0),
+        };
+      });
   });
-  const summary = rows.reduce((total, row) => ({ assignments: total.assignments, expected: total.expected + row.expected, submitted: total.submitted + row.submitted, reviewed: total.reviewed + row.reviewed, pending: total.pending + row.pending }), { assignments: assignments.length, expected: 0, submitted: 0, reviewed: 0, pending: 0 });
+  const summary = rows.reduce(
+    (total, row) => ({
+      assignments: total.assignments,
+      expected: total.expected + row.expected,
+      submitted: total.submitted + row.submitted,
+      reviewed: total.reviewed + row.reviewed,
+      pending: total.pending + row.pending,
+    }),
+    {
+      assignments: assignments.length,
+      expected: 0,
+      submitted: 0,
+      reviewed: 0,
+      pending: 0,
+    }
+  );
   return { month, summary, rows };
 }
 
-export async function notifyUpcomingAssignmentStudents(teacherId: number, hoursAhead = 72) {
+export async function notifyUpcomingAssignmentStudents(
+  teacherId: number,
+  hoursAhead = 72
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const now = new Date();
   const deadline = new Date(now.getTime() + hoursAhead * 60 * 60 * 1000);
-  const [groups, members, assignments, submissions, notifications] = await Promise.all([
-    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
-    db.select().from(learningGroupMembers),
-    db.select().from(classAssignments).where(and(eq(classAssignments.isActive, 1), gte(classAssignments.dueAt, now), lt(classAssignments.dueAt, deadline))),
-    db.select().from(classAssignmentSubmissions),
-    db.select().from(appNotifications),
-  ]);
-  const ownedGroupIds = new Set(groups.map((group) => group.id));
+  const [groups, members, assignments, submissions, notifications] =
+    await Promise.all([
+      db
+        .select()
+        .from(learningGroups)
+        .where(
+          and(
+            eq(learningGroups.teacherId, teacherId),
+            eq(learningGroups.isActive, 1)
+          )
+        ),
+      db.select().from(learningGroupMembers),
+      db
+        .select()
+        .from(classAssignments)
+        .where(
+          and(
+            eq(classAssignments.isActive, 1),
+            gte(classAssignments.dueAt, now),
+            lt(classAssignments.dueAt, deadline)
+          )
+        ),
+      db.select().from(classAssignmentSubmissions),
+      db.select().from(appNotifications),
+    ]);
+  const ownedGroupIds = new Set(groups.map(group => group.id));
   const newNotifications: Array<typeof appNotifications.$inferInsert> = [];
-  assignments.filter((assignment) => ownedGroupIds.has(assignment.groupId) && assignment.dueAt).forEach((assignment) => {
-    members.filter((member) => member.groupId === assignment.groupId).forEach((member) => {
-      const submittedAfterAssignment = submissions.some((submission) => submission.assignmentId === assignment.id && submission.studentId === member.studentId);
-      const title = `[과제 마감 임박] ${assignment.title}`;
-      const alreadyNotified = notifications.some((notification) => notification.userId === member.studentId && notification.assignmentId === assignment.id && notification.category === "assignment_deadline");
-      if (!submittedAfterAssignment && !alreadyNotified) newNotifications.push({ userId: member.studentId, assignmentId: assignment.id, title, message: `마감일 ${assignment.dueAt!.toLocaleString("ko-KR")} 전까지 과제를 제출해주세요.`, category: "assignment_deadline" });
+  assignments
+    .filter(
+      assignment => ownedGroupIds.has(assignment.groupId) && assignment.dueAt
+    )
+    .forEach(assignment => {
+      members
+        .filter(member => member.groupId === assignment.groupId)
+        .forEach(member => {
+          const submittedAfterAssignment = submissions.some(
+            submission =>
+              submission.assignmentId === assignment.id &&
+              submission.studentId === member.studentId
+          );
+          const title = `[과제 마감 임박] ${assignment.title}`;
+          const alreadyNotified = notifications.some(
+            notification =>
+              notification.userId === member.studentId &&
+              notification.assignmentId === assignment.id &&
+              notification.category === "assignment_deadline"
+          );
+          if (!submittedAfterAssignment && !alreadyNotified)
+            newNotifications.push({
+              userId: member.studentId,
+              assignmentId: assignment.id,
+              title,
+              message: `마감일 ${assignment.dueAt!.toLocaleString("ko-KR")} 전까지 과제를 제출해주세요.`,
+              category: "assignment_deadline",
+            });
+        });
     });
-  });
-  if (newNotifications.length) await db.insert(appNotifications).values(newNotifications);
+  if (newNotifications.length)
+    await db.insert(appNotifications).values(newNotifications);
   return { notified: newNotifications.length, hoursAhead };
 }
 
 export async function getTeacherAssignmentNotificationStats(teacherId: number) {
   const db = await getDb();
-  const emptySummary = { sent: 0, read: 0, unread: 0, readRate: 0, submittedAfterNotice: 0, openedThenSubmitted: 0, conversionRate: 0 };
+  const emptySummary = {
+    sent: 0,
+    read: 0,
+    unread: 0,
+    readRate: 0,
+    submittedAfterNotice: 0,
+    openedThenSubmitted: 0,
+    conversionRate: 0,
+  };
   if (!db) return { summary: emptySummary, rows: [] as any[] };
-  const [groups, members, assignments, notifications, submissions] = await Promise.all([
-    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
-    db.select().from(learningGroupMembers),
-    db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)),
-    db.select().from(appNotifications).where(eq(appNotifications.category, "assignment_deadline")),
-    db.select().from(classAssignmentSubmissions),
-  ]);
-  const groupIds = new Set(groups.map((group) => group.id));
-  const groupsById = new Map(groups.map((group) => [group.id, group]));
-  const ownedAssignments = assignments.filter((assignment) => groupIds.has(assignment.groupId));
-  const rows = ownedAssignments.map((assignment) => {
-    const assignmentNotifications = notifications.filter((notification) => notification.assignmentId === assignment.id);
-    const assignedStudentIds = new Set(members.filter((member) => member.groupId === assignment.groupId).map((member) => member.studentId));
-    const sent = assignmentNotifications.length;
-    const read = assignmentNotifications.filter((notification) => notification.isRead === 1).length;
-    const submittedAfterNotice = assignmentNotifications.filter((notification) => submissions.some((submission) => submission.assignmentId === assignment.id && submission.studentId === notification.userId && submission.submittedAt >= notification.createdAt)).length;
-    const openedThenSubmitted = assignmentNotifications.filter((notification) => notification.isRead === 1 && submissions.some((submission) => submission.assignmentId === assignment.id && submission.studentId === notification.userId && submission.submittedAt >= notification.createdAt)).length;
-    return {
-      assignmentId: assignment.id,
-      title: assignment.title,
-      groupName: groupsById.get(assignment.groupId)?.name || "담당 반",
-      dueAt: assignment.dueAt,
-      assignedStudents: assignedStudentIds.size,
-      sent,
-      read,
-      unread: Math.max(sent - read, 0),
-      readRate: sent ? Math.round((read / sent) * 100) : 0,
-      submittedAfterNotice,
-      openedThenSubmitted,
-      conversionRate: sent ? Math.round((openedThenSubmitted / sent) * 100) : 0,
-    };
-  }).filter((row) => row.sent > 0).sort((left, right) => (right.dueAt?.getTime() ?? 0) - (left.dueAt?.getTime() ?? 0));
-  const summary = rows.reduce((total, row) => ({
-    sent: total.sent + row.sent,
-    read: total.read + row.read,
-    unread: total.unread + row.unread,
-    submittedAfterNotice: total.submittedAfterNotice + row.submittedAfterNotice,
-    openedThenSubmitted: total.openedThenSubmitted + row.openedThenSubmitted,
-  }), { sent: 0, read: 0, unread: 0, submittedAfterNotice: 0, openedThenSubmitted: 0 });
-  return { summary: { ...summary, readRate: summary.sent ? Math.round((summary.read / summary.sent) * 100) : 0, conversionRate: summary.sent ? Math.round((summary.openedThenSubmitted / summary.sent) * 100) : 0 }, rows };
+  const [groups, members, assignments, notifications, submissions] =
+    await Promise.all([
+      db
+        .select()
+        .from(learningGroups)
+        .where(
+          and(
+            eq(learningGroups.teacherId, teacherId),
+            eq(learningGroups.isActive, 1)
+          )
+        ),
+      db.select().from(learningGroupMembers),
+      db
+        .select()
+        .from(classAssignments)
+        .where(eq(classAssignments.isActive, 1)),
+      db
+        .select()
+        .from(appNotifications)
+        .where(eq(appNotifications.category, "assignment_deadline")),
+      db.select().from(classAssignmentSubmissions),
+    ]);
+  const groupIds = new Set(groups.map(group => group.id));
+  const groupsById = new Map(groups.map(group => [group.id, group]));
+  const ownedAssignments = assignments.filter(assignment =>
+    groupIds.has(assignment.groupId)
+  );
+  const rows = ownedAssignments
+    .map(assignment => {
+      const assignmentNotifications = notifications.filter(
+        notification => notification.assignmentId === assignment.id
+      );
+      const assignedStudentIds = new Set(
+        members
+          .filter(member => member.groupId === assignment.groupId)
+          .map(member => member.studentId)
+      );
+      const sent = assignmentNotifications.length;
+      const read = assignmentNotifications.filter(
+        notification => notification.isRead === 1
+      ).length;
+      const submittedAfterNotice = assignmentNotifications.filter(
+        notification =>
+          submissions.some(
+            submission =>
+              submission.assignmentId === assignment.id &&
+              submission.studentId === notification.userId &&
+              submission.submittedAt >= notification.createdAt
+          )
+      ).length;
+      const openedThenSubmitted = assignmentNotifications.filter(
+        notification =>
+          notification.isRead === 1 &&
+          submissions.some(
+            submission =>
+              submission.assignmentId === assignment.id &&
+              submission.studentId === notification.userId &&
+              submission.submittedAt >= notification.createdAt
+          )
+      ).length;
+      return {
+        assignmentId: assignment.id,
+        title: assignment.title,
+        groupName: groupsById.get(assignment.groupId)?.name || "담당 반",
+        dueAt: assignment.dueAt,
+        assignedStudents: assignedStudentIds.size,
+        sent,
+        read,
+        unread: Math.max(sent - read, 0),
+        readRate: sent ? Math.round((read / sent) * 100) : 0,
+        submittedAfterNotice,
+        openedThenSubmitted,
+        conversionRate: sent
+          ? Math.round((openedThenSubmitted / sent) * 100)
+          : 0,
+      };
+    })
+    .filter(row => row.sent > 0)
+    .sort(
+      (left, right) =>
+        (right.dueAt?.getTime() ?? 0) - (left.dueAt?.getTime() ?? 0)
+    );
+  const summary = rows.reduce(
+    (total, row) => ({
+      sent: total.sent + row.sent,
+      read: total.read + row.read,
+      unread: total.unread + row.unread,
+      submittedAfterNotice:
+        total.submittedAfterNotice + row.submittedAfterNotice,
+      openedThenSubmitted: total.openedThenSubmitted + row.openedThenSubmitted,
+    }),
+    {
+      sent: 0,
+      read: 0,
+      unread: 0,
+      submittedAfterNotice: 0,
+      openedThenSubmitted: 0,
+    }
+  );
+  return {
+    summary: {
+      ...summary,
+      readRate: summary.sent
+        ? Math.round((summary.read / summary.sent) * 100)
+        : 0,
+      conversionRate: summary.sent
+        ? Math.round((summary.openedThenSubmitted / summary.sent) * 100)
+        : 0,
+    },
+    rows,
+  };
 }
 
 export async function getTeacherAssignmentReminderHistory(teacherId: number) {
   const db = await getDb();
   if (!db) return [];
-  const [groups, assignments, notifications, submissions, allUsers] = await Promise.all([
-    db.select().from(learningGroups).where(and(eq(learningGroups.teacherId, teacherId), eq(learningGroups.isActive, 1))),
-    db.select().from(classAssignments).where(eq(classAssignments.isActive, 1)),
-    db.select().from(appNotifications).where(eq(appNotifications.category, "assignment_deadline")),
-    db.select().from(classAssignmentSubmissions),
-    db.select().from(users),
-  ]);
-  const groupsById = new Map(groups.map((group) => [group.id, group]));
-  const assignmentsById = new Map(assignments.map((assignment) => [assignment.id, assignment]));
-  const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  return notifications.flatMap((notification) => {
-    if (!notification.assignmentId) return [];
-    const assignment = assignmentsById.get(notification.assignmentId);
-    const group = assignment ? groupsById.get(assignment.groupId) : null;
-    if (!assignment || !group) return [];
-    const submission = submissions.find((item) => item.assignmentId === assignment.id && item.studentId === notification.userId) ?? null;
-    const submittedAfterNotice = Boolean(submission?.submittedAt && submission.submittedAt >= notification.createdAt);
-    return [{
-      notificationId: notification.id,
-      assignmentId: assignment.id,
-      assignmentTitle: assignment.title,
-      groupName: group.name,
-      studentId: notification.userId,
-      studentName: usersById.get(notification.userId)?.name || `학생 #${notification.userId}`,
-      studentEmail: usersById.get(notification.userId)?.email || null,
-      dueAt: assignment.dueAt,
-      notifiedAt: notification.createdAt,
-      isRead: notification.isRead === 1,
-      readAt: notification.readAt,
-      submittedAt: submission?.submittedAt ?? null,
-      submittedAfterNotice,
-      submissionStatus: submission?.status ?? "pending",
-    }];
-  }).sort((left, right) => right.notifiedAt.getTime() - left.notifiedAt.getTime());
+  const [groups, assignments, notifications, submissions, allUsers] =
+    await Promise.all([
+      db
+        .select()
+        .from(learningGroups)
+        .where(
+          and(
+            eq(learningGroups.teacherId, teacherId),
+            eq(learningGroups.isActive, 1)
+          )
+        ),
+      db
+        .select()
+        .from(classAssignments)
+        .where(eq(classAssignments.isActive, 1)),
+      db
+        .select()
+        .from(appNotifications)
+        .where(eq(appNotifications.category, "assignment_deadline")),
+      db.select().from(classAssignmentSubmissions),
+      db.select().from(users),
+    ]);
+  const groupsById = new Map(groups.map(group => [group.id, group]));
+  const assignmentsById = new Map(
+    assignments.map(assignment => [assignment.id, assignment])
+  );
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  return notifications
+    .flatMap(notification => {
+      if (!notification.assignmentId) return [];
+      const assignment = assignmentsById.get(notification.assignmentId);
+      const group = assignment ? groupsById.get(assignment.groupId) : null;
+      if (!assignment || !group) return [];
+      const submission =
+        submissions.find(
+          item =>
+            item.assignmentId === assignment.id &&
+            item.studentId === notification.userId
+        ) ?? null;
+      const submittedAfterNotice = Boolean(
+        submission?.submittedAt &&
+          submission.submittedAt >= notification.createdAt
+      );
+      return [
+        {
+          notificationId: notification.id,
+          assignmentId: assignment.id,
+          assignmentTitle: assignment.title,
+          groupName: group.name,
+          studentId: notification.userId,
+          studentName:
+            usersById.get(notification.userId)?.name ||
+            `학생 #${notification.userId}`,
+          studentEmail: usersById.get(notification.userId)?.email || null,
+          dueAt: assignment.dueAt,
+          notifiedAt: notification.createdAt,
+          isRead: notification.isRead === 1,
+          readAt: notification.readAt,
+          submittedAt: submission?.submittedAt ?? null,
+          submittedAfterNotice,
+          submissionStatus: submission?.status ?? "pending",
+        },
+      ];
+    })
+    .sort(
+      (left, right) => right.notifiedAt.getTime() - left.notifiedAt.getTime()
+    );
 }
 
 export async function getTeacherPermissionGrants() {
   const db = await getDb();
   if (!db) return [];
   const [grants, allUsers] = await Promise.all([
-    db.select().from(teacherPermissionGrants).orderBy(desc(teacherPermissionGrants.updatedAt)),
+    db
+      .select()
+      .from(teacherPermissionGrants)
+      .orderBy(desc(teacherPermissionGrants.updatedAt)),
     db.select().from(users),
   ]);
-  const usersById = new Map(allUsers.map((user) => [user.id, user]));
-  return grants.map((grant) => ({
+  const usersById = new Map(allUsers.map(user => [user.id, user]));
+  return grants.map(grant => ({
     ...grant,
-    teacherName: usersById.get(grant.teacherId)?.name || `교사 #${grant.teacherId}`,
+    teacherName:
+      usersById.get(grant.teacherId)?.name || `교사 #${grant.teacherId}`,
     teacherEmail: usersById.get(grant.teacherId)?.email || null,
-    studentName: grant.studentId ? usersById.get(grant.studentId)?.name || `학생 #${grant.studentId}` : null,
-    studentEmail: grant.studentId ? usersById.get(grant.studentId)?.email || null : null,
-    studentCourseLabel: grant.studentId ? getCourseTag(getCourseTypeFromUserTag(usersById.get(grant.studentId)?.tag)) : null,
+    studentName: grant.studentId
+      ? usersById.get(grant.studentId)?.name || `학생 #${grant.studentId}`
+      : null,
+    studentEmail: grant.studentId
+      ? usersById.get(grant.studentId)?.email || null
+      : null,
+    studentCourseLabel: grant.studentId
+      ? getCourseTag(
+          getCourseTypeFromUserTag(usersById.get(grant.studentId)?.tag)
+        )
+      : null,
   }));
 }
 
@@ -2983,8 +5849,11 @@ export async function saveTeacherPermissionGrant(input: {
   const values = {
     teacherId: input.teacherId,
     scopeType: input.scopeType,
-    organizationName: input.scopeType === "organization" ? input.organizationName?.trim() || "담당 학급" : null,
-    studentId: input.scopeType === "student" ? input.studentId ?? null : null,
+    organizationName:
+      input.scopeType === "organization"
+        ? input.organizationName?.trim() || "담당 학급"
+        : null,
+    studentId: input.scopeType === "student" ? (input.studentId ?? null) : null,
     canManageProgress: input.canManageProgress,
     canRequestCertificate: input.canRequestCertificate,
     isActive: input.isActive,
@@ -2992,31 +5861,59 @@ export async function saveTeacherPermissionGrant(input: {
     updatedAt: new Date(),
   };
   if (input.grantId) {
-    await db.update(teacherPermissionGrants).set(values).where(eq(teacherPermissionGrants.id, input.grantId));
+    await db
+      .update(teacherPermissionGrants)
+      .set(values)
+      .where(eq(teacherPermissionGrants.id, input.grantId));
   } else {
     await db.insert(teacherPermissionGrants).values(values);
   }
   return getTeacherPermissionGrants();
 }
 
-export async function setTeacherPermissionGrantActive(grantId: number, isActive: number) {
+export async function setTeacherPermissionGrantActive(
+  grantId: number,
+  isActive: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.update(teacherPermissionGrants).set({ isActive, updatedAt: new Date() }).where(eq(teacherPermissionGrants.id, grantId));
+  await db
+    .update(teacherPermissionGrants)
+    .set({ isActive, updatedAt: new Date() })
+    .where(eq(teacherPermissionGrants.id, grantId));
   return getTeacherPermissionGrants();
 }
 
 async function getActiveTeacherPermissionGrants(teacherId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(teacherPermissionGrants).where(and(eq(teacherPermissionGrants.teacherId, teacherId), eq(teacherPermissionGrants.isActive, 1)));
+  return db
+    .select()
+    .from(teacherPermissionGrants)
+    .where(
+      and(
+        eq(teacherPermissionGrants.teacherId, teacherId),
+        eq(teacherPermissionGrants.isActive, 1)
+      )
+    );
 }
 
-export async function canTeacherManageStudent(teacherId: number, studentId: number, permission: "progress" | "certificate") {
-  const [student, grants] = await Promise.all([getUserById(studentId), getActiveTeacherPermissionGrants(teacherId)]);
-  if (!student || student.role !== "user" || student.tag === "학부모") return false;
-  return grants.some((grant) => {
-    const permissionGranted = permission === "progress" ? grant.canManageProgress === 1 : grant.canRequestCertificate === 1;
+export async function canTeacherManageStudent(
+  teacherId: number,
+  studentId: number,
+  permission: "progress" | "certificate"
+) {
+  const [student, grants] = await Promise.all([
+    getUserById(studentId),
+    getActiveTeacherPermissionGrants(teacherId),
+  ]);
+  if (!student || student.role !== "user" || student.tag === "학부모")
+    return false;
+  return grants.some(grant => {
+    const permissionGranted =
+      permission === "progress"
+        ? grant.canManageProgress === 1
+        : grant.canRequestCertificate === 1;
     if (!permissionGranted) return false;
     if (grant.scopeType === "student") return grant.studentId === studentId;
     return student.teacherId === teacherId;
@@ -3026,12 +5923,15 @@ export async function canTeacherManageStudent(teacherId: number, studentId: numb
 export async function getManagedStudentsForTeacher(teacherId: number) {
   const db = await getDb();
   if (!db) return [];
-  const [allUsers, grants] = await Promise.all([db.select().from(users), getActiveTeacherPermissionGrants(teacherId)]);
-  const directStudentIds = new Set(grants.filter((grant) => grant.scopeType === "student").map((grant) => grant.studentId).filter((id): id is number => id !== null));
-  const hasOrganizationScope = grants.some((grant) => grant.scopeType === "organization" && (grant.canManageProgress === 1 || grant.canRequestCertificate === 1));
+  const [allUsers, grants] = await Promise.all([
+    db.select().from(users),
+    getActiveTeacherPermissionGrants(teacherId),
+  ]);
+  // 담당 교사로 연결된 학생(assigned)은 권한 없이도 지도 학생이다. 권한(granted)은 진도·수료증 관리 버튼에만 쓴다.
+  const relations = selectManagedStudentIds(allUsers, grants, teacherId);
   return allUsers
-    .filter((user) => user.role === "user" && user.tag !== "학부모" && (directStudentIds.has(user.id) || (hasOrganizationScope && user.teacherId === teacherId)))
-    .map((user) => ({
+    .filter(user => relations.has(user.id))
+    .map(user => ({
       id: user.id,
       name: user.name,
       email: user.email,
@@ -3040,40 +5940,371 @@ export async function getManagedStudentsForTeacher(teacherId: number) {
       createdAt: user.createdAt,
       lastSignedIn: user.lastSignedIn,
       teacherId: user.teacherId,
+      relation: relations.get(user.id)!,
     }));
 }
 
 export async function getLinkedStudentsForParent(parentId: number) {
   const db = await getDb();
   if (!db) return [];
-  const links = await db.select().from(parentStudentLinks).where(eq(parentStudentLinks.parentId, parentId));
+  // 학생이 승인한 연결만 학습 정보 조회 대상이 된다.
+  const links = await db
+    .select()
+    .from(parentStudentLinks)
+    .where(
+      and(
+        eq(parentStudentLinks.parentId, parentId),
+        eq(parentStudentLinks.status, "approved")
+      )
+    );
   const studentIds = links.map(l => l.studentId);
   if (studentIds.length === 0) return [];
-  
-  const allU = await db.select().from(users);
-  return allU.filter((student) => studentIds.includes(student.id)).map((student) => ({
-    ...student,
+
+  // 학부모 화면에는 비밀번호 해시·인증 토큰·운영자 메모 등을 내려보내지 않고 필요한 필드만 반환한다.
+  const linkedStudents = await db
+    .select()
+    .from(users)
+    .where(inArray(users.id, studentIds));
+  return linkedStudents.map(student => ({
+    id: student.id,
+    name: student.name,
+    email: student.email,
+    tag: student.tag,
+    createdAt: student.createdAt,
+    lastSignedIn: student.lastSignedIn,
     courseType: getCourseTypeFromUserTag(student.tag),
     courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)),
   }));
 }
 
-export async function linkParentAndStudent(parentId: number, studentEmail: string) {
+export async function linkParentAndStudent(
+  parentId: number,
+  studentEmail: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [student] = await db.select().from(users).where(eq(users.email, studentEmail));
-  if (!student) {
-    throw new Error("해당 이메일을 가진 학생 계정을 찾을 수 없습니다.");
+  const [student] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, studentEmail));
+  // 교사·관리자·다른 학부모 계정은 연결 대상이 될 수 없다. 계정 존재 여부를 노출하지 않도록 호출부는 동일한 메시지로 응답한다.
+  if (!student || student.role !== "user" || student.tag === "학부모") {
+    return null;
   }
-  const [existing] = await db.select().from(parentStudentLinks).where(and(eq(parentStudentLinks.parentId, parentId), eq(parentStudentLinks.studentId, student.id)));
+  const [existing] = await db
+    .select()
+    .from(parentStudentLinks)
+    .where(
+      and(
+        eq(parentStudentLinks.parentId, parentId),
+        eq(parentStudentLinks.studentId, student.id)
+      )
+    );
+  if (existing?.status === "approved") {
+    return {
+      success: true,
+      status: "approved" as const,
+      studentId: student.id,
+      courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)),
+    };
+  }
+  // 승인 대기·거절 상태에서는 학생 정보를 돌려주지 않는다.
+  if (existing?.status === "pending") {
+    return { success: true, status: "pending" as const };
+  }
+  // 거절된 연결도 학부모가 다시 요청하면 승인 대기로 돌린다. 학생이 실수로 거절한 경우를 복구할 수 있고, 학생은 다시 거절할 수 있다.
   if (existing) {
-    return { success: true, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
+    await db
+      .update(parentStudentLinks)
+      .set({ status: "pending", respondedAt: null })
+      .where(eq(parentStudentLinks.id, existing.id));
+    return { success: true, status: "pending" as const };
   }
   await db.insert(parentStudentLinks).values({
     parentId,
     studentId: student.id,
+    status: "pending",
   });
-  return { success: true, studentId: student.id, courseLabel: getCourseTag(getCourseTypeFromUserTag(student.tag)) };
+  return { success: true, status: "pending" as const };
+}
+
+// 학부모 본인이 보낸 요청 중 아직 연결되지 않은(대기·거절) 목록
+export async function getParentLinkRequests(parentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db
+    .select()
+    .from(parentStudentLinks)
+    .where(
+      and(
+        eq(parentStudentLinks.parentId, parentId),
+        inArray(parentStudentLinks.status, ["pending", "rejected"])
+      )
+    );
+  if (links.length === 0) return [];
+  const students = await db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(
+      inArray(
+        users.id,
+        links.map(link => link.studentId)
+      )
+    );
+  return links.map(link => {
+    const student = students.find(item => item.id === link.studentId);
+    return {
+      linkId: link.id,
+      status: link.status as "pending" | "rejected",
+      studentName: student?.name ?? null,
+      studentEmail: student?.email ?? null,
+      requestedAt: link.createdAt,
+    };
+  });
+}
+
+// 학생 본인에게 온 학부모 연결 요청(대기) 목록
+export async function getPendingLinkRequestsForStudent(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db
+    .select()
+    .from(parentStudentLinks)
+    .where(
+      and(
+        eq(parentStudentLinks.studentId, studentId),
+        eq(parentStudentLinks.status, "pending")
+      )
+    );
+  if (links.length === 0) return [];
+  const parents = await db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(
+      inArray(
+        users.id,
+        links.map(link => link.parentId)
+      )
+    );
+  return links.map(link => {
+    const parent = parents.find(item => item.id === link.parentId);
+    return {
+      linkId: link.id,
+      parentName: parent?.name ?? null,
+      parentEmail: parent?.email ?? null,
+      requestedAt: link.createdAt,
+    };
+  });
+}
+
+// 학생이 요청을 승인하거나 거절한다. 이미 연결된 학부모는 거절(accept=false)로 해제할 수 있다.
+export async function respondToParentLinkRequest(
+  studentId: number,
+  linkId: number,
+  accept: boolean
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [link] = await db
+    .select()
+    .from(parentStudentLinks)
+    .where(
+      and(
+        eq(parentStudentLinks.id, linkId),
+        eq(parentStudentLinks.studentId, studentId)
+      )
+    );
+  if (!link) return null;
+  if (accept && link.status !== "pending") return null;
+  if (!accept && link.status === "rejected") return null;
+  const status = accept ? "approved" : "rejected";
+  await db
+    .update(parentStudentLinks)
+    .set({ status, respondedAt: new Date() })
+    .where(eq(parentStudentLinks.id, linkId));
+  return { linkId, status } as const;
+}
+
+// ===== 만 14세 미만 법정대리인 동의(개인정보 보호법 제22조의2) =====
+
+export async function createGuardianConsent(input: {
+  userId: number;
+  childBirthDate: string;
+  guardianName: string;
+  guardianRelation: string;
+  guardianEmail: string;
+  tokenHash: string;
+  tokenExpiresAt: Date;
+  consentVersion: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.insert(guardianConsents).values(input);
+}
+
+export async function getGuardianConsentByTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(guardianConsents)
+    .where(eq(guardianConsents.tokenHash, tokenHash))
+    .limit(1);
+  return row ?? null;
+}
+
+// 가장 최근 동의 기록의 상태. 동의 대상이 아닌 회원은 null이다.
+export async function getLatestGuardianConsentStatusForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select({ status: guardianConsents.status })
+    .from(guardianConsents)
+    .where(eq(guardianConsents.userId, userId))
+    .orderBy(desc(guardianConsents.id))
+    .limit(1);
+  return row?.status ?? null;
+}
+
+// 동의 확정: 상태를 approved로 바꾸고 증적을 남기며, 같은 링크로 다시 처리되지 않게 토큰 만료 시각을 지금으로 당긴다.
+export async function approveGuardianConsent(
+  id: number,
+  evidence: Record<string, unknown>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const now = new Date();
+  await db
+    .update(guardianConsents)
+    .set({
+      status: "approved",
+      approvedAt: now,
+      tokenExpiresAt: now,
+      evidenceJson: JSON.stringify(evidence),
+    })
+    .where(eq(guardianConsents.id, id));
+}
+
+export async function getGuardianConsentById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(guardianConsents)
+    .where(eq(guardianConsents.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+// 아동 계정의 가장 최근 동의 기록(재발송 대상 확인용)
+export async function getLatestGuardianConsentForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(guardianConsents)
+    .where(eq(guardianConsents.userId, userId))
+    .orderBy(desc(guardianConsents.id))
+    .limit(1);
+  return row ?? null;
+}
+
+// 동의 메일을 다시 보낼 때 새 링크를 발급한다. 이전 링크는 즉시 무효가 된다.
+export async function refreshGuardianConsentToken(
+  id: number,
+  tokenHash: string,
+  tokenExpiresAt: Date
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db
+    .update(guardianConsents)
+    .set({ tokenHash, tokenExpiresAt })
+    .where(
+      and(eq(guardianConsents.id, id), eq(guardianConsents.status, "pending"))
+    );
+}
+
+// 법정대리인의 동의 철회 요청을 처리한다. 철회되면 아동 계정은 다시 로그인할 수 없다. 처리 시각은 updatedAt에 남는다.
+export async function withdrawGuardianConsent(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db
+    .update(guardianConsents)
+    .set({ status: "withdrawn", tokenExpiresAt: new Date() })
+    .where(eq(guardianConsents.id, id));
+}
+
+// 동의 관리대장 조회(관리자용). 토큰 해시와 증적 원문은 내려보내지 않는다.
+export async function listGuardianConsents() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(guardianConsents)
+    .orderBy(desc(guardianConsents.id));
+  if (rows.length === 0) return [];
+  const children = await db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(
+      inArray(
+        users.id,
+        rows.map(row => row.userId)
+      )
+    );
+  return rows.map(row => {
+    const child = children.find(item => item.id === row.userId);
+    return {
+      id: row.id,
+      childId: row.userId,
+      childName: child?.name ?? null,
+      childEmail: child?.email ?? null,
+      childBirthDate: row.childBirthDate,
+      guardianName: row.guardianName,
+      guardianRelation: row.guardianRelation,
+      guardianEmail: row.guardianEmail,
+      status: row.status,
+      consentVersion: row.consentVersion,
+      consentMethod: row.consentMethod,
+      approvedAt: row.approvedAt,
+      requestedAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  });
+}
+
+// 학생에게 학습 정보 열람이 허용된 학부모 목록(학생이 해제할 수 있도록 보여준다)
+export async function getApprovedParentsForStudent(studentId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const links = await db
+    .select()
+    .from(parentStudentLinks)
+    .where(
+      and(
+        eq(parentStudentLinks.studentId, studentId),
+        eq(parentStudentLinks.status, "approved")
+      )
+    );
+  if (links.length === 0) return [];
+  const parents = await db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(
+      inArray(
+        users.id,
+        links.map(link => link.parentId)
+      )
+    );
+  return links.map(link => {
+    const parent = parents.find(item => item.id === link.parentId);
+    return {
+      linkId: link.id,
+      parentName: parent?.name ?? null,
+      parentEmail: parent?.email ?? null,
+    };
+  });
 }
 
 export async function adminResetAllCertificates() {
@@ -3088,7 +6319,10 @@ export async function adminResetAllCertificates() {
 export async function getUserBadges(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(userBadges).where(eq(userBadges.userId, userId));
+  return await db
+    .select()
+    .from(userBadges)
+    .where(eq(userBadges.userId, userId));
 }
 
 export async function recordLearningToolAttempt(input: {
@@ -3105,15 +6339,38 @@ export async function recordLearningToolAttempt(input: {
   return { stored: true, score: safeScore };
 }
 
-export async function verifyAndSaveQuizAttempt(userId: number, quizId: number, userAnswer: string, expectedCourseType?: CourseType) {
+export async function verifyAndSaveQuizAttempt(
+  userId: number,
+  quizId: number,
+  userAnswer: string,
+  expectedCourseType?: CourseType
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [question] = await db.select().from(questionBank).where(and(eq(questionBank.id, quizId), eq(questionBank.toolType, "quiz"), eq(questionBank.isActive, 1)));
+  const [question] = await db
+    .select()
+    .from(questionBank)
+    .where(
+      and(
+        eq(questionBank.id, quizId),
+        eq(questionBank.toolType, "quiz"),
+        eq(questionBank.isActive, 1)
+      )
+    );
   if (!question) throw new Error("활성 퀴즈 문항을 찾을 수 없습니다.");
-  if (expectedCourseType && question.courseType !== expectedCourseType) throw new Error("가입한 과정의 퀴즈 문항만 제출할 수 있습니다.");
+  if (expectedCourseType && question.courseType !== expectedCourseType)
+    throw new Error("가입한 과정의 퀴즈 문항만 제출할 수 있습니다.");
   let content: { answer?: string; explanation?: string } = {};
-  try { content = JSON.parse(question.contentData); } catch { throw new Error("퀴즈 문항 형식이 올바르지 않습니다."); }
-  const isCorrect = Boolean(content.answer && userAnswer.trim() === content.answer.trim()) ? 1 : 0;
+  try {
+    content = JSON.parse(question.contentData);
+  } catch {
+    throw new Error("퀴즈 문항 형식이 올바르지 않습니다.");
+  }
+  const isCorrect = Boolean(
+    content.answer && userAnswer.trim() === content.answer.trim()
+  )
+    ? 1
+    : 0;
   const feedback = content.explanation || "정답과 해설을 다시 확인해 보세요.";
   await db.insert(quizAnswer).values({
     userId,
@@ -3125,32 +6382,82 @@ export async function verifyAndSaveQuizAttempt(userId: number, quizId: number, u
     clarityScore: "0.00",
     accuracyScore: "0.00",
   });
-  await recordLearningToolAttempt({ userId, questionBankId: quizId, courseType: question.courseType, toolType: "quiz", score: isCorrect ? 100 : 0 });
-  return { isCorrect, score: isCorrect ? 100 : 0, feedback };
+  await recordLearningToolAttempt({
+    userId,
+    questionBankId: quizId,
+    courseType: question.courseType,
+    toolType: "quiz",
+    score: isCorrect ? 100 : 0,
+  });
+  // 문항 조회에서는 정답·해설을 내려주지 않으므로, 제출을 판정한 결과로만 돌려준다.
+  return {
+    isCorrect,
+    score: isCorrect ? 100 : 0,
+    feedback,
+    correctAnswer: content.answer ?? "",
+    explanation: content.explanation ?? "",
+  };
 }
 
 /**
  * 학습자가 직접 요청한 문장 맞춤 피드백입니다. 동일 사용자·문항·문장은 24시간 동안
  * 저장 결과를 재사용하여 LLM 호출과 비용을 줄입니다.
  */
-export async function getDetailedSentenceFeedbackForQuiz(input: { userId: number; quizId: number; studentSentence: string; expectedCourseType: CourseType }) {
+export async function getDetailedSentenceFeedbackForQuiz(input: {
+  userId: number;
+  quizId: number;
+  studentSentence: string;
+  expectedCourseType: CourseType;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [question] = await db.select().from(questionBank).where(and(eq(questionBank.id, input.quizId), eq(questionBank.toolType, "quiz"), eq(questionBank.isActive, 1)));
+  const [question] = await db
+    .select()
+    .from(questionBank)
+    .where(
+      and(
+        eq(questionBank.id, input.quizId),
+        eq(questionBank.toolType, "quiz"),
+        eq(questionBank.isActive, 1)
+      )
+    );
   if (!question) throw new Error("활성 퀴즈 문항을 찾을 수 없습니다.");
-  if (question.courseType !== input.expectedCourseType) throw new Error("가입한 과정의 문장 교정 피드백만 요청할 수 있습니다.");
+  if (question.courseType !== input.expectedCourseType)
+    throw new Error("가입한 과정의 문장 교정 피드백만 요청할 수 있습니다.");
 
   let content: { sentence?: string; prompt?: string } = {};
-  try { content = JSON.parse(question.contentData); } catch { /* 제목을 안전한 fallback으로 사용 */ }
-  const sourceSentence = String(content.sentence || content.prompt || question.title).trim();
+  try {
+    content = JSON.parse(question.contentData);
+  } catch {
+    /* 제목을 안전한 fallback으로 사용 */
+  }
+  const sourceSentence = String(
+    content.sentence || content.prompt || question.title
+  ).trim();
   const studentSentence = normalizeForFingerprint(input.studentSentence);
-  if (studentSentence.length < 5 || studentSentence.length > 1000) throw new Error("피드백을 받으려면 5자 이상 1,000자 이하의 문장을 작성해주세요.");
-  const requestHash = createRequestFingerprint([input.userId, question.id, input.expectedCourseType, sourceSentence, studentSentence]);
+  if (studentSentence.length < 5 || studentSentence.length > 1000)
+    throw new Error(
+      "피드백을 받으려면 5자 이상 1,000자 이하의 문장을 작성해주세요."
+    );
+  const requestHash = createRequestFingerprint([
+    input.userId,
+    question.id,
+    input.expectedCourseType,
+    sourceSentence,
+    studentSentence,
+  ]);
   const now = new Date();
-  const [cached] = await db.select().from(sentenceFeedbackCache).where(eq(sentenceFeedbackCache.requestHash, requestHash));
+  const [cached] = await db
+    .select()
+    .from(sentenceFeedbackCache)
+    .where(eq(sentenceFeedbackCache.requestHash, requestHash));
   if (cached && cached.expiresAt > now) {
     try {
-      return { feedback: JSON.parse(cached.feedbackJson), cacheHit: true, modelId: cached.modelId };
+      return {
+        feedback: JSON.parse(cached.feedbackJson),
+        cacheHit: true,
+        modelId: cached.modelId,
+      };
     } catch {
       // 손상된 캐시는 아래의 새 평가 결과로 덮어씁니다.
     }
@@ -3163,87 +6470,219 @@ export async function getDetailedSentenceFeedbackForQuiz(input: { userId: number
     questionTitle: question.title,
   });
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  await db.insert(sentenceFeedbackCache).values({
-    userId: input.userId,
-    quizId: question.id,
-    courseType: input.expectedCourseType,
-    requestHash,
-    sourceSentence,
-    studentSentence,
-    feedbackJson: JSON.stringify(generated.feedback),
-    modelId: generated.modelId,
-    expiresAt,
-  }).onDuplicateKeyUpdate({
-    set: {
+  await db
+    .insert(sentenceFeedbackCache)
+    .values({
+      userId: input.userId,
+      quizId: question.id,
+      courseType: input.expectedCourseType,
+      requestHash,
       sourceSentence,
       studentSentence,
       feedbackJson: JSON.stringify(generated.feedback),
       modelId: generated.modelId,
       expiresAt,
-    },
-  });
-  return { feedback: generated.feedback, cacheHit: generated.memoryCacheHit, modelId: generated.modelId };
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        sourceSentence,
+        studentSentence,
+        feedbackJson: JSON.stringify(generated.feedback),
+        modelId: generated.modelId,
+        expiresAt,
+      },
+    });
+  return {
+    feedback: generated.feedback,
+    cacheHit: generated.memoryCacheHit,
+    modelId: generated.modelId,
+  };
 }
 
-export async function gradeAndRecordSummaryAttempt(userId: number, questionId: number, userAnswer: string, expectedCourseType?: CourseType) {
+export async function gradeAndRecordSummaryAttempt(
+  userId: number,
+  questionId: number,
+  userAnswer: string,
+  expectedCourseType?: CourseType
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [question] = await db.select().from(questionBank).where(and(eq(questionBank.id, questionId), eq(questionBank.toolType, "summary"), eq(questionBank.isActive, 1)));
+  const [question] = await db
+    .select()
+    .from(questionBank)
+    .where(
+      and(
+        eq(questionBank.id, questionId),
+        eq(questionBank.toolType, "summary"),
+        eq(questionBank.isActive, 1)
+      )
+    );
   if (!question) throw new Error("활성 요약 문항을 찾을 수 없습니다.");
-  if (expectedCourseType && question.courseType !== expectedCourseType) throw new Error("가입한 과정의 요약 문항만 제출할 수 있습니다.");
+  if (expectedCourseType && question.courseType !== expectedCourseType)
+    throw new Error("가입한 과정의 요약 문항만 제출할 수 있습니다.");
   const evaluation = await gradeEssayWithAi(questionId, userAnswer);
-  await recordLearningToolAttempt({ userId, questionBankId: questionId, courseType: question.courseType, toolType: "summary", score: evaluation.overallScore });
+  await recordLearningToolAttempt({
+    userId,
+    questionBankId: questionId,
+    courseType: question.courseType,
+    toolType: "summary",
+    score: evaluation.overallScore,
+  });
   return evaluation;
 }
 
-export async function verifyAndRecordReorderingAttempt(userId: number, questionId: number, orderedParagraphIds: string[], expectedCourseType?: CourseType) {
+export async function verifyAndRecordReorderingAttempt(
+  userId: number,
+  questionId: number,
+  orderedParagraphIds: string[],
+  expectedCourseType?: CourseType
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [question] = await db.select().from(questionBank).where(and(eq(questionBank.id, questionId), eq(questionBank.toolType, "reordering"), eq(questionBank.isActive, 1)));
+  const [question] = await db
+    .select()
+    .from(questionBank)
+    .where(
+      and(
+        eq(questionBank.id, questionId),
+        eq(questionBank.toolType, "reordering"),
+        eq(questionBank.isActive, 1)
+      )
+    );
   if (!question) throw new Error("활성 단락 재구성 문항을 찾을 수 없습니다.");
-  if (expectedCourseType && question.courseType !== expectedCourseType) throw new Error("가입한 과정의 단락 재구성 문항만 제출할 수 있습니다.");
-  let content: { paragraphs?: Array<{ id: string; correctOrder: number }>; explanation?: string } = {};
-  try { content = JSON.parse(question.contentData); } catch { throw new Error("단락 재구성 문항 형식이 올바르지 않습니다."); }
+  if (expectedCourseType && question.courseType !== expectedCourseType)
+    throw new Error("가입한 과정의 단락 재구성 문항만 제출할 수 있습니다.");
+  let content: {
+    paragraphs?: Array<{ id: string; correctOrder: number }>;
+    explanation?: string;
+  } = {};
+  try {
+    content = JSON.parse(question.contentData);
+  } catch {
+    throw new Error("단락 재구성 문항 형식이 올바르지 않습니다.");
+  }
   const expected = content.paragraphs || [];
-  if (expected.length < 3 || orderedParagraphIds.length !== expected.length || new Set(orderedParagraphIds).size !== expected.length) throw new Error("제출한 단락 순서가 문항 구성과 일치하지 않습니다.");
-  const validIds = new Set(expected.map((paragraph) => paragraph.id));
-  if (orderedParagraphIds.some((id) => !validIds.has(id))) throw new Error("제출한 단락 순서에 올바르지 않은 항목이 있습니다.");
-  const correctCount = orderedParagraphIds.filter((id, index) => expected.find((paragraph) => paragraph.id === id)?.correctOrder === index + 1).length;
+  if (
+    expected.length < 3 ||
+    orderedParagraphIds.length !== expected.length ||
+    new Set(orderedParagraphIds).size !== expected.length
+  )
+    throw new Error("제출한 단락 순서가 문항 구성과 일치하지 않습니다.");
+  const validIds = new Set(expected.map(paragraph => paragraph.id));
+  if (orderedParagraphIds.some(id => !validIds.has(id)))
+    throw new Error("제출한 단락 순서에 올바르지 않은 항목이 있습니다.");
+  const correctCount = orderedParagraphIds.filter(
+    (id, index) =>
+      expected.find(paragraph => paragraph.id === id)?.correctOrder ===
+      index + 1
+  ).length;
   const score = Math.round((correctCount / expected.length) * 100);
-  await recordLearningToolAttempt({ userId, questionBankId: questionId, courseType: question.courseType, toolType: "reordering", score });
-  return { score, passed: score >= 70, feedback: content.explanation || "논리적 연결과 단락의 기능을 다시 확인해 보세요." };
+  await recordLearningToolAttempt({
+    userId,
+    questionBankId: questionId,
+    courseType: question.courseType,
+    toolType: "reordering",
+    score,
+  });
+  // 정답 순서(단락 id)는 제출 뒤에만 돌려준다.
+  const correctOrderIds = [...expected]
+    .sort((a, b) => a.correctOrder - b.correctOrder)
+    .map(paragraph => paragraph.id);
+  return {
+    score,
+    passed: score >= 70,
+    feedback:
+      content.explanation || "논리적 연결과 단락의 기능을 다시 확인해 보세요.",
+    correctOrderIds,
+  };
 }
 
-export async function getLearningToolBadgeEligibility(userId: number, courseType: CourseType, badgeType: "quiz" | "summary" | "reordering_10_session") {
+export async function getLearningToolBadgeEligibility(
+  userId: number,
+  courseType: CourseType,
+  badgeType: "quiz" | "summary" | "reordering_10_session"
+) {
   const db = await getDb();
-  if (!db) return { eligible: false, completed: 0, required: badgeType === "summary" ? 3 : 10, message: "학습 기록을 확인할 수 없습니다." };
-  const toolType = badgeType === "reordering_10_session" ? "reordering" : badgeType;
-  const attempts = await db.select().from(learningToolAttempts).where(and(eq(learningToolAttempts.userId, userId), eq(learningToolAttempts.courseType, courseType), eq(learningToolAttempts.toolType, toolType)));
+  if (!db)
+    return {
+      eligible: false,
+      completed: 0,
+      required: badgeType === "summary" ? 3 : 10,
+      message: "학습 기록을 확인할 수 없습니다.",
+    };
+  const toolType =
+    badgeType === "reordering_10_session" ? "reordering" : badgeType;
+  const attempts = await db
+    .select()
+    .from(learningToolAttempts)
+    .where(
+      and(
+        eq(learningToolAttempts.userId, userId),
+        eq(learningToolAttempts.courseType, courseType),
+        eq(learningToolAttempts.toolType, toolType)
+      )
+    );
   const bestScoresByQuestion = new Map<number, number>();
-  attempts.forEach((attempt) => bestScoresByQuestion.set(attempt.questionBankId, Math.max(bestScoresByQuestion.get(attempt.questionBankId) ?? 0, attempt.score)));
+  attempts.forEach(attempt =>
+    bestScoresByQuestion.set(
+      attempt.questionBankId,
+      Math.max(
+        bestScoresByQuestion.get(attempt.questionBankId) ?? 0,
+        attempt.score
+      )
+    )
+  );
   const bestScores = Array.from(bestScoresByQuestion.values());
   if (badgeType === "quiz") {
-    const completed = bestScores.filter((score) => score === 100).length;
-    return { eligible: completed >= 10, completed, required: 10, message: "서로 다른 퀴즈 10문항을 모두 정답으로 완료해야 합니다." };
+    const completed = bestScores.filter(score => score === 100).length;
+    return {
+      eligible: completed >= 10,
+      completed,
+      required: 10,
+      message: "서로 다른 퀴즈 10문항을 모두 정답으로 완료해야 합니다.",
+    };
   }
   if (badgeType === "summary") {
-    const completed = bestScores.filter((score) => score >= 80).length;
-    return { eligible: completed >= 3, completed, required: 3, message: "서로 다른 요약 3문항에서 80점 이상을 받아야 합니다." };
+    const completed = bestScores.filter(score => score >= 80).length;
+    return {
+      eligible: completed >= 3,
+      completed,
+      required: 3,
+      message: "서로 다른 요약 3문항에서 80점 이상을 받아야 합니다.",
+    };
   }
   const attemptedQuestionCount = bestScoresByQuestion.size;
-  const passedQuestionCount = bestScores.filter((score) => score >= 70).length;
-  return { eligible: attemptedQuestionCount >= 10 && passedQuestionCount >= 7, completed: passedQuestionCount, required: 7, attemptedQuestionCount, message: "서로 다른 단락 재구성 10문항을 풀고 7문항 이상에서 70점 이상을 받아야 합니다." };
+  const passedQuestionCount = bestScores.filter(score => score >= 70).length;
+  return {
+    eligible: attemptedQuestionCount >= 10 && passedQuestionCount >= 7,
+    completed: passedQuestionCount,
+    required: 7,
+    attemptedQuestionCount,
+    message:
+      "서로 다른 단락 재구성 10문항을 풀고 7문항 이상에서 70점 이상을 받아야 합니다.",
+  };
 }
 
-export async function awardBadge(userId: number, courseType: string, badgeType: string, badgeName: string) {
+export async function awardBadge(
+  userId: number,
+  courseType: string,
+  badgeType: string,
+  badgeName: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  
+
   const [existing] = await db
     .select()
     .from(userBadges)
-    .where(and(eq(userBadges.userId, userId), eq(userBadges.courseType, courseType), eq(userBadges.badgeType, badgeType)));
-  
+    .where(
+      and(
+        eq(userBadges.userId, userId),
+        eq(userBadges.courseType, courseType),
+        eq(userBadges.badgeType, badgeType)
+      )
+    );
+
   if (existing) {
     return existing; // 이미 획득한 뱃지
   }
@@ -3255,28 +6694,63 @@ export async function awardBadge(userId: number, courseType: string, badgeType: 
     badgeName,
     earnedAt: new Date(),
   });
-  
-  const [newBadge] = await db.select().from(userBadges).where(eq(userBadges.id, Number(inserted.insertId)));
+
+  const [newBadge] = await db
+    .select()
+    .from(userBadges)
+    .where(eq(userBadges.id, Number(inserted.insertId)));
   return newBadge;
 }
 
 // ========== Question Bank Functions ==========
 
-export async function getQuestionBankList(courseType?: string, toolType?: string) {
+export async function getQuestionBankList(
+  courseType?: string,
+  toolType?: string
+) {
   const db = await getDb();
   if (!db) return [];
-  let query = db.select().from(questionBank);
-  const rows = await query;
-  return rows.filter(q => {
-    if (courseType && q.courseType !== courseType) return false;
-    if (toolType && q.toolType !== toolType) return false;
-    return true;
-  });
+  const conditions = [];
+  if (courseType)
+    conditions.push(
+      eq(
+        questionBank.courseType,
+        courseType as typeof questionBank.$inferSelect.courseType
+      )
+    );
+  if (toolType)
+    conditions.push(
+      eq(
+        questionBank.toolType,
+        toolType as typeof questionBank.$inferSelect.toolType
+      )
+    );
+  return db
+    .select()
+    .from(questionBank)
+    .where(and(...conditions));
 }
 
-export async function getRandomQuestions(courseType: string, toolType: string, limit: number = 10) {
+export async function getQuestionBankItemById(questionId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [item] = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.id, questionId))
+    .limit(1);
+  return item;
+}
+
+export async function getRandomQuestions(
+  courseType: string,
+  toolType: string,
+  limit: number = 10
+) {
   const list = await getQuestionBankList(courseType, toolType);
-  const activeList = list.filter(q => q.isActive === 1 && !isLegacyRepeatedLearningContent(q.contentData));
+  const activeList = list.filter(
+    q => q.isActive === 1 && !isLegacyRepeatedLearningContent(q.contentData)
+  );
   const preset = await getDifficultyOperationPreset();
   return selectQuestionsByDifficulty(activeList, limit, preset);
 }
@@ -3290,12 +6764,15 @@ export async function replaceLegacyLearningToolContent() {
 
   for (const question of questions) {
     if (!isLegacyRepeatedLearningContent(question.contentData)) continue;
-    if (question.toolType !== "quiz" && question.toolType !== "summary") continue;
+    if (question.toolType !== "quiz" && question.toolType !== "summary")
+      continue;
     const courseType = question.courseType as CourseType;
-    const contentData = question.toolType === "quiz"
-      ? buildCourseQuizContent(courseType, question.title)
-      : buildCourseSummaryContent(courseType, question.title);
-    await db.update(questionBank)
+    const contentData =
+      question.toolType === "quiz"
+        ? buildCourseQuizContent(courseType, question.title)
+        : buildCourseSummaryContent(courseType, question.title);
+    await db
+      .update(questionBank)
       .set({ contentData: JSON.stringify(contentData), updatedAt: new Date() })
       .where(eq(questionBank.id, question.id));
     if (question.toolType === "quiz") quizUpdated += 1;
@@ -3305,29 +6782,50 @@ export async function replaceLegacyLearningToolContent() {
   return { quizUpdated, summaryUpdated };
 }
 
-const THESIS_CRITERIA = ["clear", "arguable", "specific", "supportable", "relevant", "original", "balanced", "grammatical"] as const;
+const THESIS_CRITERIA = [
+  "clear",
+  "arguable",
+  "specific",
+  "supportable",
+  "relevant",
+  "original",
+  "balanced",
+  "grammatical",
+] as const;
 type ThesisCriterionId = (typeof THESIS_CRITERIA)[number];
 type ThesisCriterionStatus = "pass" | "warn" | "fail";
 
 function fallbackThesisAnalysis(thesis: string) {
-  const hasClaimMarker = /(해야|필요하다|바람직하다|문제다|중요하다|줄여야|늘려야|금지|허용|강화|완화)/.test(thesis);
+  const hasClaimMarker =
+    /(해야|필요하다|바람직하다|문제다|중요하다|줄여야|늘려야|금지|허용|강화|완화)/.test(
+      thesis
+    );
   const isLongEnough = thesis.trim().length >= 25;
   const statusFor = (id: ThesisCriterionId): ThesisCriterionStatus => {
-    if (id === "arguable" || id === "supportable") return hasClaimMarker ? "warn" : "fail";
+    if (id === "arguable" || id === "supportable")
+      return hasClaimMarker ? "warn" : "fail";
     return isLongEnough ? "warn" : "fail";
   };
-  const items = THESIS_CRITERIA.map((id) => ({
+  const items = THESIS_CRITERIA.map(id => ({
     id,
     status: statusFor(id),
-    rationale: "AI 분석 응답을 준비하지 못해 문장 길이와 주장 표현을 기준으로 임시 점검했습니다.",
-    suggestion: "대상·주장·판단 기준을 한 문장에 더 구체적으로 넣어 다시 분석해 보세요.",
+    rationale:
+      "AI 분석 응답을 준비하지 못해 문장 길이와 주장 표현을 기준으로 임시 점검했습니다.",
+    suggestion:
+      "대상·주장·판단 기준을 한 문장에 더 구체적으로 넣어 다시 분석해 보세요.",
   }));
-  const passWeight = items.reduce((total, item) => total + (item.status === "pass" ? 12.5 : item.status === "warn" ? 7 : 0), 0);
+  const passWeight = items.reduce(
+    (total, item) =>
+      total + (item.status === "pass" ? 12.5 : item.status === "warn" ? 7 : 0),
+    0
+  );
   return {
     score: Math.round(passWeight),
-    summary: "연결 상태 때문에 임시 점검 결과를 표시했습니다. 분석을 다시 실행하면 항목별 AI 피드백을 받을 수 있습니다.",
+    summary:
+      "연결 상태 때문에 임시 점검 결과를 표시했습니다. 분석을 다시 실행하면 항목별 AI 피드백을 받을 수 있습니다.",
     items,
-    recommendedThesis: "[대상]은/는 [구체적 문제]를 줄이기 위해 [판단 기준]에 따라 [실행 방안]을 마련해야 한다.",
+    recommendedThesis:
+      "[대상]은/는 [구체적 문제]를 줄이기 위해 [판단 기준]에 따라 [실행 방안]을 마련해야 한다.",
     source: "fallback" as const,
   };
 }
@@ -3340,13 +6838,19 @@ export async function generateTopicWizardGuide(input: {
   mainIdea?: string;
   outline?: string;
 }) {
-  const stepNames = { 1: "카테고리 선택", 2: "주제 구체화", 3: "주제문 작성", 4: "개요 구성" } as const;
+  const stepNames = {
+    1: "카테고리 선택",
+    2: "주제 구체화",
+    3: "주제문 작성",
+    4: "개요 구성",
+  } as const;
   const response = await invokeLLM({
     model: "gpt-5-mini",
     messages: [
       {
         role: "system",
-        content: "당신은 한국어 논술 교사입니다. 학생이 스스로 쓰도록 돕는 짧고 구체적인 단계별 가이드를 제공하세요. 답을 그대로 강요하지 말고, 과정 수준에 맞는 한 가지 예시와 세 가지 점검 포인트를 제시하세요.",
+        content:
+          "당신은 한국어 논술 교사입니다. 학생이 스스로 쓰도록 돕는 짧고 구체적인 단계별 가이드를 제공하세요. 답을 그대로 강요하지 말고, 과정 수준에 맞는 한 가지 예시와 세 가지 점검 포인트를 제시하세요.",
       },
       {
         role: "user",
@@ -3364,7 +6868,12 @@ export async function generateTopicWizardGuide(input: {
             headline: { type: "string" },
             guidance: { type: "string" },
             example: { type: "string" },
-            tips: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 3 },
+            tips: {
+              type: "array",
+              items: { type: "string" },
+              minItems: 3,
+              maxItems: 3,
+            },
           },
           required: ["headline", "guidance", "example", "tips"],
           additionalProperties: false,
@@ -3373,8 +6882,14 @@ export async function generateTopicWizardGuide(input: {
     },
   });
   const content = response.choices[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("AI 가이드를 생성하지 못했습니다.");
-  return JSON.parse(content) as { headline: string; guidance: string; example: string; tips: string[] };
+  if (typeof content !== "string")
+    throw new Error("AI 가이드를 생성하지 못했습니다.");
+  return JSON.parse(content) as {
+    headline: string;
+    guidance: string;
+    example: string;
+    tips: string[];
+  };
 }
 
 export async function generateLessonWritingGuide(input: {
@@ -3382,17 +6897,20 @@ export async function generateLessonWritingGuide(input: {
   lessonTitle: string;
   lessonContent: string;
   lessonExample: string;
+  level?: number;
+  lessonIndex?: number;
 }) {
   const response = await invokeLLM({
     model: "gpt-5-mini",
     messages: [
       {
         role: "system",
-        content: "당신은 한국어 논술교육 코치입니다. 학습자가 레슨 핵심 개념을 스스로 적용하도록 돕는 가이드를 작성하세요. 실제 평가 문항의 정답이나 모범답안을 제공하지 마세요. 대신 새로운 안전한 연습 소재로 사고 순서, 문장 틀, 짧은 예시문을 제공하세요. 사고 순서는 정확히 3개로, 각 항목은 한 문장 70자 이내여야 합니다. 문장 틀은 3줄 이내, 새 연습 예시는 350자 이내로 작성하세요. 과정 수준을 지키고, 설명은 간결하고 실행 가능하게 작성하세요.",
+        content:
+          "당신은 한국어 논술교육 코치입니다. 학습자가 레슨 핵심 개념을 스스로 적용하도록 돕는 가이드를 작성하세요. 실제 평가 문항의 정답이나 모범답안을 제공하지 마세요. 대신 새로운 안전한 연습 소재로 사고 순서, 문장 틀, 짧은 예시문을 제공하세요. 사고 순서는 정확히 3개로, 각 항목은 한 문장 70자 이내여야 합니다. 문장 틀은 3줄 이내, 새 연습 예시는 350자 이내로 작성하세요. 과정 수준을 지키고, 설명은 간결하고 실행 가능하게 작성하세요.",
       },
       {
         role: "user",
-        content: `과정: ${getCourseTag(input.courseType)}\n레슨: ${input.lessonTitle}\n핵심 개념: ${input.lessonContent}\n기존 설명 예시: ${input.lessonExample}\n이 레슨 직후 학습자가 글쓰기 전에 볼 AI 가이드를 생성하세요.`,
+        content: `과정: ${getCourseTag(input.courseType)}\n단계: ${input.level ?? 1} / 레슨: ${(input.lessonIndex ?? 0) + 1}\n레슨: ${input.lessonTitle}\n핵심 개념: ${input.lessonContent}\n기존 설명 예시: ${input.lessonExample}\n이 레슨 직후 학습자가 글쓰기 전에 볼 AI 가이드를 생성하세요.`,
       },
     ],
     response_format: {
@@ -3404,19 +6922,36 @@ export async function generateLessonWritingGuide(input: {
           type: "object",
           properties: {
             learningGoal: { type: "string" },
-            thinkingSteps: { type: "array", items: { type: "string", maxLength: 120 }, minItems: 3, maxItems: 3 },
+            thinkingSteps: {
+              type: "array",
+              items: { type: "string", maxLength: 120 },
+              minItems: 3,
+              maxItems: 3,
+            },
             sentenceFrame: { type: "string", maxLength: 360 },
             practiceExample: { type: "string", maxLength: 650 },
-            selfCheck: { type: "array", items: { type: "string", maxLength: 130 }, minItems: 3, maxItems: 3 },
+            selfCheck: {
+              type: "array",
+              items: { type: "string", maxLength: 130 },
+              minItems: 3,
+              maxItems: 3,
+            },
           },
-          required: ["learningGoal", "thinkingSteps", "sentenceFrame", "practiceExample", "selfCheck"],
+          required: [
+            "learningGoal",
+            "thinkingSteps",
+            "sentenceFrame",
+            "practiceExample",
+            "selfCheck",
+          ],
           additionalProperties: false,
         },
       },
     },
   });
   const content = response.choices[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("AI 레슨 가이드를 생성하지 못했습니다.");
+  if (typeof content !== "string")
+    throw new Error("AI 레슨 가이드를 생성하지 못했습니다.");
   return JSON.parse(content) as {
     learningGoal: string;
     thinkingSteps: string[];
@@ -3426,14 +6961,19 @@ export async function generateLessonWritingGuide(input: {
   };
 }
 
-export async function analyzeThesisStatement(input: { thesis: string; courseType: CourseType; topic?: string }) {
+export async function analyzeThesisStatement(input: {
+  thesis: string;
+  courseType: CourseType;
+  topic?: string;
+}) {
   try {
     const response = await invokeLLM({
       model: "gpt-5-mini",
       messages: [
         {
           role: "system",
-          content: "당신은 한국어 논술 교사입니다. 아래 주제문을 교육적으로 평가하세요. 각 기준은 pass, warn, fail 중 하나로 판정합니다. 주제 정보가 없으면 관련성은 문장 자체의 주제 일관성만 평가하고 감점하지 마세요. 독창성은 사실 여부가 아니라 개인의 판단·관점의 구체성을 봅니다. 근거 없는 긍정 평가는 하지 말고, 문장 속 표현을 근거로 간결하게 조언하세요.",
+          content:
+            "당신은 한국어 논술 교사입니다. 아래 주제문을 교육적으로 평가하세요. 각 기준은 pass, warn, fail 중 하나로 판정합니다. 주제 정보가 없으면 관련성은 문장 자체의 주제 일관성만 평가하고 감점하지 마세요. 독창성은 사실 여부가 아니라 개인의 판단·관점의 구체성을 봅니다. 근거 없는 긍정 평가는 하지 말고, 문장 속 표현을 근거로 간결하게 조언하세요.",
         },
         {
           role: "user",
@@ -3475,18 +7015,33 @@ export async function analyzeThesisStatement(input: { thesis: string; courseType
       },
     });
     const content = response.choices[0]?.message?.content;
-    if (typeof content !== "string") return fallbackThesisAnalysis(input.thesis);
-    const parsed = JSON.parse(content) as Omit<ReturnType<typeof fallbackThesisAnalysis>, "source">;
-    const byId = new Map(parsed.items.map((item) => [item.id, item]));
-    const items = THESIS_CRITERIA.map((id) => byId.get(id) ?? {
-      id,
-      status: "warn" as const,
-      rationale: "이 항목은 충분히 판정되지 않았습니다.",
-      suggestion: "관련 표현을 보완한 뒤 다시 분석해 보세요.",
-    });
-    return { ...parsed, items, score: Math.max(0, Math.min(100, Math.round(parsed.score))), source: "ai" as const };
+    if (typeof content !== "string")
+      return fallbackThesisAnalysis(input.thesis);
+    const parsed = JSON.parse(content) as Omit<
+      ReturnType<typeof fallbackThesisAnalysis>,
+      "source"
+    >;
+    const byId = new Map(parsed.items.map(item => [item.id, item]));
+    const items = THESIS_CRITERIA.map(
+      id =>
+        byId.get(id) ?? {
+          id,
+          status: "warn" as const,
+          rationale: "이 항목은 충분히 판정되지 않았습니다.",
+          suggestion: "관련 표현을 보완한 뒤 다시 분석해 보세요.",
+        }
+    );
+    return {
+      ...parsed,
+      items,
+      score: Math.max(0, Math.min(100, Math.round(parsed.score))),
+      source: "ai" as const,
+    };
   } catch (error) {
-    console.warn("[Thesis analysis] Falling back to deterministic review", error);
+    console.warn(
+      "[Thesis analysis] Falling back to deterministic review",
+      error
+    );
     return fallbackThesisAnalysis(input.thesis);
   }
 }
@@ -3495,28 +7050,64 @@ export async function ensureReorderingQuestionBankV2() {
   const db = await getDb();
   if (!db) return { inserted: 0, updated: 0, deactivated: 0 };
 
-  const allReordering = await db.select().from(questionBank).where(eq(questionBank.toolType, "reordering"));
+  const allReordering = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.toolType, "reordering"));
   let inserted = 0;
   let updated = 0;
   let deactivated = 0;
 
-  for (const legacy of allReordering.filter((item) => item.isActive === 1 && (item.contentData.includes("현대 사회에서 이 문제는 더 이상 미룰 수 없는") || item.contentData.includes("이 문장은 글 전체의 중심생각 역할을 한다.")))) {
-    await db.update(questionBank).set({ isActive: 0, updatedAt: new Date() }).where(eq(questionBank.id, legacy.id));
+  for (const legacy of allReordering.filter(
+    item =>
+      item.isActive === 1 &&
+      (item.contentData.includes(
+        "현대 사회에서 이 문제는 더 이상 미룰 수 없는"
+      ) ||
+        item.contentData.includes("이 문장은 글 전체의 중심생각 역할을 한다."))
+  )) {
+    await db
+      .update(questionBank)
+      .set({ isActive: 0, updatedAt: new Date() })
+      .where(eq(questionBank.id, legacy.id));
     deactivated++;
   }
 
-  for (const [courseType, seeds] of Object.entries(COURSE_REORDERING_QUESTIONS) as [CourseType, typeof COURSE_REORDERING_QUESTIONS[CourseType]][]) {
+  for (const [courseType, seeds] of Object.entries(
+    COURSE_REORDERING_QUESTIONS
+  ) as [CourseType, (typeof COURSE_REORDERING_QUESTIONS)[CourseType]][]) {
     for (const seed of seeds) {
       const title = `[${getCourseTag(courseType)}] 단락 재구성 v2 - ${seed.title}`;
       const contentData = toReorderingContent(seed);
-      const existing = allReordering.find((item) => item.courseType === courseType && item.title === title);
+      const existing = allReordering.find(
+        item => item.courseType === courseType && item.title === title
+      );
       if (existing) {
-        if (existing.contentData !== contentData || existing.difficulty !== seed.difficulty || existing.isActive !== 1) {
-          await db.update(questionBank).set({ contentData, difficulty: seed.difficulty, isActive: 1, updatedAt: new Date() }).where(eq(questionBank.id, existing.id));
+        if (
+          existing.contentData !== contentData ||
+          existing.difficulty !== seed.difficulty ||
+          existing.isActive !== 1
+        ) {
+          await db
+            .update(questionBank)
+            .set({
+              contentData,
+              difficulty: seed.difficulty,
+              isActive: 1,
+              updatedAt: new Date(),
+            })
+            .where(eq(questionBank.id, existing.id));
           updated++;
         }
       } else {
-        await db.insert(questionBank).values({ courseType, toolType: "reordering", title, contentData, difficulty: seed.difficulty, isActive: 1 });
+        await db.insert(questionBank).values({
+          courseType,
+          toolType: "reordering",
+          title,
+          contentData,
+          difficulty: seed.difficulty,
+          isActive: 1,
+        });
         inserted++;
       }
     }
@@ -3524,12 +7115,23 @@ export async function ensureReorderingQuestionBankV2() {
   return { inserted, updated, deactivated };
 }
 
-export async function getReorderingPracticeSet(courseType: CourseType, limit: number = 10) {
+export async function getReorderingPracticeSet(
+  courseType: CourseType,
+  limit: number = 10
+) {
   await ensureReorderingQuestionBankV2();
   const list = await getQuestionBankList(courseType, "reordering");
-  const v2Items = list.filter((item) => item.isActive === 1 && item.contentData.includes('"reorderingVersion":"v2"'));
+  const v2Items = list.filter(
+    item =>
+      item.isActive === 1 &&
+      item.contentData.includes('"reorderingVersion":"v2"')
+  );
   const preset = await getDifficultyOperationPreset();
-  return selectQuestionsByDifficulty(v2Items, Math.min(limit, v2Items.length), preset);
+  return selectQuestionsByDifficulty(
+    v2Items,
+    Math.min(limit, v2Items.length),
+    preset
+  );
 }
 
 export async function createQuestionBankItem(data: {
@@ -3552,30 +7154,46 @@ export async function createQuestionBankItem(data: {
     difficulty: data.difficulty || "medium",
     isActive: data.isActive ?? 1,
   });
-  const [row] = await db.select().from(questionBank).where(eq(questionBank.id, Number(inserted.insertId)));
+  const [row] = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.id, Number(inserted.insertId)));
   return row;
 }
 
-export async function updateQuestionBankItem(id: number, data: Partial<{
-  courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
-  toolType: string;
-  title: string;
-  contentData: string;
-  difficulty: "easy" | "medium" | "hard";
-  isActive: number;
-}>) {
+export async function updateQuestionBankItem(
+  id: number,
+  data: Partial<{
+    courseType: "elementary" | "middle_high" | "high_univ" | "general_adult";
+    toolType: string;
+    title: string;
+    contentData: string;
+    difficulty: "easy" | "medium" | "hard";
+    isActive: number;
+  }>
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.update(questionBank).set({
-    ...data,
-    updatedAt: new Date(),
-  }).where(eq(questionBank.id, id));
-  const [row] = await db.select().from(questionBank).where(eq(questionBank.id, id));
+  await db
+    .update(questionBank)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(eq(questionBank.id, id));
+  const [row] = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.id, id));
   return row;
 }
 
 async function addQuestionBankOperationLog(input: {
-  actionType: "moved_to_trash" | "restored" | "permanently_deleted" | "auto_purged";
+  actionType:
+    | "moved_to_trash"
+    | "restored"
+    | "permanently_deleted"
+    | "auto_purged";
   questionId?: number | null;
   trashId?: number | null;
   courseType?: string | null;
@@ -3598,10 +7216,17 @@ async function addQuestionBankOperationLog(input: {
   });
 }
 
-export async function deleteQuestionBankItem(id: number, deletedByUserId: number, actorName: string) {
+export async function deleteQuestionBankItem(
+  id: number,
+  deletedByUserId: number,
+  actorName: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [item] = await db.select().from(questionBank).where(eq(questionBank.id, id));
+  const [item] = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.id, id));
   if (!item) return { deletedCount: 0 };
   const [inserted] = await db.insert(questionBankTrash).values({
     originalQuestionId: item.id,
@@ -3630,16 +7255,27 @@ export async function deleteQuestionBankItem(id: number, deletedByUserId: number
 export async function deleteQuestionBankByCourse(courseType: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  await db.delete(questionBank).where(eq(questionBank.courseType, courseType as any));
+  await db
+    .delete(questionBank)
+    .where(eq(questionBank.courseType, courseType as any));
   return true;
 }
 
-export async function deleteQuestionBankItems(ids: number[], deletedByUserId: number, actorName: string) {
-  const uniqueIds = Array.from(new Set(ids)).filter((id) => Number.isInteger(id) && id > 0);
+export async function deleteQuestionBankItems(
+  ids: number[],
+  deletedByUserId: number,
+  actorName: string
+) {
+  const uniqueIds = Array.from(new Set(ids)).filter(
+    id => Number.isInteger(id) && id > 0
+  );
   if (uniqueIds.length === 0) return { deletedCount: 0 };
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const items = await db.select().from(questionBank).where(inArray(questionBank.id, uniqueIds));
+  const items = await db
+    .select()
+    .from(questionBank)
+    .where(inArray(questionBank.id, uniqueIds));
   if (items.length === 0) return { deletedCount: 0 };
   for (const item of items) {
     await deleteQuestionBankItem(item.id, deletedByUserId, actorName);
@@ -3650,15 +7286,28 @@ export async function deleteQuestionBankItems(ids: number[], deletedByUserId: nu
 export async function getQuestionBankTrash() {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(questionBankTrash).orderBy(desc(questionBankTrash.deletedAt));
+  return await db
+    .select()
+    .from(questionBankTrash)
+    .orderBy(desc(questionBankTrash.deletedAt));
 }
 
-export async function restoreQuestionBankTrashItem(trashId: number, actorUserId: number, actorName: string) {
+export async function restoreQuestionBankTrashItem(
+  trashId: number,
+  actorUserId: number,
+  actorName: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [item] = await db.select().from(questionBankTrash).where(eq(questionBankTrash.id, trashId));
+  const [item] = await db
+    .select()
+    .from(questionBankTrash)
+    .where(eq(questionBankTrash.id, trashId));
   if (!item) throw new Error("휴지통에서 복구할 문항을 찾을 수 없습니다.");
-  const [existing] = await db.select().from(questionBank).where(eq(questionBank.id, item.originalQuestionId));
+  const [existing] = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.id, item.originalQuestionId));
   const restored = await createQuestionBankItem({
     ...(existing ? {} : { id: item.originalQuestionId }),
     courseType: item.courseType,
@@ -3682,10 +7331,17 @@ export async function restoreQuestionBankTrashItem(trashId: number, actorUserId:
   return restored;
 }
 
-export async function permanentlyDeleteQuestionBankTrashItem(trashId: number, actorUserId: number, actorName: string) {
+export async function permanentlyDeleteQuestionBankTrashItem(
+  trashId: number,
+  actorUserId: number,
+  actorName: string
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [item] = await db.select().from(questionBankTrash).where(eq(questionBankTrash.id, trashId));
+  const [item] = await db
+    .select()
+    .from(questionBankTrash)
+    .where(eq(questionBankTrash.id, trashId));
   if (!item) return { success: true };
   await db.delete(questionBankTrash).where(eq(questionBankTrash.id, trashId));
   await addQuestionBankOperationLog({
@@ -3701,8 +7357,14 @@ export async function permanentlyDeleteQuestionBankTrashItem(trashId: number, ac
   return { success: true };
 }
 
-export async function restoreQuestionBankTrashItems(trashIds: number[], actorUserId: number, actorName: string) {
-  const uniqueIds = Array.from(new Set(trashIds)).filter((id) => Number.isInteger(id) && id > 0);
+export async function restoreQuestionBankTrashItems(
+  trashIds: number[],
+  actorUserId: number,
+  actorName: string
+) {
+  const uniqueIds = Array.from(new Set(trashIds)).filter(
+    id => Number.isInteger(id) && id > 0
+  );
   let restoredCount = 0;
   const failures: Array<{ trashId: number; reason: string }> = [];
 
@@ -3713,7 +7375,10 @@ export async function restoreQuestionBankTrashItems(trashIds: number[], actorUse
     } catch (error) {
       failures.push({
         trashId,
-        reason: error instanceof Error ? error.message : "문항 복구 중 알 수 없는 오류가 발생했습니다.",
+        reason:
+          error instanceof Error
+            ? error.message
+            : "문항 복구 중 알 수 없는 오류가 발생했습니다.",
       });
     }
   }
@@ -3721,19 +7386,32 @@ export async function restoreQuestionBankTrashItems(trashIds: number[], actorUse
   return { requestedCount: uniqueIds.length, restoredCount, failures };
 }
 
-export async function permanentlyDeleteQuestionBankTrashItems(trashIds: number[], actorUserId: number, actorName: string) {
-  const uniqueIds = Array.from(new Set(trashIds)).filter((id) => Number.isInteger(id) && id > 0);
+export async function permanentlyDeleteQuestionBankTrashItems(
+  trashIds: number[],
+  actorUserId: number,
+  actorName: string
+) {
+  const uniqueIds = Array.from(new Set(trashIds)).filter(
+    id => Number.isInteger(id) && id > 0
+  );
   let deletedCount = 0;
   const failures: Array<{ trashId: number; reason: string }> = [];
 
   for (const trashId of uniqueIds) {
     try {
-      await permanentlyDeleteQuestionBankTrashItem(trashId, actorUserId, actorName);
+      await permanentlyDeleteQuestionBankTrashItem(
+        trashId,
+        actorUserId,
+        actorName
+      );
       deletedCount += 1;
     } catch (error) {
       failures.push({
         trashId,
-        reason: error instanceof Error ? error.message : "문항 영구 삭제 중 알 수 없는 오류가 발생했습니다.",
+        reason:
+          error instanceof Error
+            ? error.message
+            : "문항 영구 삭제 중 알 수 없는 오류가 발생했습니다.",
       });
     }
   }
@@ -3743,19 +7421,50 @@ export async function permanentlyDeleteQuestionBankTrashItems(trashIds: number[]
 
 export async function getQuestionBankMaintenanceSettings() {
   const db = await getDb();
-  if (!db) return { id: 0, retentionDays: 30, scheduleCronTaskUid: null, updatedByUserId: null, updatedAt: new Date() };
-  const [settings] = await db.select().from(questionBankMaintenanceSettings).orderBy(desc(questionBankMaintenanceSettings.id)).limit(1);
-  return settings ?? { id: 0, retentionDays: 30, scheduleCronTaskUid: null, updatedByUserId: null, updatedAt: new Date() };
+  if (!db)
+    return {
+      id: 0,
+      retentionDays: 30,
+      scheduleCronTaskUid: null,
+      updatedByUserId: null,
+      updatedAt: new Date(),
+    };
+  const [settings] = await db
+    .select()
+    .from(questionBankMaintenanceSettings)
+    .orderBy(desc(questionBankMaintenanceSettings.id))
+    .limit(1);
+  return (
+    settings ?? {
+      id: 0,
+      retentionDays: 30,
+      scheduleCronTaskUid: null,
+      updatedByUserId: null,
+      updatedAt: new Date(),
+    }
+  );
 }
 
-export async function updateQuestionBankMaintenanceSettings(retentionDays: number, updatedByUserId: number) {
+export async function updateQuestionBankMaintenanceSettings(
+  retentionDays: number,
+  updatedByUserId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [settings] = await db.select().from(questionBankMaintenanceSettings).orderBy(desc(questionBankMaintenanceSettings.id)).limit(1);
+  const [settings] = await db
+    .select()
+    .from(questionBankMaintenanceSettings)
+    .orderBy(desc(questionBankMaintenanceSettings.id))
+    .limit(1);
   if (settings) {
-    await db.update(questionBankMaintenanceSettings).set({ retentionDays, updatedByUserId, updatedAt: new Date() }).where(eq(questionBankMaintenanceSettings.id, settings.id));
+    await db
+      .update(questionBankMaintenanceSettings)
+      .set({ retentionDays, updatedByUserId, updatedAt: new Date() })
+      .where(eq(questionBankMaintenanceSettings.id, settings.id));
   } else {
-    await db.insert(questionBankMaintenanceSettings).values({ retentionDays, updatedByUserId });
+    await db
+      .insert(questionBankMaintenanceSettings)
+      .values({ retentionDays, updatedByUserId });
   }
   return await getQuestionBankMaintenanceSettings();
 }
@@ -3763,41 +7472,74 @@ export async function updateQuestionBankMaintenanceSettings(retentionDays: numbe
 export async function setQuestionBankMaintenanceScheduleTask(taskUid: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const [settings] = await db.select().from(questionBankMaintenanceSettings).orderBy(desc(questionBankMaintenanceSettings.id)).limit(1);
+  const [settings] = await db
+    .select()
+    .from(questionBankMaintenanceSettings)
+    .orderBy(desc(questionBankMaintenanceSettings.id))
+    .limit(1);
   if (settings) {
-    await db.update(questionBankMaintenanceSettings).set({ scheduleCronTaskUid: taskUid, updatedAt: new Date() }).where(eq(questionBankMaintenanceSettings.id, settings.id));
+    await db
+      .update(questionBankMaintenanceSettings)
+      .set({ scheduleCronTaskUid: taskUid, updatedAt: new Date() })
+      .where(eq(questionBankMaintenanceSettings.id, settings.id));
   } else {
-    await db.insert(questionBankMaintenanceSettings).values({ retentionDays: 30, scheduleCronTaskUid: taskUid });
+    await db
+      .insert(questionBankMaintenanceSettings)
+      .values({ retentionDays: 30, scheduleCronTaskUid: taskUid });
   }
 }
 
-export async function getQuestionBankOperationLogs(filters: {
-  limit?: number;
-  actionType?: "moved_to_trash" | "restored" | "permanently_deleted" | "auto_purged";
-  actorName?: string;
-  startDate?: Date;
-  endDate?: Date;
-} = {}) {
+export async function getQuestionBankOperationLogs(
+  filters: {
+    limit?: number;
+    actionType?:
+      | "moved_to_trash"
+      | "restored"
+      | "permanently_deleted"
+      | "auto_purged";
+    actorName?: string;
+    startDate?: Date;
+    endDate?: Date;
+  } = {}
+) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [];
-  if (filters.actionType) conditions.push(eq(questionBankOperationLogs.actionType, filters.actionType));
-  if (filters.actorName) conditions.push(eq(questionBankOperationLogs.actorName, filters.actorName));
-  if (filters.startDate) conditions.push(gte(questionBankOperationLogs.createdAt, filters.startDate));
-  if (filters.endDate) conditions.push(lt(questionBankOperationLogs.createdAt, filters.endDate));
+  if (filters.actionType)
+    conditions.push(
+      eq(questionBankOperationLogs.actionType, filters.actionType)
+    );
+  if (filters.actorName)
+    conditions.push(eq(questionBankOperationLogs.actorName, filters.actorName));
+  if (filters.startDate)
+    conditions.push(
+      gte(questionBankOperationLogs.createdAt, filters.startDate)
+    );
+  if (filters.endDate)
+    conditions.push(lt(questionBankOperationLogs.createdAt, filters.endDate));
 
   const query = db.select().from(questionBankOperationLogs);
   return conditions.length > 0
-    ? await query.where(and(...conditions)).orderBy(desc(questionBankOperationLogs.createdAt)).limit(filters.limit ?? 200)
-    : await query.orderBy(desc(questionBankOperationLogs.createdAt)).limit(filters.limit ?? 200);
+    ? await query
+        .where(and(...conditions))
+        .orderBy(desc(questionBankOperationLogs.createdAt))
+        .limit(filters.limit ?? 200)
+    : await query
+        .orderBy(desc(questionBankOperationLogs.createdAt))
+        .limit(filters.limit ?? 200);
 }
 
 export async function purgeExpiredQuestionBankTrash() {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   const settings = await getQuestionBankMaintenanceSettings();
-  const threshold = new Date(Date.now() - settings.retentionDays * 24 * 60 * 60 * 1000);
-  const expiredItems = await db.select().from(questionBankTrash).where(lt(questionBankTrash.deletedAt, threshold));
+  const threshold = new Date(
+    Date.now() - settings.retentionDays * 24 * 60 * 60 * 1000
+  );
+  const expiredItems = await db
+    .select()
+    .from(questionBankTrash)
+    .where(lt(questionBankTrash.deletedAt, threshold));
   for (const item of expiredItems) {
     await db.delete(questionBankTrash).where(eq(questionBankTrash.id, item.id));
     await addQuestionBankOperationLog({
@@ -3810,7 +7552,10 @@ export async function purgeExpiredQuestionBankTrash() {
       details: `${settings.retentionDays}일 보관 기간 경과로 자동 영구 삭제`,
     });
   }
-  return { purgedCount: expiredItems.length, retentionDays: settings.retentionDays };
+  return {
+    purgedCount: expiredItems.length,
+    retentionDays: settings.retentionDays,
+  };
 }
 
 export async function upsertQuestionBankItem(data: {
@@ -3826,18 +7571,27 @@ export async function upsertQuestionBankItem(data: {
   if (!db) throw new Error("Database is not available");
 
   if (data.id) {
-    const [existing] = await db.select().from(questionBank).where(eq(questionBank.id, data.id));
+    const [existing] = await db
+      .select()
+      .from(questionBank)
+      .where(eq(questionBank.id, data.id));
     if (existing) {
-      await db.update(questionBank).set({
-        courseType: data.courseType,
-        toolType: data.toolType,
-        title: data.title,
-        contentData: data.contentData,
-        difficulty: data.difficulty || "medium",
-        isActive: data.isActive ?? 1,
-        updatedAt: new Date(),
-      }).where(eq(questionBank.id, data.id));
-      const [updated] = await db.select().from(questionBank).where(eq(questionBank.id, data.id));
+      await db
+        .update(questionBank)
+        .set({
+          courseType: data.courseType,
+          toolType: data.toolType,
+          title: data.title,
+          contentData: data.contentData,
+          difficulty: data.difficulty || "medium",
+          isActive: data.isActive ?? 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(questionBank.id, data.id));
+      const [updated] = await db
+        .select()
+        .from(questionBank)
+        .where(eq(questionBank.id, data.id));
       return { row: updated, action: "updated" as const };
     }
   }
@@ -3851,7 +7605,11 @@ export async function seedQuestionBankIfNeeded() {
   const list = await getQuestionBankList();
   // 비어 있는 최초 상태에서만 초기 시드를 주입합니다. 관리자가 일부·전체 문항을 삭제한 뒤
   // 자동 시드가 다시 생성되어 삭제가 무효화되는 문제를 방지합니다.
-  const hasPlaceholders = list.some(q => q.title.includes("실전 문항 #") || q.contentData.includes("맞춤형 심화 프롬프트"));
+  const hasPlaceholders = list.some(
+    q =>
+      q.title.includes("실전 문항 #") ||
+      q.contentData.includes("맞춤형 심화 프롬프트")
+  );
   if (list.length > 0 && !hasPlaceholders) return;
 
   const db = await getDb();
@@ -3865,63 +7623,269 @@ export async function seedQuestionBankIfNeeded() {
       type: "elementary",
       name: "초등 논술",
       topics: [
-        { title: "동물 실험은 과연 정당한가?", prompt: "동물 실험은 인간의 건강과 의학 발전을 위해 필수적이라는 주장과 동물 생명권 침해라는 윤리적 비판이 팽팽합니다. 자신의 입장을 정하고 그 이유를 2가지 이상 쓰세요.", options: ["인간의 생명권과 의학 발전이 우선이다", "동물의 고통을 최소화하는 대체 방안을 찾아야 한다", "동물 실험은 전면 금지되어야 한다", "경제적 비용이 가장 중요한 판단 기준이다"] },
-        { title: "인터넷 스마트폰 사용 시간, 제한해야 할까?", prompt: "디지털 기기 과몰입을 막기 위해 청소년의 스마트폰 사용 시간을 법적으로 제한해야 한다는 의견과 개인의 자유라는 의견이 있습니다.", options: ["학습권 보장을 위해 사용 제한이 필요하다", "자기 주도적 조절 능력을 믿어야 한다", "국가가 개입하는 것은 기본권 침해다", "부모의 자율 지도에 맡겨야 한다"] },
-        { title: "학교 운동장 천연잔디 vs 인조잔디", prompt: "학생들의 건강과 친환경 교육을 위해 천연잔디를 조성해야 한다는 의견과 관리 편의성과 활용도를 위해 인조잔디가 낫다는 의견을 비교해 보세요.", options: ["자연 학습과 건강을 위해 천연잔디가 좋다", "유지보수가 편한 인조잔디가 효율적이다", "비용 측면에서 아스팔트가 가장 낫다", "잔디 대신 우레탄 트랙이 최고다"] },
-        { title: "초등학생 용돈, 과연 얼마가 적당할까?", prompt: "용돈을 정기적으로 지급하여 경제관념을 길러줘야 한다는 주장과 필요할 때마다 타 쓰는 것이 현명하다는 주장을 분석하세요.", options: ["계획적인 소비 습관 형성에 도움이 된다", "돈에 대한 집착을 키울 수 있다", "노동의 가치를 알기 어렵다", "경제적 불평등을 체감하게 한다"] },
-        { title: "로봇 교사와 인간 교사, 미래 교육의 선택", prompt: "AI와 로봇 기술의 발달로 맞춤형 교육이 가능한 로봇 교사가 도입될 때 발생할 장단점을 논하시오.", options: ["개별 맞춤 학습과 공정한 평가가 가능하다", "인간적인 교감과 정서적 유대가 사라진다", "교육 격차가 완전히 해소된다", "학교라는 공간 자체가 불필요해진다"] },
-      ]
+        {
+          title: "동물 실험은 과연 정당한가?",
+          prompt:
+            "동물 실험은 인간의 건강과 의학 발전을 위해 필수적이라는 주장과 동물 생명권 침해라는 윤리적 비판이 팽팽합니다. 자신의 입장을 정하고 그 이유를 2가지 이상 쓰세요.",
+          options: [
+            "인간의 생명권과 의학 발전이 우선이다",
+            "동물의 고통을 최소화하는 대체 방안을 찾아야 한다",
+            "동물 실험은 전면 금지되어야 한다",
+            "경제적 비용이 가장 중요한 판단 기준이다",
+          ],
+        },
+        {
+          title: "인터넷 스마트폰 사용 시간, 제한해야 할까?",
+          prompt:
+            "디지털 기기 과몰입을 막기 위해 청소년의 스마트폰 사용 시간을 법적으로 제한해야 한다는 의견과 개인의 자유라는 의견이 있습니다.",
+          options: [
+            "학습권 보장을 위해 사용 제한이 필요하다",
+            "자기 주도적 조절 능력을 믿어야 한다",
+            "국가가 개입하는 것은 기본권 침해다",
+            "부모의 자율 지도에 맡겨야 한다",
+          ],
+        },
+        {
+          title: "학교 운동장 천연잔디 vs 인조잔디",
+          prompt:
+            "학생들의 건강과 친환경 교육을 위해 천연잔디를 조성해야 한다는 의견과 관리 편의성과 활용도를 위해 인조잔디가 낫다는 의견을 비교해 보세요.",
+          options: [
+            "자연 학습과 건강을 위해 천연잔디가 좋다",
+            "유지보수가 편한 인조잔디가 효율적이다",
+            "비용 측면에서 아스팔트가 가장 낫다",
+            "잔디 대신 우레탄 트랙이 최고다",
+          ],
+        },
+        {
+          title: "초등학생 용돈, 과연 얼마가 적당할까?",
+          prompt:
+            "용돈을 정기적으로 지급하여 경제관념을 길러줘야 한다는 주장과 필요할 때마다 타 쓰는 것이 현명하다는 주장을 분석하세요.",
+          options: [
+            "계획적인 소비 습관 형성에 도움이 된다",
+            "돈에 대한 집착을 키울 수 있다",
+            "노동의 가치를 알기 어렵다",
+            "경제적 불평등을 체감하게 한다",
+          ],
+        },
+        {
+          title: "로봇 교사와 인간 교사, 미래 교육의 선택",
+          prompt:
+            "AI와 로봇 기술의 발달로 맞춤형 교육이 가능한 로봇 교사가 도입될 때 발생할 장단점을 논하시오.",
+          options: [
+            "개별 맞춤 학습과 공정한 평가가 가능하다",
+            "인간적인 교감과 정서적 유대가 사라진다",
+            "교육 격차가 완전히 해소된다",
+            "학교라는 공간 자체가 불필요해진다",
+          ],
+        },
+      ],
     },
     {
       type: "middle_high",
       name: "중고등 논술",
       topics: [
-        { title: "인공지능 예술품의 저작권 귀속 문제", prompt: "AI가 생성한 미술 작품과 음악에 저작권을 인정해야 하는가? 창작의 주체 개념과 기술 발전의 관계를 논리적으로 서술하시오.", options: ["인간의 노동과 의도가 개입되었으므로 인정해야 한다", "단순 알고리즘의 산물이므로 저작권을 줄 수 없다", "프로그램 개발자에게 모든 권리가 귀속되어야 한다", "공공 자산으로 귀속되어야 한다"] },
-        { title: "기본소득 제도의 도입 타당성", prompt: "모든 국민에게 무조건적으로 정기 지급하는 기본소득이 빈부격차 해소의 대안인지, 재정 파탄의 요인인지 분석하시오.", options: ["복지 사각지대 해소와 소비 활성화의 촉매제다", "천문학적 재정 부담으로 국가 경제를 위협한다", "근로 의욕을 고취시켜 생산성을 극대화한다", "물가 상승을 유발하여 실질 소득을 감소시킨다"] },
-        { title: "언론의 자유와 가짜뉴스 규제의 한계", prompt: "표현의 자유를 보장하는 민주주의 사회에서 가짜뉴스를 법적으로 규제하는 것의 타당성과 부작용을 고찰하시오.", options: ["사회적 혼란과 여론 왜곡을 막기 위해 엄격한 처벌이 필요하다", "검열로 악용되어 정권 비판을 억압할 위험이 크다", "언론사 자율 자정 기능에만 맡겨야 한다", "기술적 플랫폼 차단이 유일한 해법이다"] },
-        { title: "고교학점제 시행의 명암과 과제", prompt: "학생의 진로 선택권을 보장하는 고교학점제가 교육 격차를 심화시킬 수 있다는 우려를 극복할 대안을 논하시오.", options: ["맞춤형 진로 설계와 자율성 신장에 기여한다", "내신 유불리와 사교육비 증가를 부추긴다", "학교 간 교원 수급 불균형을 해소한다", "수능 체제와 완벽하게 조화된다"] },
-        { title: "과학 기술 발전과 생명 윤리의 충돌", prompt: "유전자 편집 기술(CRISPR)의 발전이 가져올 인류의 미래와 허용 가능한 윤리적 한계를 논증하시오.", options: ["유전병 치료와 난치병 극복의 혁신적 기회다", "맞춤형 아기와 생명 상품화로 이어질 위험이 크다", "국제 협약을 통한 철저한 통제가 필수적이다", "과학자의 자율 연구에 전적으로 맡겨야 한다"] },
-      ]
+        {
+          title: "인공지능 예술품의 저작권 귀속 문제",
+          prompt:
+            "AI가 생성한 미술 작품과 음악에 저작권을 인정해야 하는가? 창작의 주체 개념과 기술 발전의 관계를 논리적으로 서술하시오.",
+          options: [
+            "인간의 노동과 의도가 개입되었으므로 인정해야 한다",
+            "단순 알고리즘의 산물이므로 저작권을 줄 수 없다",
+            "프로그램 개발자에게 모든 권리가 귀속되어야 한다",
+            "공공 자산으로 귀속되어야 한다",
+          ],
+        },
+        {
+          title: "기본소득 제도의 도입 타당성",
+          prompt:
+            "모든 국민에게 무조건적으로 정기 지급하는 기본소득이 빈부격차 해소의 대안인지, 재정 파탄의 요인인지 분석하시오.",
+          options: [
+            "복지 사각지대 해소와 소비 활성화의 촉매제다",
+            "천문학적 재정 부담으로 국가 경제를 위협한다",
+            "근로 의욕을 고취시켜 생산성을 극대화한다",
+            "물가 상승을 유발하여 실질 소득을 감소시킨다",
+          ],
+        },
+        {
+          title: "언론의 자유와 가짜뉴스 규제의 한계",
+          prompt:
+            "표현의 자유를 보장하는 민주주의 사회에서 가짜뉴스를 법적으로 규제하는 것의 타당성과 부작용을 고찰하시오.",
+          options: [
+            "사회적 혼란과 여론 왜곡을 막기 위해 엄격한 처벌이 필요하다",
+            "검열로 악용되어 정권 비판을 억압할 위험이 크다",
+            "언론사 자율 자정 기능에만 맡겨야 한다",
+            "기술적 플랫폼 차단이 유일한 해법이다",
+          ],
+        },
+        {
+          title: "고교학점제 시행의 명암과 과제",
+          prompt:
+            "학생의 진로 선택권을 보장하는 고교학점제가 교육 격차를 심화시킬 수 있다는 우려를 극복할 대안을 논하시오.",
+          options: [
+            "맞춤형 진로 설계와 자율성 신장에 기여한다",
+            "내신 유불리와 사교육비 증가를 부추긴다",
+            "학교 간 교원 수급 불균형을 해소한다",
+            "수능 체제와 완벽하게 조화된다",
+          ],
+        },
+        {
+          title: "과학 기술 발전과 생명 윤리의 충돌",
+          prompt:
+            "유전자 편집 기술(CRISPR)의 발전이 가져올 인류의 미래와 허용 가능한 윤리적 한계를 논증하시오.",
+          options: [
+            "유전병 치료와 난치병 극복의 혁신적 기회다",
+            "맞춤형 아기와 생명 상품화로 이어질 위험이 크다",
+            "국제 협약을 통한 철저한 통제가 필수적이다",
+            "과학자의 자율 연구에 전적으로 맡겨야 한다",
+          ],
+        },
+      ],
     },
     {
       type: "high_univ",
       name: "고등/대입",
       topics: [
-        { title: "자본주의 시장 경제와 사회적 정의", prompt: "롤스의 정의론과 노직의 소유 권리론을 바탕으로 현대 복지 국가의 소득 재분배 정책의 정당성을 비교 평가하시오.", options: ["최소 수혜자의 복지 증진을 위한 차등 원칙이 타당하다", "개인의 정당한 소유 권리를 침해하는 과도한 세금이다", "시장의 효율성과 사회적 연대가 조화를 이루어야 한다", "국가의 개입을 최소화하는 자유방임이 이상적이다"] },
-        { title: "과학적 사실과 탈진실(Post-truth) 시대의 민주주의", prompt: "객관적 진실보다 감정과 신념이 여론을 지배하는 탈진실 현상의 원인을 분석하고 민주주의 위기 극복 방안을 논하시오.", options: ["확증 편향을 강화하는 알고리즘 미디어 환경이 주원인이다", "대중의 정치적 무관심과 냉소가 초래한 결과이다", "팩트체크 시스템의 제도적 의무화가 해결책이다", "전문가 집단의 권위 회복이 유일한 대안이다"] },
-        { title: "글로벌리즘의 후퇴와 신국수주의 대두", prompt: "자유무역과 개방을 지향하던 세계화가 퇴조하고 자국 우선주의가 대두되는 국제 정세의 원인과 한국 경제의 대응 전략을 논하시오.", options: ["공급망 재편과 경제 안보 중심의 실리 외교가 필요하다", "다시금 개방형 무역 협정을 적극 확대해야 한다", "국내 자급자족 경제 체제로 전환해야 한다", "지역 경제 블록화에 전면 가담해야 한다"] },
-        { title: "기후 위기 대응과 세대 간 정의", prompt: "현세대의 경제 성장과 미래 세대의 생존권 사이의 갈등을 해결하기 위한 '세대 간 정의'의 철학적 근거를 서술하시오.", options: ["미래 세대에 대한 불가피한 희생 전가 방지 책임이 있다", "현재의 경제적 생존과 일자리 창출이 더 시급하다", "탄소 배출권 거래제의 시장 기능으로 해결 가능하다", "급격한 성장의 중단만이 유일한 해법이다"] },
-        { title: "디지털 전환과 노동의 미래: 플랫폼 노동의 명암", prompt: "전통적 고용 관계를 벗어난 플랫폼 노동자의 법적 지위와 권익 보호 방안을 사회 계약론적 관점에서 논하시오.", options: ["유연한 근무 조건과 새로운 일자리 창출 효과가 크다", "사회안전망 부재와 불평등 심화의 온상이 된다", "노동법 개정을 통한 포괄적 보호가 시급하다", "개인 사업자로 규정하여 시장 자율에 맡겨야 한다"] },
-      ]
+        {
+          title: "자본주의 시장 경제와 사회적 정의",
+          prompt:
+            "롤스의 정의론과 노직의 소유 권리론을 바탕으로 현대 복지 국가의 소득 재분배 정책의 정당성을 비교 평가하시오.",
+          options: [
+            "최소 수혜자의 복지 증진을 위한 차등 원칙이 타당하다",
+            "개인의 정당한 소유 권리를 침해하는 과도한 세금이다",
+            "시장의 효율성과 사회적 연대가 조화를 이루어야 한다",
+            "국가의 개입을 최소화하는 자유방임이 이상적이다",
+          ],
+        },
+        {
+          title: "과학적 사실과 탈진실(Post-truth) 시대의 민주주의",
+          prompt:
+            "객관적 진실보다 감정과 신념이 여론을 지배하는 탈진실 현상의 원인을 분석하고 민주주의 위기 극복 방안을 논하시오.",
+          options: [
+            "확증 편향을 강화하는 알고리즘 미디어 환경이 주원인이다",
+            "대중의 정치적 무관심과 냉소가 초래한 결과이다",
+            "팩트체크 시스템의 제도적 의무화가 해결책이다",
+            "전문가 집단의 권위 회복이 유일한 대안이다",
+          ],
+        },
+        {
+          title: "글로벌리즘의 후퇴와 신국수주의 대두",
+          prompt:
+            "자유무역과 개방을 지향하던 세계화가 퇴조하고 자국 우선주의가 대두되는 국제 정세의 원인과 한국 경제의 대응 전략을 논하시오.",
+          options: [
+            "공급망 재편과 경제 안보 중심의 실리 외교가 필요하다",
+            "다시금 개방형 무역 협정을 적극 확대해야 한다",
+            "국내 자급자족 경제 체제로 전환해야 한다",
+            "지역 경제 블록화에 전면 가담해야 한다",
+          ],
+        },
+        {
+          title: "기후 위기 대응과 세대 간 정의",
+          prompt:
+            "현세대의 경제 성장과 미래 세대의 생존권 사이의 갈등을 해결하기 위한 '세대 간 정의'의 철학적 근거를 서술하시오.",
+          options: [
+            "미래 세대에 대한 불가피한 희생 전가 방지 책임이 있다",
+            "현재의 경제적 생존과 일자리 창출이 더 시급하다",
+            "탄소 배출권 거래제의 시장 기능으로 해결 가능하다",
+            "급격한 성장의 중단만이 유일한 해법이다",
+          ],
+        },
+        {
+          title: "디지털 전환과 노동의 미래: 플랫폼 노동의 명암",
+          prompt:
+            "전통적 고용 관계를 벗어난 플랫폼 노동자의 법적 지위와 권익 보호 방안을 사회 계약론적 관점에서 논하시오.",
+          options: [
+            "유연한 근무 조건과 새로운 일자리 창출 효과가 크다",
+            "사회안전망 부재와 불평등 심화의 온상이 된다",
+            "노동법 개정을 통한 포괄적 보호가 시급하다",
+            "개인 사업자로 규정하여 시장 자율에 맡겨야 한다",
+          ],
+        },
+      ],
     },
     {
       type: "general_adult",
       name: "일반/직장인",
       topics: [
-        { title: "원격 근무와 하이브리드 워크의 조직 문화", prompt: "지속 가능한 원격·하이브리드 근무 형태가 직원의 생산성과 조직 결속력에 미치는 영향과 리더십의 변화 방향을 논하시오.", options: ["업무 효율성과 일과 삶의 균형을 크게 향상시킨다", "조직 문화 약화와 소속감 저하를 야기한다", "성과 중심의 객관적 평가 체계로 전환을 촉진한다", "대면 협업의 창의성을 저해한다"] },
-        { title: "ESG 경영과 기업의 사회적 책임", prompt: "이윤 극대화를 추구하던 전통적 기업관에서 벗어나 환경(E)·사회(S)·지배구조(G)를 중시하는 경영이 기업 생존에 필수적인 이유를 서술하시오.", options: ["장기적 기업 가치와 투자자 신뢰를 확보하는 핵심 축이다", "단기적 비용 부담을 가중시켜 경쟁력을 떨어뜨린다", "소비자의 윤리적 소비 트렌드 변화에 부응한다", "정부 규제를 회피하기 위한 형식적 수단에 불과하다"] },
-        { title: "인구 절벽 시대의 이민 정책과 사회 통합", prompt: "초저출생으로 인한 생산가능인구 감소에 대응하기 위한 적극적 이민 정책 도입의 득실과 다문화 사회 통합 방안을 논하시오.", options: ["노동력 부족 해소와 경제 활력 유지의 현실적 대안이다", "문화적 갈등과 사회적 비용 증가를 초래할 수 있다", "체계적인 언어·문화 교육 프로그램이 필수적이다", "외국인 노동자의 유입을 엄격히 제한해야 한다"] },
-        { title: "디지털 화폐(CBDC)와 현금 없는 사회의 명암", prompt: "중앙은행 디지털 화폐 도입이 금융 투명성을 높이는 한편 프라이버시 침해와 금융 취약계층 소외를 야기할 우려에 대해 논증하시오.", options: ["지하 경제 차단과 거래 투명성 확보에 기여한다", "국가의 개인 금융 감시와 통제를 강화한다", "디지털 취약계층의 금융 거래를 단절시킨다", "기존 시중 은행의 역할을 완전히 소멸시킨다"] },
-        { title: "워라밸(Work-Life Balance)과 조직 생산성의 양립", prompt: "근로시간 단축과 워라밸 중심의 문화가 기업의 장기적 혁신 역량과 생산성에 미치는 영향을 다각도로 분석하시오.", options: ["직원 만족도 상승이 이직률 감소와 몰입도로 이어진다", "단기적 업무 공백과 납기 지연 리스크를 유발한다", "업무 프로세스 혁신과 자동화를 강제하는 계기가 된다", "글로벌 경쟁에서 도태되는 원인이 된다"] },
-      ]
-    }
+        {
+          title: "원격 근무와 하이브리드 워크의 조직 문화",
+          prompt:
+            "지속 가능한 원격·하이브리드 근무 형태가 직원의 생산성과 조직 결속력에 미치는 영향과 리더십의 변화 방향을 논하시오.",
+          options: [
+            "업무 효율성과 일과 삶의 균형을 크게 향상시킨다",
+            "조직 문화 약화와 소속감 저하를 야기한다",
+            "성과 중심의 객관적 평가 체계로 전환을 촉진한다",
+            "대면 협업의 창의성을 저해한다",
+          ],
+        },
+        {
+          title: "ESG 경영과 기업의 사회적 책임",
+          prompt:
+            "이윤 극대화를 추구하던 전통적 기업관에서 벗어나 환경(E)·사회(S)·지배구조(G)를 중시하는 경영이 기업 생존에 필수적인 이유를 서술하시오.",
+          options: [
+            "장기적 기업 가치와 투자자 신뢰를 확보하는 핵심 축이다",
+            "단기적 비용 부담을 가중시켜 경쟁력을 떨어뜨린다",
+            "소비자의 윤리적 소비 트렌드 변화에 부응한다",
+            "정부 규제를 회피하기 위한 형식적 수단에 불과하다",
+          ],
+        },
+        {
+          title: "인구 절벽 시대의 이민 정책과 사회 통합",
+          prompt:
+            "초저출생으로 인한 생산가능인구 감소에 대응하기 위한 적극적 이민 정책 도입의 득실과 다문화 사회 통합 방안을 논하시오.",
+          options: [
+            "노동력 부족 해소와 경제 활력 유지의 현실적 대안이다",
+            "문화적 갈등과 사회적 비용 증가를 초래할 수 있다",
+            "체계적인 언어·문화 교육 프로그램이 필수적이다",
+            "외국인 노동자의 유입을 엄격히 제한해야 한다",
+          ],
+        },
+        {
+          title: "디지털 화폐(CBDC)와 현금 없는 사회의 명암",
+          prompt:
+            "중앙은행 디지털 화폐 도입이 금융 투명성을 높이는 한편 프라이버시 침해와 금융 취약계층 소외를 야기할 우려에 대해 논증하시오.",
+          options: [
+            "지하 경제 차단과 거래 투명성 확보에 기여한다",
+            "국가의 개인 금융 감시와 통제를 강화한다",
+            "디지털 취약계층의 금융 거래를 단절시킨다",
+            "기존 시중 은행의 역할을 완전히 소멸시킨다",
+          ],
+        },
+        {
+          title: "워라밸(Work-Life Balance)과 조직 생산성의 양립",
+          prompt:
+            "근로시간 단축과 워라밸 중심의 문화가 기업의 장기적 혁신 역량과 생산성에 미치는 영향을 다각도로 분석하시오.",
+          options: [
+            "직원 만족도 상승이 이직률 감소와 몰입도로 이어진다",
+            "단기적 업무 공백과 납기 지연 리스크를 유발한다",
+            "업무 프로세스 혁신과 자동화를 강제하는 계기가 된다",
+            "글로벌 경쟁에서 도태되는 원인이 된다",
+          ],
+        },
+      ],
+    },
   ];
 
-  const toolTypes = ["quiz", "reordering", "summary", "topic_wizard", "thesis_checklist"] as const;
+  const toolTypes = [
+    "quiz",
+    "reordering",
+    "summary",
+    "topic_wizard",
+    "thesis_checklist",
+  ] as const;
 
   for (const conf of courseConfigs) {
     for (const t of toolTypes) {
       for (let i = 1; i <= 10; i++) {
         const topicIdx = (i - 1) % conf.topics.length;
         const topic = conf.topics[topicIdx];
-        
+
         let contentDataObj: any = {};
         if (t === "quiz") {
           contentDataObj = {
             prompt: `${topic.prompt} (심화 문항 #${i})`,
             options: topic.options,
             answer: topic.options[0],
-            explanation: `${conf.name} 수준에 맞춘 논리적 사고력 평가 해설: ${topic.title}에 대해 다각도로 분석하는 능력이 요구됩니다.`
+            explanation: `${conf.name} 수준에 맞춘 논리적 사고력 평가 해설: ${topic.title}에 대해 다각도로 분석하는 능력이 요구됩니다.`,
           };
         } else if (t === "reordering") {
           contentDataObj = {
@@ -3930,23 +7894,37 @@ export async function seedQuestionBankIfNeeded() {
               "가. 현대 사회에서 이 문제는 더 이상 미룰 수 없는 중요한 화두로 떠올랐다.",
               "나. 따라서 개인과 사회 모두가 협력하여 실효성 있는 대안을 모색해야 한다.",
               "다. 그러나 이에 대한 접근 방식은 이해관계에 따라 극명하게 엇갈리고 있다.",
-              "라. 면밀한 다각도 분석을 통해 본질적인 해결책을 도출하는 것이 시급하다."
+              "라. 면밀한 다각도 분석을 통해 본질적인 해결책을 도출하는 것이 시급하다.",
             ],
             correctOrder: [0, 2, 3, 1],
-            explanation: "서론(제기) → 대립 입장 소개 → 심층 분석 → 결론 및 제언의 표준적 논증 구조입니다."
+            explanation:
+              "서론(제기) → 대립 입장 소개 → 심층 분석 → 결론 및 제언의 표준적 논증 구조입니다.",
           };
         } else if (t === "summary") {
           contentDataObj = {
             prompt: `[${topic.title}]\n\n${topic.prompt}\n\n위 제시문의 핵심 논지와 주장을 3문장 이내로 압축하여 요약하시오.`,
-            keyPoints: ["핵심 쟁점 파악", "찬반 양측의 논거 균형", "타당한 결론 도출"],
+            keyPoints: [
+              "핵심 쟁점 파악",
+              "찬반 양측의 논거 균형",
+              "타당한 결론 도출",
+            ],
             modelAnswer: `본 제시는 ${topic.title}에 관한 쟁점을 다루고 있다. 각 입장의 타당성을 검토한 결과, 상생과 합리적 절충안이 가장 바람직하다는 결론에 도출된다.`,
-            explanation: "제시문의 핵심 주장을 누락없이 간결하게 요약했는지 평가합니다."
+            explanation:
+              "제시문의 핵심 주장을 누락없이 간결하게 요약했는지 평가합니다.",
           };
         } else if (t === "topic_wizard") {
           contentDataObj = {
             prompt: `${topic.title} 주제에 대하여 자신의 관점을 명확히 드러낼 수 있는 찬성 또는 반대 입장의 중심 제목과 논거 키워드를 설계하세요.`,
-            guidelines: ["주제의 시의성과 공감대 형성", "명확한 찬반 입장 표명", "논거의 타당성과 구체성"],
-            sampleOutput: { title: `균형 잡힌 시각에서 본 ${topic.title}`, stance: "찬성", mainArgument: "공익과 효율성의 조화" }
+            guidelines: [
+              "주제의 시의성과 공감대 형성",
+              "명확한 찬반 입장 표명",
+              "논거의 타당성과 구체성",
+            ],
+            sampleOutput: {
+              title: `균형 잡힌 시각에서 본 ${topic.title}`,
+              stance: "찬성",
+              mainArgument: "공익과 효율성의 조화",
+            },
           };
         } else {
           contentDataObj = {
@@ -3954,9 +7932,9 @@ export async function seedQuestionBankIfNeeded() {
             checklistItems: [
               "주제문이 단순한 사실 나열이 아닌 주장형 문장인가?",
               "글 전체의 방향과 결론을 명확히 예고하고 있는가?",
-              "반대 입장에 대한 방어 논거가 함축되어 있는가?"
+              "반대 입장에 대한 방어 논거가 함축되어 있는가?",
             ],
-            passingStandard: "3개 항목 모두 충족"
+            passingStandard: "3개 항목 모두 충족",
           };
         }
 
@@ -3973,7 +7951,6 @@ export async function seedQuestionBankIfNeeded() {
   }
 }
 
-
 export async function getQuestionBankStats() {
   const db = await getDb();
   if (!db) return [];
@@ -3984,7 +7961,14 @@ export async function getQuestionBankStats() {
     const qAnswers = answers.filter(a => a.quizId === q.id);
     const totalAttempts = qAnswers.length;
     const correctAttempts = qAnswers.filter(a => a.isCorrect === 1).length;
-    const correctRate = totalAttempts > 0 ? Math.round((correctAttempts / totalAttempts) * 100) : (q.difficulty === "easy" ? 85 : q.difficulty === "medium" ? 60 : 35);
+    const correctRate =
+      totalAttempts > 0
+        ? Math.round((correctAttempts / totalAttempts) * 100)
+        : q.difficulty === "easy"
+          ? 85
+          : q.difficulty === "medium"
+            ? 60
+            : 35;
     const wrongCount = totalAttempts - correctAttempts;
 
     // AI 자동 난이도 추천 로직
@@ -3995,19 +7979,82 @@ export async function getQuestionBankStats() {
 
     return {
       ...q,
-      totalAttempts: totalAttempts > 0 ? totalAttempts : Math.floor(Math.random() * 20) + 5,
+      totalAttempts:
+        totalAttempts > 0 ? totalAttempts : Math.floor(Math.random() * 20) + 5,
       correctRate,
-      wrongCount: wrongCount >= 0 ? wrongCount : Math.floor(Math.random() * 10) + 2,
+      wrongCount:
+        wrongCount >= 0 ? wrongCount : Math.floor(Math.random() * 10) + 2,
       suggestedDifficulty,
     };
   });
 }
 
-export async function getQuestionBankTrendStats(period: "week" | "month" = "week") {
+export async function getQuestionBankPublicStats(courseType?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const questions = await db
+    .select({
+      id: questionBank.id,
+      difficulty: questionBank.difficulty,
+    })
+    .from(questionBank)
+    .where(
+      courseType
+        ? and(
+            eq(
+              questionBank.courseType,
+              courseType as typeof questionBank.$inferSelect.courseType
+            ),
+            eq(questionBank.isActive, 1)
+          )
+        : undefined
+    );
+  const answers = await db
+    .select({
+      quizId: quizAnswer.quizId,
+      isCorrect: quizAnswer.isCorrect,
+    })
+    .from(quizAnswer)
+    .innerJoin(questionBank, eq(quizAnswer.quizId, questionBank.id))
+    .where(
+      courseType
+        ? and(
+            eq(
+              questionBank.courseType,
+              courseType as typeof questionBank.$inferSelect.courseType
+            ),
+            eq(questionBank.isActive, 1)
+          )
+        : undefined
+    );
+
+  return questions.map(question => {
+    const questionAnswers = answers.filter(
+      answer => answer.quizId === question.id
+    );
+    const totalAttempts = questionAnswers.length;
+    const correctAttempts = questionAnswers.filter(
+      answer => answer.isCorrect === 1
+    ).length;
+    const correctRate =
+      totalAttempts > 0
+        ? Math.round((correctAttempts / totalAttempts) * 100)
+        : question.difficulty === "easy"
+          ? 85
+          : question.difficulty === "medium"
+            ? 60
+            : 35;
+    return { id: question.id, totalAttempts, correctRate };
+  });
+}
+
+export async function getQuestionBankTrendStats(
+  period: "week" | "month" = "week"
+) {
   const db = await getDb();
   if (!db) return [];
   const answers = await db.select().from(quizAnswer);
-  
+
   const daysCount = period === "week" ? 7 : 30;
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
@@ -4016,9 +8063,13 @@ export async function getQuestionBankTrendStats(period: "week" | "month" = "week
   for (let i = daysCount - 1; i >= 0; i--) {
     const targetDate = new Date(now - i * dayMs);
     const dateStr = `${targetDate.getMonth() + 1}/${targetDate.getDate()}`;
-    
+
     // 해당 날짜 범위의 답안 필터링
-    const dayStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
+    const dayStart = new Date(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate()
+    ).getTime();
     const dayEnd = dayStart + dayMs;
 
     const dayAnswers = answers.filter(a => {
@@ -4028,7 +8079,10 @@ export async function getQuestionBankTrendStats(period: "week" | "month" = "week
 
     const total = dayAnswers.length;
     const correct = dayAnswers.filter(a => a.isCorrect === 1).length;
-    const rate = total > 0 ? Math.round((correct / total) * 100) : (70 + Math.floor(Math.sin(i) * 10)); // 기본 트렌드 샘플
+    const rate =
+      total > 0
+        ? Math.round((correct / total) * 100)
+        : 70 + Math.floor(Math.sin(i) * 10); // 기본 트렌드 샘플
 
     trendData.push({
       date: dateStr,
@@ -4044,13 +8098,23 @@ export async function seedCurriculumWorkbookQuestions() {
   const db = await getDb();
   if (!db) return;
   const existing = await db.select().from(curriculumWorkbookQuestions);
-  const existingByKey = new Map(existing.map((item) => [`${item.courseType}:${item.level}:${item.lessonIndex}:${item.questionNumber}`, item]));
+  const existingByKey = new Map(
+    existing.map(item => [
+      `${item.courseType}:${item.level}:${item.lessonIndex}:${item.questionNumber}`,
+      item,
+    ])
+  );
 
   const courses = [
     { type: "elementary", name: "초등 논술", levels: 2, lessonsPerLevel: 3 },
     { type: "middle_high", name: "중고등 논술", levels: 2, lessonsPerLevel: 3 },
     { type: "high_univ", name: "고등 / 대입", levels: 2, lessonsPerLevel: 3 },
-    { type: "general_adult", name: "일반 / 직장인", levels: 2, lessonsPerLevel: 3 },
+    {
+      type: "general_adult",
+      name: "일반 / 직장인",
+      levels: 2,
+      lessonsPerLevel: 3,
+    },
   ];
 
   for (const c of courses) {
@@ -4070,19 +8134,33 @@ export async function seedCurriculumWorkbookQuestions() {
               "주장과 뒷받침 근거의 인과관계가 명확히 서술되어 있다.",
               "단순한 감상이나 추상적인 수식어로만 이루어져 있다.",
               "반대 입장에 대한 고려 없이 일방적인 주장만 펼친다.",
-              "객관적 데이터 없이 주관적 편견을 진실처럼 포장한다."
+              "객관적 데이터 없이 주관적 편견을 진실처럼 포장한다.",
             ]);
-            correctAnswer = "주장과 뒷받침 근거의 인과관계가 명확히 서술되어 있다.";
-            explanation = "좋은 논술문은 명확한 주장과 이를 뒷받침하는 타당한 근거가 유기적으로 연결되어 있어야 합니다.";
+            correctAnswer =
+              "주장과 뒷받침 근거의 인과관계가 명확히 서술되어 있다.";
+            explanation =
+              "좋은 논술문은 명확한 주장과 이를 뒷받침하는 타당한 근거가 유기적으로 연결되어 있어야 합니다.";
           } else if (qNum === 2) {
             questionType = "subjective";
-            const item = buildWorkbookSubjectiveSeed(c.type, lvl, lIdx, qNum, c.name);
+            const item = buildWorkbookSubjectiveSeed(
+              c.type,
+              lvl,
+              lIdx,
+              qNum,
+              c.name
+            );
             correctAnswer = item.correctAnswer;
             explanation = item.explanation;
             prompt = item.prompt;
           } else {
             questionType = "subjective";
-            const item = buildWorkbookSubjectiveSeed(c.type, lvl, lIdx, qNum, c.name);
+            const item = buildWorkbookSubjectiveSeed(
+              c.type,
+              lvl,
+              lIdx,
+              qNum,
+              c.name
+            );
             correctAnswer = item.correctAnswer;
             explanation = item.explanation;
             prompt = item.prompt;
@@ -4104,11 +8182,18 @@ export async function seedCurriculumWorkbookQuestions() {
             explanation,
             questionType,
           };
-          const existingItem = existingByKey.get(`${c.type}:${lvl}:${lIdx}:${qNum}`);
+          const existingItem = existingByKey.get(
+            `${c.type}:${lvl}:${lIdx}:${qNum}`
+          );
           if (!existingItem) {
             await db.insert(curriculumWorkbookQuestions).values(values);
-          } else if (shouldRefreshWorkbookQuestionSeed(existingItem, title, prompt)) {
-            await db.update(curriculumWorkbookQuestions).set(values).where(eq(curriculumWorkbookQuestions.id, existingItem.id));
+          } else if (
+            shouldRefreshWorkbookQuestionSeed(existingItem, title, prompt)
+          ) {
+            await db
+              .update(curriculumWorkbookQuestions)
+              .set(values)
+              .where(eq(curriculumWorkbookQuestions.id, existingItem.id));
           }
         }
       }
@@ -4116,50 +8201,87 @@ export async function seedCurriculumWorkbookQuestions() {
   }
 }
 
-function shouldRefreshWorkbookQuestionSeed(existingItem: typeof curriculumWorkbookQuestions.$inferSelect, seedTitle: string, seedPrompt: string) {
+function shouldRefreshWorkbookQuestionSeed(
+  existingItem: typeof curriculumWorkbookQuestions.$inferSelect,
+  seedTitle: string,
+  seedPrompt: string
+) {
   if (existingItem.title !== seedTitle) return false;
   if (existingItem.prompt === seedPrompt) return false;
-  return /다음 제시된 주제|현대 사회에서 발생할 수 있는 주요 갈등 상황|과정 핵심 개념 적용/.test(existingItem.prompt);
+  return /다음 제시된 주제|현대 사회에서 발생할 수 있는 주요 갈등 상황|과정 핵심 개념 적용/.test(
+    existingItem.prompt
+  );
 }
 
-function buildWorkbookSubjectiveSeed(courseType: string, level: number, lessonIndex: number, questionNumber: number, courseName: string) {
-  const advanced = workbookSubjectivePassages[courseType]?.[level]?.[lessonIndex]?.[questionNumber];
+function buildWorkbookSubjectiveSeed(
+  courseType: string,
+  level: number,
+  lessonIndex: number,
+  questionNumber: number,
+  courseName: string
+) {
+  const advanced =
+    workbookSubjectivePassages[courseType]?.[level]?.[lessonIndex]?.[
+      questionNumber
+    ];
   if (advanced) return advanced;
-  const topic = workbookFallbackTopics[courseType]?.[lessonIndex] ?? "학습 태도와 공동체 생활";
+  const topic =
+    workbookFallbackTopics[courseType]?.[lessonIndex] ??
+    "학습 태도와 공동체 생활";
   if (questionNumber === 2) {
     return {
       prompt: `[${courseName} 워크북 심층 논술]\n다음 자료를 읽고 물음에 답하시오.\n\n[자료]\n${topic}을 둘러싸고 한쪽은 개인의 선택과 자율성을 강조한다. 다른 한쪽은 공동체의 규칙과 책임이 함께 고려되어야 한다고 본다. 두 입장은 모두 문제 해결을 목표로 하지만, 판단의 기준을 어디에 두는지가 다르다.\n\n[논제]\n자료에 드러난 두 관점의 차이를 정리하고, 자신의 입장을 2가지 근거와 함께 300자 내외로 서술하시오.`,
       correctAnswer: "자료의 두 관점 비교와 자기 입장 제시",
-      explanation: "자료에 제시된 자율성과 공동체 책임의 차이를 먼저 정리한 뒤, 자신의 입장을 구체적 근거와 연결해야 합니다.",
+      explanation:
+        "자료에 제시된 자율성과 공동체 책임의 차이를 먼저 정리한 뒤, 자신의 입장을 구체적 근거와 연결해야 합니다.",
     };
   }
   return {
     prompt: `[${courseName} 워크북 서술형 평가]\n다음 상황을 읽고 물음에 답하시오.\n\n[상황]\n${topic}에 대해 구성원들은 서로 다른 해결책을 제안한다. 일부는 빠른 결정을 위해 하나의 기준을 정해야 한다고 주장하고, 다른 일부는 상황마다 조건이 다르므로 예외를 인정해야 한다고 말한다.\n\n[논제]\n두 해결책의 장단점을 비교하고, 더 타당하다고 보는 방안을 300자 내외로 논하시오.`,
     correctAnswer: "갈등 상황의 두 해결책 비교와 종합 판단",
-    explanation: "한쪽 주장만 반복하지 말고 두 방안의 장단점을 비교한 뒤, 선택한 방안의 이유를 제시해야 합니다.",
+    explanation:
+      "한쪽 주장만 반복하지 말고 두 방안의 장단점을 비교한 뒤, 선택한 방안의 이유를 제시해야 합니다.",
   };
 }
 
 const workbookFallbackTopics: Record<string, string[]> = {
   elementary: ["학급 약속", "학교 도서관 이용", "친구와의 협력"],
-  middle_high: ["교내 휴대전화 사용", "진로 활동 시간 배분", "미디어 이용 습관"],
+  middle_high: [
+    "교내 휴대전화 사용",
+    "진로 활동 시간 배분",
+    "미디어 이용 습관",
+  ],
   high_univ: ["AI 추천 알고리즘", "기후 정책", "플랫폼 노동"],
   general_adult: ["회의 방식 개선", "고객 응대 기준", "지식 공유 채널 운영"],
 };
 
-const workbookSubjectivePassages: Record<string, Record<number, Record<number, Record<number, { prompt: string; correctAnswer: string; explanation: string }>>>> = {
+const workbookSubjectivePassages: Record<
+  string,
+  Record<
+    number,
+    Record<
+      number,
+      Record<
+        number,
+        { prompt: string; correctAnswer: string; explanation: string }
+      >
+    >
+  >
+> = {
   high_univ: {
     1: {
       2: {
         2: {
           prompt: `[고등 / 대입 워크북 심층 논술]\n다음 제시문을 읽고 물음에 답하시오.\n\n[제시문 (가)]\n플랫폼 노동은 일감을 빠르게 연결하고 노동자가 원하는 시간에 일할 수 있게 한다. 이 관점에서는 플랫폼이 전통적 고용보다 더 유연한 선택지를 제공한다고 본다.\n\n[제시문 (나)]\n그러나 플랫폼의 알고리즘은 배차, 평점, 노출 순서를 조정한다. 노동자는 형식상 독립되어 있어도 실제 수입과 업무 방식에서 플랫폼 규칙의 영향을 크게 받을 수 있다.\n\n[논제]\n(가)와 (나)의 관점을 비교하고, 플랫폼 노동을 판단할 때 어떤 기준이 더 중요하다고 보는지 300자 내외로 논하시오.`,
           correctAnswer: "플랫폼 노동의 자유와 알고리즘 통제 비교",
-          explanation: "두 제시문의 핵심 대비인 유연성/통제성을 먼저 정리하고, 판단 기준을 밝혀야 합니다.",
+          explanation:
+            "두 제시문의 핵심 대비인 유연성/통제성을 먼저 정리하고, 판단 기준을 밝혀야 합니다.",
         },
         3: {
           prompt: `[고등 / 대입 워크북 서술형 평가]\n다음 자료를 읽고 물음에 답하시오.\n\n[자료]\n한 도시는 탄소 배출을 줄이기 위해 도심 차량 통행료를 올리는 방안을 검토하고 있다. 찬성 측은 교통량 감소와 대중교통 이용 증가를 기대한다. 반대 측은 통근 거리가 긴 노동자와 소상공인의 비용 부담이 커질 수 있다고 우려한다.\n\n[논제]\n자료에 나타난 두 관점을 비교하고, 환경 효과와 사회적 형평성을 함께 고려한 자신의 견해를 300자 내외로 서술하시오.`,
           correctAnswer: "환경 효과와 형평성을 함께 고려한 종합 판단",
-          explanation: "찬반 중 하나만 고르는 것이 아니라 정책 효과와 부담 배분을 함께 검토해야 합니다.",
+          explanation:
+            "찬반 중 하나만 고르는 것이 아니라 정책 효과와 부담 배분을 함께 검토해야 합니다.",
         },
       },
     },
@@ -4168,12 +8290,14 @@ const workbookSubjectivePassages: Record<string, Record<number, Record<number, R
         2: {
           prompt: `[고등 / 대입 워크북 심층 논술]\n다음 제시문을 읽고 물음에 답하시오.\n\n[제시문 (가)]\n자율주행차의 위기 상황 판단은 전체 피해를 최소화하도록 설계되어야 한다. 한 사람의 손해가 있더라도 더 많은 생명을 보호하는 결과가 정당화될 수 있다는 입장이다.\n\n[제시문 (나)]\n반대로 인간을 수단으로 계산하는 방식은 존엄성을 훼손할 수 있다. 기술은 효율뿐 아니라 개인의 권리와 책임 소재를 분명히 하는 기준을 가져야 한다.\n\n[논제]\n두 제시문의 윤리 기준을 비교하고, 기술 설계에서 우선해야 할 기준을 300자 내외로 논하시오.`,
           correctAnswer: "결과 중심 윤리와 권리 중심 윤리 비교",
-          explanation: "공리주의적 판단과 권리·존엄성 기준을 구분해 자신의 기준을 세워야 합니다.",
+          explanation:
+            "공리주의적 판단과 권리·존엄성 기준을 구분해 자신의 기준을 세워야 합니다.",
         },
         3: {
           prompt: `[고등 / 대입 워크북 서술형 평가]\n다음 상황을 읽고 물음에 답하시오.\n\n[상황]\n대학은 생성형 AI 사용을 전면 금지할지, 출처 표시와 사용 범위를 정해 허용할지 논의하고 있다. 금지론은 표절과 사고력 약화를 우려하고, 허용론은 정보 탐색과 초안 작성 능력도 현대적 학습 역량이라고 본다.\n\n[논제]\n두 입장의 근거를 비교하고, 대학 글쓰기 교육에서 적용할 수 있는 기준을 300자 내외로 제안하시오.`,
           correctAnswer: "AI 활용의 위험과 교육적 활용 기준 제안",
-          explanation: "금지/허용을 단순 선택하지 말고 사용 범위, 출처 표시, 평가 기준을 함께 제시해야 합니다.",
+          explanation:
+            "금지/허용을 단순 선택하지 말고 사용 범위, 출처 표시, 평가 기준을 함께 제시해야 합니다.",
         },
       },
     },
@@ -4184,12 +8308,14 @@ const workbookSubjectivePassages: Record<string, Record<number, Record<number, R
         2: {
           prompt: `[일반 / 직장인 워크북 심층 논술]\n다음 업무 자료를 읽고 물음에 답하시오.\n\n[자료]\n지난 2주 동안 고객 문의 평균 응답 시간은 18시간에서 11시간으로 줄었다. 자동 분류 양식을 적용해 단순 문의가 담당자에게 바로 배정되었기 때문이다. 다만 환불 문의는 승인 절차가 남아 처리 시간이 거의 줄지 않았다.\n\n[논제]\n위 자료를 의사결정자에게 보고한다고 가정하고, 성과와 남은 과제를 300자 내외로 요약하시오.`,
           correctAnswer: "성과 수치와 남은 과제를 분리한 업무 요약",
-          explanation: "응답 시간 단축이라는 성과와 환불 승인 절차라는 미해결 과제를 함께 담아야 합니다.",
+          explanation:
+            "응답 시간 단축이라는 성과와 환불 승인 절차라는 미해결 과제를 함께 담아야 합니다.",
         },
         3: {
           prompt: `[일반 / 직장인 워크북 서술형 평가]\n다음 상황을 읽고 물음에 답하시오.\n\n[상황]\n팀 회의에서 보고서 양식을 통일하자는 의견과, 프로젝트별 특성을 반영해 자유 양식을 유지하자는 의견이 충돌했다. 통일 양식은 비교와 검토가 쉽지만 세부 맥락을 놓칠 수 있고, 자유 양식은 현장 설명이 풍부하지만 검토 시간이 길어진다.\n\n[논제]\n두 방안의 장단점을 비교하고, 실행 가능한 절충안을 300자 내외로 제안하시오.`,
           correctAnswer: "표준화와 유연성의 장단점 비교 및 절충안",
-          explanation: "업무 글쓰기에서는 선택한 방안이 실제 실행 절차로 이어져야 합니다.",
+          explanation:
+            "업무 글쓰기에서는 선택한 방안이 실제 실행 절차로 이어져야 합니다.",
         },
       },
     },
@@ -4198,32 +8324,45 @@ const workbookSubjectivePassages: Record<string, Record<number, Record<number, R
         2: {
           prompt: `[일반 / 직장인 워크북 심층 논술]\n다음 업무 자료를 읽고 물음에 답하시오.\n\n[자료]\n매출 부진 원인을 분석한 결과 신규 고객 유입은 유지되었지만 재구매율이 낮아졌다. 고객 인터뷰에서는 첫 구매 후 사용법 안내가 부족하고, 문의 답변을 찾기 어렵다는 의견이 많았다. 가격 인하보다 온보딩 개선이 우선이라는 제안이 나왔다.\n\n[논제]\n자료의 핵심 문제를 정리하고, 우선 실행할 개선안을 300자 내외로 제안하시오.`,
           correctAnswer: "재구매율 저하 원인과 온보딩 개선안 제시",
-          explanation: "매출 부진이라는 결과보다 재구매율과 사용 안내 부족이라는 원인을 중심으로 써야 합니다.",
+          explanation:
+            "매출 부진이라는 결과보다 재구매율과 사용 안내 부족이라는 원인을 중심으로 써야 합니다.",
         },
         3: {
           prompt: `[일반 / 직장인 워크북 서술형 평가]\n다음 상황을 읽고 물음에 답하시오.\n\n[상황]\n회사는 ESG 보고서에 탄소 감축 계획을 넣으려 한다. 재무팀은 비용 증가를 우려해 단계적 도입을 주장하고, 브랜드팀은 고객 신뢰를 위해 빠른 선언이 필요하다고 본다. 생산팀은 현장 설비 교체 일정이 반영되어야 한다고 말한다.\n\n[논제]\n세 부서의 관점을 비교하고, 실행 가능성과 설득력을 모두 고려한 보고서 방향을 300자 내외로 제안하시오.`,
           correctAnswer: "비용, 신뢰, 실행 일정을 통합한 보고서 방향",
-          explanation: "부서별 입장을 나열하지 말고 공통 의사결정 기준으로 묶어야 합니다.",
+          explanation:
+            "부서별 입장을 나열하지 말고 공통 의사결정 기준으로 묶어야 합니다.",
         },
       },
     },
   },
 };
 
-export async function getCurriculumWorkbookQuestions(courseType: string, level: number, lessonIndex: number) {
+export async function getCurriculumWorkbookQuestions(
+  courseType: string,
+  level: number,
+  lessonIndex: number
+) {
   const db = await getDb();
   if (!db) return [];
   await seedCurriculumWorkbookQuestions();
-  return await db.select().from(curriculumWorkbookQuestions).where(
-    and(
-      eq(curriculumWorkbookQuestions.courseType, courseType),
-      eq(curriculumWorkbookQuestions.level, level),
-      eq(curriculumWorkbookQuestions.lessonIndex, lessonIndex)
-    )
-  );
+  return await db
+    .select()
+    .from(curriculumWorkbookQuestions)
+    .where(
+      and(
+        eq(curriculumWorkbookQuestions.courseType, courseType),
+        eq(curriculumWorkbookQuestions.level, level),
+        eq(curriculumWorkbookQuestions.lessonIndex, lessonIndex)
+      )
+    );
 }
 
-type WorkbookConnectionCourseType = "elementary" | "middle_high" | "high_univ" | "general_adult";
+type WorkbookConnectionCourseType =
+  | "elementary"
+  | "middle_high"
+  | "high_univ"
+  | "general_adult";
 type WorkbookLessonConnectionInput = {
   courseType: WorkbookConnectionCourseType;
   lessonLevel: number;
@@ -4233,7 +8372,10 @@ type WorkbookLessonConnectionInput = {
   workbookQuestionIds: number[];
 };
 
-export function resolveWorkbookLessonConnection<TTheory extends { id: number }, TQuestion extends { id: number }>(input: {
+export function resolveWorkbookLessonConnection<
+  TTheory extends { id: number },
+  TQuestion extends { id: number },
+>(input: {
   connectionMode: "automatic" | "manual";
   lessonIndex: number;
   theoryContent: TTheory[];
@@ -4241,66 +8383,112 @@ export function resolveWorkbookLessonConnection<TTheory extends { id: number }, 
   theoryContentIds: number[];
   workbookQuestionIds: number[];
 }) {
-  const theoryContent = input.connectionMode === "manual"
-    ? input.theoryContent.filter((item) => input.theoryContentIds.includes(item.id))
-    : input.theoryContent[input.lessonIndex] ? [input.theoryContent[input.lessonIndex]] : [];
-  const workbookQuestions = input.connectionMode === "manual"
-    ? input.workbookQuestions.filter((item) => input.workbookQuestionIds.includes(item.id))
-    : input.workbookQuestions;
+  const theoryContent =
+    input.connectionMode === "manual"
+      ? input.theoryContent.filter(item =>
+          input.theoryContentIds.includes(item.id)
+        )
+      : input.theoryContent[input.lessonIndex]
+        ? [input.theoryContent[input.lessonIndex]]
+        : [];
+  const workbookQuestions =
+    input.connectionMode === "manual"
+      ? input.workbookQuestions.filter(item =>
+          input.workbookQuestionIds.includes(item.id)
+        )
+      : input.workbookQuestions;
   return { theoryContent, workbookQuestions };
 }
 
 function normalizeSelectedIds(ids: number[]) {
-  return Array.from(new Set(ids.filter((id) => Number.isInteger(id) && id > 0)));
+  return Array.from(new Set(ids.filter(id => Number.isInteger(id) && id > 0)));
 }
 
 function parseSelectedIds(value: string) {
   try {
     const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? normalizeSelectedIds(parsed.filter((item): item is number => typeof item === "number")) : [];
+    return Array.isArray(parsed)
+      ? normalizeSelectedIds(
+          parsed.filter((item): item is number => typeof item === "number")
+        )
+      : [];
   } catch {
     return [];
   }
 }
 
-async function getWorkbookLessonConnectionRecord(input: Pick<WorkbookLessonConnectionInput, "courseType" | "lessonLevel" | "lessonIndex">) {
+async function getWorkbookLessonConnectionRecord(
+  input: Pick<
+    WorkbookLessonConnectionInput,
+    "courseType" | "lessonLevel" | "lessonIndex"
+  >
+) {
   const db = await getDb();
   if (!db) return undefined;
-  const rows = await db.select().from(workbookLessonConnections).where(and(
-    eq(workbookLessonConnections.courseType, input.courseType),
-    eq(workbookLessonConnections.lessonLevel, input.lessonLevel),
-    eq(workbookLessonConnections.lessonIndex, input.lessonIndex),
-  )).orderBy(desc(workbookLessonConnections.updatedAt));
+  const rows = await db
+    .select()
+    .from(workbookLessonConnections)
+    .where(
+      and(
+        eq(workbookLessonConnections.courseType, input.courseType),
+        eq(workbookLessonConnections.lessonLevel, input.lessonLevel),
+        eq(workbookLessonConnections.lessonIndex, input.lessonIndex)
+      )
+    )
+    .orderBy(desc(workbookLessonConnections.updatedAt));
   return rows[0];
 }
 
 /** 관리자 설정 화면에 필요한 레슨별 후보 이론·기출문제와 현재 연결 기준을 제공한다. */
-export async function getWorkbookLessonConnectionOptions(input: Pick<WorkbookLessonConnectionInput, "courseType" | "lessonLevel" | "lessonIndex">) {
+export async function getWorkbookLessonConnectionOptions(
+  input: Pick<
+    WorkbookLessonConnectionInput,
+    "courseType" | "lessonLevel" | "lessonIndex"
+  >
+) {
   const [theoryContent, workbookQuestions, connection] = await Promise.all([
-    getLessonTheoryContentList({ courseType: input.courseType, lessonLevel: input.lessonLevel }),
-    getCurriculumWorkbookQuestions(input.courseType, input.lessonLevel, input.lessonIndex),
+    getLessonTheoryContentList({
+      courseType: input.courseType,
+      lessonLevel: input.lessonLevel,
+    }),
+    getCurriculumWorkbookQuestions(
+      input.courseType,
+      input.lessonLevel,
+      input.lessonIndex
+    ),
     getWorkbookLessonConnectionRecord(input),
   ]);
   return {
     theoryContent,
     workbookQuestions,
-    connection: connection ? {
-      id: connection.id,
-      connectionMode: connection.connectionMode,
-      theoryContentIds: parseSelectedIds(connection.theoryContentIdsJson),
-      workbookQuestionIds: parseSelectedIds(connection.workbookQuestionIdsJson),
-      updatedAt: connection.updatedAt,
-    } : null,
+    connection: connection
+      ? {
+          id: connection.id,
+          connectionMode: connection.connectionMode,
+          theoryContentIds: parseSelectedIds(connection.theoryContentIdsJson),
+          workbookQuestionIds: parseSelectedIds(
+            connection.workbookQuestionIdsJson
+          ),
+          updatedAt: connection.updatedAt,
+        }
+      : null,
   };
 }
 
 /** 학습자 워크북은 자동 연결 기본값 또는 관리자가 직접 저장한 선택 목록만 표시한다. */
-export async function getWorkbookLessonBundle(input: Pick<WorkbookLessonConnectionInput, "courseType" | "lessonLevel" | "lessonIndex">) {
+export async function getWorkbookLessonBundle(
+  input: Pick<
+    WorkbookLessonConnectionInput,
+    "courseType" | "lessonLevel" | "lessonIndex"
+  >
+) {
   const options = await getWorkbookLessonConnectionOptions(input);
   const mode = options.connection?.connectionMode ?? "automatic";
   const selectedTheoryIds = options.connection?.theoryContentIds ?? [];
   const selectedQuestionIds = options.connection?.workbookQuestionIds ?? [];
-  const selectableTheoryContent = options.theoryContent.filter((item): item is typeof item & { id: number } => "id" in item);
+  const selectableTheoryContent = options.theoryContent.filter(
+    (item): item is typeof item & { id: number } => "id" in item
+  );
   const selection = resolveWorkbookLessonConnection({
     connectionMode: mode,
     lessonIndex: input.lessonIndex,
@@ -4317,17 +8505,37 @@ export async function getWorkbookLessonBundle(input: Pick<WorkbookLessonConnecti
 }
 
 /** 관리자만 호출하는 레슨별 직접 연결 저장. 과정·레벨·레슨 후보 밖의 ID는 저장하지 않는다. */
-export async function saveWorkbookLessonConnection(adminId: number, input: WorkbookLessonConnectionInput) {
+export async function saveWorkbookLessonConnection(
+  adminId: number,
+  input: WorkbookLessonConnectionInput
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
   const theoryContentIds = normalizeSelectedIds(input.theoryContentIds);
   const workbookQuestionIds = normalizeSelectedIds(input.workbookQuestionIds);
   const options = await getWorkbookLessonConnectionOptions(input);
-  const validTheoryIds = new Set(options.theoryContent.flatMap((item) => "id" in item ? [item.id] : []));
-  const validQuestionIds = new Set(options.workbookQuestions.map((item) => item.id));
-  if (theoryContentIds.some((id) => !validTheoryIds.has(id))) throw new Error("선택한 추가 이론에 현재 과정 또는 레슨과 맞지 않는 항목이 포함되어 있습니다.");
-  if (workbookQuestionIds.some((id) => !validQuestionIds.has(id))) throw new Error("선택한 기출문제에 현재 과정 또는 레슨과 맞지 않는 항목이 포함되어 있습니다.");
-  if (input.connectionMode === "manual" && theoryContentIds.length === 0 && workbookQuestionIds.length === 0) throw new Error("직접 선택 기준에서는 추가 이론 또는 기출문제를 하나 이상 선택하세요.");
+  const validTheoryIds = new Set(
+    options.theoryContent.flatMap(item => ("id" in item ? [item.id] : []))
+  );
+  const validQuestionIds = new Set(
+    options.workbookQuestions.map(item => item.id)
+  );
+  if (theoryContentIds.some(id => !validTheoryIds.has(id)))
+    throw new Error(
+      "선택한 추가 이론에 현재 과정 또는 레슨과 맞지 않는 항목이 포함되어 있습니다."
+    );
+  if (workbookQuestionIds.some(id => !validQuestionIds.has(id)))
+    throw new Error(
+      "선택한 기출문제에 현재 과정 또는 레슨과 맞지 않는 항목이 포함되어 있습니다."
+    );
+  if (
+    input.connectionMode === "manual" &&
+    theoryContentIds.length === 0 &&
+    workbookQuestionIds.length === 0
+  )
+    throw new Error(
+      "직접 선택 기준에서는 추가 이론 또는 기출문제를 하나 이상 선택하세요."
+    );
   const values = {
     connectionMode: input.connectionMode,
     theoryContentIdsJson: JSON.stringify(theoryContentIds),
@@ -4336,7 +8544,10 @@ export async function saveWorkbookLessonConnection(adminId: number, input: Workb
   } as const;
   const existing = await getWorkbookLessonConnectionRecord(input);
   if (existing) {
-    await db.update(workbookLessonConnections).set(values).where(eq(workbookLessonConnections.id, existing.id));
+    await db
+      .update(workbookLessonConnections)
+      .set(values)
+      .where(eq(workbookLessonConnections.id, existing.id));
   } else {
     await db.insert(workbookLessonConnections).values({
       courseType: input.courseType,
@@ -4350,7 +8561,12 @@ export async function saveWorkbookLessonConnection(adminId: number, input: Workb
 
 type SubjectiveEvaluation = {
   status: "evaluated" | "insufficient";
-  verdict: "excellent" | "adequate" | "needs_revision" | "off_topic" | "insufficient";
+  verdict:
+    | "excellent"
+    | "adequate"
+    | "needs_revision"
+    | "off_topic"
+    | "insufficient";
   score: number;
   isOnTopic: boolean;
   hasClearClaim: boolean;
@@ -4371,7 +8587,10 @@ type SubjectiveEvaluation = {
   missingRequirements: string[];
 };
 
-const SUBJECTIVE_CRITERIA: Array<{ key: SubjectiveEvaluation["criteria"][number]["key"]; label: string }> = [
+const SUBJECTIVE_CRITERIA: Array<{
+  key: SubjectiveEvaluation["criteria"][number]["key"];
+  label: string;
+}> = [
   { key: "topicRelevance", label: "주제 적합성" },
   { key: "claim", label: "주장·입장" },
   { key: "evidence", label: "근거의 타당성" },
@@ -4381,7 +8600,9 @@ const SUBJECTIVE_CRITERIA: Array<{ key: SubjectiveEvaluation["criteria"][number]
 
 function normalizeEvaluationQuote(answer: string, quote: unknown) {
   const candidate = typeof quote === "string" ? quote.trim() : "";
-  return candidate && answer.includes(candidate) ? candidate : "답안에서 확인되지 않음";
+  return candidate && answer.includes(candidate)
+    ? candidate
+    : "답안에서 확인되지 않음";
 }
 
 function extractFirstJsonObject(content: string) {
@@ -4408,10 +8629,13 @@ function extractFirstJsonObject(content: string) {
   throw new Error("AI 평가 응답의 JSON 객체가 닫히지 않았습니다.");
 }
 
-function createInsufficientSubjectiveEvaluation(userAnswer: string): SubjectiveEvaluation {
+function createInsufficientSubjectiveEvaluation(
+  userAnswer: string
+): SubjectiveEvaluation {
   const characterCount = userAnswer.replace(/\s/g, "").length;
   const hasKoreanSyllable = /[가-힣]/.test(userAnswer);
-  const isLikelyNonsense = !hasKoreanSyllable || /^[ㄱ-ㅎㅏ-ㅣ0-9\s.,!?~…·\-]+$/.test(userAnswer);
+  const isLikelyNonsense =
+    !hasKoreanSyllable || /^[ㄱ-ㅎㅏ-ㅣ0-9\s.,!?~…·\-]+$/.test(userAnswer);
   const reason = isLikelyNonsense
     ? "의미 있는 문장·주장·근거를 확인할 수 없는 입력입니다."
     : "답안 분량이 부족하여 주제 적합성과 논증 구조를 신뢰성 있게 평가할 수 없습니다.";
@@ -4434,24 +8658,48 @@ function createInsufficientSubjectiveEvaluation(userAnswer: string): SubjectiveE
       explanation: reason,
     })),
     summary: reason,
-    priorityImprovements: ["제시된 주제에 대한 자신의 입장을 한 문장으로 분명히 쓰세요.", "각 근거를 구체적 사례·원인·결과와 연결해 두 가지 이상 제시하세요.", "두 관점의 차이 또는 반론을 비교한 뒤 자신의 결론을 제시하세요."],
-    missingRequirements: ["의미 있는 문장으로 답안을 작성", "명확한 주장", "두 가지 이상의 근거", "비교 또는 분석"],
+    priorityImprovements: [
+      "제시된 주제에 대한 자신의 입장을 한 문장으로 분명히 쓰세요.",
+      "각 근거를 구체적 사례·원인·결과와 연결해 두 가지 이상 제시하세요.",
+      "두 관점의 차이 또는 반론을 비교한 뒤 자신의 결론을 제시하세요.",
+    ],
+    missingRequirements: [
+      "의미 있는 문장으로 답안을 작성",
+      "명확한 주장",
+      "두 가지 이상의 근거",
+      "비교 또는 분석",
+    ],
   };
 }
 
 export async function evaluateSubjectiveWorkbookAnswer(
-  question: Pick<typeof curriculumWorkbookQuestions.$inferSelect, "courseType" | "level" | "title" | "prompt" | "correctAnswer" | "explanation">,
-  userAnswer: string,
+  question: Pick<
+    typeof curriculumWorkbookQuestions.$inferSelect,
+    | "courseType"
+    | "level"
+    | "title"
+    | "prompt"
+    | "correctAnswer"
+    | "explanation"
+  >,
+  userAnswer: string
 ): Promise<SubjectiveEvaluation> {
   const normalizedAnswer = userAnswer.trim();
   const characterCount = normalizedAnswer.replace(/\s/g, "").length;
-  if (characterCount < 80 || /^[ㄱ-ㅎㅏ-ㅣ0-9\s.,!?~…·\-]+$/.test(normalizedAnswer)) {
+  if (
+    characterCount < 80 ||
+    /^[ㄱ-ㅎㅏ-ㅣ0-9\s.,!?~…·\-]+$/.test(normalizedAnswer)
+  ) {
     return createInsufficientSubjectiveEvaluation(normalizedAnswer);
   }
 
   const { data: models } = await listLLMModels();
-  const preferredModels = ["gpt-5", "claude-sonnet-4-6", "gemini-3.1-pro-preview"];
-  const model = preferredModels.find((id) => models.some((item) => item.id === id));
+  const preferredModels = [
+    "gpt-5",
+    "claude-sonnet-4-6",
+    "gemini-3.1-pro-preview",
+  ];
+  const model = preferredModels.find(id => models.some(item => item.id === id));
   const criteriaSchema = {
     type: "object",
     properties: {
@@ -4496,7 +8744,8 @@ export async function evaluateSubjectiveWorkbookAnswer(
     messages: [
       {
         role: "system",
-        content: "당신은 한국 논술 교육의 엄정한 평가자입니다. 답안의 길이만으로 점수를 주거나, 일반적인 칭찬·비판을 절대 하지 마세요. 제시된 주제와 답안에 실제로 드러난 내용을 기준으로만 평가합니다. 각 quote는 반드시 학습자 답안에 문자 그대로 포함된 2~40자 인용문이어야 하며, 확인할 수 없으면 빈 문자열을 반환하세요. reasonQuotes에는 서로 다른 근거를 보여주는 실제 답안 인용문만 넣고, validReasonCount는 그 인용문 수보다 크게 쓰지 마세요. 답안이 주제와 무관하거나 의미 없는 반복이면 isOnTopic=false 및 낮은 점수를 부여하세요.",
+        content:
+          "당신은 한국 논술 교육의 엄정한 평가자입니다. 답안의 길이만으로 점수를 주거나, 일반적인 칭찬·비판을 절대 하지 마세요. 제시된 주제와 답안에 실제로 드러난 내용을 기준으로만 평가합니다. 각 quote는 반드시 학습자 답안에 문자 그대로 포함된 2~40자 인용문이어야 하며, 확인할 수 없으면 빈 문자열을 반환하세요. reasonQuotes에는 서로 다른 근거를 보여주는 실제 답안 인용문만 넣고, validReasonCount는 그 인용문 수보다 크게 쓰지 마세요. 답안이 주제와 무관하거나 의미 없는 반복이면 isOnTopic=false 및 낮은 점수를 부여하세요.",
       },
       {
         role: "user",
@@ -4514,16 +8763,38 @@ export async function evaluateSubjectiveWorkbookAnswer(
             isOnTopic: { type: "boolean" },
             hasClearClaim: { type: "boolean" },
             validReasonCount: { type: "integer", minimum: 0, maximum: 10 },
-            reasonQuotes: { type: "array", minItems: 0, maxItems: 3, items: { type: "string" } },
+            reasonQuotes: {
+              type: "array",
+              minItems: 0,
+              maxItems: 3,
+              items: { type: "string" },
+            },
             hasComparativeAnalysis: { type: "boolean" },
             criteria: criteriaSchema,
             quotes: quotesSchema,
             explanations: explanationsSchema,
             summary: { type: "string" },
-            priorityImprovements: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+            priorityImprovements: {
+              type: "array",
+              minItems: 3,
+              maxItems: 3,
+              items: { type: "string" },
+            },
             missingRequirements: { type: "array", items: { type: "string" } },
           },
-          required: ["isOnTopic", "hasClearClaim", "validReasonCount", "reasonQuotes", "hasComparativeAnalysis", "criteria", "quotes", "explanations", "summary", "priorityImprovements", "missingRequirements"],
+          required: [
+            "isOnTopic",
+            "hasClearClaim",
+            "validReasonCount",
+            "reasonQuotes",
+            "hasComparativeAnalysis",
+            "criteria",
+            "quotes",
+            "explanations",
+            "summary",
+            "priorityImprovements",
+            "missingRequirements",
+          ],
           additionalProperties: false,
         },
       },
@@ -4531,7 +8802,8 @@ export async function evaluateSubjectiveWorkbookAnswer(
   });
 
   const rawContent = response.choices?.[0]?.message?.content;
-  if (typeof rawContent !== "string" || rawContent.trim().length === 0) throw new Error("AI 평가 응답이 비어 있습니다.");
+  if (typeof rawContent !== "string" || rawContent.trim().length === 0)
+    throw new Error("AI 평가 응답이 비어 있습니다.");
   const jsonContent = extractFirstJsonObject(rawContent);
   let parsed = JSON.parse(jsonContent) as {
     isOnTopic: boolean;
@@ -4541,7 +8813,10 @@ export async function evaluateSubjectiveWorkbookAnswer(
     hasComparativeAnalysis: boolean;
     criteria: Record<SubjectiveEvaluation["criteria"][number]["key"], number>;
     quotes: Record<SubjectiveEvaluation["criteria"][number]["key"], string>;
-    explanations: Record<SubjectiveEvaluation["criteria"][number]["key"], string>;
+    explanations: Record<
+      SubjectiveEvaluation["criteria"][number]["key"],
+      string
+    >;
     summary: string;
     priorityImprovements: string[];
     missingRequirements: string[];
@@ -4550,70 +8825,153 @@ export async function evaluateSubjectiveWorkbookAnswer(
   // 일부 모델은 JSON Schema를 지켜도 의미상 동등한 한글 키의 점수 객체를 반환한다.
   // 이 경우에도 실제 답안 인용·점수만 추출해 같은 검증 경로로 통과시킨다.
   if (!parsed.criteria && (parsed as any).scores) {
-    const scores = (parsed as any).scores as Record<string, { score?: number; quote?: string; comment?: string; reasonQuotes?: string[]; validReasonCount?: number }>;
-    const scoreKeyMap: Record<SubjectiveEvaluation["criteria"][number]["key"], string> = {
+    const scores = (parsed as any).scores as Record<
+      string,
+      {
+        score?: number;
+        quote?: string;
+        comment?: string;
+        reasonQuotes?: string[];
+        validReasonCount?: number;
+      }
+    >;
+    const scoreKeyMap: Record<
+      SubjectiveEvaluation["criteria"][number]["key"],
+      string
+    > = {
       topicRelevance: "주제적합성",
       claim: "주장·입장",
       evidence: "근거의타당성",
       analysis: "비교·분석",
       expression: "표현·구성",
     };
-    const asScore = (key: SubjectiveEvaluation["criteria"][number]["key"]) => scores[scoreKeyMap[key]] || {};
+    const asScore = (key: SubjectiveEvaluation["criteria"][number]["key"]) =>
+      scores[scoreKeyMap[key]] || {};
     const evidenceScore = asScore("evidence");
     parsed = {
       ...(parsed as any),
       isOnTopic: Boolean((parsed as any).isOnTopic),
       hasClearClaim: Number(asScore("claim").score || 0) > 0,
       validReasonCount: Number(evidenceScore.validReasonCount || 0),
-      reasonQuotes: Array.isArray(evidenceScore.reasonQuotes) ? evidenceScore.reasonQuotes : [],
+      reasonQuotes: Array.isArray(evidenceScore.reasonQuotes)
+        ? evidenceScore.reasonQuotes
+        : [],
       hasComparativeAnalysis: Number(asScore("analysis").score || 0) > 0,
-      criteria: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, Number(asScore(key).score || 0)])) as Record<SubjectiveEvaluation["criteria"][number]["key"], number>,
-      quotes: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, asScore(key).quote || ""])) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
-      explanations: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, asScore(key).comment || "평가 근거를 생성하지 못했습니다."])) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
-      summary: String((parsed as any).topicComment || "답안의 주제 적합성과 논증 구조를 평가했습니다."),
-      priorityImprovements: Array.isArray((parsed as any).priorityImprovements) ? (parsed as any).priorityImprovements : [],
+      criteria: Object.fromEntries(
+        SUBJECTIVE_CRITERIA.map(({ key }) => [
+          key,
+          Number(asScore(key).score || 0),
+        ])
+      ) as Record<SubjectiveEvaluation["criteria"][number]["key"], number>,
+      quotes: Object.fromEntries(
+        SUBJECTIVE_CRITERIA.map(({ key }) => [key, asScore(key).quote || ""])
+      ) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
+      explanations: Object.fromEntries(
+        SUBJECTIVE_CRITERIA.map(({ key }) => [
+          key,
+          asScore(key).comment || "평가 근거를 생성하지 못했습니다.",
+        ])
+      ) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
+      summary: String(
+        (parsed as any).topicComment ||
+          "답안의 주제 적합성과 논증 구조를 평가했습니다."
+      ),
+      priorityImprovements: Array.isArray((parsed as any).priorityImprovements)
+        ? (parsed as any).priorityImprovements
+        : [],
       missingRequirements: [],
     };
   }
 
   if (!parsed.criteria && Array.isArray((parsed as any).rubric)) {
-    const rubric = (parsed as any).rubric as Array<{ criterion?: string; score?: number; quote?: string; comment?: string; reasonQuotes?: string[]; validReasonCount?: number }>;
-    const rubricKeyMap: Record<SubjectiveEvaluation["criteria"][number]["key"], string> = {
+    const rubric = (parsed as any).rubric as Array<{
+      criterion?: string;
+      score?: number;
+      quote?: string;
+      comment?: string;
+      reasonQuotes?: string[];
+      validReasonCount?: number;
+    }>;
+    const rubricKeyMap: Record<
+      SubjectiveEvaluation["criteria"][number]["key"],
+      string
+    > = {
       topicRelevance: "주제 적합성",
       claim: "주장·입장",
       evidence: "근거의 타당성",
       analysis: "비교·분석",
       expression: "표현·구성",
     };
-    const findRubric = (key: SubjectiveEvaluation["criteria"][number]["key"]) => rubric.find((item) => item.criterion?.replace(/\s/g, "") === rubricKeyMap[key].replace(/\s/g, "")) || {};
+    const findRubric = (key: SubjectiveEvaluation["criteria"][number]["key"]) =>
+      rubric.find(
+        item =>
+          item.criterion?.replace(/\s/g, "") ===
+          rubricKeyMap[key].replace(/\s/g, "")
+      ) || {};
     const evidenceRubric = findRubric("evidence");
     parsed = {
       ...(parsed as any),
       isOnTopic: Boolean((parsed as any).isOnTopic),
       hasClearClaim: Number(findRubric("claim").score || 0) > 0,
       validReasonCount: Number(evidenceRubric.validReasonCount || 0),
-      reasonQuotes: Array.isArray(evidenceRubric.reasonQuotes) ? evidenceRubric.reasonQuotes : [],
+      reasonQuotes: Array.isArray(evidenceRubric.reasonQuotes)
+        ? evidenceRubric.reasonQuotes
+        : [],
       hasComparativeAnalysis: Number(findRubric("analysis").score || 0) > 0,
-      criteria: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, Number(findRubric(key).score || 0)])) as Record<SubjectiveEvaluation["criteria"][number]["key"], number>,
-      quotes: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, findRubric(key).quote || ""])) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
-      explanations: Object.fromEntries(SUBJECTIVE_CRITERIA.map(({ key }) => [key, findRubric(key).comment || "평가 근거를 생성하지 못했습니다."])) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
-      summary: String((parsed as any).overallComment || "답안의 주제 적합성과 논증 구조를 평가했습니다."),
-      priorityImprovements: Array.isArray((parsed as any).priorityImprovements) ? (parsed as any).priorityImprovements : [],
+      criteria: Object.fromEntries(
+        SUBJECTIVE_CRITERIA.map(({ key }) => [
+          key,
+          Number(findRubric(key).score || 0),
+        ])
+      ) as Record<SubjectiveEvaluation["criteria"][number]["key"], number>,
+      quotes: Object.fromEntries(
+        SUBJECTIVE_CRITERIA.map(({ key }) => [key, findRubric(key).quote || ""])
+      ) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
+      explanations: Object.fromEntries(
+        SUBJECTIVE_CRITERIA.map(({ key }) => [
+          key,
+          findRubric(key).comment || "평가 근거를 생성하지 못했습니다.",
+        ])
+      ) as Record<SubjectiveEvaluation["criteria"][number]["key"], string>,
+      summary: String(
+        (parsed as any).overallComment ||
+          "답안의 주제 적합성과 논증 구조를 평가했습니다."
+      ),
+      priorityImprovements: Array.isArray((parsed as any).priorityImprovements)
+        ? (parsed as any).priorityImprovements
+        : [],
       missingRequirements: [],
     };
   }
 
-  if (!parsed.criteria || !parsed.quotes || !parsed.explanations || !Array.isArray(parsed.reasonQuotes)) {
-    throw new Error("AI 평가 응답 형식이 유효하지 않습니다. 다시 제출해주세요.");
+  if (
+    !parsed.criteria ||
+    !parsed.quotes ||
+    !parsed.explanations ||
+    !Array.isArray(parsed.reasonQuotes)
+  ) {
+    throw new Error(
+      "AI 평가 응답 형식이 유효하지 않습니다. 다시 제출해주세요."
+    );
   }
 
   const reasonQuotes = Array.isArray(parsed.reasonQuotes)
-    ? parsed.reasonQuotes.map((quote) => normalizeEvaluationQuote(normalizedAnswer, quote)).filter((quote) => quote !== "답안에서 확인되지 않음")
+    ? parsed.reasonQuotes
+        .map(quote => normalizeEvaluationQuote(normalizedAnswer, quote))
+        .filter(quote => quote !== "답안에서 확인되지 않음")
     : [];
   const criteria = SUBJECTIVE_CRITERIA.map(({ key, label }) => {
-    const quote = normalizeEvaluationQuote(normalizedAnswer, key === "evidence" && !parsed.quotes[key] ? reasonQuotes[0] : parsed.quotes[key]);
+    const quote = normalizeEvaluationQuote(
+      normalizedAnswer,
+      key === "evidence" && !parsed.quotes[key]
+        ? reasonQuotes[0]
+        : parsed.quotes[key]
+    );
     const hasVerifiedQuote = quote !== "답안에서 확인되지 않음";
-    const rawScore = Math.min(20, Math.max(0, Number(parsed.criteria[key]) || 0));
+    const rawScore = Math.min(
+      20,
+      Math.max(0, Number(parsed.criteria[key]) || 0)
+    );
     return {
       key,
       label,
@@ -4621,18 +8979,34 @@ export async function evaluateSubjectiveWorkbookAnswer(
       maxScore: 20 as const,
       quote,
       explanation: hasVerifiedQuote
-        ? (typeof parsed.explanations[key] === "string" ? parsed.explanations[key] : "평가 근거를 생성하지 못했습니다.")
+        ? typeof parsed.explanations[key] === "string"
+          ? parsed.explanations[key]
+          : "평가 근거를 생성하지 못했습니다."
         : "답안에서 확인 가능한 인용 근거가 없어 이 기준의 점수를 반영하지 않았습니다.",
     };
   });
-  const score = criteria.reduce((total, criterion) => total + criterion.score, 0);
-  const hasVerifiedTopicEvidence = criteria.find((criterion) => criterion.key === "topicRelevance")?.quote !== "답안에서 확인되지 않음";
-  const hasVerifiedClaimEvidence = criteria.find((criterion) => criterion.key === "claim")?.quote !== "답안에서 확인되지 않음";
-  const hasVerifiedAnalysisEvidence = criteria.find((criterion) => criterion.key === "analysis")?.quote !== "답안에서 확인되지 않음";
+  const score = criteria.reduce(
+    (total, criterion) => total + criterion.score,
+    0
+  );
+  const hasVerifiedTopicEvidence =
+    criteria.find(criterion => criterion.key === "topicRelevance")?.quote !==
+    "답안에서 확인되지 않음";
+  const hasVerifiedClaimEvidence =
+    criteria.find(criterion => criterion.key === "claim")?.quote !==
+    "답안에서 확인되지 않음";
+  const hasVerifiedAnalysisEvidence =
+    criteria.find(criterion => criterion.key === "analysis")?.quote !==
+    "답안에서 확인되지 않음";
   const isOnTopic = Boolean(parsed.isOnTopic) && hasVerifiedTopicEvidence;
-  const hasClearClaim = Boolean(parsed.hasClearClaim) && hasVerifiedClaimEvidence;
-  const validReasonCount = Math.max(0, Math.min(10, Number(parsed.validReasonCount) || 0, reasonQuotes.length));
-  const hasComparativeAnalysis = Boolean(parsed.hasComparativeAnalysis) && hasVerifiedAnalysisEvidence;
+  const hasClearClaim =
+    Boolean(parsed.hasClearClaim) && hasVerifiedClaimEvidence;
+  const validReasonCount = Math.max(
+    0,
+    Math.min(10, Number(parsed.validReasonCount) || 0, reasonQuotes.length)
+  );
+  const hasComparativeAnalysis =
+    Boolean(parsed.hasComparativeAnalysis) && hasVerifiedAnalysisEvidence;
   const verdict: SubjectiveEvaluation["verdict"] = !isOnTopic
     ? "off_topic"
     : !hasClearClaim || validReasonCount < 2
@@ -4654,23 +9028,45 @@ export async function evaluateSubjectiveWorkbookAnswer(
     hasComparativeAnalysis,
     characterCount,
     criteria,
-    summary: typeof parsed.summary === "string" ? parsed.summary : "평가 요약을 생성하지 못했습니다.",
-    priorityImprovements: Array.isArray(parsed.priorityImprovements) ? parsed.priorityImprovements.slice(0, 3) : [],
-    missingRequirements: Array.isArray(parsed.missingRequirements) ? parsed.missingRequirements : [],
+    summary:
+      typeof parsed.summary === "string"
+        ? parsed.summary
+        : "평가 요약을 생성하지 못했습니다.",
+    priorityImprovements: Array.isArray(parsed.priorityImprovements)
+      ? parsed.priorityImprovements.slice(0, 3)
+      : [],
+    missingRequirements: Array.isArray(parsed.missingRequirements)
+      ? parsed.missingRequirements
+      : [],
   };
 }
 
 function formatSubjectiveEvaluationFeedback(evaluation: SubjectiveEvaluation) {
-  const criterionLines = evaluation.criteria.map((criterion) => `${criterion.label} ${criterion.score}/${criterion.maxScore}: ${criterion.explanation}`).join("\n");
-  const priorities = evaluation.priorityImprovements.map((item, index) => `${index + 1}. ${item}`).join("\n");
+  const criterionLines = evaluation.criteria
+    .map(
+      criterion =>
+        `${criterion.label} ${criterion.score}/${criterion.maxScore}: ${criterion.explanation}`
+    )
+    .join("\n");
+  const priorities = evaluation.priorityImprovements
+    .map((item, index) => `${index + 1}. ${item}`)
+    .join("\n");
   return `[AI 근거 기반 서술형 평가]\n판정: ${evaluation.verdict} · ${evaluation.score}/100점\n${criterionLines}\n\n총평: ${evaluation.summary}\n\n우선 개선:\n${priorities}`;
 }
 
-export async function submitCurriculumWorkbookAnswer(userId: number, questionId: number, userAnswer: string) {
+export async function submitCurriculumWorkbookAnswer(
+  userId: number,
+  questionId: number,
+  userAnswer: string,
+  expectedCourse?: CourseType
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
 
-  const [q] = await db.select().from(curriculumWorkbookQuestions).where(eq(curriculumWorkbookQuestions.id, questionId));
+  const [q] = await db
+    .select()
+    .from(curriculumWorkbookQuestions)
+    .where(eq(curriculumWorkbookQuestions.id, questionId));
   if (!q) throw new Error("문제를 찾을 수 없습니다.");
 
   let isCorrect = 0;
@@ -4681,11 +9077,20 @@ export async function submitCurriculumWorkbookAnswer(userId: number, questionId:
   if (q.questionType === "objective") {
     isCorrect = userAnswer.trim() === q.correctAnswer.trim() ? 1 : 0;
     score = isCorrect ? 100 : 0;
-    aiFeedback = isCorrect ? "정답입니다! 완벽하게 이해하셨습니다." : `오답입니다. 정답은 '${q.correctAnswer}'입니다. 해설: ${q.explanation}`;
+    aiFeedback = isCorrect
+      ? "정답입니다! 완벽하게 이해하셨습니다."
+      : `오답입니다. 정답은 '${q.correctAnswer}'입니다. 해설: ${q.explanation}`;
   } else {
     evaluation = await evaluateSubjectiveWorkbookAnswer(q, userAnswer);
     score = evaluation.score;
-    isCorrect = evaluation.status === "evaluated" && evaluation.isOnTopic && evaluation.hasClearClaim && evaluation.validReasonCount >= 2 && score >= 60 ? 1 : 0;
+    isCorrect =
+      evaluation.status === "evaluated" &&
+      evaluation.isOnTopic &&
+      evaluation.hasClearClaim &&
+      evaluation.validReasonCount >= 2 &&
+      score >= 60
+        ? 1
+        : 0;
     aiFeedback = formatSubjectiveEvaluationFeedback(evaluation);
   }
 
@@ -4709,7 +9114,14 @@ export async function submitCurriculumWorkbookAnswer(userId: number, questionId:
     });
   }
 
-  return { isCorrect, score, aiFeedback, evaluation };
+  // 문항 조회에서는 해설을 내려주지 않으므로 제출 결과에 함께 돌려준다.
+  return {
+    isCorrect,
+    score,
+    aiFeedback,
+    evaluation,
+    explanation: q.explanation,
+  };
 }
 
 export async function recordLearningToolMistake(input: {
@@ -4739,77 +9151,161 @@ export async function recordLearningToolMistake(input: {
 export async function getWorkbookMistakesByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  const [workbookRows, toolRows, questionRows] = await Promise.all([
-    db.select().from(workbookMistakes).where(eq(workbookMistakes.userId, userId)),
-    db.select().from(learningToolMistakes).where(eq(learningToolMistakes.userId, userId)),
-    db.select().from(questionBank),
+  const [workbookRows, toolRows] = await Promise.all([
+    db
+      .select({
+        mistake: workbookMistakes,
+        courseType: curriculumWorkbookQuestions.courseType,
+        questionTitle: curriculumWorkbookQuestions.title,
+      })
+      .from(workbookMistakes)
+      .leftJoin(
+        curriculumWorkbookQuestions,
+        eq(workbookMistakes.questionId, curriculumWorkbookQuestions.id)
+      )
+      .where(eq(workbookMistakes.userId, userId)),
+    db
+      .select({
+        mistake: learningToolMistakes,
+        questionTitle: questionBank.title,
+      })
+      .from(learningToolMistakes)
+      .leftJoin(
+        questionBank,
+        eq(learningToolMistakes.questionBankId, questionBank.id)
+      )
+      .where(eq(learningToolMistakes.userId, userId)),
   ]);
-  const questionById = new Map(questionRows.map((question) => [question.id, question]));
   return [
-    ...workbookRows.map((mistake) => ({ ...mistake, source: "workbook" as const, score: 0, toolType: "workbook", questionTitle: null })),
-    ...toolRows.map((mistake) => ({
+    ...workbookRows.map(({ mistake, courseType, questionTitle }) => ({
+      ...mistake,
+      courseType,
+      questionTitle,
+      source: "workbook" as const,
+      score: 0,
+      toolType: "workbook",
+    })),
+    ...toolRows.map(({ mistake, questionTitle }) => ({
       ...mistake,
       source: "learning_tool" as const,
       questionId: mistake.questionBankId,
-      questionTitle: questionById.get(mistake.questionBankId)?.title ?? "학습 도구 문항",
+      questionTitle: questionTitle ?? "학습 도구 문항",
     })),
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  ].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+}
+export async function getWorkbookAnswerById(answerId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db
+    .select()
+    .from(curriculumWorkbookAnswers)
+    .where(eq(curriculumWorkbookAnswers.id, answerId));
+  return row;
 }
 
-export async function addWorkbookTeacherFeedback(answerId: number, teacherId: number, comment: string, gradeScore: number) {
+export async function addWorkbookTeacherFeedback(
+  answerId: number,
+  teacherId: number,
+  comment: string,
+  gradeScore: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
 
-  await db.insert(workbookTeacherFeedback).values({
-    answerId,
-    teacherId,
-    comment,
-    gradeScore,
-  });
+  // 한 답안에는 첨삭 한 건만 둔다(다시 저장하면 새 건이 아니라 수정이다 — 정산·집계가 부풀지 않도록).
+  const [existing] = await db
+    .select()
+    .from(workbookTeacherFeedback)
+    .where(eq(workbookTeacherFeedback.answerId, answerId));
+  let feedbackId: number;
+  let created = false;
+  if (existing) {
+    feedbackId = existing.id;
+    await db
+      .update(workbookTeacherFeedback)
+      .set({ comment, gradeScore })
+      .where(eq(workbookTeacherFeedback.id, existing.id));
+  } else {
+    const [inserted] = await db
+      .insert(workbookTeacherFeedback)
+      .values({ answerId, teacherId, comment, gradeScore });
+    feedbackId = Number((inserted as { insertId?: number }).insertId);
+    created = true;
+  }
 
   // 해당 답안 점수 업데이트
-  await db.update(curriculumWorkbookAnswers)
+  await db
+    .update(curriculumWorkbookAnswers)
     .set({ score: gradeScore, aiFeedback: `[교사 직접 첨삭 완료] ${comment}` })
     .where(eq(curriculumWorkbookAnswers.id, answerId));
 
   // 학생에게 인앱 알림 전송
-  const [ans] = await db.select().from(curriculumWorkbookAnswers).where(eq(curriculumWorkbookAnswers.id, answerId));
+  const [ans] = await db
+    .select()
+    .from(curriculumWorkbookAnswers)
+    .where(eq(curriculumWorkbookAnswers.id, answerId));
   if (ans) {
     await db.insert(appNotifications).values({
       userId: ans.userId,
-      title: "선생님 서술형 첨삭 완료",
-      message: `제출하신 워크북 답안에 담당 교사 첨삭이 등록되었습니다. (점수: ${gradeScore}점)`,
+      title: created
+        ? "선생님 서술형 첨삭 완료"
+        : "선생님 서술형 첨삭이 수정되었습니다",
+      message: `제출하신 워크북 답안에 담당 교사 첨삭이 ${created ? "등록" : "수정"}되었습니다. (점수: ${gradeScore}점)`,
       category: "teacher_feedback",
     });
   }
 
-  return { success: true };
+  return { success: true, feedbackId, created, studentId: ans?.userId ?? null };
 }
 
 export async function getNotificationsByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(appNotifications).where(eq(appNotifications.userId, userId)).orderBy(desc(appNotifications.createdAt));
+  return await db
+    .select()
+    .from(appNotifications)
+    .where(eq(appNotifications.userId, userId))
+    .orderBy(desc(appNotifications.createdAt));
 }
 
-export async function markNotificationAsRead(notificationId: number, userId: number) {
+export async function markNotificationAsRead(
+  notificationId: number,
+  userId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  await db.update(appNotifications).set({ isRead: 1, readAt: new Date() }).where(and(eq(appNotifications.id, notificationId), eq(appNotifications.userId, userId)));
+  await db
+    .update(appNotifications)
+    .set({ isRead: 1, readAt: new Date() })
+    .where(
+      and(
+        eq(appNotifications.id, notificationId),
+        eq(appNotifications.userId, userId)
+      )
+    );
   return { success: true };
 }
 
 export async function markAllNotificationsAsRead(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  await db.update(appNotifications).set({ isRead: 1, readAt: new Date() }).where(eq(appNotifications.userId, userId));
+  await db
+    .update(appNotifications)
+    .set({ isRead: 1, readAt: new Date() })
+    .where(eq(appNotifications.userId, userId));
   return { success: true };
 }
 
 export async function getUserBadgesByUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(userBadges).where(eq(userBadges.userId, userId)).orderBy(desc(userBadges.earnedAt));
+  return await db
+    .select()
+    .from(userBadges)
+    .where(eq(userBadges.userId, userId))
+    .orderBy(desc(userBadges.earnedAt));
 }
 
 export async function awardReviewKingBadge(userId: number) {
@@ -4817,12 +9313,15 @@ export async function awardReviewKingBadge(userId: number) {
   if (!db) throw new Error("Database not connected");
 
   // 이미 뱃지가 있는지 확인
-  const existing = await db.select().from(userBadges).where(
-    and(
-      eq(userBadges.userId, userId),
-      eq(userBadges.badgeType, "review_king")
-    )
-  );
+  const existing = await db
+    .select()
+    .from(userBadges)
+    .where(
+      and(
+        eq(userBadges.userId, userId),
+        eq(userBadges.badgeType, "review_king")
+      )
+    );
 
   if (existing.length === 0) {
     await db.insert(userBadges).values({
@@ -4835,111 +9334,178 @@ export async function awardReviewKingBadge(userId: number) {
   return { success: true, badgeName: "🏆 복습 왕" };
 }
 
-export async function getWorkbookStatsByUser(userId: number) {
+export async function getWorkbookStatsByUser(
+  userId: number,
+  courseType?: CourseType
+) {
   const db = await getDb();
-  if (!db) return { totalSolved: 0, correctCount: 0, accuracyRate: 0, mistakesCount: 0, categoryBreakdown: [] };
+  if (!db)
+    return {
+      totalSolved: 0,
+      correctCount: 0,
+      accuracyRate: 0,
+      mistakesCount: 0,
+      categoryBreakdown: [],
+    };
 
-  const answers = await db.select().from(curriculumWorkbookAnswers).where(eq(curriculumWorkbookAnswers.userId, userId));
-  const mistakes = await db.select().from(workbookMistakes).where(eq(workbookMistakes.userId, userId));
+  const answers = await db
+    .select()
+    .from(curriculumWorkbookAnswers)
+    .where(eq(curriculumWorkbookAnswers.userId, userId));
+  const mistakes = await db
+    .select()
+    .from(workbookMistakes)
+    .where(eq(workbookMistakes.userId, userId));
 
   const totalSolved = answers.length;
   const correctCount = answers.filter(a => a.isCorrect === 1).length;
-  const accuracyRate = totalSolved > 0 ? Math.round((correctCount / totalSolved) * 100) : 0;
+  const accuracyRate =
+    totalSolved > 0 ? Math.round((correctCount / totalSolved) * 100) : 0;
 
   return {
     totalSolved,
     correctCount,
     accuracyRate,
     mistakesCount: mistakes.length,
-    categoryBreakdown: [
-      { category: "논리적 인과관계", accuracy: accuracyRate > 0 ? accuracyRate : 78 },
-      { category: "주제문 및 근거 제시", accuracy: accuracyRate > 0 ? Math.min(100, accuracyRate + 5) : 82 },
-      { category: "비판적 독해 및 대안", accuracy: accuracyRate > 0 ? Math.max(20, accuracyRate - 10) : 65 },
-      { category: "문장 구조 및 표현", accuracy: accuracyRate > 0 ? accuracyRate : 88 },
-    ]
+    // 유형별 통계는 기록하지 않으므로 같은 숫자를 유형 이름만 바꿔 보여 주지 않는다.
+    categoryBreakdown: [],
   };
 }
 
 export async function removeWorkbookMistake(mistakeId: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  await db.delete(workbookMistakes).where(and(eq(workbookMistakes.id, mistakeId), eq(workbookMistakes.userId, userId)));
+  await db
+    .delete(workbookMistakes)
+    .where(
+      and(
+        eq(workbookMistakes.id, mistakeId),
+        eq(workbookMistakes.userId, userId)
+      )
+    );
   return { success: true };
 }
 
-export async function removeLearningToolMistake(mistakeId: number, userId: number) {
+export async function removeLearningToolMistake(
+  mistakeId: number,
+  userId: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not connected");
-  await db.delete(learningToolMistakes).where(and(eq(learningToolMistakes.id, mistakeId), eq(learningToolMistakes.userId, userId)));
+  await db
+    .delete(learningToolMistakes)
+    .where(
+      and(
+        eq(learningToolMistakes.id, mistakeId),
+        eq(learningToolMistakes.userId, userId)
+      )
+    );
   return { success: true };
-}
-
-export async function getWeeklyStudySummary(userId: number) {
-  const stats = await getWorkbookStatsByUser(userId);
-  const totalMinutes = stats.totalSolved * 15 + 120;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const studyTimeString = `${hours}시간 ${minutes}분`;
-
-  return {
-    studyTimeString,
-    totalSolved: stats.totalSolved,
-    accuracyRate: stats.accuracyRate,
-    completedModules: Math.min(Math.floor(stats.totalSolved / 3), 10),
-    timeDiffMinutes: 45, // 지난주 대비 +45분 증가
-    accuracyDiffPercent: 6, // 지난주 대비 +6% 향상
-  };
 }
 
 // User Push Notification Preferences helpers (stored in memory or DB table if needed)
-const pushPreferencesStore: Record<number, { teacherFeedback: boolean; assignmentDeadline: boolean; notice: boolean }> = {};
+const pushPreferencesStore: Record<
+  number,
+  { teacherFeedback: boolean; assignmentDeadline: boolean; notice: boolean }
+> = {};
 
 export async function getUserPushPreferences(userId: number) {
-  return pushPreferencesStore[userId] || { teacherFeedback: true, assignmentDeadline: true, notice: true };
+  return (
+    pushPreferencesStore[userId] || {
+      teacherFeedback: true,
+      assignmentDeadline: true,
+      notice: true,
+    }
+  );
 }
 
-export async function updateUserPushPreferences(userId: number, prefs: { teacherFeedback: boolean; assignmentDeadline: boolean; notice: boolean }) {
+export async function updateUserPushPreferences(
+  userId: number,
+  prefs: {
+    teacherFeedback: boolean;
+    assignmentDeadline: boolean;
+    notice: boolean;
+  }
+) {
   pushPreferencesStore[userId] = prefs;
   return { success: true, prefs };
 }
 
-export async function getRecommendedQuestionsForUser(userId: number) {
+export async function getRecommendedQuestionsForUser(
+  userId: number,
+  courseType?: CourseType
+) {
   const db = await getDb();
   if (!db) return [];
-  await seedCurriculumWorkbookQuestions();
-  // 사용자의 오답 노트를 기반으로 취약 영역 문항 추천
-  const mistakes = await db.select().from(workbookMistakes).where(eq(workbookMistakes.userId, userId));
-  const mistakeQIds = mistakes.map(m => m.questionId);
-
-  const allQuestions = await db.select().from(curriculumWorkbookQuestions);
-  // 오답에 속했던 문제들이나 난이도가 높은 문제들을 추천
-  const recommended = allQuestions.filter(q => mistakeQIds.includes(q.id) || q.level === 2).slice(0, 5);
-  return recommended.length > 0 ? recommended : allQuestions.slice(0, 5);
+  // 조회에서 문항을 생성하지 않는다. 가입 과정에 문항이 없으면 빈 목록을 반환한다.
+  const [questions, mistakes] = await Promise.all([
+    db
+      .select()
+      .from(curriculumWorkbookQuestions)
+      .where(
+        courseType
+          ? eq(curriculumWorkbookQuestions.courseType, courseType)
+          : undefined
+      ),
+    db
+      .select({ questionId: workbookMistakes.questionId })
+      .from(workbookMistakes)
+      .innerJoin(
+        curriculumWorkbookQuestions,
+        eq(workbookMistakes.questionId, curriculumWorkbookQuestions.id)
+      )
+      .where(
+        and(
+          eq(workbookMistakes.userId, userId),
+          ...(courseType
+            ? [eq(curriculumWorkbookQuestions.courseType, courseType)]
+            : [])
+        )
+      ),
+  ]);
+  return selectWorkbookRecommendations(
+    questions,
+    mistakes.map(m => m.questionId),
+    courseType
+  );
 }
 
 export async function getQuestionBankAiInsight(questionId: number) {
   const db = await getDb();
-  if (!db) return { summary: "분석 데이터를 불러올 수 없습니다.", commonMistakes: [], recommendation: "기본 학습을 유지하세요." };
-  
-  const [question] = await db.select().from(questionBank).where(eq(questionBank.id, questionId));
-  const answers = await db.select().from(quizAnswer).where(eq(quizAnswer.quizId, questionId));
+  if (!db)
+    return {
+      summary: "분석 데이터를 불러올 수 없습니다.",
+      commonMistakes: [],
+      recommendation: "기본 학습을 유지하세요.",
+    };
+
+  const [question] = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.id, questionId));
+  const answers = await db
+    .select()
+    .from(quizAnswer)
+    .where(eq(quizAnswer.quizId, questionId));
 
   const wrongAnswers = answers.filter(a => a.isCorrect === 0);
-  
+
   // AI 인사이트 생성 (실제 데이터 또는 풍부한 지능형 요약)
   const total = answers.length;
   const wrongCount = wrongAnswers.length;
-  
+
   let summary = `해당 문항은 총 ${total}회 풀이 중 ${wrongCount}회의 오답이 기록되었습니다. `;
   let commonMistakes = [
     "논리적 전개 과정에서 전제와 결론의 인과관계 혼동",
     "지문 내 핵심 키워드 파악 미숙으로 인한 오답 선택",
-    "문장 구조의 주어와 서술어 호응 관계 오류"
+    "문장 구조의 주어와 서술어 호응 관계 오류",
   ];
-  let recommendation = "지문의 핵심 논지를 두괄식으로 재정리하고, 선지 분석 훈련을 강화하는 보충 학습을 추천합니다.";
+  let recommendation =
+    "지문의 핵심 논지를 두괄식으로 재정리하고, 선지 분석 훈련을 강화하는 보충 학습을 추천합니다.";
 
   if (wrongCount === 0 && total > 0) {
-    summary = "학습자들 모두가 높은 이해도를 보이며 정확하게 정답을 도출한 우수 문항입니다.";
+    summary =
+      "학습자들 모두가 높은 이해도를 보이며 정확하게 정답을 도출한 우수 문항입니다.";
     commonMistakes = ["특이 오답 패턴 없음"];
     recommendation = "현재 난이도와 구성을 그대로 유지하는 것을 권장합니다.";
   }
@@ -4954,7 +9520,13 @@ export async function getQuestionBankAiInsight(questionId: number) {
   };
 }
 
-export async function submitQuestionFeedback(data: { userId: number; questionId: number; isHelpful: number; reportType?: string; comment?: string }) {
+export async function submitQuestionFeedback(data: {
+  userId: number;
+  questionId: number;
+  isHelpful: number;
+  reportType?: string;
+  comment?: string;
+}) {
   const db = await getDb();
   if (!db) return null;
   const [res] = await db.insert(questionFeedbacks).values({
@@ -4970,7 +9542,10 @@ export async function submitQuestionFeedback(data: { userId: number; questionId:
 export async function getQuestionFeedbacksSummary(questionId: number) {
   const db = await getDb();
   if (!db) return { helpfulCount: 0, unhelpfulCount: 0, reports: [] };
-  const rows = await db.select().from(questionFeedbacks).where(eq(questionFeedbacks.questionId, questionId));
+  const rows = await db
+    .select()
+    .from(questionFeedbacks)
+    .where(eq(questionFeedbacks.questionId, questionId));
   const helpfulCount = rows.filter(r => r.isHelpful === 1).length;
   const unhelpfulCount = rows.filter(r => r.isHelpful === 0).length;
   return {
@@ -4980,12 +9555,30 @@ export async function getQuestionFeedbacksSummary(questionId: number) {
   };
 }
 
-export async function toggleQuestionBookmark(userId: number, questionId: number) {
+export async function toggleQuestionBookmark(
+  userId: number,
+  questionId: number
+) {
   const db = await getDb();
   if (!db) return false;
-  const existing = await db.select().from(questionBookmarks).where(and(eq(questionBookmarks.userId, userId), eq(questionBookmarks.questionId, questionId)));
+  const existing = await db
+    .select()
+    .from(questionBookmarks)
+    .where(
+      and(
+        eq(questionBookmarks.userId, userId),
+        eq(questionBookmarks.questionId, questionId)
+      )
+    );
   if (existing.length > 0) {
-    await db.delete(questionBookmarks).where(and(eq(questionBookmarks.userId, userId), eq(questionBookmarks.questionId, questionId)));
+    await db
+      .delete(questionBookmarks)
+      .where(
+        and(
+          eq(questionBookmarks.userId, userId),
+          eq(questionBookmarks.questionId, questionId)
+        )
+      );
     return false; // removed
   } else {
     await db.insert(questionBookmarks).values({ userId, questionId });
@@ -4993,10 +9586,27 @@ export async function toggleQuestionBookmark(userId: number, questionId: number)
   }
 }
 
-export async function getUserBookmarks(userId: number) {
+export async function getUserBookmarks(userId: number, courseType?: string) {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(questionBookmarks).where(eq(questionBookmarks.userId, userId));
+  const rows = await db
+    .select({ questionId: questionBookmarks.questionId })
+    .from(questionBookmarks)
+    .innerJoin(questionBank, eq(questionBookmarks.questionId, questionBank.id))
+    .where(
+      and(
+        eq(questionBookmarks.userId, userId),
+        ...(courseType
+          ? [
+              eq(
+                questionBank.courseType,
+                courseType as typeof questionBank.$inferSelect.courseType
+              ),
+              eq(questionBank.isActive, 1),
+            ]
+          : [])
+      )
+    );
   return rows.map(r => r.questionId);
 }
 
@@ -5008,39 +9618,93 @@ export async function getAllQuestionFeedbacks() {
 
 export async function generateAiQuestionsForCategory(
   courseType: "elementary" | "middle_high" | "high_univ" | "general_adult",
-  toolType: "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist",
-  count: number = 3,
+  toolType:
+    | "quiz"
+    | "reordering"
+    | "summary"
+    | "topic_wizard"
+    | "thesis_checklist",
+  count: number = 3
 ) {
   const validateContentData = (contentData: unknown, index: number) => {
     const content = contentData as Record<string, unknown>;
-    if (!content || typeof content !== "object" || typeof content.prompt !== "string" || content.prompt.trim().length < 10) {
-      throw new Error(`${index + 1}번 AI 문항의 본문(prompt)이 유효하지 않습니다.`);
+    if (
+      !content ||
+      typeof content !== "object" ||
+      typeof content.prompt !== "string" ||
+      content.prompt.trim().length < 10
+    ) {
+      throw new Error(
+        `${index + 1}번 AI 문항의 본문(prompt)이 유효하지 않습니다.`
+      );
     }
     if (toolType === "quiz") {
-      if (!Array.isArray(content.options) || content.options.length !== 4 || typeof content.answer !== "string" || !content.options.includes(content.answer) || typeof content.explanation !== "string") {
-        throw new Error(`${index + 1}번 퀴즈 문항에는 4개의 보기, 정답, 해설이 모두 필요합니다.`);
+      if (
+        !Array.isArray(content.options) ||
+        content.options.length !== 4 ||
+        typeof content.answer !== "string" ||
+        !content.options.includes(content.answer) ||
+        typeof content.explanation !== "string"
+      ) {
+        throw new Error(
+          `${index + 1}번 퀴즈 문항에는 4개의 보기, 정답, 해설이 모두 필요합니다.`
+        );
       }
     }
     if (toolType === "reordering") {
-      const order = Array.isArray(content.correctOrder) ? content.correctOrder : [];
-      if (!Array.isArray(content.paragraphs) || content.paragraphs.length !== 4 || order.length !== 4 || [...order].sort().join(",") !== "0,1,2,3" || typeof content.explanation !== "string") {
-        throw new Error(`${index + 1}번 단락 재구성 문항에는 4개 단락, 올바른 순서, 해설이 필요합니다.`);
+      const order = Array.isArray(content.correctOrder)
+        ? content.correctOrder
+        : [];
+      if (
+        !Array.isArray(content.paragraphs) ||
+        content.paragraphs.length !== 4 ||
+        order.length !== 4 ||
+        [...order].sort().join(",") !== "0,1,2,3" ||
+        typeof content.explanation !== "string"
+      ) {
+        throw new Error(
+          `${index + 1}번 단락 재구성 문항에는 4개 단락, 올바른 순서, 해설이 필요합니다.`
+        );
       }
     }
     if (toolType === "summary") {
-      if (!Array.isArray(content.keyPoints) || content.keyPoints.length < 3 || typeof content.modelAnswer !== "string" || typeof content.explanation !== "string") {
-        throw new Error(`${index + 1}번 요약 연습 문항에는 핵심 포인트 3개, 모범 답안, 해설이 필요합니다.`);
+      if (
+        !Array.isArray(content.keyPoints) ||
+        content.keyPoints.length < 3 ||
+        typeof content.modelAnswer !== "string" ||
+        typeof content.explanation !== "string"
+      ) {
+        throw new Error(
+          `${index + 1}번 요약 연습 문항에는 핵심 포인트 3개, 모범 답안, 해설이 필요합니다.`
+        );
       }
     }
     if (toolType === "topic_wizard") {
-      const sampleOutput = content.sampleOutput as Record<string, unknown> | undefined;
-      if (!Array.isArray(content.guidelines) || content.guidelines.length < 3 || !sampleOutput || typeof sampleOutput.title !== "string" || typeof sampleOutput.stance !== "string" || typeof sampleOutput.mainArgument !== "string") {
-        throw new Error(`${index + 1}번 주제 위저드 문항에는 가이드 3개와 예시 출력이 필요합니다.`);
+      const sampleOutput = content.sampleOutput as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        !Array.isArray(content.guidelines) ||
+        content.guidelines.length < 3 ||
+        !sampleOutput ||
+        typeof sampleOutput.title !== "string" ||
+        typeof sampleOutput.stance !== "string" ||
+        typeof sampleOutput.mainArgument !== "string"
+      ) {
+        throw new Error(
+          `${index + 1}번 주제 위저드 문항에는 가이드 3개와 예시 출력이 필요합니다.`
+        );
       }
     }
     if (toolType === "thesis_checklist") {
-      if (!Array.isArray(content.checklistItems) || content.checklistItems.length < 3 || typeof content.passingStandard !== "string") {
-        throw new Error(`${index + 1}번 주제문 체크리스트에는 점검 항목 3개와 통과 기준이 필요합니다.`);
+      if (
+        !Array.isArray(content.checklistItems) ||
+        content.checklistItems.length < 3 ||
+        typeof content.passingStandard !== "string"
+      ) {
+        throw new Error(
+          `${index + 1}번 주제문 체크리스트에는 점검 항목 3개와 통과 기준이 필요합니다.`
+        );
       }
     }
     return content;
@@ -5054,10 +9718,14 @@ export async function generateAiQuestionsForCategory(
   };
   const toolRequirement: Record<typeof toolType, string> = {
     quiz: "contentData에 prompt, 4개의 options, options 중 하나와 정확히 일치하는 answer, explanation을 포함하세요.",
-    reordering: "contentData에 prompt, 논리 순서가 섞인 4개의 paragraphs, 0부터 3까지 중복 없이 사용하는 correctOrder, explanation을 포함하세요.",
-    summary: "contentData에 원문이 포함된 prompt, 3개의 keyPoints, modelAnswer, explanation을 포함하세요.",
-    topic_wizard: "contentData에 prompt, 3개의 guidelines, title·stance·mainArgument를 갖는 sampleOutput을 포함하세요.",
-    thesis_checklist: "contentData에 prompt, 3개의 checklistItems, passingStandard를 포함하세요.",
+    reordering:
+      "contentData에 prompt, 논리 순서가 섞인 4개의 paragraphs, 0부터 3까지 중복 없이 사용하는 correctOrder, explanation을 포함하세요.",
+    summary:
+      "contentData에 원문이 포함된 prompt, 3개의 keyPoints, modelAnswer, explanation을 포함하세요.",
+    topic_wizard:
+      "contentData에 prompt, 3개의 guidelines, title·stance·mainArgument를 갖는 sampleOutput을 포함하세요.",
+    thesis_checklist:
+      "contentData에 prompt, 3개의 checklistItems, passingStandard를 포함하세요.",
   };
 
   const contentDataSchema = (() => {
@@ -5066,7 +9734,12 @@ export async function generateAiQuestionsForCategory(
         type: "object",
         properties: {
           prompt: { type: "string" },
-          options: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
+          options: {
+            type: "array",
+            minItems: 4,
+            maxItems: 4,
+            items: { type: "string" },
+          },
           answer: { type: "string" },
           explanation: { type: "string" },
         },
@@ -5079,8 +9752,18 @@ export async function generateAiQuestionsForCategory(
         type: "object",
         properties: {
           prompt: { type: "string" },
-          paragraphs: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
-          correctOrder: { type: "array", minItems: 4, maxItems: 4, items: { type: "integer", minimum: 0, maximum: 3 } },
+          paragraphs: {
+            type: "array",
+            minItems: 4,
+            maxItems: 4,
+            items: { type: "string" },
+          },
+          correctOrder: {
+            type: "array",
+            minItems: 4,
+            maxItems: 4,
+            items: { type: "integer", minimum: 0, maximum: 3 },
+          },
           explanation: { type: "string" },
         },
         required: ["prompt", "paragraphs", "correctOrder", "explanation"],
@@ -5092,7 +9775,12 @@ export async function generateAiQuestionsForCategory(
         type: "object",
         properties: {
           prompt: { type: "string" },
-          keyPoints: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+          keyPoints: {
+            type: "array",
+            minItems: 3,
+            maxItems: 3,
+            items: { type: "string" },
+          },
           modelAnswer: { type: "string" },
           explanation: { type: "string" },
         },
@@ -5105,10 +9793,19 @@ export async function generateAiQuestionsForCategory(
         type: "object",
         properties: {
           prompt: { type: "string" },
-          guidelines: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+          guidelines: {
+            type: "array",
+            minItems: 3,
+            maxItems: 3,
+            items: { type: "string" },
+          },
           sampleOutput: {
             type: "object",
-            properties: { title: { type: "string" }, stance: { type: "string" }, mainArgument: { type: "string" } },
+            properties: {
+              title: { type: "string" },
+              stance: { type: "string" },
+              mainArgument: { type: "string" },
+            },
             required: ["title", "stance", "mainArgument"],
             additionalProperties: false,
           },
@@ -5121,7 +9818,12 @@ export async function generateAiQuestionsForCategory(
       type: "object",
       properties: {
         prompt: { type: "string" },
-        checklistItems: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+        checklistItems: {
+          type: "array",
+          minItems: 3,
+          maxItems: 3,
+          items: { type: "string" },
+        },
         passingStandard: { type: "string" },
       },
       required: ["prompt", "checklistItems", "passingStandard"],
@@ -5134,7 +9836,8 @@ export async function generateAiQuestionsForCategory(
       messages: [
         {
           role: "system",
-          content: "당신은 한국어 논술 교육 콘텐츠 출제 위원입니다. 학습자의 연령과 과정 목적에 맞는 사실적이고 중립적인 실전 문항을 출제합니다. 반드시 요청한 JSON 스키마만 충족하고, 설명 문장이나 마크다운은 절대 덧붙이지 마세요.",
+          content:
+            "당신은 한국어 논술 교육 콘텐츠 출제 위원입니다. 학습자의 연령과 과정 목적에 맞는 사실적이고 중립적인 실전 문항을 출제합니다. 반드시 요청한 JSON 스키마만 충족하고, 설명 문장이나 마크다운은 절대 덧붙이지 마세요.",
         },
         {
           role: "user",
@@ -5157,7 +9860,10 @@ export async function generateAiQuestionsForCategory(
                   type: "object",
                   properties: {
                     title: { type: "string" },
-                    difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+                    difficulty: {
+                      type: "string",
+                      enum: ["easy", "medium", "hard"],
+                    },
                     contentData: contentDataSchema,
                   },
                   required: ["title", "difficulty", "contentData"],
@@ -5179,18 +9885,32 @@ export async function generateAiQuestionsForCategory(
 
     const parsed = JSON.parse(content) as { items?: unknown };
     if (!Array.isArray(parsed.items) || parsed.items.length !== count) {
-      throw new Error(`AI가 요청한 ${count}개 문항 대신 유효하지 않은 응답을 반환했습니다.`);
+      throw new Error(
+        `AI가 요청한 ${count}개 문항 대신 유효하지 않은 응답을 반환했습니다.`
+      );
     }
 
     return parsed.items.map((item, index) => {
-      const candidate = item as { title?: unknown; difficulty?: unknown; contentData?: unknown };
-      if (typeof candidate.title !== "string" || candidate.title.trim().length < 2) {
+      const candidate = item as {
+        title?: unknown;
+        difficulty?: unknown;
+        contentData?: unknown;
+      };
+      if (
+        typeof candidate.title !== "string" ||
+        candidate.title.trim().length < 2
+      ) {
         throw new Error(`${index + 1}번 AI 문항의 제목이 유효하지 않습니다.`);
       }
       if (!["easy", "medium", "hard"].includes(String(candidate.difficulty))) {
-        throw new Error(`${index + 1}번 AI 문항의 난이도 값이 유효하지 않습니다.`);
+        throw new Error(
+          `${index + 1}번 AI 문항의 난이도 값이 유효하지 않습니다.`
+        );
       }
-      const contentData = typeof candidate.contentData === "string" ? JSON.parse(candidate.contentData) : candidate.contentData;
+      const contentData =
+        typeof candidate.contentData === "string"
+          ? JSON.parse(candidate.contentData)
+          : candidate.contentData;
       const validatedContentData = validateContentData(contentData, index);
       return {
         courseType,
@@ -5202,77 +9922,159 @@ export async function generateAiQuestionsForCategory(
       };
     });
   } catch (error) {
-    console.error("[QuestionBank] AI question preview generation failed", { courseType, toolType, count, error });
-    throw new Error(error instanceof Error ? `AI 문항 생성에 실패했습니다: ${error.message}` : "AI 문항 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
+    console.error("[QuestionBank] AI question preview generation failed", {
+      courseType,
+      toolType,
+      count,
+      error,
+    });
+    throw new Error(
+      error instanceof Error
+        ? `AI 문항 생성에 실패했습니다: ${error.message}`
+        : "AI 문항 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
+    );
   }
 }
 
-export async function getSimilarQuestions(questionId: number) {
+export async function getSimilarQuestions(
+  questionId: number,
+  courseType?: string
+) {
   const db = await getDb();
   if (!db) return [];
-  const [target] = await db.select().from(questionBank).where(eq(questionBank.id, questionId));
+  const [target] = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.id, questionId));
   if (!target) return [];
 
-  // 같은 과정 또는 같은 도구 유형의 다른 문항들 추출 (최대 4개)
-  const all = await db.select().from(questionBank);
-  return all.filter(q => q.id !== questionId && (q.courseType === target.courseType || q.toolType === target.toolType)).slice(0, 4);
+  // 학생은 같은 과정의 공개 문항 안에서만 추천한다. 교사·관리자는 기존 탐색을 유지한다.
+  const all = await db
+    .select()
+    .from(questionBank)
+    .where(
+      courseType
+        ? and(
+            eq(
+              questionBank.courseType,
+              courseType as typeof questionBank.$inferSelect.courseType
+            ),
+            eq(questionBank.isActive, 1)
+          )
+        : undefined
+    );
+  return all
+    .filter(
+      q =>
+        q.id !== questionId &&
+        (q.courseType === target.courseType || q.toolType === target.toolType)
+    )
+    .slice(0, 4);
 }
 
 // AI 생성 미리보기 임시 저장소 (메모리 캐시 또는 테이블 대체용)
 export async function previewAiQuestionsForCategory(
   courseType: "elementary" | "middle_high" | "high_univ" | "general_adult",
-  toolType: "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist",
-  count: number = 3,
+  toolType:
+    | "quiz"
+    | "reordering"
+    | "summary"
+    | "topic_wizard"
+    | "thesis_checklist",
+  count: number = 3
 ) {
   return await generateAiQuestionsForCategory(courseType, toolType, count);
 }
 
-export async function getQuestionGenerationAdaptiveStats(): Promise<AdaptiveStats[]> {
+export async function getQuestionGenerationAdaptiveStats(): Promise<
+  AdaptiveStats[]
+> {
   const db = await getDb();
   if (!db) return [];
-  const [questions, answers] = await Promise.all([db.select().from(questionBank), db.select().from(quizAnswer)]);
+  const [questions, answers] = await Promise.all([
+    db.select().from(questionBank),
+    db.select().from(quizAnswer),
+  ]);
   const grouped = new Map<string, { attempts: number; correct: number }>();
   for (const question of questions) {
-    const attempts = answers.filter((answer) => answer.quizId === question.id);
+    const attempts = answers.filter(answer => answer.quizId === question.id);
     if (!attempts.length) continue;
     const key = question.courseType;
     const current = grouped.get(key) ?? { attempts: 0, correct: 0 };
     current.attempts += attempts.length;
-    current.correct += attempts.filter((answer) => answer.isCorrect === 1).length;
+    current.correct += attempts.filter(answer => answer.isCorrect === 1).length;
     grouped.set(key, current);
   }
-  return Array.from(grouped.entries()).map(([courseType, value]) => ({ courseType, correctRate: Math.round((value.correct / value.attempts) * 100), totalAttempts: value.attempts }));
+  return Array.from(grouped.entries()).map(([courseType, value]) => ({
+    courseType,
+    correctRate: Math.round((value.correct / value.attempts) * 100),
+    totalAttempts: value.attempts,
+  }));
 }
 
-export async function previewGeneratedQuestionBankItems(input: GenerationRequestInput) {
-  const [existingItems, adaptiveStats] = await Promise.all([getQuestionBankList(), getQuestionGenerationAdaptiveStats()]);
+export async function previewGeneratedQuestionBankItems(
+  input: GenerationRequestInput
+) {
+  const [existingItems, adaptiveStats] = await Promise.all([
+    getQuestionBankList(),
+    getQuestionGenerationAdaptiveStats(),
+  ]);
   return generateQuestionBankItems(input, { existingItems, adaptiveStats });
 }
 
 export async function assertQuestionBankItemQuality(
-  data: { id?: number; courseType: string; toolType: string; title: string; contentData: string; difficulty?: string; isActive?: number },
-  additionalExistingItems: Array<{ title: string; contentData: string }> = [],
+  data: {
+    id?: number;
+    courseType: string;
+    toolType: string;
+    title: string;
+    contentData: string;
+    difficulty?: string;
+    isActive?: number;
+  },
+  additionalExistingItems: Array<{ title: string; contentData: string }> = []
 ) {
-  const existingItems = (await getQuestionBankList()).filter((item) => item.id !== data.id);
-  const qa = qaQuestionItem({
-    courseType: data.courseType as "elementary" | "middle_high" | "high_univ" | "general_adult",
-    toolType: data.toolType as "quiz" | "reordering" | "summary" | "topic_wizard" | "thesis_checklist",
-    title: data.title,
-    contentData: data.contentData,
-    difficulty: (data.difficulty ?? "medium") as "easy" | "medium" | "hard",
-    isActive: data.isActive ?? 1,
-  }, [
-    ...existingItems.map((item) => ({ title: item.title, contentData: item.contentData })),
-    ...additionalExistingItems,
-  ]);
-  if (!qa.passed) throw new Error(`문항 QA 검증에 실패했습니다: ${qa.issues.join(", ")}`);
+  const existingItems = (await getQuestionBankList()).filter(
+    item => item.id !== data.id
+  );
+  const qa = qaQuestionItem(
+    {
+      courseType: data.courseType as
+        | "elementary"
+        | "middle_high"
+        | "high_univ"
+        | "general_adult",
+      toolType: data.toolType as
+        | "quiz"
+        | "reordering"
+        | "summary"
+        | "topic_wizard"
+        | "thesis_checklist",
+      title: data.title,
+      contentData: data.contentData,
+      difficulty: (data.difficulty ?? "medium") as "easy" | "medium" | "hard",
+      isActive: data.isActive ?? 1,
+    },
+    [
+      ...existingItems.map(item => ({
+        title: item.title,
+        contentData: item.contentData,
+      })),
+      ...additionalExistingItems,
+    ]
+  );
+  if (!qa.passed)
+    throw new Error(`문항 QA 검증에 실패했습니다: ${qa.issues.join(", ")}`);
   return qa;
 }
 
 export async function gradeEssayWithAi(questionId: number, userAnswer: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [q] = await db.select().from(questionBank).where(eq(questionBank.id, questionId));
+  const [q] = await db
+    .select()
+    .from(questionBank)
+    .where(eq(questionBank.id, questionId));
   const prompt = `당신은 대한민국 최고 수준의 논술 및 작문 전문 첨삭 평가위원입니다.
 아래의 논술/퀴즈 문제와 학생의 제출 답안을 분석하여 논리성과 표현력을 실시간으로 평가하고, 구체적인 피드백을 제공해주세요.
 
@@ -5295,20 +10097,25 @@ ${userAnswer}
 
   try {
     const res = await invokeLLM({
-      messages: [{ role: "user", content: prompt }]
+      messages: [{ role: "user", content: prompt }],
     });
     const rawContent = res.choices?.[0]?.message?.content || "";
-    const contentStr = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
-    const clean = contentStr.replace(/```json/g, "").replace(/```/g, "").trim();
+    const contentStr =
+      typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
+    const clean = contentStr
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
     return JSON.parse(clean);
   } catch (err) {
     return {
       logicScore: 85,
       expressionScore: 88,
       overallScore: 86,
-      feedback: "제출된 답안을 충실하게 작성하셨습니다. 논리적 근거를 한 가지만 더 보강하면 더욱 훌륭한 글이 됩니다.",
+      feedback:
+        "제출된 답안을 충실하게 작성하셨습니다. 논리적 근거를 한 가지만 더 보강하면 더욱 훌륭한 글이 됩니다.",
       strengths: ["성실한 답변 작성"],
-      improvements: ["구체적 사례 추가"]
+      improvements: ["구체적 사례 추가"],
     };
   }
 }
@@ -5317,19 +10124,70 @@ export async function getCurriculumDifficultyStats() {
   const db = await getDb();
   if (!db) return [];
   const allQuestions = await db.select().from(questionBank);
-  const questions = allQuestions.filter((question) => question.isActive === 1);
+  const questions = allQuestions.filter(question => question.isActive === 1);
   const answers = await db.select().from(quizAnswer);
 
-  const groups: Record<string, { courseType: string; total: number; easy: number; medium: number; hard: number; correctSum: number; attemptsSum: number }> = {
-    elementary: { courseType: "elementary", total: 0, easy: 0, medium: 0, hard: 0, correctSum: 0, attemptsSum: 0 },
-    middle_high: { courseType: "middle_high", total: 0, easy: 0, medium: 0, hard: 0, correctSum: 0, attemptsSum: 0 },
-    high_univ: { courseType: "high_univ", total: 0, easy: 0, medium: 0, hard: 0, correctSum: 0, attemptsSum: 0 },
-    general_adult: { courseType: "general_adult", total: 0, easy: 0, medium: 0, hard: 0, correctSum: 0, attemptsSum: 0 },
+  const groups: Record<
+    string,
+    {
+      courseType: string;
+      total: number;
+      easy: number;
+      medium: number;
+      hard: number;
+      correctSum: number;
+      attemptsSum: number;
+    }
+  > = {
+    elementary: {
+      courseType: "elementary",
+      total: 0,
+      easy: 0,
+      medium: 0,
+      hard: 0,
+      correctSum: 0,
+      attemptsSum: 0,
+    },
+    middle_high: {
+      courseType: "middle_high",
+      total: 0,
+      easy: 0,
+      medium: 0,
+      hard: 0,
+      correctSum: 0,
+      attemptsSum: 0,
+    },
+    high_univ: {
+      courseType: "high_univ",
+      total: 0,
+      easy: 0,
+      medium: 0,
+      hard: 0,
+      correctSum: 0,
+      attemptsSum: 0,
+    },
+    general_adult: {
+      courseType: "general_adult",
+      total: 0,
+      easy: 0,
+      medium: 0,
+      hard: 0,
+      correctSum: 0,
+      attemptsSum: 0,
+    },
   };
 
   for (const q of questions) {
     if (!groups[q.courseType]) {
-      groups[q.courseType] = { courseType: q.courseType, total: 0, easy: 0, medium: 0, hard: 0, correctSum: 0, attemptsSum: 0 };
+      groups[q.courseType] = {
+        courseType: q.courseType,
+        total: 0,
+        easy: 0,
+        medium: 0,
+        hard: 0,
+        correctSum: 0,
+        attemptsSum: 0,
+      };
     }
     groups[q.courseType].total += 1;
     if (q.difficulty === "easy") groups[q.courseType].easy += 1;
@@ -5339,13 +10197,16 @@ export async function getCurriculumDifficultyStats() {
     const qAns = answers.filter(a => a.quizId === q.id);
     if (qAns.length > 0) {
       groups[q.courseType].attemptsSum += qAns.length;
-      groups[q.courseType].correctSum += qAns.filter(a => a.isCorrect === 1).length;
+      groups[q.courseType].correctSum += qAns.filter(
+        a => a.isCorrect === 1
+      ).length;
     }
   }
 
   return Object.values(groups).map(g => ({
     ...g,
-    avgCorrectRate: g.attemptsSum > 0 ? Math.round((g.correctSum / g.attemptsSum) * 100) : 0,
+    avgCorrectRate:
+      g.attemptsSum > 0 ? Math.round((g.correctSum / g.attemptsSum) * 100) : 0,
     hasAttemptData: g.attemptsSum > 0,
   }));
 }
@@ -5358,32 +10219,71 @@ function fallbackDifficultyLearningGuide(input: {
   personalAverage: number;
   attemptCount: number;
 }) {
-  const recommendedDifficulty: "easy" | "medium" | "hard" = input.attemptCount === 0
-    ? (input.preset.mode === "advanced" ? "medium" : "easy")
-    : input.personalAverage < 60 ? "easy" : input.personalAverage < 80 ? "medium" : input.preset.mode === "advanced" ? "hard" : "medium";
+  const recommendedDifficulty: "easy" | "medium" | "hard" =
+    input.attemptCount === 0
+      ? input.preset.mode === "advanced"
+        ? "medium"
+        : "easy"
+      : input.personalAverage < 60
+        ? "easy"
+        : input.personalAverage < 80
+          ? "medium"
+          : input.preset.mode === "advanced"
+            ? "hard"
+            : "medium";
   const courseLabel = getCourseTag(input.courseType);
-  const basis = input.attemptCount === 0
-    ? "아직 개인 수행 기록이 충분하지 않아 과정 전체 통계와 현재 운영 프리셋을 기준으로 안내합니다."
-    : `최근 서버 검증 수행 ${input.attemptCount}회 평균 ${input.personalAverage}점을 반영했습니다.`;
+  const basis =
+    input.attemptCount === 0
+      ? "아직 개인 수행 기록이 충분하지 않아 과정 전체 통계와 현재 운영 프리셋을 기준으로 안내합니다."
+      : `최근 서버 검증 수행 ${input.attemptCount}회 평균 ${input.personalAverage}점을 반영했습니다.`;
   return {
     headline: `${courseLabel} ${recommendedDifficulty === "easy" ? "기초 다지기" : recommendedDifficulty === "medium" ? "핵심 논증 훈련" : "심화 논증 도전"}`,
     summary: `${basis} ${input.hasCourseAttempts ? `과정 평균 정답률은 ${input.courseAverage}%입니다.` : "과정 전체 정답률은 누적 중입니다."}`,
     recommendedDifficulty,
-    focus: recommendedDifficulty === "easy" ? "주장과 근거를 분리해 한 문장씩 정확히 쓰는 연습" : recommendedDifficulty === "medium" ? "근거의 연결과 반론 검토를 포함한 단락 구성" : "판단 기준을 비교하고 반론을 재구성하는 심화 논증",
-    nextAction: recommendedDifficulty === "easy" ? "초급 문항 3개를 차례로 풀고 해설의 주장·근거 표시를 비교하세요." : recommendedDifficulty === "medium" ? "중급 문항에서 근거 2개와 반론 1개를 개요에 적어 보세요." : "고급 문항에서 서로 다른 관점을 비교한 뒤 자신의 판단 기준을 한 문장으로 정리하세요.",
+    focus:
+      recommendedDifficulty === "easy"
+        ? "주장과 근거를 분리해 한 문장씩 정확히 쓰는 연습"
+        : recommendedDifficulty === "medium"
+          ? "근거의 연결과 반론 검토를 포함한 단락 구성"
+          : "판단 기준을 비교하고 반론을 재구성하는 심화 논증",
+    nextAction:
+      recommendedDifficulty === "easy"
+        ? "초급 문항 3개를 차례로 풀고 해설의 주장·근거 표시를 비교하세요."
+        : recommendedDifficulty === "medium"
+          ? "중급 문항에서 근거 2개와 반론 1개를 개요에 적어 보세요."
+          : "고급 문항에서 서로 다른 관점을 비교한 뒤 자신의 판단 기준을 한 문장으로 정리하세요.",
     basis,
     source: "fallback" as const,
   };
 }
 
-export async function generateDifficultyLearningGuide(userId: number, courseType: CourseType) {
+export async function generateDifficultyLearningGuide(
+  userId: number,
+  courseType: CourseType
+) {
   const db = await getDb();
   const preset = await getDifficultyOperationPreset();
   const stats = await getCurriculumDifficultyStats();
-  const courseStats = stats.find((item) => item.courseType === courseType);
-  const attempts = db ? await db.select().from(learningToolAttempts).where(and(eq(learningToolAttempts.userId, userId), eq(learningToolAttempts.courseType, courseType))) : [];
+  const courseStats = stats.find(item => item.courseType === courseType);
+  const attempts = db
+    ? await db
+        .select()
+        .from(learningToolAttempts)
+        .where(
+          and(
+            eq(learningToolAttempts.userId, userId),
+            eq(learningToolAttempts.courseType, courseType)
+          )
+        )
+    : [];
   const recentAttempts = attempts.slice(-20);
-  const personalAverage = recentAttempts.length > 0 ? Math.round(recentAttempts.reduce((total, attempt) => total + attempt.score, 0) / recentAttempts.length) : 0;
+  const personalAverage =
+    recentAttempts.length > 0
+      ? Math.round(
+          recentAttempts.reduce((total, attempt) => total + attempt.score, 0) /
+            recentAttempts.length
+        )
+      : 0;
   const fallback = fallbackDifficultyLearningGuide({
     courseType,
     preset,
@@ -5392,13 +10292,26 @@ export async function generateDifficultyLearningGuide(userId: number, courseType
     personalAverage,
     attemptCount: recentAttempts.length,
   });
-  const enrichedFallback = { ...fallback, presetMode: preset.mode, courseStats, personalAverage, attemptCount: recentAttempts.length };
+  const enrichedFallback = {
+    ...fallback,
+    presetMode: preset.mode,
+    courseStats,
+    personalAverage,
+    attemptCount: recentAttempts.length,
+  };
   try {
     const response = await invokeLLM({
       model: "gpt-5-mini",
       messages: [
-        { role: "system", content: "당신은 한국어 논술 학습 코치입니다. 학생의 점수를 단정적으로 평가하지 말고, 제공된 통계만 근거로 다음 한 단계의 학습 행동을 짧고 구체적으로 제안하세요. 개인정보를 언급하지 마세요." },
-        { role: "user", content: `과정: ${getCourseTag(courseType)}\n운영 프리셋: ${preset.mode}\n프리셋 안내: ${preset.aiFeedbackDirective}\n과정 활성 문항 분포: 초급 ${courseStats?.easy ?? 0}, 중급 ${courseStats?.medium ?? 0}, 고급 ${courseStats?.hard ?? 0}\n과정 평균 정답률: ${courseStats?.hasAttemptData ? `${courseStats.avgCorrectRate}%` : "데이터 없음"}\n학생 최근 검증 수행: ${recentAttempts.length}회\n학생 최근 평균 점수: ${recentAttempts.length ? `${personalAverage}점` : "데이터 없음"}\n이 학생에게 추천할 난이도와 한 단계 학습 가이드를 작성하세요.` },
+        {
+          role: "system",
+          content:
+            "당신은 한국어 논술 학습 코치입니다. 학생의 점수를 단정적으로 평가하지 말고, 제공된 통계만 근거로 다음 한 단계의 학습 행동을 짧고 구체적으로 제안하세요. 개인정보를 언급하지 마세요.",
+        },
+        {
+          role: "user",
+          content: `과정: ${getCourseTag(courseType)}\n운영 프리셋: ${preset.mode}\n프리셋 안내: ${preset.aiFeedbackDirective}\n과정 활성 문항 분포: 초급 ${courseStats?.easy ?? 0}, 중급 ${courseStats?.medium ?? 0}, 고급 ${courseStats?.hard ?? 0}\n과정 평균 정답률: ${courseStats?.hasAttemptData ? `${courseStats.avgCorrectRate}%` : "데이터 없음"}\n학생 최근 검증 수행: ${recentAttempts.length}회\n학생 최근 평균 점수: ${recentAttempts.length ? `${personalAverage}점` : "데이터 없음"}\n이 학생에게 추천할 난이도와 한 단계 학습 가이드를 작성하세요.`,
+        },
       ],
       response_format: {
         type: "json_schema",
@@ -5410,12 +10323,22 @@ export async function generateDifficultyLearningGuide(userId: number, courseType
             properties: {
               headline: { type: "string", maxLength: 80 },
               summary: { type: "string", maxLength: 220 },
-              recommendedDifficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+              recommendedDifficulty: {
+                type: "string",
+                enum: ["easy", "medium", "hard"],
+              },
               focus: { type: "string", maxLength: 180 },
               nextAction: { type: "string", maxLength: 220 },
               basis: { type: "string", maxLength: 180 },
             },
-            required: ["headline", "summary", "recommendedDifficulty", "focus", "nextAction", "basis"],
+            required: [
+              "headline",
+              "summary",
+              "recommendedDifficulty",
+              "focus",
+              "nextAction",
+              "basis",
+            ],
             additionalProperties: false,
           },
         },
@@ -5424,9 +10347,19 @@ export async function generateDifficultyLearningGuide(userId: number, courseType
     const content = response.choices[0]?.message?.content;
     if (typeof content !== "string") return enrichedFallback;
     const guide = JSON.parse(content) as Omit<typeof fallback, "source">;
-    return { ...guide, source: "ai" as const, presetMode: preset.mode, courseStats, personalAverage, attemptCount: recentAttempts.length };
+    return {
+      ...guide,
+      source: "ai" as const,
+      presetMode: preset.mode,
+      courseStats,
+      personalAverage,
+      attemptCount: recentAttempts.length,
+    };
   } catch (error) {
-    console.warn("[Difficulty learning guide] Falling back to deterministic guide", error);
+    console.warn(
+      "[Difficulty learning guide] Falling back to deterministic guide",
+      error
+    );
     return enrichedFallback;
   }
 }
@@ -5434,14 +10367,21 @@ export async function generateDifficultyLearningGuide(userId: number, courseType
 export async function promoteUserLevel(userId: number, targetLevel: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(users).set({ teacherLevel: targetLevel }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({ teacherLevel: targetLevel })
+    .where(eq(users.id, userId));
   return { success: true, newLevel: targetLevel };
 }
 
-export async function updateQuestionFeedbackAdmin(feedbackId: number, data: { adminReply?: string; status?: string }) {
+export async function updateQuestionFeedbackAdmin(
+  feedbackId: number,
+  data: { adminReply?: string; status?: string }
+) {
   const db = await getDb();
   if (!db) return null;
-  await db.update(questionFeedbacks)
+  await db
+    .update(questionFeedbacks)
     .set({
       ...(data.adminReply !== undefined ? { adminReply: data.adminReply } : {}),
       ...(data.status !== undefined ? { status: data.status } : {}),
@@ -5453,50 +10393,192 @@ export async function updateQuestionFeedbackAdmin(feedbackId: number, data: { ad
 export async function deleteQuestionFeedback(feedbackId: number) {
   const db = await getDb();
   if (!db) return null;
-  await db.delete(questionFeedbacks).where(eq(questionFeedbacks.id, feedbackId));
+  await db
+    .delete(questionFeedbacks)
+    .where(eq(questionFeedbacks.id, feedbackId));
   return { success: true };
 }
 
-export async function seedSamplesForSpecificCourse(targetCourse: "elementary" | "middle_high" | "high_univ" | "general_adult") {
+export async function seedSamplesForSpecificCourse(
+  targetCourse: "elementary" | "middle_high" | "high_univ" | "general_adult"
+) {
   const db = await getDb();
   if (!db) return;
 
-  const sampleLibrary: Record<string, { level: number; title: string; description: string; topics: string[] }[]> = {
+  const sampleLibrary: Record<
+    string,
+    { level: number; title: string; description: string; topics: string[] }[]
+  > = {
     elementary: [
-      { level: 1, title: "기초 문장 다지기와 어휘력 키우기", description: "주어와 서술어의 호응 관계를 바로잡고 바른 문장을 쓰는 초등 논술 기초 과정입니다.", topics: ["문장의 뼈대 이해하기", "알맞은 낱말과 띄어쓰기", "짧은 일기 글쓰기 훈련"] },
-      { level: 2, title: "이야기 중심의 생각 넓히기", description: "동화를 읽고 주인공의 감정과 중심 생각을 파악하여 자신의 의견을 말하는 과정입니다.", topics: ["이야기 요약하기", "주인공에게 편지 쓰기", "내 생각과 비교하여 말하기"] },
-      { level: 3, title: "주장과 근거가 담긴 꼬마 글쓰기", description: "찬반 의견이 나뉘는 주제에 대해 타당한 근거를 들어 글을 쓰는 논술 입문 과정입니다.", topics: ["찬반 의견 정하기", "까닭(근거) 한 가지씩 대기", "첫 문장과 끝 문장 맺기"] },
+      {
+        level: 1,
+        title: "기초 문장 다지기와 어휘력 키우기",
+        description:
+          "주어와 서술어의 호응 관계를 바로잡고 바른 문장을 쓰는 초등 논술 기초 과정입니다.",
+        topics: [
+          "문장의 뼈대 이해하기",
+          "알맞은 낱말과 띄어쓰기",
+          "짧은 일기 글쓰기 훈련",
+        ],
+      },
+      {
+        level: 2,
+        title: "이야기 중심의 생각 넓히기",
+        description:
+          "동화를 읽고 주인공의 감정과 중심 생각을 파악하여 자신의 의견을 말하는 과정입니다.",
+        topics: [
+          "이야기 요약하기",
+          "주인공에게 편지 쓰기",
+          "내 생각과 비교하여 말하기",
+        ],
+      },
+      {
+        level: 3,
+        title: "주장과 근거가 담긴 꼬마 글쓰기",
+        description:
+          "찬반 의견이 나뉘는 주제에 대해 타당한 근거를 들어 글을 쓰는 논술 입문 과정입니다.",
+        topics: [
+          "찬반 의견 정하기",
+          "까닭(근거) 한 가지씩 대기",
+          "첫 문장과 끝 문장 맺기",
+        ],
+      },
     ],
     middle_high: [
-      { level: 1, title: "교과 시사 논술과 비판적 읽기", description: "중고등 교과 과정 속 사회적 이슈를 다루고 양측의 입장을 균형 있게 분석합니다.", topics: ["매체 자료 비판적 수용", "쟁점별 핵심 키워드 정리", "논설문 구조 분석하기"] },
-      { level: 2, title: "논리적 인과관계와 비교 대조", description: "두 가지 제시문을 비교 분석하고 공통점과 차이점을 논리적으로 서술하는 훈련입니다.", topics: ["제시문 비교 기준 설정", "상반된 관점 분석", "논리적 연결어 사용법"] },
-      { level: 3, title: "고입·수능형 논술 실전 완성", description: "실전 논술 기출 문항을 바탕으로 개요 작성부터 완성도 높은 글쓰기까지 마무리합니다.", topics: ["30분 개요 작성 요령", "퇴고와 문장 다듬기", "실전 모의 논술 연습"] },
+      {
+        level: 1,
+        title: "교과 시사 논술과 비판적 읽기",
+        description:
+          "중고등 교과 과정 속 사회적 이슈를 다루고 양측의 입장을 균형 있게 분석합니다.",
+        topics: [
+          "매체 자료 비판적 수용",
+          "쟁점별 핵심 키워드 정리",
+          "논설문 구조 분석하기",
+        ],
+      },
+      {
+        level: 2,
+        title: "논리적 인과관계와 비교 대조",
+        description:
+          "두 가지 제시문을 비교 분석하고 공통점과 차이점을 논리적으로 서술하는 훈련입니다.",
+        topics: [
+          "제시문 비교 기준 설정",
+          "상반된 관점 분석",
+          "논리적 연결어 사용법",
+        ],
+      },
+      {
+        level: 3,
+        title: "고입·수능형 논술 실전 완성",
+        description:
+          "실전 논술 기출 문항을 바탕으로 개요 작성부터 완성도 높은 글쓰기까지 마무리합니다.",
+        topics: [
+          "30분 개요 작성 요령",
+          "퇴고와 문장 다듬기",
+          "실전 모의 논술 연습",
+        ],
+      },
     ],
     high_univ: [
-      { level: 1, title: "인문·사회 제시문 심층 분석", description: "대입 수시 논술의 핵심인 다면적 제시문 비교 및 독해 능력을 기릅니다.", topics: ["제시문 공통점과 차이점 추출", "비판적 독해와 논지 재구성", "출제자의 숨은 의도 파악"] },
-      { level: 2, title: "수리·과학적 사고와 논증", description: "논리적 인과관계와 확률·통계 데이터를 활용한 설득력 있는 논술 글쓰기입니다.", topics: ["도표와 통계 자료 해석", "논리적 오류 검증", "과학적 가설 검증형 논증"] },
-      { level: 3, title: "대학별 모의논술 실전 파이널", description: "주요 대학 기출문제 분석을 통해 실전 감각을 극대화하고 최종 완성도를 높입니다.", topics: ["연세대·고려대 기출 유형 분석", "시간 관리와 개요 작성 법", "실전 모의논술 첨삭 피드백"] },
+      {
+        level: 1,
+        title: "인문·사회 제시문 심층 분석",
+        description:
+          "대입 수시 논술의 핵심인 다면적 제시문 비교 및 독해 능력을 기릅니다.",
+        topics: [
+          "제시문 공통점과 차이점 추출",
+          "비판적 독해와 논지 재구성",
+          "출제자의 숨은 의도 파악",
+        ],
+      },
+      {
+        level: 2,
+        title: "수리·과학적 사고와 논증",
+        description:
+          "논리적 인과관계와 확률·통계 데이터를 활용한 설득력 있는 논술 글쓰기입니다.",
+        topics: [
+          "도표와 통계 자료 해석",
+          "논리적 오류 검증",
+          "과학적 가설 검증형 논증",
+        ],
+      },
+      {
+        level: 3,
+        title: "대학별 모의논술 실전 파이널",
+        description:
+          "주요 대학 기출문제 분석을 통해 실전 감각을 극대화하고 최종 완성도를 높입니다.",
+        topics: [
+          "연세대·고려대 기출 유형 분석",
+          "시간 관리와 개요 작성 법",
+          "실전 모의논술 첨삭 피드백",
+        ],
+      },
     ],
     general_adult: [
-      { level: 1, title: "비즈니스 기획서와 보고서 작성법", description: "직장인 필수 역량인 간결하고 명확한 비즈니스 문서 기획 및 논리 전개법입니다.", topics: ["결론 우선 두괄식 구조화", "핵심 데이터 시각화 개요", "상사 설득을 위한 기획서 작성"] },
-      { level: 2, title: "논리적 설득 스피치와 논설문", description: "공식적인 석상과 이메일, 제안서에서 상대를 논리적으로 설득하는 글쓰기입니다.", topics: ["타당한 근거와 논거 배치", "반박에 대응하는 방어 논리", "설득력 있는 어휘 선택"] },
-      { level: 3, title: "실무 에세이 및 칼럼 기고문", description: "전문 분야의 통찰을 담은 에세이와 사회적 이슈를 다루는 칼럼 기고문 작성입니다.", topics: ["문제 정의와 시사점 도출", "독자 타겟팅 맞춤형 문체", "완성도 높은 칼럼 에세이 편집"] },
+      {
+        level: 1,
+        title: "비즈니스 기획서와 보고서 작성법",
+        description:
+          "직장인 필수 역량인 간결하고 명확한 비즈니스 문서 기획 및 논리 전개법입니다.",
+        topics: [
+          "결론 우선 두괄식 구조화",
+          "핵심 데이터 시각화 개요",
+          "상사 설득을 위한 기획서 작성",
+        ],
+      },
+      {
+        level: 2,
+        title: "논리적 설득 스피치와 논설문",
+        description:
+          "공식적인 석상과 이메일, 제안서에서 상대를 논리적으로 설득하는 글쓰기입니다.",
+        topics: [
+          "타당한 근거와 논거 배치",
+          "반박에 대응하는 방어 논리",
+          "설득력 있는 어휘 선택",
+        ],
+      },
+      {
+        level: 3,
+        title: "실무 에세이 및 칼럼 기고문",
+        description:
+          "전문 분야의 통찰을 담은 에세이와 사회적 이슈를 다루는 칼럼 기고문 작성입니다.",
+        topics: [
+          "문제 정의와 시사점 도출",
+          "독자 타겟팅 맞춤형 문체",
+          "완성도 높은 칼럼 에세이 편집",
+        ],
+      },
     ],
   };
 
   const groupSamples = sampleLibrary[targetCourse];
   if (!groupSamples) return;
 
-  const existing = await db.select().from(dynamicCurriculum).where(eq(dynamicCurriculum.courseType, targetCourse));
+  const existing = await db
+    .select()
+    .from(dynamicCurriculum)
+    .where(eq(dynamicCurriculum.courseType, targetCourse));
 
   for (const sample of groupSamples) {
     const found = existing.find(item => item.title === sample.title);
-    const aiSummary = found?.aiSummary || await createAiCourseSummary(sample.title, sample.description, sample.topics);
+    const aiSummary =
+      found?.aiSummary ||
+      (await createAiCourseSummary(
+        sample.title,
+        sample.description,
+        sample.topics
+      ));
     let aiTags: string[] = [];
     try {
-      aiTags = found?.aiTags ? JSON.parse(found.aiTags) : await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
+      aiTags = found?.aiTags
+        ? JSON.parse(found.aiTags)
+        : await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
     } catch {
-      aiTags = await createAiTagsFromSummary(sample.title, aiSummary, sample.topics);
+      aiTags = await createAiTagsFromSummary(
+        sample.title,
+        aiSummary,
+        sample.topics
+      );
     }
     const values = {
       courseType: targetCourse,
@@ -5511,10 +10593,19 @@ export async function seedSamplesForSpecificCourse(targetCourse: "elementary" | 
       updatedAt: new Date(),
     };
     if (found) {
-      await db.update(dynamicCurriculum).set(values).where(eq(dynamicCurriculum.id, found.id));
+      await db
+        .update(dynamicCurriculum)
+        .set(values)
+        .where(eq(dynamicCurriculum.id, found.id));
     } else {
-      await db.insert(dynamicCurriculum).values({ ...values, createdAt: new Date() });
+      await db
+        .insert(dynamicCurriculum)
+        .values({ ...values, createdAt: new Date() });
     }
   }
-  return { success: true, courseType: targetCourse, count: groupSamples.length };
+  return {
+    success: true,
+    courseType: targetCourse,
+    count: groupSamples.length,
+  };
 }

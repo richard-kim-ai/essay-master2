@@ -165,7 +165,9 @@ const plugins = [
   react(),
   tailwindcss(),
   jsxLocPlugin(),
-  vitePluginManusRuntime(),
+  // Manus 플랫폼 런타임(약 367kB)이 모든 HTML에 인라인으로 들어간다. 기본은 유지하고,
+  // 플랫폼 기능이 필요 없는 배포에서는 DISABLE_MANUS_RUNTIME=true 로 빼서 첫 화면 로딩을 줄일 수 있다.
+  ...(process.env.DISABLE_MANUS_RUNTIME === "true" ? [] : [vitePluginManusRuntime()]),
   vitePluginManusDebugCollector(),
   ...(bundleVisualizer ? [bundleVisualizer] : []),
 ];
@@ -185,6 +187,18 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // 자주 바뀌지 않는 라이브러리를 앱 코드와 분리해 재배포 뒤에도 브라우저 캐시를 재사용하고 병렬로 내려받는다.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return "vendor-react";
+          if (/[\\/]node_modules[\\/](@trpc|@tanstack|superjson)[\\/]/.test(id)) return "vendor-data";
+          if (/[\\/]node_modules[\\/](@radix-ui|@floating-ui|react-remove-scroll|react-remove-scroll-bar|react-style-singleton|use-callback-ref|use-sidecar|aria-hidden)[\\/]/.test(id)) return "vendor-ui";
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     host: true,

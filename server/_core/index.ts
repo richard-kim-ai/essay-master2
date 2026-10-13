@@ -10,6 +10,8 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { runQuestionBankTrashCleanup } from "../scheduledQuestionBankCleanup";
+import { compressJsonResponses } from "./staticAssets";
+import { getDb } from "../db";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -43,6 +45,7 @@ async function startServer() {
   // tRPC API
   app.use(
     "/api/trpc",
+    compressJsonResponses(),
     createExpressMiddleware({
       router: appRouter,
       createContext,
@@ -64,6 +67,8 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // 첫 요청이 DB 연결을 맺느라 느려지지 않도록 시작할 때 연결 풀을 미리 연다.
+    void getDb();
   });
 }
 

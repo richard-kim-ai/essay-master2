@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { COURSE_MAP, TOOL_TYPE_MAP, HUMAN_REVIEW_ITEMS, buildShortUserPrompt, generateQuestionBankItems, generationRequestSchema, mapGeneratedItemsToQuestionBank, qaQuestionItem, resolveAdaptiveDifficulty } from "./questionGeneration";
+import { describe, expect, it, vi } from "vitest";
+import { COURSE_MAP, TOOL_TYPE_MAP, HUMAN_REVIEW_ITEMS, QUESTION_GENERATION_MODEL, QUESTION_GENERATION_FALLBACK_MODEL, buildShortUserPrompt, generateQuestionBankItems, generationRequestSchema, mapGeneratedItemsToQuestionBank, qaQuestionItem, resolveAdaptiveDifficulty } from "./questionGeneration";
 
 function content(course: keyof typeof COURSE_MAP, tool: keyof typeof TOOL_TYPE_MAP, overrides: Record<string, unknown> = {}) {
   return {
@@ -47,8 +47,157 @@ describe("공통 문항 생성·QA 엔진", () => {
   it("손상된 AI JSON 응답을 저장 전 차단한다", async () => {
     await expect(generateQuestionBankItems({ course: "MIDDLE_HIGH", tool_type: "SUMMARY", theory_category: "C04", difficulty: 3, question_count: 1, topic: "AUTO" }, { llm: async () => ({ id: "test", created: 0, model: "test", choices: [{ index: 0, message: { role: "assistant", content: "{not-json" }, finish_reason: "stop" }] }) as any })).rejects.toThrow();
   });
+  it("기존 contentData 필드명과 한 단계 중첩된 응답도 공통 DTO로 정규화한다", () => {
+    const legacy = content("MIDDLE_HIGH", "SUMMARY", {
+      prompt: "학교 휴대전화 사용의 장단점을 요약하십시오.",
+      answer_explanation: "쟁점과 조건을 빠뜨리지 않고 요약했는지 확인한다.",
+      learningObjective: "핵심 주장과 조건을 구분한다.",
+      modelAnswer: "편의와 학습권을 함께 고려해야 한다.",
+    });
+    delete (legacy as Record<string, unknown>).question;
+    delete (legacy as Record<string, unknown>).explanation;
+    delete (legacy as Record<string, unknown>).learning_objective;
+    delete (legacy as Record<string, unknown>).model_answer;
+    const [item] = mapGeneratedItemsToQuestionBank(
+      { items: [{ title: "휴대전화 사용 요약", contentData: { contentData: legacy } }] },
+      { course: "MIDDLE_HIGH", tool_type: "SUMMARY", theory_category: "C04", difficulty: 3, question_count: 1, topic: "AUTO" },
+    );
+    expect(item.qaStatus).toBe("passed");
+    expect(JSON.parse(item.contentData)).toMatchObject({
+      question: legacy.prompt,
+      explanation: legacy.answer_explanation,
+      learning_objective: legacy.learningObjective,
+      model_answer: legacy.modelAnswer,
+    });
+  });
+  it("AI가 body·answerExplanation·learning_goal 레거시 필드로 반환해도 저장용 필드로 정규화한다", () => {
+    const legacy = content("MIDDLE_HIGH", "SUMMARY", {
+      body: "학교 휴대전화 사용의 장단점을 비교해 요약하십시오.",
+      answerExplanation: "편의와 학습권이라는 두 쟁점을 함께 확인한다.",
+      learning_goal: "핵심 주장과 조건을 구분해 요약한다.",
+    });
+    delete (legacy as Record<string, unknown>).question;
+    delete (legacy as Record<string, unknown>).prompt;
+    delete (legacy as Record<string, unknown>).explanation;
+    delete (legacy as Record<string, unknown>).learning_objective;
+    const [item] = mapGeneratedItemsToQuestionBank(
+      { items: [{ title: "휴대전화 요약", contentData: { contentData: legacy } }] },
+      { course: "MIDDLE_HIGH", tool_type: "SUMMARY", theory_category: "C04", difficulty: 3, question_count: 1, topic: "AUTO" },
+    );
+    expect(item.qaStatus).toBe("passed");
+    expect(JSON.parse(item.contentData)).toMatchObject({ question: legacy.body, explanation: legacy.answerExplanation, learning_objective: legacy.learning_goal });
+  });
 
   // ===== 아래는 local branch 고유 기능: 사람 검수 체크리스트·정답 패턴 추측 방지 QA (2026-08-19 merge 시 이식) =====
+  it("필수 필드가 없는 AI 문항은 예외 대신 QA 차단으로 반환하며 정상 문항을 버리지 않는다", () => {
+    const mapped = mapGeneratedItemsToQuestionBank({ items: [
+      { title: "불완전한 생성 문항", contentData: { question: "", explanation: "" } },
+      { title: "휴대전화 사용 요약", contentData: content("MIDDLE_HIGH", "SUMMARY") },
+    ] }, { course: "MIDDLE_HIGH", tool_type: "SUMMARY" });
+    expect(mapped).toHaveLength(2);
+    expect(mapped[0].qaStatus).toBe("blocked");
+    expect(mapped[0].qaIssues).toEqual(expect.arrayContaining([
+      "missing_question_or_passage", "missing_explanation", "missing_learning_objective",
+    ]));
+    expect(JSON.parse(mapped[0].contentData).learning_objective).toBe("");
+    expect(mapped[1].qaStatus).toBe("passed");
+  });
+  it("잘못된 난이도 metrics도 해당 문항의 QA 차단으로 반환한다", () => {
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{
+      title: "휴대전화 사용 요약", contentData: content("MIDDLE_HIGH", "SUMMARY", { difficulty_metrics: { reasoning_depth: 9 } }),
+    }] }, { course: "MIDDLE_HIGH", tool_type: "SUMMARY" });
+    expect(item.qaStatus).toBe("blocked");
+    expect(item.qaIssues).toContain("difficulty_metrics_failed");
+  });
+  it("contentData 밖의 공통 필드와 문자열 중첩을 보존한다", () => {
+    const payload = content("MIDDLE_HIGH", "SUMMARY");
+    const { question, explanation, learning_objective, ...nested } = payload;
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{
+      title: "휴대전화 사용 요약", difficulty: "medium", question, explanation, learning_objective,
+      contentData: JSON.stringify({ contentData: nested }),
+    }] }, { course: "MIDDLE_HIGH", tool_type: "SUMMARY" });
+    expect(item.qaStatus).toBe("passed");
+    expect(JSON.parse(item.contentData)).toMatchObject({ question, explanation, learning_objective, difficulty: 3 });
+  });
+  it.each(["PARAGRAPH_REORDERING", "TOPIC_WIZARD", "CHECKLIST"] as const)("%s는 도구 고유 정답 구조가 있으면 객관식 정답 필드를 요구하지 않는다", tool => {
+    const payload = content("MIDDLE_HIGH", tool);
+    delete (payload as Record<string, unknown>).correct_answer;
+    delete (payload as Record<string, unknown>).model_answer;
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{ title: "논술 적용 연습", contentData: payload }] }, { course: "MIDDLE_HIGH", tool_type: tool });
+    expect(item.qaStatus).toBe("passed");
+  });
+  it("AI 호출에 내부 필수 필드가 명시된 strict JSON schema를 전달한다", async () => {
+    const llm = vi.fn(async () => ({ choices: [{ message: { content: JSON.stringify({ items: [{ title: "휴대전화 사용 요약", contentData: content("MIDDLE_HIGH", "SUMMARY") }] }) } }] }) as any);
+    await generateQuestionBankItems({ course: "MIDDLE_HIGH", tool_type: "SUMMARY" }, { llm });
+    const format = llm.mock.calls[0][0].responseFormat;
+    expect(format.json_schema.strict).toBe(true);
+    const schema = format.json_schema.schema.properties.items.items.properties.contentData;
+    expect(schema.required).toEqual(expect.arrayContaining(["question", "explanation", "learning_objective", "difficulty_metrics", "passage", "model_answer"]));
+    expect(schema.additionalProperties).toBe(false);
+    expect(llm.mock.calls[0][0].model).toBe(QUESTION_GENERATION_MODEL);
+    expect(llm.mock.calls[0][0].reasoning).toEqual({ effort: "low" });
+    expect(llm.mock.calls[0][0].messages[0].content).toContain("반드시 자연스러운 한국어");
+  });
+
+  it("영어 직무 점검 문항은 사람 검수가 완료되어도 한국어 QA에서 차단한다", () => {
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{ title: "Pre-Service Vehicle Inspection and Documentation Checklist", contentData: content("GENERAL_WORK", "CHECKLIST", { question: "Inspect the vehicle and record findings.", explanation: "Evaluate technician diagnostics.", learning_objective: "Perform service inspection." }) }] }, { course: "GENERAL_WORK", tool_type: "CHECKLIST" });
+    expect(item.qaIssues).toContain("korean_content_required");
+    expect(item.qaStatus).toBe("blocked");
+  });
+  it("한국어 논술 문장 속 AI 등 영문 약어는 허용한다", () => {
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{ title: "AI 도입의 쟁점", contentData: content("GENERAL_WORK", "SUMMARY", { question: "AI 도입의 장단점을 한국어로 요약하시오." }) }] }, { course: "GENERAL_WORK", tool_type: "SUMMARY" });
+    expect(item.qaIssues).not.toContain("korean_content_required");
+  });
+
+  it("한국어여도 차량 점검 학습 목표는 논술 QA를 통과하지 못한다", () => {
+    const [item] = mapGeneratedItemsToQuestionBank({ items: [{ title: "차량 사전 점검 체크리스트", contentData: content("GENERAL_WORK", "CHECKLIST", { question: "차량 출고 전 필수 점검 항목을 서술하시오.", learning_objective: "점검 항목을 이해하고 이상 징후를 식별하여 안전사고를 예방한다." }) }] }, { course: "GENERAL_WORK", tool_type: "CHECKLIST" });
+    expect(item.qaIssues).toContain("writing_objective_required");
+    expect(item.qaStatus).toBe("blocked");
+  });
+
+  const request = { course: "MIDDLE_HIGH", tool_type: "SUMMARY", question_count: 1 };
+  const json = () => JSON.stringify({ items: [{ title: "휴대전화 사용 요약", contentData: content("MIDDLE_HIGH", "SUMMARY", { human_review: undefined }) }] });
+  const response = (text: unknown, finishReason = "stop") => ({ model: "test-model", choices: [{ message: { role: "assistant", content: text }, finish_reason: finishReason }] });
+
+  it.each([undefined, null, "", " \n ", []])("빈 응답 %j은 대체 모델로 1회 호출하고 사람 검수는 유지한다", async empty => {
+    const llm = vi.fn().mockResolvedValueOnce(response(empty)).mockResolvedValueOnce(response(json()));
+    const [item] = await generateQuestionBankItems(request, { llm });
+    expect(llm).toHaveBeenCalledTimes(2);
+    expect(llm.mock.calls.map(([params]) => params.model)).toEqual([QUESTION_GENERATION_MODEL, QUESTION_GENERATION_FALLBACK_MODEL]);
+    expect(llm.mock.calls[1][0].responseFormat).toEqual(llm.mock.calls[0][0].responseFormat);
+    expect(item.qaIssues).toEqual(["human_review_required"]);
+  });
+  it("둘 다 빈 응답이면 두 번으로 중단하고 문항을 만들어내지 않는다", async () => {
+    const llm = vi.fn().mockResolvedValue(response(null));
+    await expect(generateQuestionBankItems(request, { llm })).rejects.toThrow("기존 문항은 변경되지 않았습니다");
+    expect(llm).toHaveBeenCalledTimes(2);
+  });
+  it("배열형 텍스트 블록 응답은 합쳐 읽고 추가 호출하지 않는다", async () => {
+    const text = json();
+    const llm = vi.fn().mockResolvedValue(response([{ type: "text", text: text.slice(0, 20) }, { type: "text", text: text.slice(20) }]));
+    const items = await generateQuestionBankItems(request, { llm });
+    expect(items).toHaveLength(1);
+    expect(llm).toHaveBeenCalledOnce();
+  });
+  it.each(["length", "content_filter"])("%s 종료는 안내 후 즉시 중단하며 자동 우회하지 않는다", async reason => {
+    const llm = vi.fn().mockResolvedValue(response(json(), reason));
+    await expect(generateQuestionBankItems(request, { llm })).rejects.toThrow(reason === "length" ? "생성 문항 수를 줄여" : "주제를 변경해");
+    expect(llm).toHaveBeenCalledOnce();
+  });
+  it("거부 응답은 대체 모델을 호출하지 않는다", async () => {
+    const llm = vi.fn().mockResolvedValue({ choices: [{ message: { refusal: "cannot comply" }, finish_reason: "stop" }] });
+    await expect(generateQuestionBankItems(request, { llm })).rejects.toThrow("주제를 변경해");
+    expect(llm).toHaveBeenCalledOnce();
+  });
+  it("네트워크 오류나 잘못된 JSON은 생성 레벨에서 추가 호출하지 않는다", async () => {
+    const network = vi.fn().mockRejectedValue(new Error("network"));
+    await expect(generateQuestionBankItems(request, { llm: network })).rejects.toThrow("network");
+    expect(network).toHaveBeenCalledOnce();
+    const malformed = vi.fn().mockResolvedValue(response("{not-json"));
+    await expect(generateQuestionBankItems(request, { llm: malformed })).rejects.toThrow();
+    expect(malformed).toHaveBeenCalledOnce();
+  });
+
   it("사람 검수(human_review)가 완료되지 않은 AI 생성 문항은 human_review_required로 차단한다", () => {
     const valid = { courseType: "middle_high" as const, toolType: "quiz" as const, title: "학교 휴대전화 규칙", contentData: JSON.stringify(content("MIDDLE_HIGH", "QUIZ")), difficulty: "medium" as const, isActive: 1 };
     expect(qaQuestionItem(valid).issues).not.toContain("human_review_required");

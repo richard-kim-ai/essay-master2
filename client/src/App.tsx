@@ -2,11 +2,15 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { lazy, Suspense } from "react";
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch, useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { isBlockedForParent, isParentAccount, PARENT_HOME } from "@/lib/parentAccess";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Layout from "./components/Layout";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import CourseEnrollment from "./components/CourseEnrollment";
+import { LearningCourseProvider, useLearningCourse } from "./hooks/useLearningCourse";
 
 const Curriculum = lazy(() => import("./pages/Curriculum"));
 const EssayArchive = lazy(() => import("./pages/EssayArchive"));
@@ -35,6 +39,11 @@ const AiGuideHistory = lazy(() => import("./pages/AiGuideHistory"));
 const WritingExampleLibrary = lazy(() => import("./pages/WritingExampleLibrary"));
 const MyPageHub = lazy(() => import("./pages/MyPageHub"));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
+const GuardianConsent = lazy(() => import("./pages/GuardianConsent"));
+const AdminGuardianConsents = lazy(() => import("./pages/AdminGuardianConsents"));
+const AdminBilling = lazy(() => import("./pages/AdminBilling"));
+const TeacherSettlement = lazy(() => import("./pages/TeacherSettlement"));
+const Checkout = lazy(() => import("./pages/Checkout"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SocialProviderSettings = lazy(() => import("./pages/SocialProviderSettings"));
@@ -52,6 +61,10 @@ const AdminAcademicPermissions = lazy(() => import("@/pages/AdminAcademicPermiss
 const MasterAdminConsole = lazy(() => import("@/pages/MasterAdminConsole"));
 const ParentPortal = lazy(() => import("@/pages/ParentPortal"));
 const StudentAssignments = lazy(() => import("@/pages/StudentAssignments"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const MyWritings = lazy(() => import("./pages/MyWritings"));
+const AdminStudentEssays = lazy(() => import("./pages/AdminStudentEssays"));
+const SampleExperience = lazy(() => import("./pages/SampleExperience"));
 
 function RouteLoadingFallback() {
   return (
@@ -65,6 +78,13 @@ function RouteLoadingFallback() {
 }
 
 function Router() {
+  const course = useLearningCourse();
+  const { user } = useAuth();
+  const [path] = useLocation();
+  // 학부모 계정은 학습자 전용 화면(학습 도구·내 글·수료증·결제 등)을 쓰지 않는다. 직접 주소로 들어와도 학부모 포털로 보낸다.
+  if (isParentAccount(user) && isBlockedForParent(path)) return <Redirect to={PARENT_HOME} />;
+  const learningPaths = ["/mypage", "/dashboard", "/curriculum", "/workbook", "/quiz", "/summary-practice", "/paragraph-reordering", "/topic-wizard", "/thesis-checklist", "/essay-archive", "/ai-auto-feedback", "/mistake-notebook", "/ai-guide-history", "/writing-examples", "/certificate"];
+  if (course.needsSelection && learningPaths.some(prefix => path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}-`))) return <Layout><CourseEnrollment /></Layout>;
   return (
     <Suspense fallback={<RouteLoadingFallback />}>
       <Switch>
@@ -72,9 +92,11 @@ function Router() {
         <Route path="/signup" component={Signup} />
         <Route path="/teacher-signup" component={TeacherSignup} />
         <Route path="/verify-email" component={VerifyEmail} />
+        <Route path="/guardian-consent" component={GuardianConsent} />
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/admin">{() => <Layout><AdminDashboard /></Layout>}</Route>
+        <Route path="/admin/student-essays">{() => <Layout><AdminStudentEssays /></Layout>}</Route>
         <Route path="/admin/certificates">{() => <Layout><AdminCertificates /></Layout>}</Route>
         <Route path="/admin/curriculum">{() => <Layout><AdminCurriculumManager /></Layout>}</Route>
         <Route path="/admin/question-bank">{() => <Layout><AdminQuestionBank /></Layout>}</Route>
@@ -84,20 +106,27 @@ function Router() {
         <Route path="/admin/student/:id">{() => <Layout><AdminStudentDetail /></Layout>}</Route>
         <Route path="/admin/social-providers">{() => <Layout><SocialProviderSettings /></Layout>}</Route>
         <Route path="/admin/terms">{() => <Layout><AdminTermsManager /></Layout>}</Route>
+        <Route path="/admin/guardian-consents">{() => <Layout><AdminGuardianConsents /></Layout>}</Route>
+        <Route path="/admin/billing">{() => <Layout><AdminBilling /></Layout>}</Route>
         <Route path="/admin/ai-governance">{() => <Layout><AdminAIGovernance /></Layout>}</Route>
         <Route path="/admin/academic-permissions">{() => <Layout><AdminAcademicPermissions /></Layout>}</Route>
         <Route path="/master-admin">{() => <Layout><MasterAdminConsole /></Layout>}</Route>
         <Route path="/parent-portal">{() => <Layout><ParentPortal /></Layout>}</Route>
-        <Route path="/" component={Home} />
+        <Route path="/">{() => <Layout variant="public"><Home /></Layout>}</Route>
+        <Route path="/pricing">{() => <Layout variant="public"><Pricing /></Layout>}</Route>
+        <Route path="/sample">{() => <Layout variant="public"><SampleExperience /></Layout>}</Route>
         <Route path="/curriculum/:courseType/:level">{() => <Layout><CurriculumDetail /></Layout>}</Route>
         <Route path="/curriculum">{() => <Layout><Curriculum /></Layout>}</Route>
         <Route path="/essay-archive">{() => <Layout><EssayArchive /></Layout>}</Route>
         <Route path="/my-assignments">{() => <Layout><StudentAssignments /></Layout>}</Route>
         <Route path="/mypage">{() => <Layout><MyPageHub /></Layout>}</Route>
+        <Route path="/my-writings">{() => <Layout><MyWritings /></Layout>}</Route>
         <Route path="/dashboard">{() => <Layout><MyPageHub /></Layout>}</Route>
         <Route path="/dashboard-detail">{() => <Layout><Dashboard /></Layout>}</Route>
         <Route path="/teacher-mypage">{() => <Layout><TeacherMyPage /></Layout>}</Route>
         <Route path="/teacher/writing-examples">{() => <Layout><TeacherWritingExamples /></Layout>}</Route>
+        <Route path="/teacher/settlement">{() => <Layout><TeacherSettlement /></Layout>}</Route>
+        <Route path="/checkout">{() => <Layout><Checkout /></Layout>}</Route>
         <Route path="/ai-auto-feedback">{() => <Layout><AIAutoFeedback /></Layout>}</Route>
         <Route path="/ai-feedback-compare/:id">{() => <Layout><AIFeedbackCompare /></Layout>}</Route>
         <Route path="/essay-submission">{() => <Layout><EssaySubmission /></Layout>}</Route>
@@ -127,7 +156,7 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <LearningCourseProvider><Router /></LearningCourseProvider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

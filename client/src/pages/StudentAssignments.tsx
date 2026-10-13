@@ -52,7 +52,7 @@ export default function StudentAssignments() {
   if (user && user.role !== "user") {
     return (
       <DashboardLayout>
-        <div className="mx-auto max-w-3xl p-6 md:p-10">
+        <div className="mx-auto max-w-7xl p-6 md:p-10">
           <Card className="border-amber-200 bg-amber-50 p-8 text-center">
             <ClipboardPenLine className="mx-auto mb-3 h-10 w-10 text-amber-600" />
             <CardTitle>학습자 전용 과제 공간입니다</CardTitle>
@@ -66,7 +66,7 @@ export default function StudentAssignments() {
 
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-6xl space-y-5 p-4 md:p-6 lg:p-8">
+      <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6 lg:p-8">
         <section className="rounded-2xl bg-indigo-900 p-5 text-white shadow-lg md:flex md:items-center md:justify-between md:p-6">
           <div>
             <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-indigo-100">
@@ -121,7 +121,7 @@ export default function StudentAssignments() {
                         <p className="text-xs font-semibold text-indigo-600">{assignment.groupName}</p>
                         <CardTitle className="mt-1 line-clamp-2 text-lg text-slate-900">{assignment.title}</CardTitle>
                       </div>
-                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${isReviewed ? "bg-emerald-100 text-emerald-700" : isSubmitted ? "bg-blue-100 text-blue-700" : assignment.isOverdue ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${isReviewed ? "bg-emerald-100 text-emerald-700" : isSubmitted ? "bg-indigo-100 text-indigo-700" : assignment.isOverdue ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
                         {isReviewed ? "채점 완료" : isSubmitted ? "채점 대기" : assignment.isOverdue ? "마감 경과" : "제출 필요"}
                       </span>
                     </div>

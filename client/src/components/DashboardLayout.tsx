@@ -1,12 +1,16 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { Button } from "./ui/button";
-import { startLogin } from "@/const";
+import LoginRequired from "./LoginRequired";
+import PreviewGate from "./PreviewGate";
 
+// previewTitle을 넘긴 화면은 로그인하지 않은 방문자에게도 화면 전체를 "미리보기"로 보여준다(클릭·입력 차단).
+// 넘기지 않은 화면은 기존처럼 로그인 안내를 보여준다.
 export default function DashboardLayout({
   children,
+  previewTitle,
 }: {
   children: React.ReactNode;
+  previewTitle?: string;
 }) {
   const { loading, user } = useAuth();
 
@@ -14,35 +18,17 @@ export default function DashboardLayout({
     return <DashboardLayoutSkeleton />;
   }
 
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <div className="flex flex-col items-center gap-6">
-            <h1 className="text-2xl font-semibold tracking-tight text-center">
-              로그인이 필요합니다
-            </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              이 페이지에 접근하려면 로그인이 필요합니다. 로그인 페이지로 이동하세요.
-            </p>
-          </div>
-          <Button
-            onClick={() => startLogin()}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
-          >
-            로그인하기
-          </Button>
-        </div>
-      </div>
-    );
+  if (!user && !previewTitle) {
+    return <LoginRequired />;
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50/50 w-full">
-      <main className="w-full mx-auto">
+  const body = (
+    <div className="bg-slate-50/50 w-full">
+      <div className="w-full mx-auto">
         {children}
-      </main>
+      </div>
     </div>
   );
+
+  return user ? body : <PreviewGate active title={previewTitle ?? ""}>{body}</PreviewGate>;
 }

@@ -1,15 +1,16 @@
-import { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { PREVIEW_ARCHIVE_QUESTIONS, PREVIEW_ARCHIVE_STATS } from "@/lib/previewSamples";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { BookOpen, Search, Play, Star, Sparkles, ArrowRight, Bookmark, Calendar, CheckCircle, Layers } from "lucide-react";
+import { BookOpen, Search, Play, Star, ArrowRight, Calendar, Layers, LockKeyhole } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { formatLearningCourse, formatLearningDifficulty, formatLearningTool } from "@/lib/learningLabels";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
 
 function getArchiveLearningSummary(contentData: unknown) {
   if (!contentData) return "학습을 시작해 이 주제의 핵심 논술 활동을 확인하세요.";
@@ -30,9 +31,9 @@ function getArchiveLearningSummary(contentData: unknown) {
 }
 
 export default function EssayArchive() {
-  const { user } = useAuth();
+  const { courseType, effectiveCourse, courseLabel, scopeKey, loading, isStudent, canSelectCourse, canLearn, needsSelection, mode, setCourseType } = useLearningCourse();
   const [, setLocation] = useLocation();
-  const [activeCourse, setActiveCourse] = useState<string>("elementary");
+  const activeCourse = effectiveCourse;
   const [activeTool, setActiveTool] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"default" | "popular" | "correct_rate" | "difficulty_desc">("default");
@@ -42,30 +43,63 @@ export default function EssayArchive() {
   // Similar Questions Modal State
   const [selectedQuestionForSimilar, setSelectedQuestionForSimilar] = useState<any | null>(null);
   const [isSimilarModalOpen, setIsSimilarModalOpen] = useState(false);
+  const scopeRef = useRef(scopeKey);
+  scopeRef.current = scopeKey;
+  const [bookmarkScope, setBookmarkScope] = useState(scopeKey);
 
-  const { data: questions, isLoading } = trpc.questionBank.list.useQuery({
-    courseType: activeCourse,
+  // 계정·역할·과정이 바뀌면 이전 범위의 선택/북마크 UI를 유지하지 않는다.
+  useEffect(() => {
+    scopeRef.current = scopeKey;
+    setSelectedQuestionForSimilar(null);
+    setIsSimilarModalOpen(false);
+    setShowPlannerModal(false);
+    setShowBookmarksOnly(false);
+    setSearchQuery("");
+    setActiveTool("all");
+    setBookmarkScope(scopeKey);
+    return () => { scopeRef.current = "disposed"; };
+  }, [scopeKey]);
+
+  // 로그인하지 않았으면 서버 요청 없이 샘플 목록으로 화면만 보여준다(DashboardLayout의 미리보기).
+  const preview = mode === "public-preview" && !loading;
+  const { data: fetchedQuestions, isLoading: fetching, error: questionsError } = trpc.questionBank.list.useQuery({
+    courseType: activeCourse ?? undefined,
     toolType: activeTool === "all" ? undefined : activeTool,
-  });
+  }, { enabled: !preview && !loading && canLearn && !!activeCourse });
+  const questions = preview
+    ? PREVIEW_ARCHIVE_QUESTIONS.filter((q) => q.courseType === activeCourse && (activeTool === "all" || q.toolType === activeTool))
+    : (loading || !activeCourse ? [] : fetchedQuestions?.filter(q => q.courseType === activeCourse));
+  const isLoading = loading || (!preview && canLearn && !!activeCourse && fetching);
 
-  const { data: statsData } = trpc.questionBank.stats.useQuery();
-  const { data: bookmarksList, refetch: refetchBookmarks } = trpc.questionBank.getBookmarks.useQuery();
-  const { data: similarQuestions } = trpc.questionBank.similarQuestions.useQuery(
+  const { data: fetchedStats } = trpc.questionBank.publicStats.useQuery(undefined, { enabled: !preview && !loading && canLearn && !!activeCourse });
+  const statsData = preview ? PREVIEW_ARCHIVE_STATS : fetchedStats;
+  const { data: bookmarksList, refetch: refetchBookmarks } = trpc.questionBank.getBookmarks.useQuery(undefined, { enabled: !preview && !loading && canLearn && !!activeCourse });
+  const { data: fetchedSimilarQuestions } = trpc.questionBank.similarQuestions.useQuery(
     { questionId: selectedQuestionForSimilar?.id || 0 },
-    { enabled: !!selectedQuestionForSimilar }
+    { enabled: !preview && !loading && canLearn && !!activeCourse && isSimilarModalOpen && !!selectedQuestionForSimilar && selectedQuestionForSimilar.courseType === activeCourse }
   );
+  const similarQuestions = loading || !activeCourse ? [] : fetchedSimilarQuestions?.filter(q => q.courseType === activeCourse);
 
   const toggleBookmarkMutation = trpc.questionBank.toggleBookmark.useMutation();
 
-  const bookmarkedSet = new Set(bookmarksList || []);
+  // The provider clears server caches on scope changes; this local gate also prevents an old
+  // response from affecting the first paint when the component is used standalone in a test.
+  const bookmarkedSet = new Set(bookmarkScope === scopeKey ? bookmarksList || [] : []);
 
   const handleToggleBookmark = async (qId: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (preview || loading || !canLearn || !activeCourse) {
+      toast.info("즐겨찾기는 로그인 후 이용할 수 있습니다.");
+      return;
+    }
+    const requestScope = scopeKey;
     try {
       const added = await toggleBookmarkMutation.mutateAsync({ questionId: qId });
+      if (scopeRef.current !== requestScope) return;
       refetchBookmarks();
       toast.success(added ? "나만의 학습 보관함(즐겨찾기)에 추가되었습니다." : "즐겨찾기에서 해제되었습니다.");
     } catch (err) {
+      if (scopeRef.current !== requestScope) return;
       toast.error("즐겨찾기 처리 중 오류가 발생했습니다.");
     }
   };
@@ -74,8 +108,8 @@ export default function EssayArchive() {
     const stat = (statsData || []).find(s => s.id === q.id);
     return {
       ...q,
-      totalAttempts: stat?.totalAttempts || Math.floor(Math.random() * 20) + 10,
-      correctRate: stat?.correctRate ?? (q.difficulty === "easy" ? 82 : q.difficulty === "medium" ? 58 : 34),
+      totalAttempts: stat?.totalAttempts ?? 0,
+      correctRate: stat?.correctRate ?? 0,
       isBookmarked: bookmarkedSet.has(q.id),
     };
   });
@@ -122,7 +156,7 @@ export default function EssayArchive() {
     { id: "middle_high", name: "중고등 논술", desc: "사회 쟁점, 미디어 비평 및 논리적 전개" },
     { id: "high_univ", name: "고등 / 대입", desc: "철학적 딜레마, 경제·윤리 심화 논증" },
     { id: "general_adult", name: "일반 / 직장인", desc: "ESG 경영, 비즈니스 리더십 및 트렌드 분석" },
-  ];
+  ] as const;
 
   const tools = [
     { id: "all", name: "전체 학습 도구" },
@@ -134,7 +168,7 @@ export default function EssayArchive() {
   ];
 
   return (
-    <DashboardLayout>
+    <DashboardLayout previewTitle="아카이브">
       <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -143,16 +177,17 @@ export default function EssayArchive() {
               <BookOpen className="w-4 h-4" /> 과정별 맞춤 아카이브 & 스마트 플래너
             </div>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
-              추천 논술 아카이브 & 주간 학습 플래너
+              논술 아카이브 & 주간 학습 플래너
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              실전 논술 주제를 탐색하고 북마크한 뒤, 주간 학습 계획표에 자동으로 배치하여 체계적으로 학습하세요.
+              {isStudent && activeCourse ? `${courseLabel} 과정의 주제를 탐색하고 즐겨찾기로 주간 학습 계획을 세워 보세요.` : preview ? "미리보기 문항을 둘러보고, 로그인 후 내 과정에서 학습을 이어 가세요." : "과정을 선택하면 맞춤 논술 주제를 탐색할 수 있습니다."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               onClick={() => setShowPlannerModal(true)}
+              disabled={!preview && (!canLearn || !activeCourse)}
               className="gap-2 text-indigo-700 border-indigo-200 bg-indigo-50 font-semibold"
             >
               <Calendar className="w-4 h-4" /> 주간 학습 플래너 보기 ({bookmarksList?.length || 0}개 연동)
@@ -160,6 +195,7 @@ export default function EssayArchive() {
             <Button
               variant={showBookmarksOnly ? "default" : "outline"}
               onClick={() => setShowBookmarksOnly(!showBookmarksOnly)}
+              disabled={!preview && (!canLearn || !activeCourse)}
               className={showBookmarksOnly ? "bg-amber-600 hover:bg-amber-700 text-white gap-2" : "gap-2 text-amber-700 border-amber-200 bg-amber-50"}
             >
               <Star className="w-4 h-4 fill-current" /> {showBookmarksOnly ? "전체 목록 보기" : `내 즐겨찾기 (${bookmarksList?.length || 0})`}
@@ -169,18 +205,27 @@ export default function EssayArchive() {
 
         {/* Course Tabs */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {courses.map(c => (
-            <div
+          {courses.map(c => {
+            // Students have exactly one selectable enrolled course; staff/guest can change preview.
+            const locked = isStudent ? c.id !== activeCourse : !canSelectCourse;
+            return (
+            <button
+              type="button"
               key={c.id}
-              onClick={() => setActiveCourse(c.id)}
-              className={`p-5 rounded-2xl border cursor-pointer transition-all duration-200 flex flex-col justify-between ${
-                activeCourse === c.id
+              disabled={loading || locked}
+              aria-pressed={activeCourse === c.id}
+              aria-label={`${c.name} 과정${locked ? " (다른 과정 · 이용 불가)" : ""}`}
+              onClick={() => { if (!locked && !loading) setCourseType(c.id); }}
+              className={`p-5 rounded-2xl border text-left transition-colors duration-200 flex flex-col justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 ${
+                locked || loading
+                  ? "bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed"
+                  : activeCourse === c.id
                   ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200 scale-[1.02]"
-                  : "bg-white text-slate-900 border-slate-200 hover:border-indigo-300 shadow-sm"
+                  : "bg-white text-slate-900 border-slate-200 hover:border-indigo-300 shadow-sm cursor-pointer"
               }`}
             >
               <div>
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${activeCourse === c.id ? "bg-white/20 text-white" : "bg-indigo-50 text-indigo-700"}`}>
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${locked ? "bg-slate-200 text-slate-600" : activeCourse === c.id ? "bg-white/20 text-white" : "bg-indigo-50 text-indigo-700"}`}>
                   {c.name}
                 </span>
                 <h3 className="text-lg font-bold mt-3">{c.name} 과정</h3>
@@ -189,12 +234,18 @@ export default function EssayArchive() {
                 </p>
               </div>
               <div className="mt-4 flex items-center justify-between text-xs font-semibold pt-3 border-t border-white/10">
-                <span>추천 문항 보기</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>{locked ? "다른 과정 · 이용 불가" : isStudent ? "내 과정 · 추천 문항 보기" : "추천 문항 보기"}</span>
+                {locked ? <LockKeyhole className="w-4 h-4" aria-hidden="true" /> : <ArrowRight className="w-4 h-4" aria-hidden="true" />}
               </div>
-            </div>
-          ))}
+            </button>
+          );})}
         </div>
+
+        {needsSelection && (
+          <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+            가입 과정 정보가 확인되지 않았습니다. 관리자에게 과정 설정을 요청한 뒤 다시 이용해 주세요.
+          </div>
+        )}
 
         {/* Tool Filter & Search & Sorting */}
         <Card className="border-slate-200 shadow-sm">
@@ -239,7 +290,11 @@ export default function EssayArchive() {
 
         {/* Question Cards Grid */}
         {isLoading ? (
-          <div className="p-12 text-center text-slate-500">추천 논술 아카이브를 불러오는 중입니다...</div>
+          <div role="status" className="p-12 text-center text-slate-500">논술 아카이브를 불러오는 중입니다...</div>
+        ) : !preview && (!canLearn || !activeCourse) ? (
+          <div role="alert" className="p-8 text-center text-slate-700 bg-white rounded-2xl border border-slate-200">현재 학습 과정을 확인하면 과정별 아카이브를 이용할 수 있습니다.</div>
+        ) : questionsError && !preview ? (
+          <div role="alert" className="p-8 text-center text-slate-700 bg-white rounded-2xl border border-slate-200">아카이브를 불러오지 못했습니다. 로그인 상태를 확인하고 다시 시도해 주세요.</div>
         ) : sorted.length === 0 ? (
           <div className="p-12 text-center text-slate-500 bg-white rounded-2xl border border-slate-200">
             {showBookmarksOnly ? "즐겨찾기 보관함에 저장된 주제가 없습니다." : "조건에 해당하는 추천 주제가 없습니다."}
@@ -279,7 +334,7 @@ export default function EssayArchive() {
                   <div className="flex items-center gap-2 text-xs text-slate-500">
                     <span>응시: {q.totalAttempts}회</span>
                     <span>•</span>
-                    <span>정답률: <strong className="text-indigo-600">{q.correctRate}%</strong></span>
+                    <span>정답률: <strong className="text-indigo-600">{q.totalAttempts > 0 ? `${q.correctRate}%` : "집계 전"}</strong></span>
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                     <p className="mb-1 text-[11px] font-bold text-indigo-700">학습 포인트</p>
@@ -369,7 +424,7 @@ export default function EssayArchive() {
                 <Layers className="w-5 h-5" /> 기출 및 유사 난이도 추천 문항
               </DialogTitle>
               <DialogDescription>
-                선택하신 주제와 동일한 교육 과정이거나 유사한 난이도를 가진 추천 실전 논술 문항입니다.
+                {isStudent ? "가입한 과정 안에서 선택한 주제와 관련 있는 문항을 추천합니다." : "선택하신 주제와 동일한 교육 과정이거나 유사한 난이도를 가진 추천 실전 논술 문항입니다."}
               </DialogDescription>
             </DialogHeader>
 

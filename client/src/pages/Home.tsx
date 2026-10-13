@@ -1,11 +1,12 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import InstallPrompt from "@/components/InstallPrompt";
-import Navigation from "@/components/Navigation";
-import OfflineStatus from "@/components/OfflineStatus";
 import {
   getHomePrimaryAction,
 } from "@/lib/homeExperience";
+import { getTrialStatus } from "@/lib/trialExperience";
+import { isParentAccount, PARENT_HOME } from "@/lib/parentAccess";
+import { applyHomeSeo } from "@/lib/homeSeo";
+import { useLearningCourse } from "@/hooks/useLearningCourse";
 import { Link } from "wouter";
 import {
   ArrowRight,
@@ -79,40 +80,68 @@ const LEARNING_PROMISES = [
 ] as const;
 
 const HERO_VALUE_CARDS = [
-  { label: "AI 실시간 첨삭", tone: "bg-blue-50" },
-  { label: "전문 교사 피드백", tone: "bg-purple-50" },
+  { label: "AI 실시간 첨삭", tone: "bg-indigo-50" },
+  { label: "전문 교사 피드백", tone: "bg-indigo-50" },
   { label: "맞춤형 학습 경로", tone: "bg-pink-50" },
   { label: "진도 추적 대시보드", tone: "bg-amber-50" },
 ] as const;
 
 export default function Home() {
+  useEffect(() => applyHomeSeo(), []);
   const { user, isAuthenticated } = useAuth();
-  const primaryAction = getHomePrimaryAction(isAuthenticated, user?.role);
+  const { effectiveCourse, courseLabel, canPersist, needsSelection } = useLearningCourse();
+  // 학부모 계정은 학습자 허브가 아니라 학부모 포털로 안내한다(학습자 전용 체험·과정 안내도 보이지 않는다).
+  const isParent = isParentAccount(user);
+  const primaryAction = isParent ? { ...getHomePrimaryAction(isAuthenticated, user?.role), href: PARENT_HOME } : getHomePrimaryAction(isAuthenticated, user?.role);
+  const trial = getTrialStatus(user?.createdAt);
+  const isLearnerTrial = isAuthenticated && user?.role === "user" && !isParent && trial?.isActive;
   const primaryActionLabel = "지금 시작하기";
 
   return (
-    <div className="min-h-screen bg-[#fbfcff] text-slate-950">
-      <Navigation />
-      <OfflineStatus />
-
-      <main>
+    <div className="bg-[#fbfcff] text-slate-950">
+      <div>
         <section className="relative overflow-hidden border-b border-slate-100 bg-[radial-gradient(circle_at_90%_18%,rgba(224,231,255,0.9),transparent_34rem),radial-gradient(circle_at_4%_90%,rgba(219,234,254,0.78),transparent_30rem)]">
           <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2 lg:px-8 lg:py-24">
             <div className="max-w-2xl">
               <h1 className="text-balance text-5xl font-black leading-[1.15] tracking-[-0.06em] text-slate-950 sm:text-6xl lg:text-7xl">
                 논술 마스터와 함께
-                <span className="block bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">글쓰기 실력 UP</span>
+                <span className="block bg-gradient-to-r from-indigo-600 to-indigo-600 bg-clip-text text-transparent">글쓰기 실력 UP</span>
               </h1>
               <p className="mt-8 max-w-xl text-pretty text-xl leading-9 text-slate-600">
                 AI 기반 맞춤형 첨삭과 전문 교사의 피드백으로 논술 실력을 한 단계 업그레이드하세요.
               </p>
-              <Link
-                href={primaryAction.href}
-                data-home-cta="primary"
-                className="mt-9 inline-flex h-14 items-center justify-center rounded-xl bg-blue-600 px-8 text-lg font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300"
-              >
-                {primaryActionLabel}<ArrowRight className="ml-2 h-5 w-5" />
-              </Link>
+              <div className="mt-9 flex w-full max-w-xl flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+                <Link
+                  href={isAuthenticated ? primaryAction.href : "/login?trial=1"}
+                  data-home-cta="primary"
+                  className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl bg-indigo-600 px-6 text-base font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300 sm:w-auto sm:px-7 sm:text-lg"
+                >
+                  {primaryActionLabel}<ArrowRight className="ml-2 h-5 w-5" />
+                </Link>
+                {!isAuthenticated && (
+                  <Link
+                    href="/sample"
+                    data-home-cta="course-finder"
+                    className="inline-flex h-14 w-full min-w-0 items-center justify-center whitespace-nowrap rounded-xl border border-indigo-200 bg-white px-5 text-sm font-bold text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-auto sm:px-6 sm:text-base"
+                  >
+                    나에게 맞는 과정 찾기
+                  </Link>
+                )}
+              </div>
+              {!isAuthenticated && <p className="mt-4 text-sm font-medium text-slate-500">과정 탐색은 로그인 없이 체험할 수 있으며, 로그인 후에는 7일간 무료로 학습을 이어갈 수 있습니다.</p>}
+              {canPersist && effectiveCourse && (
+                <div className="mt-5 flex flex-wrap items-center gap-3" data-home-course="learner">
+                  <span className="rounded-full bg-indigo-100 px-3 py-1.5 text-sm font-bold text-indigo-800">내 과정 · {courseLabel} 논술</span>
+                  <Link href={`/workbook/${effectiveCourse}/1`} className="inline-flex items-center text-sm font-bold text-indigo-700 underline decoration-indigo-300 underline-offset-4 hover:text-indigo-900">내 과정 학습 계속하기 <ArrowRight className="ml-1 h-4 w-4" /></Link>
+                </div>
+              )}
+              {isAuthenticated && needsSelection && <p className="mt-5 text-sm font-medium text-amber-700">가입 과정이 확인되지 않았습니다. <Link href="/mypage" className="underline underline-offset-4">마이페이지에서 과정 확인</Link></p>}
+              {isLearnerTrial && (
+                <div className="mt-6 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
+                  <span className="font-bold">7일 무료 체험 중</span>
+                  <span className="ml-2">{trial.daysRemaining}일 남음 · {trial.endsAt.toLocaleDateString("ko-KR")}까지 내 과정과 학습 도구를 둘러볼 수 있습니다.</span>
+                </div>
+              )}
             </div>
 
             <div className="relative mx-auto hidden w-full max-w-xl md:block">
@@ -209,7 +238,7 @@ export default function Home() {
             <h2 className="mt-3 text-3xl font-black tracking-[-0.035em] text-slate-950 sm:text-4xl">오늘의 한 문장부터 시작해 보세요.</h2>
             <p className="mt-4 text-lg leading-8 text-slate-600">과정을 선택하고, 첫 레슨에서 글쓰기의 기준을 세워 보세요.</p>
             <Link
-              href={primaryAction.href}
+              href={isAuthenticated ? primaryAction.href : "/login?trial=1"}
               data-home-cta="final"
               className="mt-8 inline-flex h-12 items-center justify-center rounded-xl bg-indigo-700 px-6 text-base font-bold text-white shadow-lg shadow-indigo-100 transition hover:bg-indigo-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-300"
               style={{ backgroundColor: "#4338ca", color: "#ffffff" }}
@@ -218,24 +247,7 @@ export default function Home() {
             </Link>
           </div>
         </section>
-      </main>
-
-      <footer className="bg-slate-950 px-4 py-10 text-slate-400 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row md:items-end">
-          <div>
-            <div className="flex items-center gap-2 font-extrabold text-white"><BookOpen className="h-5 w-5 text-cyan-300" />논술 마스터</div>
-            <p className="mt-3 max-w-sm text-sm leading-6">읽고, 생각하고, 설득력 있게 쓰는 과정을 함께하는 단계별 논술 학습 플랫폼입니다.</p>
-          </div>
-          <div className="flex flex-wrap justify-start gap-x-5 gap-y-3 text-sm font-semibold md:justify-end">
-            <Link href="/curriculum" className="hover:text-white">커리큘럼</Link>
-            <Link href="/essay-archive" className="hover:text-white">추천 아카이브</Link>
-            <Link href="/topic-wizard" className="hover:text-white">주제 설정</Link>
-            <Link href="/mypage" className="hover:text-white">마이페이지</Link>
-          </div>
-        </div>
-        <div className="mx-auto mt-8 max-w-7xl border-t border-slate-800 pt-6 text-sm">© 2026 논술 마스터. All rights reserved.</div>
-      </footer>
-      <InstallPrompt />
+      </div>
     </div>
   );
 }

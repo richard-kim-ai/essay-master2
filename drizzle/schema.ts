@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal } from "drizzle-orm/mysql-core";
+import { index, int, mediumtext, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -29,11 +29,15 @@ export const users = mysqlTable("users", {
   teacherId: int("teacherId"), // 학생이 배정된 담당 교사 ID
   preferredTeacherId: int("preferredTeacherId"), // 학생 가입 시 선택한 추천 교사 ID (관리자 배정 전 희망값)
   adminNotes: text("adminNotes"),
-  tag: varchar("tag", { length: 64 }).default("일반").notNull(),
+  /** 관리자 계정의 수료증 최종 승인 권한을 회수했는지(1=회수). 기본값 0이라 기존 관리자는 모두 승인할 수 있다. */
+  certificateApprovalRevoked: int("certificateApprovalRevoked").default(0).notNull(),
+  tag: varchar("tag", { length: 64 }).default("과정 미선택").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxEmail: index("idx_users_email").on(table.email),
+}));
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -65,11 +69,64 @@ export const parentStudentLinks = mysqlTable("parent_student_links", {
   id: int("id").autoincrement().primaryKey(),
   parentId: int("parentId").notNull(),
   studentId: int("studentId").notNull(),
+  // 학부모가 요청하면 pending, 학생이 승인해야 approved가 된다. 승인 단계 도입 전 기존 연결은 approved로 유지한다.
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("approved").notNull(),
+  respondedAt: timestamp("respondedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxStudentId: index("idx_parent_student_links_studentId").on(table.studentId),
+  idxParentId: index("idx_parent_student_links_parentId").on(table.parentId),
+}));
+
+// 만 14세 미만 아동 가입 시 법정대리인 동의 기록(개인정보 보호법 제22조의2). 동의 관리대장으로 쓴다.
+export const guardianConsents = mysqlTable("guardian_consents", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  // 아동 생년월일(YYYY-MM-DD). 만 14세 미만 판정의 근거로 이 기록에만 보관한다.
+  childBirthDate: varchar("childBirthDate", { length: 10 }).notNull(),
+  guardianName: varchar("guardianName", { length: 80 }).notNull(),
+  guardianRelation: varchar("guardianRelation", { length: 32 }).notNull(),
+  guardianEmail: varchar("guardianEmail", { length: 320 }).notNull(),
+  tokenHash: varchar("tokenHash", { length: 128 }).notNull(),
+  tokenExpiresAt: timestamp("tokenExpiresAt").notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "withdrawn"]).default("pending").notNull(),
+  // 어떤 문구와 확인 수단으로 동의받았는지 증명하기 위한 값
+  consentVersion: varchar("consentVersion", { length: 32 }).notNull(),
+  consentMethod: varchar("consentMethod", { length: 32 }).default("email_confirmation").notNull(),
+  approvedAt: timestamp("approvedAt"),
+  // 동의 시점의 증적(접속 IP 해시, 브라우저 정보 일부, 입력한 보호자 성명, 체크한 항목). 원문 IP는 저장하지 않는다.
+  evidenceJson: text("evidenceJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUserId: index("idx_guardian_consents_userId").on(table.userId),
+}));
+
+export type GuardianConsent = typeof guardianConsents.$inferSelect;
+export type InsertGuardianConsent = typeof guardianConsents.$inferInsert;
 
 export type ParentStudentLink = typeof parentStudentLinks.$inferSelect;
 export type InsertParentStudentLink = typeof parentStudentLinks.$inferInsert;
+
+// 학부모가 연결된 자녀에게 남기는 응원·지도 코멘트. 예전에는 학생의 운영자 메모(users.adminNotes)에 한 줄 문자열로 섞여 저장되어
+// 학생 화면에서 볼 수 없었다. 학생 본인이 읽을 수 있도록 별도 테이블에 둔다.
+export const parentComments = mysqlTable("parent_comments", {
+  id: int("id").autoincrement().primaryKey(),
+  studentId: int("studentId").notNull(),
+  parentId: int("parentId").notNull(),
+  // 작성 당시 학부모 이름(이름을 바꿔도 기록은 그대로).
+  parentName: varchar("parentName", { length: 100 }),
+  /** 코멘트가 달린 학생의 글(essay_submission.id). 글과 연결된 코멘트만 새로 만들 수 있다(옛 기록은 비어 있다). */
+  essayId: int("essayId"),
+  comment: text("comment").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  idxStudentCreated: index("idx_parent_comments_studentId_createdAt").on(table.studentId, table.createdAt),
+  idxEssayId: index("idx_parent_comments_essayId").on(table.essayId),
+}));
+
+export type ParentComment = typeof parentComments.$inferSelect;
+export type InsertParentComment = typeof parentComments.$inferInsert;
 
 // 학습자는 학급 또는 주제별 그룹에 소속될 수 있으며, 그룹마다 승인 교사를 한 명 지정합니다.
 export const learningGroups = mysqlTable("learning_groups", {
@@ -79,11 +136,15 @@ export const learningGroups = mysqlTable("learning_groups", {
   courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]),
   description: text("description"),
   teacherId: int("teacherId"),
+  /** 이 반의 비용을 부담하는 기관 계약(없으면 개별 학습자 반). 계약이 있으면 이 반에서의 교사 활동은 개별 정산에서 제외된다. */
+  contractId: int("contractId"),
   isActive: int("isActive").default(1).notNull(),
   createdBy: int("createdBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxTeacherId: index("idx_learning_groups_teacherId").on(table.teacherId),
+}));
 
 export const learningGroupMembers = mysqlTable("learning_group_members", {
   id: int("id").autoincrement().primaryKey(),
@@ -91,7 +152,10 @@ export const learningGroupMembers = mysqlTable("learning_group_members", {
   studentId: int("studentId").notNull(),
   addedBy: int("addedBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxGroupId: index("idx_learning_group_members_groupId").on(table.groupId),
+  idxStudentId: index("idx_learning_group_members_studentId").on(table.studentId),
+}));
 
 export type LearningGroup = typeof learningGroups.$inferSelect;
 export type LearningGroupMember = typeof learningGroupMembers.$inferSelect;
@@ -143,7 +207,9 @@ export const classAssignmentSubmissions = mysqlTable("class_assignment_submissio
   score: int("score"),
   teacherComment: text("teacherComment"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxStudentId: index("idx_class_assignment_submissions_studentId").on(table.studentId),
+}));
 
 // 교사 최종 채점 전 AI가 생성한 과제별 1차 첨삭 초안과 구조화 평가 근거를 보존합니다.
 export const classAssignmentAiFeedbacks = mysqlTable("class_assignment_ai_feedbacks", {
@@ -295,7 +361,9 @@ export const userPolicyConsents = mysqlTable("user_policy_consents", {
   evidence: varchar("evidence", { length: 120 }).default("signup_confirmation").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_user_policy_consents_userId").on(table.userId),
+}));
 
 export const dataProcessingRequests = mysqlTable("data_processing_requests", {
   id: int("id").autoincrement().primaryKey(),
@@ -324,7 +392,9 @@ export const pushSubscription = mysqlTable("push_subscription", {
   userAgent: text("userAgent"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_push_subscription_userId").on(table.userId),
+}));
 
 export type PushSubscription = typeof pushSubscription.$inferSelect;
 export type InsertPushSubscription = typeof pushSubscription.$inferInsert;
@@ -347,12 +417,18 @@ export const progress = mysqlTable("progress", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   curriculumId: int("curriculumId").notNull(),
+  courseType: mysqlEnum("courseType", ["elementary", "middle_high", "high_univ", "general_adult"]),
+  curriculumSource: mysqlEnum("curriculumSource", ["static", "dynamic"]),
+  level: int("level"),
   score: int("score").default(0),
   completed: int("completed").default(0), // 0 or 1
   completedAt: timestamp("completedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_progress_userId").on(table.userId),
+  uniqueLearningModule: uniqueIndex("uq_progress_learning_module").on(table.userId, table.courseType, table.curriculumSource, table.curriculumId),
+}));
 
 export type Progress = typeof progress.$inferSelect;
 export type InsertProgress = typeof progress.$inferInsert;
@@ -369,7 +445,9 @@ export const quizAnswer = mysqlTable("quiz_answer", {
   clarityScore: decimal("clarityScore", { precision: 3, scale: 2 }), // 명료성 점수 (0-1)
   accuracyScore: decimal("accuracyScore", { precision: 3, scale: 2 }), // 정확성 점수 (0-1)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_quiz_answer_userId").on(table.userId),
+}));
 
 export type QuizAnswer = typeof quizAnswer.$inferSelect;
 export type InsertQuizAnswer = typeof quizAnswer.$inferInsert;
@@ -402,7 +480,9 @@ export const learningToolAttempts = mysqlTable("learning_tool_attempts", {
   toolType: mysqlEnum("toolType", ["quiz", "reordering", "summary"]).notNull(),
   score: int("score").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_learning_tool_attempts_userId").on(table.userId),
+}));
 
 export type LearningToolAttempt = typeof learningToolAttempts.$inferSelect;
 export type InsertLearningToolAttempt = typeof learningToolAttempts.$inferInsert;
@@ -427,7 +507,21 @@ export const certificate = mysqlTable("certificate", {
   issuedAt: timestamp("issuedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (table) => ({
+  idxUserId: index("idx_certificate_userId").on(table.userId),
+}));
+
+// 수료증 보관 이미지. PDF는 발급 순간에만 브라우저에서 만들어 내려받게 하고, 서버에는 압축 이미지(WebP/JPEG)만 보관한다.
+export const certificateArchives = mysqlTable("certificate_archives", {
+  id: int("id").autoincrement().primaryKey(),
+  certificateId: int("certificateId").notNull().unique(),
+  mimeType: varchar("mimeType", { length: 32 }).notNull(),
+  bytes: int("bytes").notNull(),
+  imageData: mediumtext("imageData").notNull(), // base64
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+export type CertificateArchive = typeof certificateArchives.$inferSelect;
 
 export type Certificate = typeof certificate.$inferSelect;
 export type InsertCertificate = typeof certificate.$inferInsert;
@@ -439,11 +533,20 @@ export const essaySubmission = mysqlTable("essay_submission", {
   curriculumId: int("curriculumId"),
   title: varchar("title", { length: 255 }).notNull(),
   content: text("content").notNull(),
+  clientId: varchar("clientId", { length: 80 }).unique(),
+  syncRevision: int("syncRevision").default(0).notNull(),
+  aiFeedbackId: int("aiFeedbackId"),
   status: mysqlEnum("status", ["draft", "submitted", "reviewed"]).default("draft").notNull(),
   submittedAt: timestamp("submittedAt"),
+  /** 휴지통으로 옮긴 시각. 비어 있지 않으면 글 목록에서 숨기고 휴지통에서만 복원·영구 삭제할 수 있다. */
+  deletedAt: timestamp("deletedAt"),
+  /** 영구 삭제한 시각. 교사 첨삭 기록이 걸린 글은 행을 남기고 제목·본문만 비운 뒤 이 값을 채운다. */
+  purgedAt: timestamp("purgedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_essay_submission_userId").on(table.userId),
+}));
 
 export type EssaySubmission = typeof essaySubmission.$inferSelect;
 export type InsertEssaySubmission = typeof essaySubmission.$inferInsert;
@@ -460,7 +563,10 @@ export const teacherFeedback = mysqlTable("teacher_feedback", {
   expressionScore: int("expressionScore"), // 표현력 점수
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxEssayId: index("idx_teacher_feedback_essayId").on(table.essayId),
+  idxTeacherId: index("idx_teacher_feedback_teacherId").on(table.teacherId),
+}));
 
 export type TeacherFeedback = typeof teacherFeedback.$inferSelect;
 export type InsertTeacherFeedback = typeof teacherFeedback.$inferInsert;
@@ -509,7 +615,9 @@ export const teacherAiDrafts = mysqlTable("teacher_ai_drafts", {
   approvedAt: timestamp("approvedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxEssayId: index("idx_teacher_ai_drafts_essayId").on(table.essayId),
+}));
 
 export const teacherAiDraftRevisions = mysqlTable("teacher_ai_draft_revisions", {
   id: int("id").autoincrement().primaryKey(),
@@ -526,6 +634,26 @@ export type TeacherAiProfile = typeof teacherAiProfiles.$inferSelect;
 export type TeacherAiStyleExample = typeof teacherAiStyleExamples.$inferSelect;
 export type TeacherAiDraft = typeof teacherAiDrafts.$inferSelect;
 export type TeacherAiDraftRevision = typeof teacherAiDraftRevisions.$inferSelect;
+
+// 학생이 받은 교사 첨삭에 매기는 별점(1~5)과 후기. 첨삭 1건당 평가 1건이며 학생이 고칠 수 있다.
+// 관리자는 이 기록을 모아 교사별 평점·후기를 보고 교사를 평가·관리한다.
+export const teacherFeedbackRatings = mysqlTable("teacher_feedback_ratings", {
+  id: int("id").autoincrement().primaryKey(),
+  feedbackId: int("feedbackId").notNull(),
+  essayId: int("essayId").notNull(),
+  studentId: int("studentId").notNull(),
+  teacherId: int("teacherId").notNull(),
+  rating: int("rating").notNull(), // 1~5
+  review: text("review"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uqFeedback: uniqueIndex("uq_tf_ratings_feedbackId").on(table.feedbackId),
+  idxTeacher: index("idx_tf_ratings_teacherId").on(table.teacherId),
+  idxStudent: index("idx_tf_ratings_studentId").on(table.studentId),
+}));
+
+export type TeacherFeedbackRating = typeof teacherFeedbackRatings.$inferSelect;
 
 // 첨삭 코멘트 테이블 (문장별 코멘트)
 export const feedbackComment = mysqlTable("feedback_comment", {
@@ -560,7 +688,9 @@ export const aiAutoFeedback = mysqlTable("ai_auto_feedback", {
   strengths: text("strengths"), // JSON array
   weaknesses: text("weaknesses"), // JSON array
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_ai_auto_feedback_userId").on(table.userId),
+}));
 
 export type AIAutoFeedback = typeof aiAutoFeedback.$inferSelect;
 export type InsertAIAutoFeedback = typeof aiAutoFeedback.$inferInsert;
@@ -658,10 +788,23 @@ export const aiUsageLogs = mysqlTable("ai_usage_logs", {
   actionType: varchar("actionType", { length: 50 }).notNull(), // 'essay_feedback', 'sentence_quiz', etc.
   tokensUsed: int("tokensUsed").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserIdCreatedAt: index("idx_ai_usage_logs_userId_createdAt").on(table.userId, table.createdAt),
+}));
 
 export type AIUsageLog = typeof aiUsageLogs.$inferSelect;
 export type InsertAIUsageLog = typeof aiUsageLogs.$inferInsert;
+
+// 비로그인 샘플 체험 AI 첨삭 남용 방지용 익명 카운터 (개인 학습 기록과 분리, 세션당/IP당 한도 확인용)
+export const sampleAiUsageLog = mysqlTable("sample_ai_usage_log", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionToken: varchar("sessionToken", { length: 64 }).notNull(),
+  ipHash: varchar("ipHash", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SampleAiUsageLog = typeof sampleAiUsageLog.$inferSelect;
+export type InsertSampleAiUsageLog = typeof sampleAiUsageLog.$inferInsert;
 
 // 관리자 메모 히스토리 테이블
 export const adminMemoHistory = mysqlTable("admin_memo_history", {
@@ -691,7 +834,9 @@ export const dynamicCurriculum = mysqlTable("dynamic_curriculum", {
   isActive: int("isActive").default(1).notNull(), // 1: 활성, 0: 비활성
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxCourseType: index("idx_dynamic_curriculum_courseType").on(table.courseType),
+}));
 
 export type DynamicCurriculum = typeof dynamicCurriculum.$inferSelect;
 export type InsertDynamicCurriculum = typeof dynamicCurriculum.$inferInsert;
@@ -780,7 +925,9 @@ export const userBadges = mysqlTable("user_badges", {
   badgeType: varchar("badgeType", { length: 64 }).notNull(), // summary, reordering, quiz, topic_wizard, thesis_checklist
   badgeName: varchar("badgeName", { length: 128 }).notNull(),
   earnedAt: timestamp("earnedAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_user_badges_userId").on(table.userId),
+}));
 
 export type UserBadge = typeof userBadges.$inferSelect;
 export type InsertUserBadge = typeof userBadges.$inferInsert;
@@ -796,7 +943,9 @@ export const questionBank = mysqlTable("question_bank", {
   isActive: int("isActive").default(1).notNull(), // 1: 활성, 0: 비활성
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  idxCourseType: index("idx_question_bank_courseType").on(table.courseType),
+}));
 
 export type QuestionBank = typeof questionBank.$inferSelect;
 export type InsertQuestionBank = typeof questionBank.$inferInsert;
@@ -869,7 +1018,9 @@ export const questionBookmarks = mysqlTable("question_bookmarks", {
   userId: int("userId").notNull(),
   questionId: int("questionId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_question_bookmarks_userId").on(table.userId),
+}));
 
 export type QuestionBookmark = typeof questionBookmarks.$inferSelect;
 export type InsertQuestionBookmark = typeof questionBookmarks.$inferInsert;
@@ -888,7 +1039,9 @@ export const curriculumWorkbookQuestions = mysqlTable("curriculum_workbook_quest
   explanation: text("explanation").notNull(),
   questionType: varchar("questionType", { length: 50 }).default("subjective").notNull(), // subjective, objective
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxCourseType: index("idx_curriculum_workbook_questions_courseType").on(table.courseType),
+}));
 
 export type CurriculumWorkbookQuestion = typeof curriculumWorkbookQuestions.$inferSelect;
 export type InsertCurriculumWorkbookQuestion = typeof curriculumWorkbookQuestions.$inferInsert;
@@ -904,7 +1057,9 @@ export const curriculumWorkbookAnswers = mysqlTable("curriculum_workbook_answers
   score: int("score").default(0), // 0-100 score
   evaluationJson: text("evaluationJson"), // 서술형 AI 평가의 주제 적합성·논증·근거·분석·표현 기준별 결과
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_curriculum_workbook_answers_userId").on(table.userId),
+}));
 
 export type CurriculumWorkbookAnswer = typeof curriculumWorkbookAnswers.$inferSelect;
 export type InsertCurriculumWorkbookAnswer = typeof curriculumWorkbookAnswers.$inferInsert;
@@ -917,7 +1072,9 @@ export const workbookMistakes = mysqlTable("workbook_mistakes", {
   userAnswer: text("userAnswer").notNull(),
   aiFeedback: text("aiFeedback"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_workbook_mistakes_userId").on(table.userId),
+}));
 
 export type WorkbookMistake = typeof workbookMistakes.$inferSelect;
 export type InsertWorkbookMistake = typeof workbookMistakes.$inferInsert;
@@ -933,7 +1090,9 @@ export const learningToolMistakes = mysqlTable("learning_tool_mistakes", {
   score: int("score").notNull(),
   aiFeedback: text("aiFeedback"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_learning_tool_mistakes_userId").on(table.userId),
+}));
 
 export type LearningToolMistake = typeof learningToolMistakes.$inferSelect;
 export type InsertLearningToolMistake = typeof learningToolMistakes.$inferInsert;
@@ -998,7 +1157,249 @@ export const appNotifications = mysqlTable("app_notifications", {
   isRead: int("isRead").default(0).notNull(), // 0: 안 읽음, 1: 읽음
   readAt: timestamp("readAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  idxUserId: index("idx_app_notifications_userId").on(table.userId),
+}));
 
 export type AppNotification = typeof appNotifications.$inferSelect;
 export type InsertAppNotification = typeof appNotifications.$inferInsert;
+
+// ========== 결제·이용권 ==========
+// 결제 주문. provider가 "mock"이면 실제 결제가 아닌 임시(테스트) 결제다(isTest=1). 실제 결제 연동 뒤에는 provider만 바뀐다.
+export const paymentOrders = mysqlTable("payment_orders", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  planKey: varchar("planKey", { length: 40 }).notNull(),
+  amountKrw: int("amountKrw").notNull(),
+  currency: varchar("currency", { length: 8 }).default("KRW").notNull(),
+  status: mysqlEnum("status", ["pending", "paid", "failed", "cancelled", "refunded"]).default("pending").notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  providerOrderId: varchar("providerOrderId", { length: 80 }).notNull().unique(),
+  /** 학부모가 연결된 자녀에게 구매해 준 주문이면 결제한 학부모의 계정. userId는 이용권을 받는 학생이다. 본인이 산 주문은 비어 있다. */
+  payerUserId: int("payerUserId"),
+  providerPaymentKey: varchar("providerPaymentKey", { length: 200 }),
+  isTest: int("isTest").default(0).notNull(),
+  failureReason: varchar("failureReason", { length: 255 }),
+  paidAt: timestamp("paidAt"),
+  refundedAt: timestamp("refundedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PaymentOrder = typeof paymentOrders.$inferSelect;
+export type InsertPaymentOrder = typeof paymentOrders.$inferInsert;
+
+// 이용권. 결제가 확정되면 만들어지고, 기간(currentPeriodEnd) 안에서만 유효하다.
+export const subscriptions = mysqlTable("subscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  planKey: varchar("planKey", { length: 40 }).notNull(),
+  status: mysqlEnum("status", ["active", "cancelled", "expired"]).default("active").notNull(),
+  currentPeriodStart: timestamp("currentPeriodStart").notNull(),
+  currentPeriodEnd: timestamp("currentPeriodEnd").notNull(),
+  /** 결제 시점의 AI 평가 한도(요금제가 나중에 바뀌어도 이미 결제한 이용권의 한도는 유지) */
+  aiEvaluationsLimit: int("aiEvaluationsLimit").notNull(),
+  /** package: 결제 후 '유료 이용 시작'을 눌러야 기간이 시작되는 30일 상품 / addon: 구매일부터 기간이 시작되는 추가권 */
+  kind: varchar("kind", { length: 16 }).default("package").notNull(),
+  /** 이용 시작 시 기간 계산에 쓰는 일수(결제 시점의 상품 정의를 보존) */
+  periodDays: int("periodDays").default(30).notNull(),
+  /** 1이면 결제는 끝났지만 이용자가 아직 '유료 이용 시작'을 누르지 않은 상태(기간·AI 횟수가 시작되지 않음) */
+  awaitingStart: int("awaitingStart").default(0).notNull(),
+  orderId: int("orderId"),
+  cancelledAt: timestamp("cancelledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUserId: index("idx_subscriptions_userId").on(table.userId),
+}));
+
+// 교사 첨삭지도권(횟수권). 일반 첨삭 1종을 1·3·5회분으로 판매하고, 이용권 결제자가 구매한다.
+// 신청 1건이 권에서 1회를 차감하고, 전달 전에 취소하면 횟수가 돌아온다. 교사 지급은 계약급여로 따로 집행하므로 정산과 연결하지 않는다.
+export const teacherFeedbackPasses = mysqlTable("teacher_feedback_passes", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  productKey: varchar("productKey", { length: 40 }).notNull(), // tf_pass_1 | tf_pass_3 | tf_pass_5
+  /** 구매한 총 횟수와 사용한 횟수(결제 시점의 상품 정의를 보존) */
+  sessions: int("sessions").notNull(),
+  sessionsUsed: int("sessionsUsed").default(0).notNull(),
+  priceKrw: int("priceKrw").notNull(),
+  orderId: int("orderId").notNull(),
+  status: mysqlEnum("status", ["active", "refunded"]).default("active").notNull(),
+  /** 구매일부터 유효기간이 끝나는 시각. 지나면 남은 횟수로 새 신청을 할 수 없다(미사용 잔액의 환급 신청은 가능) */
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUserId: index("idx_tf_passes_userId").on(table.userId),
+  idxOrderId: index("idx_tf_passes_orderId").on(table.orderId),
+}));
+
+export type TeacherFeedbackPass = typeof teacherFeedbackPasses.$inferSelect;
+
+// 교사 첨삭 신청. 첨삭지도권 1회를 차감해 만든다.
+// paid(신청 완료, 교사 대기) → in_progress(교사 작업 중) → delivered(결과 전달) / cancelled(전달 전 취소, 횟수 복원) / refunded(관리자 환불).
+export const teacherFeedbackRequests = mysqlTable("teacher_feedback_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  essayId: int("essayId").notNull(),
+  /** 차감한 첨삭지도권 */
+  passId: int("passId").notNull(),
+  /** 신청 시점에 배정된 담당 교사 */
+  teacherId: int("teacherId").notNull(),
+  status: mysqlEnum("status", ["paid", "in_progress", "delivered", "cancelled", "refunded"]).default("paid").notNull(),
+  /** 완료 예정일: 신청한 날부터 영업일 기준으로 계산해 신청 전에 안내하고, 지나면 학생이 취소·대기를 선택할 수 있다 */
+  dueAt: timestamp("dueAt").notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+  teacherFeedbackId: int("teacherFeedbackId"),
+  reworkCount: int("reworkCount").default(0).notNull(),
+  reworkNote: text("reworkNote"),
+  cancelledAt: timestamp("cancelledAt"),
+  cancelReason: varchar("cancelReason", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  idxUserId: index("idx_tf_requests_userId").on(table.userId),
+  idxTeacherStatus: index("idx_tf_requests_teacherId_status").on(table.teacherId, table.status),
+  idxEssayId: index("idx_tf_requests_essayId").on(table.essayId),
+  idxPassId: index("idx_tf_requests_passId").on(table.passId),
+}));
+
+export type TeacherFeedbackRequest = typeof teacherFeedbackRequests.$inferSelect;
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = typeof subscriptions.$inferInsert;
+
+// ========== 교사 정산 ==========
+// 첨삭 활동 유형별 건당 단가(원). 행이 없는 유형은 shared/settlement.ts의 기본 단가를 쓴다.
+export const teacherSettlementRates = mysqlTable("teacher_settlement_rates", {
+  id: int("id").autoincrement().primaryKey(),
+  activityType: varchar("activityType", { length: 40 }).notNull().unique(),
+  unitAmountKrw: int("unitAmountKrw").notNull(),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TeacherSettlementRate = typeof teacherSettlementRates.$inferSelect;
+
+// 교사별·월별 정산서. draft(산출 중, 다시 산출 가능) → confirmed(확정, 항목·단가 고정) → paid(지급 완료).
+export const teacherSettlements = mysqlTable("teacher_settlements", {
+  id: int("id").autoincrement().primaryKey(),
+  teacherId: int("teacherId").notNull(),
+  periodMonth: varchar("periodMonth", { length: 7 }).notNull(), // YYYY-MM
+  itemsJson: text("itemsJson").notNull(),
+  grossKrw: int("grossKrw").notNull(),
+  withholdingPct: varchar("withholdingPct", { length: 8 }).notNull(),
+  withholdingKrw: int("withholdingKrw").notNull(),
+  netKrw: int("netKrw").notNull(),
+  status: mysqlEnum("status", ["draft", "confirmed", "paid"]).default("draft").notNull(),
+  note: text("note"),
+  confirmedBy: int("confirmedBy"),
+  confirmedAt: timestamp("confirmedAt"),
+  paidBy: int("paidBy"),
+  paidAt: timestamp("paidAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  teacherMonthUnique: uniqueIndex("uq_teacher_settlements_teacher_month").on(table.teacherId, table.periodMonth),
+}));
+
+export type TeacherSettlement = typeof teacherSettlements.$inferSelect;
+export type InsertTeacherSettlement = typeof teacherSettlements.$inferInsert;
+
+// ========== 기관 계약·정산 제외 ==========
+// 학교·기관 계약. 기간(periodStart~periodEnd, 끝은 포함하지 않음) 안에서만 유효하고, 세 가지 예산(토큰 = 서비스 이용 횟수)을 가진다.
+//  - human: 교사 첨삭·과제 채점·워크북 첨삭 1건 / ai: AI 평가 1회(성공한 것) / management: 출결 기록·공지·과제 생성 1건
+// used 값에는 예약(진행 중)한 횟수가 포함되며, 실패하면 되돌린다. 한도를 넘는 차감은 조건부 갱신으로 막는다.
+export const institutionContracts = mysqlTable("institution_contracts", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull(),
+  contractCode: varchar("contractCode", { length: 80 }).notNull().unique(),
+  periodStart: timestamp("periodStart").notNull(),
+  periodEnd: timestamp("periodEnd").notNull(),
+  status: mysqlEnum("status", ["draft", "active", "suspended", "closed"]).default("draft").notNull(),
+  humanLimit: int("humanLimit").default(0).notNull(),
+  aiLimit: int("aiLimit").default(0).notNull(),
+  managementLimit: int("managementLimit").default(0).notNull(),
+  humanUsed: int("humanUsed").default(0).notNull(),
+  aiUsed: int("aiUsed").default(0).notNull(),
+  managementUsed: int("managementUsed").default(0).notNull(),
+  // 이용 방식: quota(횟수제) / period(기간제: 계약 기간 동안 횟수 제한 없음, 횟수는 기록만).
+  usageMode: mysqlEnum("usageMode", ["quota", "period"]).default("quota").notNull(),
+  // 횟수제에서 예산을 모두 쓴 뒤: block(차단) / warn(계속 이용, 초과분 기록).
+  overageAction: mysqlEnum("overageAction", ["block", "warn"]).default("block").notNull(),
+  memo: varchar("memo", { length: 500 }),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type InstitutionContract = typeof institutionContracts.$inferSelect;
+
+// 기관 소속 회원(회원 단위 정산 제외). 학생이면 그 학생에 대한 교사의 모든 첨삭이, 교사이면 그 교사의 모든 활동이 개별 정산에서 제외된다.
+// contractId가 있으면 그 계약이 이 학생의 AI 평가 비용을 부담한다(없으면 정산 제외만 하고 이용 자격은 주지 않는다).
+export const institutionMembers = mysqlTable("institution_members", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  contractId: int("contractId"),
+  excludeIndividualSettlement: int("excludeIndividualSettlement").default(1).notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  createdBy: int("createdBy").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  endedAt: timestamp("endedAt"),
+});
+
+export type InstitutionMember = typeof institutionMembers.$inferSelect;
+
+// 계약 예산 사용 장부. 같은 출처(source)는 한 번만 차감한다. 실패한 예약은 released로 남겨 감사에 쓴다.
+export const institutionUsage = mysqlTable("institution_usage", {
+  id: int("id").autoincrement().primaryKey(),
+  contractId: int("contractId").notNull(),
+  budgetType: mysqlEnum("budgetType", ["human", "ai", "management"]).notNull(),
+  actorId: int("actorId").notNull(),
+  studentId: int("studentId"),
+  groupId: int("groupId"),
+  sourceType: varchar("sourceType", { length: 40 }),
+  sourceId: int("sourceId"),
+  status: mysqlEnum("status", ["consumed", "released"]).default("consumed").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  sourceUnique: uniqueIndex("uq_institution_usage_source").on(table.budgetType, table.sourceType, table.sourceId),
+}));
+
+export type InstitutionUsage = typeof institutionUsage.$inferSelect;
+
+// 교사 활동의 정산 대상 여부를 활동이 처음 완료된 시점의 정책으로 고정해 기록한다(이후 계약·소속이 바뀌어도 과거 활동의 해석은 바뀌지 않는다).
+// 정산에서 제외되는 경우: automaticExclusion이 none이 아니거나 manualExcluded=1.
+export const teacherActivityAccounting = mysqlTable("teacher_activity_accounting", {
+  id: int("id").autoincrement().primaryKey(),
+  activityType: varchar("activityType", { length: 40 }).notNull(),
+  sourceId: int("sourceId").notNull(),
+  teacherId: int("teacherId").notNull(),
+  studentId: int("studentId").notNull(),
+  groupId: int("groupId"),
+  contractId: int("contractId"),
+  occurredAt: timestamp("occurredAt").notNull(),
+  automaticExclusion: mysqlEnum("automaticExclusion", ["none", "institution_contract", "institution_member", "teacher_member"]).default("none").notNull(),
+  manualExcluded: int("manualExcluded").default(0).notNull(),
+  manualExclusionReason: varchar("manualExclusionReason", { length: 500 }),
+  manualExcludedBy: int("manualExcludedBy"),
+  manualExcludedAt: timestamp("manualExcludedAt"),
+  policySnapshotJson: text("policySnapshotJson").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  sourceUnique: uniqueIndex("uq_teacher_activity_source").on(table.activityType, table.sourceId),
+}));
+
+export type TeacherActivityAccounting = typeof teacherActivityAccounting.$inferSelect;
+
+// 계약·반·소속·정산 제외 변경 이력(누가 언제 무엇을 왜 바꿨는지).
+export const institutionAuditLogs = mysqlTable("institution_audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  actorId: int("actorId").notNull(),
+  action: varchar("action", { length: 64 }).notNull(),
+  targetType: varchar("targetType", { length: 40 }).notNull(),
+  targetId: int("targetId").notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  detailJson: text("detailJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
