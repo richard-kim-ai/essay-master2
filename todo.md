@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Local] AI 평가 응답 형식 검사 실패 시 문제가 된 필드 이름 기록(writingEvaluationEngine.ts parseSemanticResult, 응답 본문은 저장하지 않음) — 시작 2026-10-14 00:10
 
 ## 완료
 
