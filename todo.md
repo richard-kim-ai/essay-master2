@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Codex] PR #14 merge conflict resolution — 시작 2026-10-14 00:15
 - [Manus] 로컬·Manus Git 동기화 및 상호 검증 구조 점검 — 시작 2026-08-22 14:35
 
 ## 완료
