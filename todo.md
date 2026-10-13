@@ -3,6 +3,7 @@
 ## 진행 중 (Claim)
 
 ## 완료
+- [Manus] 메인 CTA 문구를 ‘지금 시작하기’로 통일하고 역할별 이동 경로 보존 — 시작 2026-08-22 23:24, 완료 2026-08-22 23:29
 
 - [Manus] AI 첨삭 모델 응답 스키마 정규화 및 JSON 계약 강화 — 시작 2026-10-13 22:17, 완료 2026-10-13 (Master Prompt에 영문 decision·배열형 dimension_scores·점수 범위를 명시하고, 한국어 판정 alias·객체형 12 competency·1~5 점수 스케일을 표준 계약으로 정규화. 정규화 회귀 11건·전체 Vitest·TypeScript·프로덕션 빌드 통과. 실제 gpt-5-mini 평가에서 dimension_count 12, fallback_used false, token_usage 3168 확인)
 
@@ -189,6 +190,13 @@
 - [x] 검증 불가 이용자 수·평점·만족도 지표는 노출하지 않고 기존 시각 위계 유지
 - [x] 데스크톱·모바일 렌더링, CTA 시맨틱, TypeScript·Vitest 회귀 검증 후 저장
 - [x] 최신 GitHub main과의 병합 충돌을 해결하고 기존 메인 히어로 복원 변경을 재검증
+
+## 2026-08 추가 요청: 메인 CTA 문구 통일
+- [x] 관리자·교사·학습자·비로그인 상태의 메인 상단·하단 CTA 문구를 ‘지금 시작하기’로 통일
+- [x] 역할별 CTA 목적지와 단일 링크 시맨틱·키보드 탐색을 유지하는 회귀 테스트 보강
+- [x] TypeScript·Vitest·메인 화면 렌더링 검증 후 저장
+- [x] 관리자·교사·학습자·비로그인 각 역할의 CTA href(`/admin`, `/teacher-mypage`, `/mypage`, `/curriculum`) 보존 회귀 테스트 추가
+- [x] 역할별 CTA 목적지·공통 문구·단일 링크 시맨틱을 전체 Vitest로 재검증
 
 ## 2026-08 추가 요청: 공동 승인 화면 탭바 UX
 

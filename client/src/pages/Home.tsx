@@ -219,7 +219,7 @@ export default function Home() {
             <h2 className="mt-4 text-3xl font-black leading-tight tracking-[-0.035em]">한 번의 답보다,
               <br />다음에 더 잘 쓰는 힘을 만듭니다.</h2>
             <Link href={primaryAction.href} className="mt-8 inline-flex items-center font-bold text-white underline decoration-indigo-300 underline-offset-4 hover:decoration-white">
-              {primaryAction.label}<ArrowRight className="ml-2 h-4 w-4" />
+              {primaryActionLabel}<ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </div>
           <div className="grid content-center gap-4 sm:grid-cols-3">
