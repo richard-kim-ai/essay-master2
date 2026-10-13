@@ -3,6 +3,7 @@
 ## 진행 중 (Claim)
 
 ## 완료
+- [Codex] PR #14 merge conflict resolution — 완료 2026-10-14 00:14 (latest main merged; current implementations and backup automatic Git sync guard preserved; TypeScript passed; Vitest 992 passed, 2 skipped)
 
 - [Manus] AI 첨삭 모델 응답 스키마 정규화 및 JSON 계약 강화 — 시작 2026-10-13 22:17, 완료 2026-10-13 (Master Prompt에 영문 decision·배열형 dimension_scores·점수 범위를 명시하고, 한국어 판정 alias·객체형 12 competency·1~5 점수 스케일을 표준 계약으로 정규화. 정규화 회귀 11건·전체 Vitest·TypeScript·프로덕션 빌드 통과. 실제 gpt-5-mini 평가에서 dimension_count 12, fallback_used false, token_usage 3168 확인)
 
