@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./_core/llm", () => ({ invokeLLM: vi.fn(), listLLMModels: vi.fn() }));
 
 import { invokeLLM, listLLMModels } from "./_core/llm";
-import { invokeLLMText, llmResponseText, resetLlmModelCache } from "./_core/llmText";
+import { invokeLLMText, llmResponseText, resetLlmModelCache, TEXT_GENERATION_MAX_TOKENS } from "./_core/llmText";
 
 const reply = (content: unknown, tokens = 10, finish = "stop") => ({ choices: [{ message: { content }, finish_reason: finish }], usage: { total_tokens: tokens } }) as never;
 const models = (...ids: string[]) => ({ object: "list", data: ids.map(id => ({ id, object: "model", created: 0, owned_by: "x" })) }) as never;
@@ -30,6 +30,14 @@ describe("invokeLLMText", () => {
     const result = await invokeLLMText({ messages: [{ role: "user", content: "x" }] });
     expect(result).toEqual({ text: '{"ok":true}', model: "gpt-5", totalTokens: 25 });
     expect(vi.mocked(invokeLLM).mock.calls.map(call => call[0].model)).toEqual(["gpt-5-mini", "gpt-5"]);
+    expect(vi.mocked(invokeLLM).mock.calls.map(call => call[0].max_tokens)).toEqual([4500, 4500]);
+  });
+
+  it("의미론 첨삭 후보 모델에 충분한 JSON 출력 토큰 상한을 전달한다", async () => {
+    vi.mocked(listLLMModels).mockResolvedValue(models("gpt-5-mini", "gpt-5", "claude-haiku-4-5"));
+    vi.mocked(invokeLLM).mockResolvedValue(reply('{"ok":true}', 12));
+    await invokeLLMText({ messages: [] });
+    expect(vi.mocked(invokeLLM).mock.calls[0][0].max_tokens).toBe(TEXT_GENERATION_MAX_TOKENS["gpt-5-mini"]);
   });
 
   it("모든 모델이 비면 LLM_EMPTY_RESPONSE 오류를 던진다", async () => {

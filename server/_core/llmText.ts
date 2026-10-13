@@ -16,6 +16,15 @@ export function llmResponseText(response: InvokeResult | undefined): string {
 // 기본 모델이 빈 응답을 주는 일이 있어 이론 콘텐츠(theoryLessonContent)와 같은 순서로 모델을 지정해 시도한다.
 export const TEXT_GENERATION_MODELS = ["gpt-5-mini", "gpt-5", "claude-haiku-4-5"] as const;
 
+// 의미론 평가 결과는 12개 competency와 근거·학습 추천을 함께 반환하므로
+// 짧은 기본 출력 한도에서는 JSON이 중간에 잘릴 수 있다. 모델별로 충분한
+// 상한을 지정하되, 실제 응답 길이만큼만 사용량이 청구되도록 한다.
+export const TEXT_GENERATION_MAX_TOKENS: Record<(typeof TEXT_GENERATION_MODELS)[number], number> = {
+  "gpt-5-mini": 4500,
+  "gpt-5": 4500,
+  "claude-haiku-4-5": 4500,
+};
+
 const MODEL_LIST_TTL_MS = 10 * 60 * 1000;
 let modelListCache: { at: number; ids: string[] } | null = null;
 
@@ -52,7 +61,15 @@ export async function invokeLLMText(params: Omit<InvokeParams, "model">): Promis
   let totalTokens = 0;
   let lastFinishReason: string | null = null;
   for (const model of await candidateModels()) {
-    const response = await invokeLLM(model ? { ...params, model } : params);
+    const modelMaxTokens = model && model in TEXT_GENERATION_MAX_TOKENS
+      ? TEXT_GENERATION_MAX_TOKENS[model as keyof typeof TEXT_GENERATION_MAX_TOKENS]
+      : undefined;
+    const request = modelMaxTokens
+      ? { ...params, ...(model ? { model } : {}), max_tokens: modelMaxTokens }
+      : model
+        ? { ...params, model }
+        : params;
+    const response = await invokeLLM(request);
     totalTokens += Math.max(0, Math.round(Number(response?.usage?.total_tokens ?? 0)));
     const text = llmResponseText(response);
     if (text) return { text, model: model ?? null, totalTokens };
