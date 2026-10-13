@@ -83,7 +83,10 @@ function normalizeScore(value: unknown): number | null {
   return Math.round(score <= 5 ? score * 20 : score);
 }
 
-function normalizeDimensions(value: unknown): DimensionScore[] | null {
+// 형식이 맞지 않으면 어느 항목이 문제인지(항목 이름만, 응답 내용은 제외)를 돌려준다.
+type Parsed<T> = { value: T } | { invalid: string };
+
+function normalizeDimensions(value: unknown): Parsed<DimensionScore[]> {
   const rows = Array.isArray(value)
     ? value
     : value && typeof value === "object"
@@ -91,31 +94,38 @@ function normalizeDimensions(value: unknown): DimensionScore[] | null {
           row && typeof row === "object" ? { competency, ...(row as Record<string, unknown>) } : { competency, score: row },
         )
       : null;
-  if (!rows || rows.length !== 12) return null;
+  if (!rows) return { invalid: "dimension_scores(없음 또는 배열·객체 아님)" };
+  if (rows.length !== 12) return { invalid: `dimension_scores(${rows.length}개, 12개 필요)` };
   const dimensions: DimensionScore[] = [];
-  for (const item of rows) {
-    if (!item || typeof item !== "object") return null;
+  for (let index = 0; index < rows.length; index += 1) {
+    const item = rows[index];
+    if (!item || typeof item !== "object") return { invalid: `dimension_scores[${index}](객체 아님)` };
     const row = item as Record<string, unknown>;
     const competency = asText(row.competency);
     const evidence = asText(row.evidence);
     const score = normalizeScore(row.score);
-    if (!competency || !evidence || score === null) return null;
-    dimensions.push({ competency, score, evidence });
+    const missing = [!competency && "competency", !evidence && "evidence", score === null && "score"].filter(Boolean);
+    if (missing.length) return { invalid: `dimension_scores[${index}].${missing.join("/")}` };
+    dimensions.push({ competency: competency!, score: score!, evidence: evidence! });
   }
-  return dimensions;
+  return { value: dimensions };
 }
 
-function parseSemanticResult(value: unknown): Omit<SemanticWritingEvaluationResult, "fallback_used" | "provider_error" | "token_usage"> | null {
-  if (!value || typeof value !== "object") return null;
+function parseSemanticResult(value: unknown): Parsed<Omit<SemanticWritingEvaluationResult, "fallback_used" | "provider_error" | "token_usage">> {
+  if (!value || typeof value !== "object") return { invalid: "응답 전체(객체 아님)" };
   const raw = value as Record<string, unknown>;
+  const invalid: string[] = [];
   const decision = DECISION_ALIASES[String(raw.decision).trim()];
-  if (!decision) return null;
+  if (!decision) invalid.push("decision");
   const total = normalizeScore(raw.total_score);
-  if (total === null) return null;
+  if (total === null) invalid.push("total_score");
   const dimensions = normalizeDimensions(raw.dimension_scores);
-  if (!dimensions) return null;
+  if ("invalid" in dimensions) invalid.push(dimensions.invalid);
   const list = (field: unknown) => Array.isArray(field) && field.every((item) => typeof item === "string") ? field.slice(0, 12) as string[] : null;
   const strengths = list(raw.strengths), improvements = list(raw.improvement_points), errors = list(raw.error_patterns);
+  if (!strengths) invalid.push("strengths");
+  if (!improvements) invalid.push("improvement_points");
+  if (!errors) invalid.push("error_patterns");
   const feedback = raw.feedback as Record<string, unknown> | undefined;
   const recommendation = raw.next_learning_recommendation as Record<string, unknown> | undefined;
   const summary = feedback && asText(feedback.summary);
@@ -123,8 +133,19 @@ function parseSemanticResult(value: unknown): Omit<SemanticWritingEvaluationResu
   const examples = feedback && list(feedback.model_sentence_examples);
   const category = recommendation && asText(recommendation.theory_category);
   const reason = recommendation && asText(recommendation.reason);
-  if (!strengths || !improvements || !errors || !summary || !steps || !examples || !category || !reason) return null;
-  return { engine_version: "1.1", decision, total_score: total, level: asText(raw.level) ?? "보통", dimension_scores: dimensions, strengths, improvement_points: improvements, error_patterns: errors, feedback: { summary, revision_steps: steps, model_sentence_examples: examples }, next_learning_recommendation: { theory_category: category, reason } };
+  if (!summary) invalid.push("feedback.summary");
+  if (!steps) invalid.push("feedback.revision_steps");
+  if (!examples) invalid.push("feedback.model_sentence_examples");
+  if (!category) invalid.push("next_learning_recommendation.theory_category");
+  if (!reason) invalid.push("next_learning_recommendation.reason");
+  if (invalid.length || !decision || total === null || "invalid" in dimensions || !strengths || !improvements || !errors || !summary || !steps || !examples || !category || !reason) return { invalid: invalid.join(", ") };
+  return { value: { engine_version: "1.1", decision, total_score: total, level: asText(raw.level) ?? "보통", dimension_scores: dimensions.value, strengths, improvement_points: improvements, error_patterns: errors, feedback: { summary, revision_steps: steps, model_sentence_examples: examples }, next_learning_recommendation: { theory_category: category, reason } } };
+}
+
+/** 형식 검사 실패 사유: 문제 항목과 AI가 돌려준 최상위 키 이름(값·본문은 넣지 않는다). */
+function contractErrorMessage(invalid: string, value: unknown): string {
+  const keys = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value as object).slice(0, 15).map((key) => key.slice(0, 30)).join(", ") : typeof value;
+  return `LLM_INVALID_EVALUATION_CONTRACT (invalid: ${invalid}; received: ${keys})`.slice(0, 450);
 }
 
 export async function evaluateWritingWithLLM(request: SemanticEvaluationRequest): Promise<SemanticWritingEvaluationResult> {
@@ -135,12 +156,13 @@ export async function evaluateWritingWithLLM(request: SemanticEvaluationRequest)
       messages: [{ role: "system", content: request.metadata.learner_history ? MASTER_PROMPT + PERSONALIZATION_NOTE : MASTER_PROMPT }, { role: "user", content: JSON.stringify({ metadata: request.metadata, task: request.task, submission: request.submission }) }],
       response_format: { type: "json_object" },
     });
-    const parsed = parseSemanticResult(JSON.parse(text));
-    if (!parsed) throw new Error("LLM_INVALID_EVALUATION_CONTRACT");
-    return { ...parsed, fallback_used: false, provider_error: null, token_usage: totalTokens };
+    const json = JSON.parse(text);
+    const parsed = parseSemanticResult(json);
+    if ("invalid" in parsed) throw new Error(contractErrorMessage(parsed.invalid, json));
+    return { ...parsed.value, fallback_used: false, provider_error: null, token_usage: totalTokens };
   } catch (error) {
     // 사유 원문은 서버 로그에만 남긴다(사용자에게는 안내 문구로 바꿔 보여 준다).
-    console.warn("[AI 평가] 모델 호출 실패 — 기본 점검 결과로 대체:", error instanceof Error ? error.message.slice(0, 300) : error);
+    console.warn("[AI 평가] 모델 호출 실패 — 기본 점검 결과로 대체:", error instanceof Error ? error.message.slice(0, 450) : error);
     const fallbackRequest: WritingCorrectionRequest = { essayTitle: String(request.metadata.title ?? "논술 답안"), essayContent: request.submission.essay_text, courseType: "general_adult", level: 1 };
     const fallback = evaluateWritingHeuristic(fallbackRequest);
     return {
@@ -148,7 +170,7 @@ export async function evaluateWritingWithLLM(request: SemanticEvaluationRequest)
       dimension_scores: [], strengths: fallback.strengths, improvement_points: [...fallback.weaknesses, ...fallback.suggestions], error_patterns: [],
       feedback: { summary: fallback.overallComment, revision_steps: fallback.suggestions, model_sentence_examples: [] },
       next_learning_recommendation: { theory_category: "주장과 근거", reason: "주장과 근거의 연결을 다시 점검해 주세요." }, fallback_used: true,
-      provider_error: error instanceof Error ? error.message.slice(0, 300) : "LLM_UNKNOWN_ERROR", token_usage: 0,
+      provider_error: error instanceof Error ? error.message.slice(0, 450) : "LLM_UNKNOWN_ERROR", token_usage: 0,
     };
   }
 }

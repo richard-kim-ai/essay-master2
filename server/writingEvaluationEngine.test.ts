@@ -109,6 +109,27 @@ describe("Master Prompt 의미론 평가", () => {
     expect(result.provider_error).toContain("Unexpected token");
   });
 
+  it("응답 형식이 맞지 않으면 문제 항목과 받은 키 이름만 사유로 남기고 응답 내용은 남기지 않는다", async () => {
+    const wrongShape = { evaluation: "SECRET-본문-내용", strengths: ["좋은 점"], weaknesses: ["아쉬운 점"], score: 70 };
+    vi.mocked(invokeLLM).mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(wrongShape) } }] } as never);
+    const result = await evaluateWritingWithLLM(semanticRequest);
+    expect(result.fallback_used).toBe(true);
+    expect(result.provider_error).toMatch(/^LLM_INVALID_EVALUATION_CONTRACT \(invalid: /);
+    for (const field of ["decision", "total_score", "dimension_scores", "improvement_points", "feedback.summary", "next_learning_recommendation.reason"]) expect(result.provider_error).toContain(field);
+    expect(result.provider_error).toContain("received: evaluation, strengths, weaknesses, score");
+    expect(result.provider_error).not.toContain("SECRET");
+    expect(result.provider_error).not.toContain("좋은 점");
+  });
+
+  it("competency 항목 하나만 잘못돼도 몇 번째 항목의 어느 칸인지 알려 준다", async () => {
+    const broken = { ...semanticPayload, dimension_scores: semanticPayload.dimension_scores.map((row, index) => (index === 3 ? { ...row, evidence: "" } : row)) };
+    vi.mocked(invokeLLM).mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify(broken) } }] } as never);
+    const result = await evaluateWritingWithLLM(semanticRequest);
+    expect(result.fallback_used).toBe(true);
+    expect(result.provider_error).toContain("dimension_scores[3].evidence");
+    expect(result.provider_error).not.toContain("dimension_scores[0]");
+  });
+
   it("짧은 답안은 LLM 호출 없이 held로 반환한다", async () => {
     vi.mocked(invokeLLM).mockClear();
     const result = await evaluateWritingWithLLM({ ...semanticRequest, submission: { essay_text: "짧은 답" } });
