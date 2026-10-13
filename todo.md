@@ -1,6 +1,7 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
+- [Manus] AI 첨삭 모델 응답 스키마 정규화 및 JSON 계약 강화 — 시작 2026-10-13 22:17
 
 ## 완료
 
