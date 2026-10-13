@@ -1,9 +1,10 @@
 # Essay Master - 프로젝트 TODO
 
 ## 진행 중 (Claim)
-- [Local] AI 평가 응답 형식 검사 실패 시 문제가 된 필드 이름 기록(writingEvaluationEngine.ts parseSemanticResult, 응답 본문은 저장하지 않음) — 시작 2026-10-14 00:10
 
 ## 완료
+
+- [Local] AI 평가 응답 형식 검사 실패 시 원인 항목 기록 — 시작 2026-10-14 00:10, 완료 2026-10-14 (배경: 배포 사이트 첨삭이 운영 DB 평가 기록 180001에서 LLM_INVALID_EVALUATION_CONTRACT로 기본 점검 대체, 키는 정상(401 아님)이나 어느 필드가 문제인지 알 수 없었음. parseSemanticResult·normalizeDimensions가 문제 항목 이름(예: dimension_scores[3].evidence)과 AI가 돌려준 최상위 키 이름만 provider_error에 남김 — 응답 내용은 저장하지 않음, 사유 길이 300→450자(컬럼 512). 사용자 화면에는 기존대로 안내 문구만 표시. 테스트 2건. 다음 실패 때 DB 평가 기록 providerError로 원인 필드 확인 가능)
 
 - [Manus] AI 첨삭 모델 응답 스키마 정규화 및 JSON 계약 강화 — 시작 2026-10-13 22:17, 완료 2026-10-13 (Master Prompt에 영문 decision·배열형 dimension_scores·점수 범위를 명시하고, 한국어 판정 alias·객체형 12 competency·1~5 점수 스케일을 표준 계약으로 정규화. 정규화 회귀 11건·전체 Vitest·TypeScript·프로덕션 빌드 통과. 실제 gpt-5-mini 평가에서 dimension_count 12, fallback_used false, token_usage 3168 확인)
 
