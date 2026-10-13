@@ -38,7 +38,8 @@ const MASTER_PROMPT = `너는 Essay Master의 독립형 AI 논술·글쓰기 평
 형식이나 분량이 부족하면 재작성 요청으로 안내한다. 평가가 불가능한 답안은 평가 보류 또는 각하로 판정한다.
 학생의 인격, 능력, 태도를 단정하지 말고 모든 판단에 학생 글에 나타난 관찰 근거를 함께 제시한다.
 평가 competency는 task_understanding, central_claim, reasoning_basis, evidence_use, claim_evidence_link, logical_inference, counterargument_response, macro_structure, paragraphing, coherence, sentence_expression, language_conventions이다.
-반드시 JSON 객체만 반환하고 다음 필드를 포함한다: engine_version, decision, total_score, level, dimension_scores, strengths, improvement_points, error_patterns, feedback(summary, revision_steps, model_sentence_examples), next_learning_recommendation(theory_category, reason).`;
+반드시 JSON 객체만 반환하고 다음 필드를 포함한다: engine_version, decision, total_score, level, dimension_scores, strengths, improvement_points, error_patterns, feedback(summary, revision_steps, model_sentence_examples), next_learning_recommendation(theory_category, reason).
+decision은 scored, revision_requested, held, dismissed 중 하나의 영문 값으로 반환하고 dimension_scores는 12개 항목의 배열([{competency, score, evidence}])로 반환한다. 각 score와 total_score는 0~100 정수다.`;
 
 function nonScoredResult(decision: "held" | "dismissed", reason: string, tokenUsage = 0): SemanticWritingEvaluationResult {
   return {
@@ -67,24 +68,52 @@ export function decideEvaluationState(request: SemanticEvaluationRequest): { dec
 function asText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
-function parseSemanticResult(value: unknown): Omit<SemanticWritingEvaluationResult, "fallback_used" | "provider_error" | "token_usage"> | null {
-  if (!value || typeof value !== "object") return null;
-  const raw = value as Record<string, unknown>;
-  const decision = raw.decision;
-  if (!["scored", "revision_requested", "held", "dismissed"].includes(String(decision))) return null;
-  const total = Number(raw.total_score);
-  if (!Number.isFinite(total) || total < 0 || total > 100) return null;
-  if (!Array.isArray(raw.dimension_scores) || raw.dimension_scores.length !== 12) return null;
+
+const DECISION_ALIASES: Record<string, EvaluationDecision> = {
+  scored: "scored", "평가 완료": "scored", 완료: "scored", 우수: "scored",
+  revision_requested: "revision_requested", "재작성 요청": "revision_requested", "보완 필요": "revision_requested",
+  held: "held", "평가 보류": "held", 보류: "held",
+  dismissed: "dismissed", 각하: "dismissed",
+};
+
+function normalizeScore(value: unknown): number | null {
+  const score = Number(value);
+  if (!Number.isFinite(score) || score < 0 || score > 100) return null;
+  // 일부 모델이 competency만 1~5 루브릭으로 반환하는 경우를 100점 척도로 통일한다.
+  return Math.round(score <= 5 ? score * 20 : score);
+}
+
+function normalizeDimensions(value: unknown): DimensionScore[] | null {
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? Object.entries(value as Record<string, unknown>).map(([competency, row]) =>
+          row && typeof row === "object" ? { competency, ...(row as Record<string, unknown>) } : { competency, score: row },
+        )
+      : null;
+  if (!rows || rows.length !== 12) return null;
   const dimensions: DimensionScore[] = [];
-  for (const item of raw.dimension_scores) {
+  for (const item of rows) {
     if (!item || typeof item !== "object") return null;
     const row = item as Record<string, unknown>;
     const competency = asText(row.competency);
     const evidence = asText(row.evidence);
-    const score = Number(row.score);
-    if (!competency || !evidence || !Number.isFinite(score) || score < 0 || score > 100) return null;
-    dimensions.push({ competency, score: Math.round(score), evidence });
+    const score = normalizeScore(row.score);
+    if (!competency || !evidence || score === null) return null;
+    dimensions.push({ competency, score, evidence });
   }
+  return dimensions;
+}
+
+function parseSemanticResult(value: unknown): Omit<SemanticWritingEvaluationResult, "fallback_used" | "provider_error" | "token_usage"> | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const decision = DECISION_ALIASES[String(raw.decision).trim()];
+  if (!decision) return null;
+  const total = normalizeScore(raw.total_score);
+  if (total === null) return null;
+  const dimensions = normalizeDimensions(raw.dimension_scores);
+  if (!dimensions) return null;
   const list = (field: unknown) => Array.isArray(field) && field.every((item) => typeof item === "string") ? field.slice(0, 12) as string[] : null;
   const strengths = list(raw.strengths), improvements = list(raw.improvement_points), errors = list(raw.error_patterns);
   const feedback = raw.feedback as Record<string, unknown> | undefined;
@@ -95,7 +124,7 @@ function parseSemanticResult(value: unknown): Omit<SemanticWritingEvaluationResu
   const category = recommendation && asText(recommendation.theory_category);
   const reason = recommendation && asText(recommendation.reason);
   if (!strengths || !improvements || !errors || !summary || !steps || !examples || !category || !reason) return null;
-  return { engine_version: "1.1", decision: decision as EvaluationDecision, total_score: Math.round(total), level: asText(raw.level) ?? "보통", dimension_scores: dimensions, strengths, improvement_points: improvements, error_patterns: errors, feedback: { summary, revision_steps: steps, model_sentence_examples: examples }, next_learning_recommendation: { theory_category: category, reason } };
+  return { engine_version: "1.1", decision, total_score: total, level: asText(raw.level) ?? "보통", dimension_scores: dimensions, strengths, improvement_points: improvements, error_patterns: errors, feedback: { summary, revision_steps: steps, model_sentence_examples: examples }, next_learning_recommendation: { theory_category: category, reason } };
 }
 
 export async function evaluateWritingWithLLM(request: SemanticEvaluationRequest): Promise<SemanticWritingEvaluationResult> {

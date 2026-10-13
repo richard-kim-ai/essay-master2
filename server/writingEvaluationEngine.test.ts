@@ -84,6 +84,24 @@ describe("Master Prompt 의미론 평가", () => {
     expect(result.token_usage).toBe(444);
   });
 
+  it("모델이 객체형 competency와 한국어 판정을 반환해도 표준 계약으로 정규화한다", async () => {
+    const dimensions = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
+      `competency_${index}`,
+      { score: 4, evidence: "답안에서 확인되는 근거입니다." },
+    ]));
+    vi.mocked(invokeLLM).mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify({
+      engine_version: "Essay Master v1.1", decision: "재작성 요청", total_score: 72, level: "초급",
+      dimension_scores: dimensions, strengths: ["주장이 드러납니다."], improvement_points: ["근거를 보강하세요."], error_patterns: [],
+      feedback: { summary: "보완할 점이 있습니다.", revision_steps: ["자료를 추가하세요."], model_sentence_examples: ["구체적인 자료를 제시할 수 있습니다."] },
+      next_learning_recommendation: { theory_category: "근거 제시", reason: "주장을 뒷받침하는 자료를 확인하세요." },
+    }) } }], usage: { total_tokens: 555 } } as never);
+    const result = await evaluateWritingWithLLM(semanticRequest);
+    expect(result.decision).toBe("revision_requested");
+    expect(result.dimension_scores).toHaveLength(12);
+    expect(result.dimension_scores[0].score).toBe(80);
+    expect(result.fallback_used).toBe(false);
+  });
+
   it("JSON 파싱 실패는 휴리스틱 결과로 폴백한다", async () => {
     vi.mocked(invokeLLM).mockResolvedValueOnce({ choices: [{ message: { content: "not-json" } }] } as never);
     const result = await evaluateWritingWithLLM(semanticRequest);
